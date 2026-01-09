@@ -1,0 +1,6 @@
+*.log
+*.tmp
+.DS_Store
+.idea/
+.vscode/
+/tests/output/
