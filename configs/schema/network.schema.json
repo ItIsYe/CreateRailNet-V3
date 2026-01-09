@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CreateRailNet-V3 Network",
+  "type": "object",
+  "required": ["v", "channel", "master_id", "blocks", "routes", "nodes"],
+  "properties": {
+    "v": {"type": "number"},
+    "channel": {"type": "number"},
+    "master_id": {"type": "string"},
+    "blocks": {"type": "array"},
+    "routes": {"type": "array"},
+    "nodes": {"type": "array"}
+  }
+}
