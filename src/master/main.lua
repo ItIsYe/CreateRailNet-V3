@@ -36,12 +36,22 @@ local adapters = {
 }
 local disp = dispatcher.new(cfg, adapters)
 
-local monitor = peripherals.new():wrap("monitor")
+local peripheral_api = peripherals.new()
+local monitor = peripheral_api.wrap("monitor")
+local configured_scale = cfg.ui and cfg.ui.monitor_scale or 1
+local scale_ok, normalized_scale, scale_err = peripheral_api.set_monitor_scale(monitor, configured_scale)
+if not scale_ok then
+  logger.error("monitor scale apply failed", { requested = configured_scale, normalized = normalized_scale, err = tostring(scale_err) })
+end
+
 local ui = ui_core.new(monitor, {
   overview = overview_panel.new(disp, reg),
   diagnostics = diagnostics_panel.new(logger, disp)
-})
+}, { logger = logger })
 ui.set_panel("overview")
+if configured_scale ~= normalized_scale then
+  logger.info("monitor scale normalized", { requested = configured_scale, applied = normalized_scale })
+end
 
 logger.info("master started", { id = args.id or cfg.master_id })
 ui.draw()

@@ -2,13 +2,43 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CreateRailNet-V3 Network",
   "type": "object",
-  "required": ["v", "channel", "master_id", "blocks", "routes", "nodes"],
+  "required": [
+    "v",
+    "channel",
+    "master_id",
+    "blocks",
+    "routes",
+    "nodes"
+  ],
   "properties": {
-    "v": {"type": "number"},
-    "channel": {"type": "number"},
-    "master_id": {"type": "string"},
-    "blocks": {"type": "array"},
-    "routes": {"type": "array"},
-    "nodes": {"type": "array"}
+    "v": {
+      "type": "number"
+    },
+    "channel": {
+      "type": "number"
+    },
+    "master_id": {
+      "type": "string"
+    },
+    "blocks": {
+      "type": "array"
+    },
+    "routes": {
+      "type": "array"
+    },
+    "nodes": {
+      "type": "array"
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "monitor_scale": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 5
+        }
+      },
+      "additionalProperties": true
+    }
   }
 }

@@ -5,6 +5,13 @@ Public API: new(dispatcher, registry).
 
 local overview = {}
 
+local function fallback_text(value)
+  if value == nil then
+    return "n/a"
+  end
+  return tostring(value)
+end
+
 function overview.new(dispatcher, registry)
   local panel = {}
 
@@ -15,7 +22,8 @@ function overview.new(dispatcher, registry)
     local row = 2
     for id, block in pairs(dispatcher.get_overview()) do
       monitor.setCursorPos(1, row)
-      monitor.write(string.format("%s: %s", id, block.state))
+      local state = block and block.state or nil
+      monitor.write(string.format("%s: %s", fallback_text(id), fallback_text(state)))
       row = row + 1
     end
     row = row + 1
@@ -24,7 +32,8 @@ function overview.new(dispatcher, registry)
     row = row + 1
     for id, node in pairs(registry.all()) do
       monitor.setCursorPos(1, row)
-      monitor.write(string.format("%s: %s", id, node.status))
+      local status = node and node.status or nil
+      monitor.write(string.format("%s: %s", fallback_text(id), fallback_text(status)))
       row = row + 1
     end
   end

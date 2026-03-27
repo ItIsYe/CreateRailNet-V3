@@ -35,6 +35,14 @@ function validate.validate_config(cfg)
     add_error(errors, "nodes", "must be an array")
   end
 
+  if cfg.ui ~= nil then
+    if type(cfg.ui) ~= "table" then
+      add_error(errors, "ui", "must be an object")
+    elseif cfg.ui.monitor_scale ~= nil and type(cfg.ui.monitor_scale) ~= "number" then
+      add_error(errors, "ui.monitor_scale", "must be a number")
+    end
+  end
+
   for i, block in ipairs(cfg.blocks or {}) do
     local base = string.format("blocks[%d]", i)
     if type(block.id) ~= "string" then

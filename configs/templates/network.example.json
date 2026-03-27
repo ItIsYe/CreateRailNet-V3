@@ -7,18 +7,51 @@
       "id": "B1",
       "entry_signal": "SIG-1",
       "exit_signal": "SIG-2",
-      "sensors": ["SEN-1"],
-      "switches": [{"id": "SW-1", "position": "STRAIGHT"}]
+      "sensors": [
+        "SEN-1"
+      ],
+      "switches": [
+        {
+          "id": "SW-1",
+          "position": "STRAIGHT"
+        }
+      ]
     }
   ],
   "routes": [
-    {"id": "R1", "from": "A", "to": "B", "blocks": ["B1"], "priority": 10}
+    {
+      "id": "R1",
+      "from": "A",
+      "to": "B",
+      "blocks": [
+        "B1"
+      ],
+      "priority": 10
+    }
   ],
   "nodes": [
-    {"id": "MASTER-1", "role": "master"},
-    {"id": "SIG-1", "role": "signal"},
-    {"id": "SIG-2", "role": "signal"},
-    {"id": "SEN-1", "role": "sensor"},
-    {"id": "SW-1", "role": "switch"}
-  ]
+    {
+      "id": "MASTER-1",
+      "role": "master"
+    },
+    {
+      "id": "SIG-1",
+      "role": "signal"
+    },
+    {
+      "id": "SIG-2",
+      "role": "signal"
+    },
+    {
+      "id": "SEN-1",
+      "role": "sensor"
+    },
+    {
+      "id": "SW-1",
+      "role": "switch"
+    }
+  ],
+  "ui": {
+    "monitor_scale": 1
+  }
 }

@@ -6,7 +6,9 @@ Public API: none (script).
 local tests = {
   "tests/test_config.lua",
   "tests/test_net.lua",
-  "tests/test_dispatcher.lua"
+  "tests/test_dispatcher.lua",
+  "tests/test_peripherals.lua",
+  "tests/test_ui_core.lua"
 }
 
 local total = 0

@@ -18,6 +18,20 @@ return {
     local ok, errors = validate.validate_config(cfg)
     assert(ok, table.concat(errors, ","))
   end,
+  test_ui_scale_validation = function()
+    local cfg = {
+      v = 1,
+      channel = 777,
+      master_id = "MASTER-1",
+      blocks = { { id = "B1", entry_signal = "S1", exit_signal = "S2", sensors = {"SEN"}, switches = {} } },
+      routes = { { id = "R1", from = "A", to = "B", blocks = {"B1"}, priority = 1 } },
+      nodes = { { id = "MASTER-1", role = "master" } },
+      ui = { monitor_scale = "large" }
+    }
+    local ok, errors = validate.validate_config(cfg)
+    assert(not ok, "expected invalid ui scale")
+    assert(#errors > 0, "expected ui scale validation errors")
+  end,
   test_invalid_config = function()
     local cfg = { v = 2 }
     local ok, errors = validate.validate_config(cfg)
