@@ -1,6 +1,6 @@
 # CreateRailNet-V3
 
-CreateRailNet-V3 is a realistic, event-driven railway control system for Minecraft Create + CC:Tweaked. It is greenfield, Lua 5.1 compatible, and designed for robustness and testing outside of Minecraft.
+CreateRailNet-V3 is a realistic, event-driven railway control system for Minecraft 1.21.x (ATM10) with Create + CC:Tweaked. It is greenfield, Lua 5.1 compatible, and designed for robustness and testing outside of Minecraft.
 
 ## Quick Start
 
@@ -26,6 +26,10 @@ lua src/nodes/sensor_node.lua --config configs/templates/network.example.json --
 lua src/nodes/signal_node.lua --config configs/templates/network.example.json --id SIG-1
 lua src/nodes/switch_node.lua --config configs/templates/network.example.json --id SW-1
 ```
+
+## ATM10
+- See `docs/atm10_setup.md` for ATM10 setup and peripheral inspection.
+- Peripheral methods vary by modpack/addons; always inspect ingame.
 
 ## Troubleshooting
 - If any node is down or unknown, signals will default to **RED** (fail-safe).
