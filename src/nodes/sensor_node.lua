@@ -5,24 +5,13 @@ Public API: new_runtime(args), build_check_fn(node, adapter, sensor_id, master_i
 
 local config = require("src.shared.config")
 local log = require("src.shared.log")
+local shared_args = require("src.shared.args")
 local peripherals = require("src.adapter.peripherals")
 local create_sensors = require("src.adapter.create_sensors")
 local common_node = require("src.nodes.common_node")
 local cc_modem = require("src.adapter.cc_modem")
 
 local sensor_node = {}
-
-local function parse_args(argv)
-  local args = {}
-  for i = 1, #argv do
-    if argv[i] == "--config" then
-      args.config = argv[i + 1]
-    elseif argv[i] == "--id" then
-      args.id = argv[i + 1]
-    end
-  end
-  return args
-end
 
 function sensor_node.build_check_fn(node, adapter, sensor_id, master_id)
   local last_state = false
@@ -71,7 +60,7 @@ function sensor_node.new_runtime(args)
   return node
 end
 
-local args = parse_args({...})
+local args = shared_args.parse({...}, { config = {}, id = {} })
 if args.id then
   sensor_node.new_runtime(args).run()
 end
