@@ -7,7 +7,10 @@ local tests = {
   "tests/test_config.lua",
   "tests/test_net.lua",
   "tests/test_dispatcher.lua",
-  "tests/test_nodes.lua"
+  "tests/test_nodes.lua",
+  "tests/test_args.lua",
+  "tests/test_topology.lua",
+  "tests/test_adapter_methods.lua"
 }
 
 local total = 0
