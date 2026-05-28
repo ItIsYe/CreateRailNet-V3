@@ -15,6 +15,7 @@ function master_runtime.new(context)
     depot_registry = context.depot_registry,
     service_plan_registry = context.service_plan_registry,
     route_integration = context.route_integration,
+    manual_control = context.manual_control,
     dispatcher = context.dispatcher,
     network = context.network,
     ui = context.ui,
@@ -158,6 +159,12 @@ function master_runtime.new(context)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then
       send_panel_snapshot(msg.src)
       runtime.network.ack_for(msg)
+    elseif msg.payload and msg.payload.type == "manual_control" then
+      local ok, err = false, "manual control unavailable"
+      if runtime.manual_control then ok, err = runtime.manual_control.handle(msg.payload, msg.src) end
+      if not ok and runtime.logger then runtime.logger.warn("manual control rejected", { error = err, src = msg.src }) end
+      runtime.network.ack_for(msg)
+      runtime.ui.mark_dirty()
     end
   end
 
@@ -167,6 +174,7 @@ function master_runtime.new(context)
     elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 8) == "station_" then handle_station_event(msg)
     elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "depot_" then handle_depot_event(msg)
     elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "panel_" then handle_panel_event(msg)
+    elseif msg.payload and msg.payload.type == "manual_control" then handle_panel_event(msg)
     elseif msg.payload and msg.payload.type == "platform_status" then handle_station_event(msg)
     elseif msg.payload and (msg.payload.type == "request_departure" or msg.payload.type == "arrived" or msg.payload.type == "schedule_applied") then handle_train_event(msg) end
     return true
