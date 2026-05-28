@@ -1,7 +1,9 @@
 --[[
 Purpose: Integrate train/station/depot events with dispatcher route requests, service plans, and node commands.
-Public API: new(context) -> integration with handle_train_request, handle_train_arrival, handle_depot_request, handle_station_ready, resolve_route.
+Public API: new(context) -> integration with send_service_plan, handle_train_request, handle_train_arrival, handle_depot_request, handle_station_ready, resolve_route.
 ]]
+
+local create_train_schedule = require("src.adapter.create_train_schedule")
 
 local route_integration = {}
 
@@ -14,6 +16,22 @@ end
 local function reserve_or_queue(dispatcher, train_id, route_id, priority)
   if not dispatcher or not route_id then return false, "missing dispatcher or route_id" end
   return dispatcher.request_route(train_id, route_id, { priority = priority })
+end
+
+local function copy_stops(stops)
+  local out = {}
+  for i, stop in ipairs(stops or {}) do
+    out[i] = {
+      index = stop.index or i,
+      from = stop.from,
+      to = stop.to or stop.destination,
+      route_id = stop.route_id,
+      kind = stop.kind,
+      dwell_seconds = stop.dwell_seconds or 0,
+      state = stop.state
+    }
+  end
+  return out
 end
 
 function route_integration.new(context)
@@ -49,6 +67,24 @@ function route_integration.new(context)
     return request, stop
   end
 
+  function self.send_service_plan(train_id)
+    if not self.service_plan_registry then return false, "service plan registry unavailable" end
+    local plan = self.service_plan_registry.for_train(train_id)
+    if not plan then return false, "no service plan assigned" end
+    local stops = copy_stops(plan.stops)
+    local schedule = create_train_schedule.build_schedule(stops)
+    send_cmd(self.network, resolve_train_node(train_id), "set_schedule", {
+      train_id = train_id,
+      service_plan = plan.id,
+      service_stop_index = plan.current_index,
+      route_id = stops[plan.current_index] and stops[plan.current_index].route_id,
+      destination = stops[plan.current_index] and stops[plan.current_index].to,
+      stops = stops,
+      schedule = schedule
+    })
+    return true, plan
+  end
+
   function self.resolve_route(payload)
     local request = payload or {}
     if request.route_id then return { id = request.route_id, from = request.from, to = request.to or request.destination }, "route_id" end
@@ -70,12 +106,8 @@ function route_integration.new(context)
     if not route_id then ok, status = false, resolve_err end
 
     local destination = (route and route.to) or request.to or request.destination
-    if self.service_plan_registry and stop then
-      self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED")
-    end
-    if self.train_registry then
-      self.train_registry.update_status(train_id, { state = ok and "ROUTE_ASSIGNED" or "WAITING_FOR_ROUTE", route_id = route_id, destination = destination })
-    end
+    if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
+    if self.train_registry then self.train_registry.update_status(train_id, { state = ok and "ROUTE_ASSIGNED" or "WAITING_FOR_ROUTE", route_id = route_id, destination = destination }) end
 
     if ok then
       send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", { train_id = train_id, route_id = route_id, destination = destination, service_stop_index = request.service_stop_index })
@@ -87,9 +119,7 @@ function route_integration.new(context)
 
   function self.handle_train_arrival(payload, src)
     local train_id = payload.train_id or src
-    if self.train_registry then
-      self.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station or payload.destination, route_id = payload.route_id })
-    end
+    if self.train_registry then self.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station or payload.destination, route_id = payload.route_id }) end
     if self.service_plan_registry then
       self.service_plan_registry.mark_current(train_id, "ARRIVED")
       local next_stop = self.service_plan_registry.advance(train_id)
@@ -113,9 +143,7 @@ function route_integration.new(context)
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
     if self.depot_registry then
       self.depot_registry.enqueue(payload.depot_id or src, request)
-      if payload.track_id then
-        self.depot_registry.update_track(payload.depot_id or src, payload.track_id, { state = ok and "DEPARTING" or "READY", train_id = train_id, route_id = route_id, destination = destination })
-      end
+      if payload.track_id then self.depot_registry.update_track(payload.depot_id or src, payload.track_id, { state = ok and "DEPARTING" or "READY", train_id = train_id, route_id = route_id, destination = destination }) end
     end
 
     if train_id then
@@ -135,9 +163,7 @@ function route_integration.new(context)
 
     local destination = (route and route.to) or request.destination or request.to
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
-    if self.station_registry then
-      self.station_registry.update_platform(payload.station_id or src, payload.platform_id, { state = ok and "DEPARTING" or "READY_TO_DEPART", train_id = train_id, route_id = route_id, destination = destination })
-    end
+    if self.station_registry then self.station_registry.update_platform(payload.station_id or src, payload.platform_id, { state = ok and "DEPARTING" or "READY_TO_DEPART", train_id = train_id, route_id = route_id, destination = destination }) end
 
     if ok then send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", { train_id = train_id, route_id = route_id, destination = destination })
     else send_cmd(self.network, resolve_train_node(train_id), "hold_position", { train_id = train_id, route_id = route_id, reason = status }) end
