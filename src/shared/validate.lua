@@ -3,7 +3,7 @@ Purpose: Validate network configuration with actionable errors.
 Public API: validate_config(cfg) -> ok, errors.
 ]]
 local validate = {}
-local roles={master=true,signal=true,sensor=true,switch=true,station=true,depot=true,panel=true}
+local roles={master=true,signal=true,sensor=true,switch=true,station=true,depot=true,panel=true,train=true}
 local function add(e,p,m) table.insert(e,p..": "..m) end
 local function nonempty(v) return type(v)=="string" and v~="" end
 function validate.validate_config(cfg)
