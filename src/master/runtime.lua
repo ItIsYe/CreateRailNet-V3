@@ -79,9 +79,7 @@ function master_runtime.new(context)
   local function handle_sensor_event(msg)
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
     runtime.network.ack_for(msg)
-    if ok == false and runtime.logger then
-      runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id })
-    end
+    if ok == false and runtime.logger then runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id }) end
     if runtime.route_integration then runtime.route_integration.process_queue() end
     runtime.ui.mark_dirty()
   end
@@ -96,7 +94,7 @@ function master_runtime.new(context)
       if runtime.route_integration then runtime.route_integration.handle_train_request(payload, msg.src) end
       if runtime.logger then runtime.logger.info("train requested departure", payload) end
     elseif payload.type == "arrived" then
-      runtime.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station, route_id = payload.route_id })
+      if runtime.route_integration then runtime.route_integration.handle_train_arrival(payload, msg.src) end
     elseif payload.type == "schedule_applied" then
       runtime.train_registry.update_status(train_id, { state = payload.state or "ROUTE_ASSIGNED", route_id = payload.route_id, destination = payload.destination })
     elseif payload.type == "train_fault" then
@@ -223,9 +221,7 @@ function master_runtime.new(context)
 
   function runtime.run()
     runtime.start()
-    while true do
-      runtime.handle_event({ runtime.pull_event() })
-    end
+    while true do runtime.handle_event({ runtime.pull_event() }) end
   end
 
   return runtime
