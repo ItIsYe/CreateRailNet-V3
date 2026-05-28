@@ -16,7 +16,8 @@ local tests = {
   "tests/test_stations.lua",
   "tests/test_depots.lua",
   "tests/test_panel.lua",
-  "tests/test_dispatcher_multitrain.lua"
+  "tests/test_dispatcher_multitrain.lua",
+  "tests/test_route_integration.lua"
 }
 
 local total = 0
