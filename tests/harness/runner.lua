@@ -10,7 +10,8 @@ local tests = {
   "tests/test_nodes.lua",
   "tests/test_args.lua",
   "tests/test_topology.lua",
-  "tests/test_adapter_methods.lua"
+  "tests/test_adapter_methods.lua",
+  "tests/test_redstone_adapters.lua"
 }
 
 local total = 0
