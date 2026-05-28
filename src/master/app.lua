@@ -10,6 +10,7 @@ local trains = require("src.domain.trains")
 local stations = require("src.domain.stations")
 local depots = require("src.domain.depots")
 local route_resolver = require("src.domain.route_resolver")
+local service_plans = require("src.domain.service_plans")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
 local runtime_factory = require("src.master.runtime")
@@ -29,11 +30,7 @@ local net = require("src.shared.net")
 local app = {}
 
 local function fallback_monitor()
-  return {
-    clear = function() end,
-    setCursorPos = function() end,
-    write = function() end
-  }
+  return { clear = function() end, setCursorPos = function() end, write = function() end }
 end
 
 function app.new(args)
@@ -44,14 +41,13 @@ function app.new(args)
   local train_registry = trains.new(cfg)
   local station_registry = stations.new(cfg)
   local depot_registry = depots.new(cfg)
+  local service_plan_registry = service_plans.new(cfg)
   local resolver = route_resolver.new(cfg.routes or {})
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
   local ok, err = modem:open(cfg.channel)
-  if ok == false then
-    logger.error("master modem open failed", { error = err })
-  end
+  if ok == false then logger.error("master modem open failed", { error = err }) end
 
   local disp = dispatcher.new(cfg, {
     signals = create_signals.new(peri, { hardware = hw }),
@@ -76,6 +72,7 @@ function app.new(args)
     train_registry = train_registry,
     station_registry = station_registry,
     depot_registry = depot_registry,
+    service_plan_registry = service_plan_registry,
     route_resolver = resolver,
     dispatcher = disp,
     network = network,
@@ -85,11 +82,7 @@ function app.new(args)
 
   local instance = { context = context }
   instance.runtime = runtime_factory.new(context)
-
-  function instance.run()
-    instance.runtime.run()
-  end
-
+  function instance.run() instance.runtime.run() end
   return instance
 end
 
