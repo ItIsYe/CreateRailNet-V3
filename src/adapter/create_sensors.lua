@@ -1,17 +1,37 @@
 --[[
-Purpose: Create sensor adapter.
-Public API: new(peripherals), readOccupied(sensor_id).
+Purpose: Sensor adapter with peripheral method support and optional redstone input mode.
+Public API: new(peripherals, opts), readOccupied(sensor_id).
 ]]
 
 local method_helper = require("src.adapter.methods")
+local redstone = require("src.adapter.redstone")
 
 local create_sensors = {}
 
-function create_sensors.new(peripherals)
+function create_sensors.new(peripherals, opts)
+  local options = opts or {}
+  local hardware = options.hardware
+  local rs = options.redstone or redstone.new()
   local self = {}
 
+  local function mode_for(id)
+    return hardware and hardware.adapter(id) or "peripheral"
+  end
+
+  local function target_for(id)
+    return hardware and hardware.target(id) or id
+  end
+
+  local function side_for(id)
+    return hardware and hardware.side(id) or nil
+  end
+
   function self.readOccupied(sensor_id)
-    local ok, result = method_helper.call(peripherals, sensor_id, "isOccupied")
+    if mode_for(sensor_id) == "redstone" then
+      return rs.get_input(side_for(sensor_id))
+    end
+
+    local ok, result = method_helper.call(peripherals, target_for(sensor_id), "isOccupied")
     if not ok then
       return false, "sensor " .. tostring(result)
     end
