@@ -1,6 +1,6 @@
 --[[
-Purpose: Integrate train/station/depot events with dispatcher route requests, service plans, and node commands.
-Public API: new(context) -> integration with send_service_plan, handle_train_request, handle_train_arrival, handle_depot_request, handle_station_ready, resolve_route.
+Purpose: Integrate train/station/depot events with dispatcher route requests, service plans, dwell timers, and node commands.
+Public API: new(context) -> integration with send_service_plan, handle_train_request, handle_train_arrival, handle_depot_request, handle_station_ready, process_due, process_queue, resolve_route.
 ]]
 
 local create_train_schedule = require("src.adapter.create_train_schedule")
@@ -21,15 +21,7 @@ end
 local function copy_stops(stops)
   local out = {}
   for i, stop in ipairs(stops or {}) do
-    out[i] = {
-      index = stop.index or i,
-      from = stop.from,
-      to = stop.to or stop.destination,
-      route_id = stop.route_id,
-      kind = stop.kind,
-      dwell_seconds = stop.dwell_seconds or 0,
-      state = stop.state
-    }
+    out[i] = { index = stop.index or i, from = stop.from, to = stop.to or stop.destination, route_id = stop.route_id, kind = stop.kind, dwell_seconds = stop.dwell_seconds or 0, state = stop.state }
   end
   return out
 end
@@ -43,7 +35,8 @@ function route_integration.new(context)
     logger = context.logger,
     train_registry = context.train_registry,
     station_registry = context.station_registry,
-    depot_registry = context.depot_registry
+    depot_registry = context.depot_registry,
+    pending_departures = {}
   }
 
   local function resolve_train_node(train_id)
@@ -63,8 +56,32 @@ function route_integration.new(context)
     request.to = request.to or stop.to
     request.destination = request.destination or stop.to
     request.kind = request.kind or stop.kind
+    request.priority = request.priority or stop.priority
     request.service_stop_index = stop.index
     return request, stop
+  end
+
+  local function schedule_departure(train_id, stop)
+    if not stop then return false end
+    local dwell = stop.dwell_seconds or 0
+    self.pending_departures[train_id] = {
+      train_id = train_id,
+      due_at = os.clock() + dwell,
+      route_id = stop.route_id,
+      from = stop.from,
+      to = stop.to,
+      kind = stop.kind,
+      priority = stop.priority,
+      service_stop_index = stop.index
+    }
+    send_cmd(self.network, resolve_train_node(train_id), "hold_position", {
+      train_id = train_id,
+      route_id = stop.route_id,
+      destination = stop.to,
+      service_stop_index = stop.index,
+      reason = "dwell " .. tostring(dwell) .. "s"
+    })
+    return true
   end
 
   function self.send_service_plan(train_id)
@@ -125,7 +142,9 @@ function route_integration.new(context)
       local next_stop = self.service_plan_registry.advance(train_id)
       if next_stop then
         send_cmd(self.network, resolve_train_node(train_id), "set_destination", { train_id = train_id, destination = next_stop.to, route_id = next_stop.route_id, service_stop_index = next_stop.index })
+        schedule_departure(train_id, next_stop)
       else
+        self.pending_departures[train_id] = nil
         send_cmd(self.network, resolve_train_node(train_id), "update_display", { train_id = train_id, message = "Service complete" })
       end
     end
@@ -171,7 +190,38 @@ function route_integration.new(context)
   end
 
   function self.process_queue()
-    return self.dispatcher and self.dispatcher.process_queue(3) or {}
+    local processed = self.dispatcher and self.dispatcher.process_queue(3) or {}
+    for _, item in ipairs(processed) do
+      if item.ok then
+        local route = self.dispatcher.routes and self.dispatcher.routes[item.route_id]
+        send_cmd(self.network, resolve_train_node(item.train_id), "depart_authorized", {
+          train_id = item.train_id,
+          route_id = item.route_id,
+          destination = route and route.to
+        })
+        if self.train_registry then self.train_registry.update_status(item.train_id, { state = "ROUTE_ASSIGNED", route_id = item.route_id, destination = route and route.to }) end
+      end
+    end
+    return processed
+  end
+
+  function self.process_due(now)
+    local clock = now or os.clock()
+    local fired = {}
+    for train_id, pending in pairs(self.pending_departures) do
+      if clock >= pending.due_at then
+        self.pending_departures[train_id] = nil
+        local ok, status = self.handle_train_request({ train_id = train_id, route_id = pending.route_id, from = pending.from, to = pending.to, kind = pending.kind, priority = pending.priority, service_stop_index = pending.service_stop_index }, train_id)
+        table.insert(fired, { train_id = train_id, ok = ok, status = status })
+      end
+    end
+    return fired
+  end
+
+  function self.get_pending_departures()
+    local out = {}
+    for train_id, pending in pairs(self.pending_departures) do out[train_id] = pending end
+    return out
   end
 
   return self
