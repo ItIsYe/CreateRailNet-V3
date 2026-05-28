@@ -1,0 +1,78 @@
+--[[
+Purpose: Manual control helper for panel/operator commands.
+Public API: new(context) -> helper with handle(command, src).
+]]
+
+local manual_control = {}
+
+local function send_cmd(network, dst, cmd, payload)
+  local body = payload or {}
+  body.cmd = cmd
+  return network.send("cmd", dst, body)
+end
+
+function manual_control.new(context)
+  local self = {
+    dispatcher = context.dispatcher,
+    network = context.network,
+    logger = context.logger,
+    train_registry = context.train_registry,
+    route_integration = context.route_integration
+  }
+
+  local function train_node_id(train_id)
+    local train = self.train_registry and self.train_registry.get(train_id)
+    return (train and train.node_id) or train_id
+  end
+
+  function self.handle(command, src)
+    local cmd = command or {}
+    if cmd.action == "request_route" then
+      if self.route_integration then
+        return self.route_integration.handle_train_request({
+          train_id = cmd.train_id,
+          route_id = cmd.route_id,
+          from = cmd.from,
+          to = cmd.to,
+          destination = cmd.destination,
+          priority = cmd.priority,
+          kind = cmd.kind
+        }, src or cmd.train_id)
+      end
+      return false, "route integration unavailable"
+    elseif cmd.action == "hold_train" then
+      send_cmd(self.network, train_node_id(cmd.train_id), "hold_position", {
+        train_id = cmd.train_id,
+        reason = cmd.reason or "manual hold"
+      })
+      if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "WAITING_DEPARTURE" }) end
+      return true
+    elseif cmd.action == "authorize_train" then
+      send_cmd(self.network, train_node_id(cmd.train_id), "depart_authorized", {
+        train_id = cmd.train_id,
+        route_id = cmd.route_id,
+        destination = cmd.destination
+      })
+      if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "ROUTE_ASSIGNED", route_id = cmd.route_id, destination = cmd.destination }) end
+      return true
+    elseif cmd.action == "emergency_stop" then
+      send_cmd(self.network, train_node_id(cmd.train_id), "emergency_stop", {
+        train_id = cmd.train_id,
+        reason = cmd.reason or "manual emergency stop"
+      })
+      if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "FAULT", error = cmd.reason or "manual emergency stop" }) end
+      return true
+    elseif cmd.action == "set_signal" then
+      if not self.dispatcher or not self.dispatcher.adapters or not self.dispatcher.adapters.signals then return false, "signal adapter unavailable" end
+      return self.dispatcher.adapters.signals.setAspect(cmd.signal_id, cmd.aspect or "RED")
+    elseif cmd.action == "set_switch" then
+      if not self.dispatcher or not self.dispatcher.adapters or not self.dispatcher.adapters.switches then return false, "switch adapter unavailable" end
+      return self.dispatcher.adapters.switches.setPosition(cmd.switch_id, cmd.position)
+    end
+    return false, "unknown manual action: " .. tostring(cmd.action)
+  end
+
+  return self
+end
+
+return manual_control
