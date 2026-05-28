@@ -13,6 +13,7 @@ function master_runtime.new(context)
     train_registry = context.train_registry,
     station_registry = context.station_registry,
     depot_registry = context.depot_registry,
+    route_integration = context.route_integration,
     dispatcher = context.dispatcher,
     network = context.network,
     ui = context.ui,
@@ -34,7 +35,9 @@ function master_runtime.new(context)
       stations = runtime.station_registry and runtime.station_registry.list() or {},
       depots = runtime.depot_registry and runtime.depot_registry.list() or {},
       diagnostics = {
-        nodes = runtime.registry and runtime.registry.all() or {}
+        nodes = runtime.registry and runtime.registry.all() or {},
+        queue = runtime.dispatcher and runtime.dispatcher.get_queue and runtime.dispatcher.get_queue() or {},
+        switch_locks = runtime.dispatcher and runtime.dispatcher.get_switch_locks and runtime.dispatcher.get_switch_locks() or {}
       }
     }
   end
@@ -79,6 +82,7 @@ function master_runtime.new(context)
     if ok == false and runtime.logger then
       runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id })
     end
+    if runtime.route_integration then runtime.route_integration.process_queue() end
     runtime.ui.mark_dirty()
   end
 
@@ -89,7 +93,7 @@ function master_runtime.new(context)
     if payload.type == "train_status" then
       runtime.train_registry.update_status(train_id, payload)
     elseif payload.type == "request_departure" then
-      runtime.train_registry.update_status(train_id, { state = "WAITING_FOR_ROUTE", destination = payload.to or payload.destination, from = payload.from, route_id = payload.route_id })
+      if runtime.route_integration then runtime.route_integration.handle_train_request(payload, msg.src) end
       if runtime.logger then runtime.logger.info("train requested departure", payload) end
     elseif payload.type == "arrived" then
       runtime.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station, route_id = payload.route_id })
@@ -114,7 +118,7 @@ function master_runtime.new(context)
     elseif payload.type == "train_arrived_station" then
       runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "DWELLING", train_id = payload.train_id, route_id = payload.route_id, destination = payload.destination })
     elseif payload.type == "station_ready_departure" then
-      runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "READY_TO_DEPART", train_id = payload.train_id, route_id = payload.route_id, destination = payload.destination })
+      if runtime.route_integration then runtime.route_integration.handle_station_ready(payload, msg.src) end
     elseif payload.type == "station_fault" then
       runtime.station_registry.update_status(station_id, { state = "FAULT", message = payload.error })
       if runtime.logger then runtime.logger.warn("station fault", payload) end
@@ -134,7 +138,7 @@ function master_runtime.new(context)
     elseif payload.type == "depot_train_ready" then
       runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "READY", train_id = payload.train_id, route_id = payload.route_id, destination = payload.destination })
     elseif payload.type == "depot_request_dispatch" then
-      runtime.depot_registry.enqueue(depot_id, payload)
+      if runtime.route_integration then runtime.route_integration.handle_depot_request(payload, msg.src) end
       if runtime.logger then runtime.logger.info("depot requested dispatch", payload) end
     elseif payload.type == "depot_train_arrived" then
       runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "OCCUPIED", train_id = payload.train_id, route_id = payload.route_id })
