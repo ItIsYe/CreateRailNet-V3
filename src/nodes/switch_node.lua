@@ -8,7 +8,7 @@ local common_node = require("src.nodes.common_node")
 local bootstrap = require("src.nodes.bootstrap")
 
 local context = bootstrap.create_context({...}, "switch")
-local adapter = create_switches.new(context.peripherals)
+local adapter = create_switches.new(context.peripherals, { hardware = context.hardware })
 
 local node = common_node.new({
   id = context.id,
