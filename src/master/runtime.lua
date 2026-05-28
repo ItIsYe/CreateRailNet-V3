@@ -22,7 +22,8 @@ function master_runtime.new(context)
     pull_event = context.pull_event or os.pullEvent,
     heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
     timeout_timer = nil,
-    ui_timer = nil
+    ui_timer = nil,
+    dwell_timer = nil
   }
 
   local handlers = {}
@@ -39,7 +40,8 @@ function master_runtime.new(context)
       diagnostics = {
         nodes = runtime.registry and runtime.registry.all() or {},
         queue = runtime.dispatcher and runtime.dispatcher.get_queue and runtime.dispatcher.get_queue() or {},
-        switch_locks = runtime.dispatcher and runtime.dispatcher.get_switch_locks and runtime.dispatcher.get_switch_locks() or {}
+        switch_locks = runtime.dispatcher and runtime.dispatcher.get_switch_locks and runtime.dispatcher.get_switch_locks() or {},
+        pending_departures = runtime.route_integration and runtime.route_integration.get_pending_departures and runtime.route_integration.get_pending_departures() or {}
       }
     }
   end
@@ -160,21 +162,13 @@ function master_runtime.new(context)
   end
 
   handlers.event = function(msg)
-    if msg.payload and msg.payload.type == "sensor" then
-      handle_sensor_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "train_" then
-      handle_train_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 8) == "station_" then
-      handle_station_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "depot_" then
-      handle_depot_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "panel_" then
-      handle_panel_event(msg)
-    elseif msg.payload and msg.payload.type == "platform_status" then
-      handle_station_event(msg)
-    elseif msg.payload and (msg.payload.type == "request_departure" or msg.payload.type == "arrived" or msg.payload.type == "schedule_applied") then
-      handle_train_event(msg)
-    end
+    if msg.payload and msg.payload.type == "sensor" then handle_sensor_event(msg)
+    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "train_" then handle_train_event(msg)
+    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 8) == "station_" then handle_station_event(msg)
+    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "depot_" then handle_depot_event(msg)
+    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "panel_" then handle_panel_event(msg)
+    elseif msg.payload and msg.payload.type == "platform_status" then handle_station_event(msg)
+    elseif msg.payload and (msg.payload.type == "request_departure" or msg.payload.type == "arrived" or msg.payload.type == "schedule_applied") then handle_train_event(msg) end
     return true
   end
 
@@ -203,6 +197,7 @@ function master_runtime.new(context)
   function runtime.start()
     runtime.timeout_timer = os.startTimer(1)
     runtime.ui_timer = os.startTimer(0.2)
+    runtime.dwell_timer = os.startTimer(1)
     runtime.ui.draw()
   end
 
@@ -216,6 +211,10 @@ function master_runtime.new(context)
     elseif event[1] == "timer" and event[2] == runtime.timeout_timer then
       check_timeouts()
       runtime.timeout_timer = os.startTimer(1)
+    elseif event[1] == "timer" and event[2] == runtime.dwell_timer then
+      if runtime.route_integration then runtime.route_integration.process_due() end
+      runtime.dwell_timer = os.startTimer(1)
+      runtime.ui.mark_dirty()
     elseif event[1] == "timer" and event[2] == runtime.ui_timer then
       runtime.ui.draw()
       runtime.ui_timer = os.startTimer(0.2)
