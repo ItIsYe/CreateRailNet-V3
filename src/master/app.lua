@@ -13,6 +13,7 @@ local route_resolver = require("src.domain.route_resolver")
 local service_plans = require("src.domain.service_plans")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
+local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
 local overview_panel = require("src.master.ui.panels.overview")
@@ -79,6 +80,7 @@ function app.new(args)
     ui = ui
   }
   context.route_integration = route_integration.new(context)
+  context.manual_control = manual_control.new(context)
 
   local instance = { context = context }
   instance.runtime = runtime_factory.new(context)
