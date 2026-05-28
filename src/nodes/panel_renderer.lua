@@ -36,9 +36,11 @@ local function render_trains(monitor, state)
   line(monitor, 5, "Trains")
   local row = 7
   for train_id, train in pairs(state.trains or {}) do
-    line(monitor, row, train_id .. " " .. tostring(train.state or "-"))
+    line(monitor, row, train_id .. " " .. tostring(train.state or "-") .. " Sch " .. tostring(train.schedule_state or "-"))
     row = row + 1
     line(monitor, row, "  Route " .. tostring(train.route_id or "-") .. " Dest " .. tostring(train.destination or "-"))
+    row = row + 1
+    line(monitor, row, "  Plan " .. tostring(train.service_plan or "-") .. " Stop " .. tostring(train.service_stop_index or "-"))
     row = row + 1
   end
 end
@@ -71,6 +73,22 @@ local function render_depots(monitor, state)
   end
 end
 
+local function render_service_plans(monitor, state)
+  line(monitor, 5, "Service Plans")
+  local row = 7
+  for plan_id, plan in pairs(state.service_plans or {}) do
+    line(monitor, row, plan_id .. " " .. tostring(plan.state or "-") .. " Train " .. tostring(plan.train_id or "-"))
+    row = row + 1
+    line(monitor, row, "  Current " .. tostring(plan.current_index or "-") .. " / " .. tostring(#(plan.stops or {})))
+    row = row + 1
+    local stop = plan.stops and plan.stops[plan.current_index or 1]
+    if stop then
+      line(monitor, row, "  Next " .. tostring(stop.from or "-") .. " -> " .. tostring(stop.to or "-"))
+      row = row + 1
+    end
+  end
+end
+
 local function render_diagnostics(monitor, state)
   line(monitor, 5, "Diagnostics")
   line(monitor, 7, "Last update: " .. tostring(state.last_update or 0))
@@ -85,18 +103,12 @@ function panel_renderer.render(monitor, state)
   if not monitor then return end
   monitor.clear()
   panel_renderer.render_header(monitor, state)
-
-  if state.page == "trains" then
-    render_trains(monitor, state)
-  elseif state.page == "stations" then
-    render_stations(monitor, state)
-  elseif state.page == "depots" then
-    render_depots(monitor, state)
-  elseif state.page == "diagnostics" then
-    render_diagnostics(monitor, state)
-  else
-    render_overview(monitor, state)
-  end
+  if state.page == "trains" then render_trains(monitor, state)
+  elseif state.page == "stations" then render_stations(monitor, state)
+  elseif state.page == "depots" then render_depots(monitor, state)
+  elseif state.page == "service_plans" then render_service_plans(monitor, state)
+  elseif state.page == "diagnostics" then render_diagnostics(monitor, state)
+  else render_overview(monitor, state) end
 end
 
 return panel_renderer
