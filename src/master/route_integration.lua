@@ -1,6 +1,6 @@
 --[[
 Purpose: Integrate train/station/depot events with dispatcher route requests and node commands.
-Public API: new(context) -> integration with handle_train_request, handle_depot_request, handle_station_ready.
+Public API: new(context) -> integration with handle_train_request, handle_depot_request, handle_station_ready, resolve_route.
 ]]
 
 local route_integration = {}
@@ -21,6 +21,7 @@ end
 function route_integration.new(context)
   local self = {
     dispatcher = context.dispatcher,
+    route_resolver = context.route_resolver,
     network = context.network,
     logger = context.logger,
     train_registry = context.train_registry,
@@ -33,16 +34,35 @@ function route_integration.new(context)
     return (train and train.node_id) or train_id
   end
 
+  function self.resolve_route(payload)
+    local request = payload or {}
+    if request.route_id then
+      return { id = request.route_id, from = request.from, to = request.to or request.destination }, "route_id"
+    end
+    if not self.route_resolver then
+      return nil, "route resolver unavailable"
+    end
+    return self.route_resolver.resolve(request)
+  end
+
+  local function route_id_for(payload)
+    local route, source = self.resolve_route(payload)
+    if not route then return nil, source end
+    return route.id, nil, route, source
+  end
+
   function self.handle_train_request(payload, src)
     local train_id = payload.train_id or src
-    local route_id = payload.route_id
+    local route_id, resolve_err, route = route_id_for(payload)
     local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, payload.priority)
+    if not route_id then ok, status = false, resolve_err end
 
+    local destination = (route and route.to) or payload.to or payload.destination
     if self.train_registry then
       self.train_registry.update_status(train_id, {
         state = ok and "ROUTE_ASSIGNED" or "WAITING_FOR_ROUTE",
         route_id = route_id,
-        destination = payload.to or payload.destination
+        destination = destination
       })
     end
 
@@ -50,7 +70,7 @@ function route_integration.new(context)
       send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", {
         train_id = train_id,
         route_id = route_id,
-        destination = payload.to or payload.destination
+        destination = destination
       })
     else
       send_cmd(self.network, resolve_train_node(train_id), "hold_position", {
@@ -60,14 +80,16 @@ function route_integration.new(context)
       })
     end
 
-    return ok, status
+    return ok, status, route
   end
 
   function self.handle_depot_request(payload, src)
     local train_id = payload.train_id
-    local route_id = payload.route_id
+    local route_id, resolve_err, route = route_id_for(payload)
     local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, payload.priority)
+    if not route_id then ok, status = false, resolve_err end
 
+    local destination = (route and route.to) or payload.destination or payload.to
     if self.depot_registry then
       self.depot_registry.enqueue(payload.depot_id or src, payload)
       if payload.track_id then
@@ -75,7 +97,7 @@ function route_integration.new(context)
           state = ok and "DEPARTING" or "READY",
           train_id = train_id,
           route_id = route_id,
-          destination = payload.destination
+          destination = destination
         })
       end
     end
@@ -85,7 +107,7 @@ function route_integration.new(context)
         send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", {
           train_id = train_id,
           route_id = route_id,
-          destination = payload.destination
+          destination = destination
         })
       else
         send_cmd(self.network, resolve_train_node(train_id), "hold_position", {
@@ -96,24 +118,24 @@ function route_integration.new(context)
       end
     end
 
-    return ok, status
+    return ok, status, route
   end
 
   function self.handle_station_ready(payload, src)
     local train_id = payload.train_id
-    local route_id = payload.route_id
-    if not train_id or not route_id then
-      return false, "station ready missing train_id or route_id"
-    end
+    if not train_id then return false, "station ready missing train_id" end
 
+    local route_id, resolve_err, route = route_id_for(payload)
     local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, payload.priority)
+    if not route_id then ok, status = false, resolve_err end
 
+    local destination = (route and route.to) or payload.destination or payload.to
     if self.station_registry then
       self.station_registry.update_platform(payload.station_id or src, payload.platform_id, {
         state = ok and "DEPARTING" or "READY_TO_DEPART",
         train_id = train_id,
         route_id = route_id,
-        destination = payload.destination
+        destination = destination
       })
     end
 
@@ -121,7 +143,7 @@ function route_integration.new(context)
       send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", {
         train_id = train_id,
         route_id = route_id,
-        destination = payload.destination
+        destination = destination
       })
     else
       send_cmd(self.network, resolve_train_node(train_id), "hold_position", {
@@ -131,7 +153,7 @@ function route_integration.new(context)
       })
     end
 
-    return ok, status
+    return ok, status, route
   end
 
   function self.process_queue()
