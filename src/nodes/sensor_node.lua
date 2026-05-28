@@ -7,6 +7,7 @@ local config = require("src.shared.config")
 local log = require("src.shared.log")
 local shared_args = require("src.shared.args")
 local peripherals = require("src.adapter.peripherals")
+local hardware_config = require("src.adapter.hardware_config")
 local create_sensors = require("src.adapter.create_sensors")
 local common_node = require("src.nodes.common_node")
 local cc_modem = require("src.adapter.cc_modem")
@@ -42,13 +43,14 @@ local function build_context(args_or_context)
     config = cfg,
     logger = log.new("INFO", 200),
     peripherals = peripherals.new(),
+    hardware = hardware_config.new(cfg),
     modem = cc_modem.new({ channel = cfg.channel })
   }
 end
 
 function sensor_node.new_runtime(args_or_context)
   local context = build_context(args_or_context)
-  local adapter = create_sensors.new(context.peripherals)
+  local adapter = create_sensors.new(context.peripherals, { hardware = context.hardware })
 
   local node = common_node.new({
     id = context.id,
