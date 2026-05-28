@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "channel": 777,
+  "master_id": "MASTER-1",
+  "blocks": [
+    {"id": "B1", "entry_signal": "SIG-1", "exit_signal": "SIG-2", "sensors": ["SEN-1"], "switches": []}
+  ],
+  "routes": [
+    {"id": "R1", "from": "ST-A", "to": "ST-B", "blocks": ["B1"], "priority": 10}
+  ],
+  "nodes": [
+    {"id": "MASTER-1", "role": "master"},
+    {"id": "SIG-1", "role": "signal", "adapter": "redstone", "side": "right"},
+    {"id": "SIG-2", "role": "signal", "adapter": "redstone", "side": "left"},
+    {"id": "SEN-1", "role": "sensor", "adapter": "redstone", "side": "front"},
+    {"id": "PANEL-1", "role": "panel", "display_name": "Control Panel", "monitor": "monitor", "refresh_seconds": 2, "pages": ["overview", "trains", "stations", "depots", "diagnostics"]}
+  ]
+}
