@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "channel": 777,
+  "master_id": "MASTER-1",
+  "blocks": [
+    {"id": "D-B1", "entry_signal": "D-SIG-1", "exit_signal": "D-SIG-2", "sensors": ["SEN-D1"], "switches": []},
+    {"id": "D-B2", "entry_signal": "D-SIG-3", "exit_signal": "D-SIG-4", "sensors": ["SEN-S1"], "switches": []}
+  ],
+  "routes": [
+    {"id": "DEPOT-OUT", "from": "DEPOT-1", "to": "ST-A", "blocks": ["D-B2"], "priority": 5},
+    {"id": "DEPOT-IN", "from": "ST-A", "to": "DEPOT-1", "blocks": ["D-B1"], "priority": 5}
+  ],
+  "nodes": [
+    {"id": "MASTER-1", "role": "master"},
+    {"id": "D-SIG-1", "role": "signal", "adapter": "redstone", "side": "right"},
+    {"id": "D-SIG-2", "role": "signal", "adapter": "redstone", "side": "left"},
+    {"id": "D-SIG-3", "role": "signal", "adapter": "redstone", "side": "top"},
+    {"id": "D-SIG-4", "role": "signal", "adapter": "redstone", "side": "bottom"},
+    {"id": "SEN-D1", "role": "sensor", "adapter": "redstone", "side": "front"},
+    {"id": "SEN-S1", "role": "sensor", "adapter": "redstone", "side": "back"},
+    {
+      "id": "DEPOT-1",
+      "role": "depot",
+      "depot_type": "mixed",
+      "display_name": "Depot 1",
+      "monitor": "monitor",
+      "tracks": [
+        {"id": "D1", "kind": "storage", "sensor_id": "SEN-D1", "block_id": "D-B1", "ready_after_seconds": 10},
+        {"id": "S1", "kind": "staging", "sensor_id": "SEN-S1", "block_id": "D-B2", "ready_after_seconds": 5}
+      ]
+    }
+  ]
+}
