@@ -6,11 +6,13 @@ Public API: new(args) -> app with run() and context.
 local config = require("src.shared.config")
 local log = require("src.shared.log")
 local registry = require("src.shared.registry")
+local trains = require("src.domain.trains")
 local dispatcher = require("src.master.dispatcher")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
+local trains_panel = require("src.master.ui.panels.trains")
 local peripherals = require("src.adapter.peripherals")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
@@ -33,6 +35,7 @@ function app.new(args)
   local cfg = config.load(parsed.config or "configs/templates/network.example.json")
   local logger = log.new("INFO", 200)
   local reg = registry.new()
+  local train_registry = trains.new(cfg)
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
@@ -50,7 +53,8 @@ function app.new(args)
   local monitor = peri.wrap("monitor") or fallback_monitor()
   local ui = ui_core.new(monitor, {
     overview = overview_panel.new(disp, reg),
-    diagnostics = diagnostics_panel.new(logger, disp)
+    diagnostics = diagnostics_panel.new(logger, disp),
+    trains = trains_panel.new(train_registry)
   })
   ui.set_panel("overview")
 
@@ -58,6 +62,7 @@ function app.new(args)
     config = cfg,
     logger = logger,
     registry = reg,
+    train_registry = train_registry,
     dispatcher = disp,
     network = network,
     ui = ui
