@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "channel": 777,
+  "master_id": "MASTER-1",
+  "blocks": [
+    {"id": "B1", "entry_signal": "SIG-1", "exit_signal": "SIG-2", "sensors": ["SEN-P1"], "switches": []},
+    {"id": "B2", "entry_signal": "SIG-3", "exit_signal": "SIG-4", "sensors": ["SEN-F1"], "switches": []}
+  ],
+  "routes": [
+    {"id": "R-PASS", "from": "ST-A", "to": "ST-B", "blocks": ["B1"], "priority": 10},
+    {"id": "R-FREIGHT", "from": "ST-A", "to": "YARD-1", "blocks": ["B2"], "priority": 5}
+  ],
+  "nodes": [
+    {"id": "MASTER-1", "role": "master"},
+    {"id": "SIG-1", "role": "signal", "adapter": "redstone", "side": "right"},
+    {"id": "SIG-2", "role": "signal", "adapter": "redstone", "side": "left"},
+    {"id": "SIG-3", "role": "signal", "adapter": "redstone", "side": "top"},
+    {"id": "SIG-4", "role": "signal", "adapter": "redstone", "side": "bottom"},
+    {"id": "SEN-P1", "role": "sensor", "adapter": "redstone", "side": "front"},
+    {"id": "SEN-F1", "role": "sensor", "adapter": "redstone", "side": "back"},
+    {
+      "id": "ST-A",
+      "role": "station",
+      "station_type": "mixed",
+      "display_name": "Station A",
+      "monitor": "monitor",
+      "platforms": [
+        {"id": "P1", "kind": "passenger", "sensor_id": "SEN-P1", "block_id": "B1", "dwell_seconds": 20},
+        {"id": "F1", "kind": "freight", "sensor_id": "SEN-F1", "block_id": "B2", "dwell_seconds": 40}
+      ]
+    }
+  ]
+}
