@@ -10,6 +10,7 @@ local trains = require("src.domain.trains")
 local stations = require("src.domain.stations")
 local depots = require("src.domain.depots")
 local dispatcher = require("src.master.dispatcher")
+local route_integration = require("src.master.route_integration")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
 local overview_panel = require("src.master.ui.panels.overview")
@@ -77,6 +78,7 @@ function app.new(args)
     network = network,
     ui = ui
   }
+  context.route_integration = route_integration.new(context)
 
   local instance = { context = context }
   instance.runtime = runtime_factory.new(context)
