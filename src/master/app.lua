@@ -9,6 +9,7 @@ local registry = require("src.shared.registry")
 local trains = require("src.domain.trains")
 local stations = require("src.domain.stations")
 local depots = require("src.domain.depots")
+local route_resolver = require("src.domain.route_resolver")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
 local runtime_factory = require("src.master.runtime")
@@ -43,6 +44,7 @@ function app.new(args)
   local train_registry = trains.new(cfg)
   local station_registry = stations.new(cfg)
   local depot_registry = depots.new(cfg)
+  local resolver = route_resolver.new(cfg.routes or {})
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
@@ -74,6 +76,7 @@ function app.new(args)
     train_registry = train_registry,
     station_registry = station_registry,
     depot_registry = depot_registry,
+    route_resolver = resolver,
     dispatcher = disp,
     network = network,
     ui = ui
