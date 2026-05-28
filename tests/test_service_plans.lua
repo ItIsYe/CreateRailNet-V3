@@ -34,12 +34,7 @@ return {
   test_integration_uses_service_plan_when_request_empty = function()
     local sent, network = fake_network()
     local plans = service_plans.new({ service_plans = { { id = "SP1", train_id = "TRAIN-1", stops = { { from = "A", to = "B", route_id = "R1" } } } } })
-    local integration = route_integration.new({
-      network = network,
-      train_registry = fake_train_registry(),
-      service_plan_registry = plans,
-      dispatcher = { request_route = function(_, route_id) assert(route_id == "R1"); return true, "reserved" end }
-    })
+    local integration = route_integration.new({ network = network, train_registry = fake_train_registry(), service_plan_registry = plans, dispatcher = { request_route = function(_, route_id) assert(route_id == "R1"); return true, "reserved" end } })
     local ok = integration.handle_train_request({ train_id = "TRAIN-1" }, "TRAIN-NODE-1")
     assert(ok)
     assert(sent[1].payload.cmd == "depart_authorized")
@@ -54,5 +49,17 @@ return {
     assert(sent[1].payload.cmd == "set_destination")
     assert(sent[1].payload.route_id == "R2")
     assert(sent[1].payload.destination == "C")
+  end,
+
+  test_send_service_plan_pushes_set_schedule = function()
+    local sent, network = fake_network()
+    local plans = service_plans.new({ service_plans = { { id = "SP1", train_id = "TRAIN-1", stops = { { from = "A", to = "B", route_id = "R1" }, { from = "B", to = "C", route_id = "R2" } } } } })
+    local integration = route_integration.new({ network = network, train_registry = fake_train_registry(), service_plan_registry = plans })
+    local ok = integration.send_service_plan("TRAIN-1")
+    assert(ok)
+    assert(sent[1].payload.cmd == "set_schedule")
+    assert(sent[1].payload.service_plan == "SP1")
+    assert(#sent[1].payload.stops == 2)
+    assert(sent[1].payload.schedule.stops[1].route_id == "R1")
   end
 }
