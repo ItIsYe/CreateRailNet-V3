@@ -13,6 +13,7 @@ function master_runtime.new(context)
     train_registry = context.train_registry,
     station_registry = context.station_registry,
     depot_registry = context.depot_registry,
+    service_plan_registry = context.service_plan_registry,
     route_integration = context.route_integration,
     dispatcher = context.dispatcher,
     network = context.network,
@@ -34,6 +35,7 @@ function master_runtime.new(context)
       trains = runtime.train_registry and runtime.train_registry.list() or {},
       stations = runtime.station_registry and runtime.station_registry.list() or {},
       depots = runtime.depot_registry and runtime.depot_registry.list() or {},
+      service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {},
       diagnostics = {
         nodes = runtime.registry and runtime.registry.all() or {},
         queue = runtime.dispatcher and runtime.dispatcher.get_queue and runtime.dispatcher.get_queue() or {},
@@ -50,7 +52,9 @@ function master_runtime.new(context)
     local role = msg.payload and msg.payload.role
     runtime.registry.register(msg.src, role, nil)
     if role == "train" and runtime.train_registry then
-      runtime.train_registry.register(msg.payload.train_id or msg.src, msg.src, msg.payload or {})
+      local train_id = msg.payload.train_id or msg.src
+      runtime.train_registry.register(train_id, msg.src, msg.payload or {})
+      if runtime.route_integration then runtime.route_integration.send_service_plan(train_id) end
     elseif role == "station" and runtime.station_registry then
       runtime.station_registry.register(msg.payload.station_id or msg.src, msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then
@@ -96,7 +100,7 @@ function master_runtime.new(context)
     elseif payload.type == "arrived" then
       if runtime.route_integration then runtime.route_integration.handle_train_arrival(payload, msg.src) end
     elseif payload.type == "schedule_applied" then
-      runtime.train_registry.update_status(train_id, { state = payload.state or "ROUTE_ASSIGNED", route_id = payload.route_id, destination = payload.destination })
+      runtime.train_registry.update_status(train_id, { state = payload.state or "ROUTE_ASSIGNED", route_id = payload.route_id, destination = payload.destination, schedule_state = payload.schedule_state, service_plan = payload.service_plan, service_stop_index = payload.service_stop_index })
     elseif payload.type == "train_fault" then
       runtime.train_registry.update_status(train_id, { state = "FAULT", error = payload.error })
       if runtime.logger then runtime.logger.warn("train fault", payload) end
