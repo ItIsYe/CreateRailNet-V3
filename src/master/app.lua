@@ -7,12 +7,14 @@ local config = require("src.shared.config")
 local log = require("src.shared.log")
 local registry = require("src.shared.registry")
 local trains = require("src.domain.trains")
+local stations = require("src.domain.stations")
 local dispatcher = require("src.master.dispatcher")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local trains_panel = require("src.master.ui.panels.trains")
+local stations_panel = require("src.master.ui.panels.stations")
 local peripherals = require("src.adapter.peripherals")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
@@ -36,6 +38,7 @@ function app.new(args)
   local logger = log.new("INFO", 200)
   local reg = registry.new()
   local train_registry = trains.new(cfg)
+  local station_registry = stations.new(cfg)
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
@@ -54,7 +57,8 @@ function app.new(args)
   local ui = ui_core.new(monitor, {
     overview = overview_panel.new(disp, reg),
     diagnostics = diagnostics_panel.new(logger, disp),
-    trains = trains_panel.new(train_registry)
+    trains = trains_panel.new(train_registry),
+    stations = stations_panel.new(station_registry)
   })
   ui.set_panel("overview")
 
@@ -63,6 +67,7 @@ function app.new(args)
     logger = logger,
     registry = reg,
     train_registry = train_registry,
+    station_registry = station_registry,
     dispatcher = disp,
     network = network,
     ui = ui
