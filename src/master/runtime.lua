@@ -11,6 +11,7 @@ function master_runtime.new(context)
   local runtime = {
     registry = context.registry,
     train_registry = context.train_registry,
+    station_registry = context.station_registry,
     dispatcher = context.dispatcher,
     network = context.network,
     ui = context.ui,
@@ -28,6 +29,8 @@ function master_runtime.new(context)
     runtime.registry.register(msg.src, role, nil)
     if role == "train" and runtime.train_registry then
       runtime.train_registry.register(msg.payload.train_id or msg.src, msg.src, msg.payload or {})
+    elseif role == "station" and runtime.station_registry then
+      runtime.station_registry.register(msg.payload.station_id or msg.src, msg.src, msg.payload or {})
     end
     runtime.network.ack_for(msg)
     runtime.ui.mark_dirty()
@@ -38,6 +41,8 @@ function master_runtime.new(context)
     runtime.registry.heartbeat(msg.src)
     if msg.payload and msg.payload.role == "train" and runtime.train_registry then
       runtime.train_registry.register(msg.payload.train_id or msg.src, msg.src, msg.payload)
+    elseif msg.payload and msg.payload.role == "station" and runtime.station_registry then
+      runtime.station_registry.register(msg.payload.station_id or msg.src, msg.src, msg.payload)
     end
     runtime.ui.mark_dirty()
     return true
@@ -70,29 +75,50 @@ function master_runtime.new(context)
         from = payload.from,
         route_id = payload.route_id
       })
-      if runtime.logger then
-        runtime.logger.info("train requested departure", payload)
-      end
+      if runtime.logger then runtime.logger.info("train requested departure", payload) end
     elseif payload.type == "arrived" then
-      runtime.train_registry.update_status(train_id, {
-        state = "ARRIVED",
-        destination = payload.station,
-        route_id = payload.route_id
-      })
+      runtime.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station, route_id = payload.route_id })
     elseif payload.type == "schedule_applied" then
-      runtime.train_registry.update_status(train_id, {
-        state = payload.state or "ROUTE_ASSIGNED",
+      runtime.train_registry.update_status(train_id, { state = payload.state or "ROUTE_ASSIGNED", route_id = payload.route_id, destination = payload.destination })
+    elseif payload.type == "train_fault" then
+      runtime.train_registry.update_status(train_id, { state = "FAULT", error = payload.error })
+      if runtime.logger then runtime.logger.warn("train fault", payload) end
+    end
+
+    runtime.network.ack_for(msg)
+    runtime.ui.mark_dirty()
+  end
+
+  local function handle_station_event(msg)
+    if not runtime.station_registry then
+      runtime.network.ack_for(msg)
+      return
+    end
+
+    local payload = msg.payload or {}
+    local station_id = payload.station_id or msg.src
+
+    if payload.type == "station_status" then
+      runtime.station_registry.update_status(station_id, payload)
+    elseif payload.type == "platform_status" then
+      runtime.station_registry.update_platform(station_id, payload.platform_id, payload)
+    elseif payload.type == "train_arrived_station" then
+      runtime.station_registry.update_platform(station_id, payload.platform_id, {
+        state = "DWELLING",
+        train_id = payload.train_id,
         route_id = payload.route_id,
         destination = payload.destination
       })
-    elseif payload.type == "train_fault" then
-      runtime.train_registry.update_status(train_id, {
-        state = "FAULT",
-        error = payload.error
+    elseif payload.type == "station_ready_departure" then
+      runtime.station_registry.update_platform(station_id, payload.platform_id, {
+        state = "READY_TO_DEPART",
+        train_id = payload.train_id,
+        route_id = payload.route_id,
+        destination = payload.destination
       })
-      if runtime.logger then
-        runtime.logger.warn("train fault", payload)
-      end
+    elseif payload.type == "station_fault" then
+      runtime.station_registry.update_status(station_id, { state = "FAULT", message = payload.error })
+      if runtime.logger then runtime.logger.warn("station fault", payload) end
     end
 
     runtime.network.ack_for(msg)
@@ -104,26 +130,20 @@ function master_runtime.new(context)
       handle_sensor_event(msg)
     elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "train_" then
       handle_train_event(msg)
+    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 8) == "station_" then
+      handle_station_event(msg)
+    elseif msg.payload and msg.payload.type == "platform_status" then
+      handle_station_event(msg)
     elseif msg.payload and (msg.payload.type == "request_departure" or msg.payload.type == "arrived" or msg.payload.type == "schedule_applied") then
       handle_train_event(msg)
     end
     return true
   end
 
-  handlers.cmd = function()
-    runtime.ui.mark_dirty()
-    return true
-  end
-
-  handlers.ack = function()
-    runtime.ui.mark_dirty()
-    return true
-  end
-
+  handlers.cmd = function() runtime.ui.mark_dirty(); return true end
+  handlers.ack = function() runtime.ui.mark_dirty(); return true end
   handlers.err = function(msg)
-    if runtime.logger then
-      runtime.logger.warn("node error", msg.payload or {})
-    end
+    if runtime.logger then runtime.logger.warn("node error", msg.payload or {}) end
     runtime.ui.mark_dirty()
     return true
   end
@@ -134,9 +154,8 @@ function master_runtime.new(context)
       if now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id)
         runtime.dispatcher.timeout_node(node_id)
-        if runtime.train_registry and node_state.role == "train" then
-          runtime.train_registry.mark_offline(node_id)
-        end
+        if runtime.train_registry and node_state.role == "train" then runtime.train_registry.mark_offline(node_id) end
+        if runtime.station_registry and node_state.role == "station" then runtime.station_registry.mark_offline(node_id) end
         runtime.ui.mark_dirty()
       end
     end
@@ -152,9 +171,7 @@ function master_runtime.new(context)
     if event[1] == "modem_message" then
       local msg = event[5]
       local status = runtime.network.receive(msg)
-      if status == "ok" then
-        message_handlers.dispatch(msg, handlers)
-      end
+      if status == "ok" then message_handlers.dispatch(msg, handlers) end
     elseif event[1] == "monitor_touch" then
       runtime.ui.handle_touch(event[3], event[4])
     elseif event[1] == "timer" and event[2] == runtime.timeout_timer then
