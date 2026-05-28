@@ -5,25 +5,19 @@ Public API: new(config, panel_id) -> state with update, set_page, next_page, sna
 
 local panel_state = {}
 
-local DEFAULT_PAGES = { "overview", "trains", "stations", "depots", "diagnostics" }
+local DEFAULT_PAGES = { "overview", "trains", "stations", "depots", "service_plans", "diagnostics" }
 
 local function copy_table(src)
   local dst = {}
   for k, v in pairs(src or {}) do
-    if type(v) == "table" then
-      dst[k] = copy_table(v)
-    else
-      dst[k] = v
-    end
+    if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end
   end
   return dst
 end
 
 local function find_panel_config(config, panel_id)
   for _, node in ipairs((config and config.nodes) or {}) do
-    if node.id == panel_id then
-      return node
-    end
+    if node.id == panel_id then return node end
   end
   return { id = panel_id, role = "panel" }
 end
@@ -43,6 +37,7 @@ function panel_state.new(config, panel_id)
     trains = {},
     stations = {},
     depots = {},
+    service_plans = {},
     diagnostics = {}
   }
 
@@ -56,16 +51,13 @@ function panel_state.new(config, panel_id)
     if payload.trains then state.trains = copy_table(payload.trains) end
     if payload.stations then state.stations = copy_table(payload.stations) end
     if payload.depots then state.depots = copy_table(payload.depots) end
+    if payload.service_plans then state.service_plans = copy_table(payload.service_plans) end
     if payload.diagnostics then state.diagnostics = copy_table(payload.diagnostics) end
   end
 
   function self.set_page(page)
     for i, candidate in ipairs(state.pages) do
-      if candidate == page then
-        state.page_index = i
-        state.page = page
-        return true
-      end
+      if candidate == page then state.page_index = i; state.page = page; return true end
     end
     return false
   end
