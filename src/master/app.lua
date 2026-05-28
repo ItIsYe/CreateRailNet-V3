@@ -12,6 +12,7 @@ local ui_core = require("src.master.ui.ui_core")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local peripherals = require("src.adapter.peripherals")
+local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
 local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
@@ -33,6 +34,7 @@ function app.new(args)
   local logger = log.new("INFO", 200)
   local reg = registry.new()
   local peri = peripherals.new()
+  local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
   local ok, err = modem:open(cfg.channel)
   if ok == false then
@@ -40,8 +42,8 @@ function app.new(args)
   end
 
   local disp = dispatcher.new(cfg, {
-    signals = create_signals.new(peri),
-    switches = create_switches.new(peri)
+    signals = create_signals.new(peri, { hardware = hw }),
+    switches = create_switches.new(peri, { hardware = hw })
   })
 
   local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger)
