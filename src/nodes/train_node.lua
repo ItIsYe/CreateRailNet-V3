@@ -1,5 +1,5 @@
 --[[
-Purpose: Onboard train node for train identity, status display, and master commands.
+Purpose: Onboard train node for train identity, status display, schedule/service stop display, and master commands.
 Public API: new_runtime(context_or_args), render_status(monitor, state).
 ]]
 
@@ -14,51 +14,28 @@ local bootstrap = require("src.nodes.bootstrap")
 local train_node = {}
 
 local function find_train_config(cfg, node_id)
-  for _, node in ipairs(cfg.nodes or {}) do
-    if node.id == node_id then
-      return node
-    end
-  end
+  for _, node in ipairs(cfg.nodes or {}) do if node.id == node_id then return node end end
   return { id = node_id, role = "train" }
 end
 
 local function build_context(args_or_context)
-  if args_or_context.config and args_or_context.logger and args_or_context.peripherals and args_or_context.modem then
-    return args_or_context
-  end
-
+  if args_or_context.config and args_or_context.logger and args_or_context.peripherals and args_or_context.modem then return args_or_context end
   local cfg = config.load(args_or_context.config or "configs/templates/network.example.json")
-  return {
-    id = args_or_context.id,
-    role = "train",
-    config = cfg,
-    logger = log.new("INFO", 200),
-    peripherals = peripherals.new(),
-    modem = cc_modem.new({ channel = cfg.channel })
-  }
+  return { id = args_or_context.id, role = "train", config = cfg, logger = log.new("INFO", 200), peripherals = peripherals.new(), modem = cc_modem.new({ channel = cfg.channel }) }
 end
 
 function train_node.render_status(monitor, state)
   if not monitor then return end
   monitor.clear()
-  monitor.setCursorPos(1, 1)
-  monitor.write("CreateRailNet-V3")
-  monitor.setCursorPos(1, 3)
-  monitor.write("Train: " .. tostring(state.train_id or state.node_id or "-"))
-  monitor.setCursorPos(1, 4)
-  monitor.write("Name: " .. tostring(state.display_name or "-"))
-  monitor.setCursorPos(1, 5)
-  monitor.write("State: " .. tostring(state.state or "-"))
-  monitor.setCursorPos(1, 6)
-  monitor.write("Route: " .. tostring(state.route_id or "-"))
-  monitor.setCursorPos(1, 7)
-  monitor.write("Dest: " .. tostring(state.destination or "-"))
-  monitor.setCursorPos(1, 8)
-  monitor.write("Master: " .. tostring(state.master_state or "ONLINE"))
-  if state.message then
-    monitor.setCursorPos(1, 10)
-    monitor.write(tostring(state.message))
-  end
+  monitor.setCursorPos(1, 1); monitor.write("CreateRailNet-V3")
+  monitor.setCursorPos(1, 3); monitor.write("Train: " .. tostring(state.train_id or state.node_id or "-"))
+  monitor.setCursorPos(1, 4); monitor.write("Name: " .. tostring(state.display_name or "-"))
+  monitor.setCursorPos(1, 5); monitor.write("State: " .. tostring(state.state or "-"))
+  monitor.setCursorPos(1, 6); monitor.write("Route: " .. tostring(state.route_id or "-"))
+  monitor.setCursorPos(1, 7); monitor.write("Dest: " .. tostring(state.destination or "-"))
+  monitor.setCursorPos(1, 8); monitor.write("Plan: " .. tostring(state.service_plan or "-") .. " Stop: " .. tostring(state.service_stop_index or "-"))
+  monitor.setCursorPos(1, 9); monitor.write("Master: " .. tostring(state.master_state or "ONLINE"))
+  if state.message then monitor.setCursorPos(1, 11); monitor.write(tostring(state.message)) end
 end
 
 function train_node.new_runtime(args_or_context)
@@ -77,6 +54,8 @@ function train_node.new_runtime(args_or_context)
     route_id = train_cfg.default_route,
     destination = train_cfg.default_destination,
     home_depot = train_cfg.home_depot,
+    service_plan = train_cfg.service_plan,
+    service_stop_index = nil,
     master_state = "ONLINE"
   }
 
@@ -91,22 +70,24 @@ function train_node.new_runtime(args_or_context)
         local cmd = payload and payload.cmd
         if cmd == "set_destination" then
           state.destination = payload.destination
+          state.route_id = payload.route_id or state.route_id
+          state.service_stop_index = payload.service_stop_index or state.service_stop_index
           state.state = "WAITING_FOR_ROUTE"
         elseif cmd == "set_schedule" then
           state.route_id = payload.route_id
           state.destination = payload.destination or state.destination
+          state.service_plan = payload.service_plan or state.service_plan
+          state.service_stop_index = payload.service_stop_index or state.service_stop_index
           state.state = "ROUTE_ASSIGNED"
-          node.net.send("event", context.config.master_id, {
-            type = "schedule_applied",
-            train_id = train_id,
-            route_id = state.route_id,
-            destination = state.destination,
-            state = state.state
-          })
+          node.net.send("event", context.config.master_id, { type = "schedule_applied", train_id = train_id, route_id = state.route_id, destination = state.destination, state = state.state, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
         elseif cmd == "depart_authorized" then
           state.route_id = payload.route_id or state.route_id
+          state.destination = payload.destination or state.destination
+          state.service_stop_index = payload.service_stop_index or state.service_stop_index
           state.state = "DEPART_AUTHORIZED"
         elseif cmd == "hold_position" then
+          state.service_stop_index = payload.service_stop_index or state.service_stop_index
+          state.message = payload.reason
           state.state = "WAITING_DEPARTURE"
         elseif cmd == "emergency_stop" then
           state.state = "FAULT"
@@ -122,30 +103,12 @@ function train_node.new_runtime(args_or_context)
     }
   })
 
-  local old_register = node.register
   node.register = function()
-    return node.net.send("register", context.config.master_id, {
-      role = "train",
-      train_id = train_id,
-      display_name = display_name,
-      destination = state.destination,
-      route_id = state.route_id,
-      state = state.state,
-      home_depot = state.home_depot
-    })
+    return node.net.send("register", context.config.master_id, { role = "train", train_id = train_id, display_name = display_name, destination = state.destination, route_id = state.route_id, state = state.state, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
   end
 
-  local old_heartbeat = node.heartbeat
   node.heartbeat = function()
-    return node.net.heartbeat(context.config.master_id, {
-      role = "train",
-      train_id = train_id,
-      display_name = display_name,
-      destination = state.destination,
-      route_id = state.route_id,
-      state = state.state,
-      home_depot = state.home_depot
-    })
+    return node.net.heartbeat(context.config.master_id, { role = "train", train_id = train_id, display_name = display_name, destination = state.destination, route_id = state.route_id, state = state.state, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
   end
 
   local old_start = node.start
@@ -157,14 +120,7 @@ function train_node.new_runtime(args_or_context)
 
   node.handlers.on_event = function(event)
     if event[1] == "timer" and event[2] == node.status_timer then
-      node.net.send("event", context.config.master_id, {
-        type = "train_status",
-        train_id = train_id,
-        state = state.state,
-        route_id = state.route_id,
-        destination = state.destination,
-        home_depot = state.home_depot
-      })
+      node.net.send("event", context.config.master_id, { type = "train_status", train_id = train_id, state = state.state, route_id = state.route_id, destination = state.destination, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
       train_node.render_status(monitor, state)
       node.status_timer = os.startTimer(2)
     end
@@ -173,21 +129,13 @@ function train_node.new_runtime(args_or_context)
   node.request_departure = function(from_station, to_station)
     state.state = "WAITING_FOR_ROUTE"
     state.destination = to_station or state.destination
-    return node.net.send("event", context.config.master_id, {
-      type = "request_departure",
-      train_id = train_id,
-      from = from_station,
-      to = to_station or state.destination,
-      route_id = state.route_id
-    })
+    return node.net.send("event", context.config.master_id, { type = "request_departure", train_id = train_id, from = from_station, to = to_station or state.destination, route_id = state.route_id, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
   end
 
   return node
 end
 
 local args = shared_args.parse({...}, { config = {}, id = {} })
-if args.id then
-  train_node.new_runtime(bootstrap.create_context({...}, "train")).run()
-end
+if args.id then train_node.new_runtime(bootstrap.create_context({...}, "train")).run() end
 
 return train_node
