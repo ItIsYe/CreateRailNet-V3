@@ -25,6 +25,24 @@ function master_runtime.new(context)
 
   local handlers = {}
 
+  local function panel_snapshot()
+    return {
+      cmd = "panel_update",
+      master_state = "ONLINE",
+      overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {},
+      trains = runtime.train_registry and runtime.train_registry.list() or {},
+      stations = runtime.station_registry and runtime.station_registry.list() or {},
+      depots = runtime.depot_registry and runtime.depot_registry.list() or {},
+      diagnostics = {
+        nodes = runtime.registry and runtime.registry.all() or {}
+      }
+    }
+  end
+
+  local function send_panel_snapshot(dst)
+    runtime.network.send("cmd", dst, panel_snapshot())
+  end
+
   handlers.register = function(msg)
     local role = msg.payload and msg.payload.role
     runtime.registry.register(msg.src, role, nil)
@@ -34,6 +52,8 @@ function master_runtime.new(context)
       runtime.station_registry.register(msg.payload.station_id or msg.src, msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then
       runtime.depot_registry.register(msg.payload.depot_id or msg.src, msg.src, msg.payload or {})
+    elseif role == "panel" then
+      send_panel_snapshot(msg.src)
     end
     runtime.network.ack_for(msg)
     runtime.ui.mark_dirty()
@@ -126,6 +146,13 @@ function master_runtime.new(context)
     runtime.ui.mark_dirty()
   end
 
+  local function handle_panel_event(msg)
+    if msg.payload and msg.payload.type == "panel_request_snapshot" then
+      send_panel_snapshot(msg.src)
+      runtime.network.ack_for(msg)
+    end
+  end
+
   handlers.event = function(msg)
     if msg.payload and msg.payload.type == "sensor" then
       handle_sensor_event(msg)
@@ -135,6 +162,8 @@ function master_runtime.new(context)
       handle_station_event(msg)
     elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "depot_" then
       handle_depot_event(msg)
+    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "panel_" then
+      handle_panel_event(msg)
     elseif msg.payload and msg.payload.type == "platform_status" then
       handle_station_event(msg)
     elseif msg.payload and (msg.payload.type == "request_departure" or msg.payload.type == "arrived" or msg.payload.type == "schedule_applied") then
