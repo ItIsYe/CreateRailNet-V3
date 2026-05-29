@@ -11,6 +11,7 @@ local stations = require("src.domain.stations")
 local depots = require("src.domain.depots")
 local route_resolver = require("src.domain.route_resolver")
 local service_plans = require("src.domain.service_plans")
+local audit_log = require("src.domain.audit_log")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
 local manual_control = require("src.master.manual_control")
@@ -44,6 +45,8 @@ function app.new(args)
   local depot_registry = depots.new(cfg)
   local service_plan_registry = service_plans.new(cfg)
   local resolver = route_resolver.new(cfg.routes or {})
+  local audits = audit_log.new(300)
+  local maintenance = { enabled = false, reason = nil }
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
@@ -77,7 +80,9 @@ function app.new(args)
     route_resolver = resolver,
     dispatcher = disp,
     network = network,
-    ui = ui
+    ui = ui,
+    audit_log = audits,
+    maintenance = maintenance
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
