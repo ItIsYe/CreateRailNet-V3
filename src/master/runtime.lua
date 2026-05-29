@@ -42,6 +42,7 @@ function master_runtime.new(context)
         nodes = runtime.registry and runtime.registry.all() or {},
         queue = runtime.dispatcher and runtime.dispatcher.get_queue and runtime.dispatcher.get_queue() or {},
         switch_locks = runtime.dispatcher and runtime.dispatcher.get_switch_locks and runtime.dispatcher.get_switch_locks() or {},
+        deadlocks = runtime.dispatcher and runtime.dispatcher.get_deadlocks and runtime.dispatcher.get_deadlocks() or {},
         pending_departures = runtime.route_integration and runtime.route_integration.get_pending_departures and runtime.route_integration.get_pending_departures() or {}
       }
     }
