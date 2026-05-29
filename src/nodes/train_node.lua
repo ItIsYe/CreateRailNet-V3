@@ -37,8 +37,9 @@ function train_node.render_status(monitor, state)
   monitor.setCursorPos(1, 7); monitor.write("Dest: " .. tostring(state.destination or "-"))
   monitor.setCursorPos(1, 8); monitor.write("Plan: " .. tostring(state.service_plan or "-") .. " Stop: " .. tostring(state.service_stop_index or "-"))
   monitor.setCursorPos(1, 9); monitor.write("Schedule: " .. tostring(state.schedule_state or "not_applied"))
-  monitor.setCursorPos(1, 10); monitor.write("Master: " .. tostring(state.master_state or "ONLINE"))
-  if state.message then monitor.setCursorPos(1, 12); monitor.write(tostring(state.message)) end
+  monitor.setCursorPos(1, 10); monitor.write("Station: " .. tostring(state.schedule_station or "-"))
+  monitor.setCursorPos(1, 11); monitor.write("Master: " .. tostring(state.master_state or "ONLINE"))
+  if state.message then monitor.setCursorPos(1, 13); monitor.write(tostring(state.message)) end
 end
 
 function train_node.new_runtime(args_or_context)
@@ -47,8 +48,9 @@ function train_node.new_runtime(args_or_context)
   local train_id = train_cfg.train_id or context.id
   local display_name = train_cfg.display_name or train_id
   local monitor_name = train_cfg.monitor or "monitor"
+  local schedule_station = train_cfg.schedule_station or train_cfg.create_station
   local monitor = context.peripherals.wrap(monitor_name)
-  local schedule_adapter = create_train_schedule.new(context.peripherals, { hardware = context.hardware })
+  local schedule_adapter = create_train_schedule.new(context.peripherals, { hardware = context.hardware, station = schedule_station })
 
   local state = {
     node_id = context.id,
@@ -59,6 +61,7 @@ function train_node.new_runtime(args_or_context)
     destination = train_cfg.default_destination,
     home_depot = train_cfg.home_depot,
     service_plan = train_cfg.service_plan,
+    schedule_station = schedule_station,
     service_stop_index = nil,
     schedule_state = "not_applied",
     master_state = "ONLINE"
@@ -83,17 +86,19 @@ function train_node.new_runtime(args_or_context)
           state.destination = payload.destination or state.destination
           state.service_plan = payload.service_plan or state.service_plan
           state.service_stop_index = payload.service_stop_index or state.service_stop_index
+          state.schedule_station = payload.schedule_station or payload.create_station or state.schedule_station
+          local apply_opts = { station = state.schedule_station, create_station = state.schedule_station }
           if payload.schedule then
-            local ok, err = schedule_adapter.apply(train_id, payload.schedule)
+            local ok, err = schedule_adapter.apply(train_id, payload.schedule, apply_opts)
             state.schedule_state = ok and "applied" or "failed"
             if not ok then state.message = err end
           elseif payload.stops then
-            local ok, err = schedule_adapter.apply_stops(train_id, payload.stops)
+            local ok, err = schedule_adapter.apply_stops(train_id, payload.stops, apply_opts)
             state.schedule_state = ok and "applied" or "failed"
             if not ok then state.message = err end
           end
           state.state = "ROUTE_ASSIGNED"
-          node.net.send("event", context.config.master_id, { type = "schedule_applied", train_id = train_id, route_id = state.route_id, destination = state.destination, state = state.state, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state })
+          node.net.send("event", context.config.master_id, { type = "schedule_applied", train_id = train_id, route_id = state.route_id, destination = state.destination, state = state.state, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state, schedule_station = state.schedule_station })
         elseif cmd == "depart_authorized" then
           state.route_id = payload.route_id or state.route_id
           state.destination = payload.destination or state.destination
@@ -118,11 +123,11 @@ function train_node.new_runtime(args_or_context)
   })
 
   node.register = function()
-    return node.net.send("register", context.config.master_id, { role = "train", train_id = train_id, display_name = display_name, destination = state.destination, route_id = state.route_id, state = state.state, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state })
+    return node.net.send("register", context.config.master_id, { role = "train", train_id = train_id, display_name = display_name, destination = state.destination, route_id = state.route_id, state = state.state, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state, schedule_station = state.schedule_station })
   end
 
   node.heartbeat = function()
-    return node.net.heartbeat(context.config.master_id, { role = "train", train_id = train_id, display_name = display_name, destination = state.destination, route_id = state.route_id, state = state.state, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state })
+    return node.net.heartbeat(context.config.master_id, { role = "train", train_id = train_id, display_name = display_name, destination = state.destination, route_id = state.route_id, state = state.state, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state, schedule_station = state.schedule_station })
   end
 
   local old_start = node.start
@@ -134,7 +139,7 @@ function train_node.new_runtime(args_or_context)
 
   node.handlers.on_event = function(event)
     if event[1] == "timer" and event[2] == node.status_timer then
-      node.net.send("event", context.config.master_id, { type = "train_status", train_id = train_id, state = state.state, route_id = state.route_id, destination = state.destination, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state })
+      node.net.send("event", context.config.master_id, { type = "train_status", train_id = train_id, state = state.state, route_id = state.route_id, destination = state.destination, home_depot = state.home_depot, service_plan = state.service_plan, service_stop_index = state.service_stop_index, schedule_state = state.schedule_state, schedule_station = state.schedule_station })
       train_node.render_status(monitor, state)
       node.status_timer = os.startTimer(2)
     end
