@@ -26,22 +26,16 @@ local function render_overview(monitor, state)
   line(monitor, 5, "Overview")
   line(monitor, 6, "Blocks: " .. tostring(count_table(state.overview)))
   local row = 8
-  for block_id, block in pairs(state.overview or {}) do
-    line(monitor, row, block_id .. " " .. tostring(block.state or "-"))
-    row = row + 1
-  end
+  for block_id, block in pairs(state.overview or {}) do line(monitor, row, block_id .. " " .. tostring(block.state or "-")); row = row + 1 end
 end
 
 local function render_trains(monitor, state)
   line(monitor, 5, "Trains")
   local row = 7
   for train_id, train in pairs(state.trains or {}) do
-    line(monitor, row, train_id .. " " .. tostring(train.state or "-") .. " Sch " .. tostring(train.schedule_state or "-"))
-    row = row + 1
-    line(monitor, row, "  Route " .. tostring(train.route_id or "-") .. " Dest " .. tostring(train.destination or "-"))
-    row = row + 1
-    line(monitor, row, "  Plan " .. tostring(train.service_plan or "-") .. " Stop " .. tostring(train.service_stop_index or "-"))
-    row = row + 1
+    line(monitor, row, train_id .. " " .. tostring(train.state or "-") .. " Sch " .. tostring(train.schedule_state or "-")); row = row + 1
+    line(monitor, row, "  Route " .. tostring(train.route_id or "-") .. " Dest " .. tostring(train.destination or "-")); row = row + 1
+    line(monitor, row, "  Plan " .. tostring(train.service_plan or "-") .. " Stop " .. tostring(train.service_stop_index or "-")); row = row + 1
   end
 end
 
@@ -49,12 +43,8 @@ local function render_stations(monitor, state)
   line(monitor, 5, "Stations")
   local row = 7
   for station_id, station in pairs(state.stations or {}) do
-    line(monitor, row, station_id .. " " .. tostring(station.station_type or "mixed") .. " " .. tostring(station.state or "-"))
-    row = row + 1
-    for platform_id, platform in pairs(station.platforms or {}) do
-      line(monitor, row, "  " .. platform_id .. " " .. tostring(platform.kind or "mixed") .. " " .. tostring(platform.state or "-"))
-      row = row + 1
-    end
+    line(monitor, row, station_id .. " " .. tostring(station.station_type or "mixed") .. " " .. tostring(station.state or "-")); row = row + 1
+    for platform_id, platform in pairs(station.platforms or {}) do line(monitor, row, "  " .. platform_id .. " " .. tostring(platform.kind or "mixed") .. " " .. tostring(platform.state or "-")); row = row + 1 end
   end
 end
 
@@ -62,14 +52,9 @@ local function render_depots(monitor, state)
   line(monitor, 5, "Depots")
   local row = 7
   for depot_id, depot in pairs(state.depots or {}) do
-    line(monitor, row, depot_id .. " " .. tostring(depot.depot_type or "mixed") .. " " .. tostring(depot.state or "-"))
-    row = row + 1
-    for track_id, track in pairs(depot.tracks or {}) do
-      line(monitor, row, "  " .. track_id .. " " .. tostring(track.kind or "mixed") .. " " .. tostring(track.state or "-"))
-      row = row + 1
-    end
-    line(monitor, row, "  Queue " .. tostring(#(depot.queue or {})))
-    row = row + 1
+    line(monitor, row, depot_id .. " " .. tostring(depot.depot_type or "mixed") .. " " .. tostring(depot.state or "-")); row = row + 1
+    for track_id, track in pairs(depot.tracks or {}) do line(monitor, row, "  " .. track_id .. " " .. tostring(track.kind or "mixed") .. " " .. tostring(track.state or "-")); row = row + 1 end
+    line(monitor, row, "  Queue " .. tostring(#(depot.queue or {}))); row = row + 1
   end
 end
 
@@ -77,26 +62,29 @@ local function render_service_plans(monitor, state)
   line(monitor, 5, "Service Plans")
   local row = 7
   for plan_id, plan in pairs(state.service_plans or {}) do
-    line(monitor, row, plan_id .. " " .. tostring(plan.state or "-") .. " Train " .. tostring(plan.train_id or "-"))
-    row = row + 1
-    line(monitor, row, "  Current " .. tostring(plan.current_index or "-") .. " / " .. tostring(#(plan.stops or {})))
-    row = row + 1
+    line(monitor, row, plan_id .. " " .. tostring(plan.state or "-") .. " Train " .. tostring(plan.train_id or "-")); row = row + 1
+    line(monitor, row, "  Current " .. tostring(plan.current_index or "-") .. " / " .. tostring(#(plan.stops or {}))); row = row + 1
     local stop = plan.stops and plan.stops[plan.current_index or 1]
-    if stop then
-      line(monitor, row, "  Next " .. tostring(stop.from or "-") .. " -> " .. tostring(stop.to or "-"))
-      row = row + 1
-    end
+    if stop then line(monitor, row, "  Next " .. tostring(stop.from or "-") .. " -> " .. tostring(stop.to or "-")); row = row + 1 end
   end
+end
+
+local function render_manual(monitor, state)
+  line(monitor, 5, "Manual Control")
+  line(monitor, 6, "Touch action row")
+  local row = 7
+  for _, action in ipairs(state.manual_actions or {}) do
+    line(monitor, row, tostring(action.label or action.action or "action"))
+    row = row + 1
+  end
+  if state.last_action then line(monitor, row + 1, "Last: " .. tostring(state.last_action)) end
 end
 
 local function render_diagnostics(monitor, state)
   line(monitor, 5, "Diagnostics")
   line(monitor, 7, "Last update: " .. tostring(state.last_update or 0))
   local row = 9
-  for key, value in pairs(state.diagnostics or {}) do
-    line(monitor, row, tostring(key) .. ": " .. tostring(value))
-    row = row + 1
-  end
+  for key, value in pairs(state.diagnostics or {}) do line(monitor, row, tostring(key) .. ": " .. tostring(value)); row = row + 1 end
 end
 
 function panel_renderer.render(monitor, state)
@@ -107,6 +95,7 @@ function panel_renderer.render(monitor, state)
   elseif state.page == "stations" then render_stations(monitor, state)
   elseif state.page == "depots" then render_depots(monitor, state)
   elseif state.page == "service_plans" then render_service_plans(monitor, state)
+  elseif state.page == "manual" then render_manual(monitor, state)
   elseif state.page == "diagnostics" then render_diagnostics(monitor, state)
   else render_overview(monitor, state) end
 end
