@@ -1,11 +1,11 @@
 --[[
 Purpose: Shared state model for external panel nodes.
-Public API: new(config, panel_id) -> state with update, set_page, next_page, snapshot.
+Public API: new(config, panel_id) -> state with update, set_page, next_page, action_at, snapshot.
 ]]
 
 local panel_state = {}
 
-local DEFAULT_PAGES = { "overview", "trains", "stations", "depots", "service_plans", "diagnostics" }
+local DEFAULT_PAGES = { "overview", "trains", "stations", "depots", "service_plans", "manual", "diagnostics" }
 
 local function copy_table(src)
   local dst = {}
@@ -20,6 +20,10 @@ local function find_panel_config(config, panel_id)
     if node.id == panel_id then return node end
   end
   return { id = panel_id, role = "panel" }
+end
+
+local function default_actions(panel_cfg)
+  return panel_cfg.manual_actions or panel_cfg.actions or {}
 end
 
 function panel_state.new(config, panel_id)
@@ -38,7 +42,9 @@ function panel_state.new(config, panel_id)
     stations = {},
     depots = {},
     service_plans = {},
-    diagnostics = {}
+    diagnostics = {},
+    manual_actions = copy_table(default_actions(panel_cfg)),
+    last_action = nil
   }
 
   local self = {}
@@ -53,6 +59,7 @@ function panel_state.new(config, panel_id)
     if payload.depots then state.depots = copy_table(payload.depots) end
     if payload.service_plans then state.service_plans = copy_table(payload.service_plans) end
     if payload.diagnostics then state.diagnostics = copy_table(payload.diagnostics) end
+    if payload.manual_actions then state.manual_actions = copy_table(payload.manual_actions) end
   end
 
   function self.set_page(page)
@@ -76,6 +83,16 @@ function panel_state.new(config, panel_id)
     if state.page_index < 1 then state.page_index = #state.pages end
     state.page = state.pages[state.page_index]
     return state.page
+  end
+
+  function self.action_at(row)
+    local index = row - 6
+    local action = state.manual_actions[index]
+    if action then
+      state.last_action = action.label or action.action
+      return copy_table(action)
+    end
+    return nil
   end
 
   function self.snapshot()
