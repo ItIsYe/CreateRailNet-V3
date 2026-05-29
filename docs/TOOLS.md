@@ -27,6 +27,15 @@ diag.run({ config = "configs/templates/network.full.example.json" })
 
 Shows counts for nodes, blocks, routes, service plans, and role distribution.
 
+## Health Report
+
+```lua
+local health = require("src.tools.health_report")
+health.run({ config = "configs/templates/network.full.example.json" })
+```
+
+Shows config validity, role counts, channel, master id, and summary counts.
+
 ## Peripheral Inspector
 
 ```lua
@@ -56,10 +65,11 @@ dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 ## Safe test order
 
 1. Run config check.
-2. Run system check.
-3. Inspect peripherals on each computer.
-4. Start master.
-5. Start panel.
-6. Start field nodes.
-7. Start train node.
-8. Use debug events before relying on real hardware.
+2. Run health report.
+3. Run system check.
+4. Inspect peripherals on each computer.
+5. Start master.
+6. Start panel.
+7. Start field nodes.
+8. Start train node.
+9. Use debug events before relying on real hardware.
