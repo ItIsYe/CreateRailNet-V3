@@ -4,6 +4,7 @@ Public API: returns table of tests.
 ]]
 
 local route_integration = require("src.master.route_integration")
+local service_plans = require("src.domain.service_plans")
 
 local function fake_network()
   local sent = {}
@@ -55,6 +56,19 @@ return {
     assert(not ok)
     assert(sent[1].payload.cmd == "hold_position")
     assert(trains.data["TRAIN-1"].state == "WAITING_FOR_ROUTE")
+  end,
+
+  test_send_service_plan_uses_official_create_schedule = function()
+    local sent, network = fake_network()
+    local plans = service_plans.new({ service_plans = { { id = "SP1", train_id = "TRAIN-1", stops = { { from = "A", to = "B", route_id = "R1", dwell_seconds = 4 } } } } })
+    local integration = route_integration.new({ network = network, train_registry = fake_train_registry(), service_plan_registry = plans })
+    local ok = integration.send_service_plan("TRAIN-1")
+    assert(ok)
+    assert(sent[1].payload.cmd == "set_schedule")
+    assert(sent[1].payload.schedule.cyclic == false)
+    assert(sent[1].payload.schedule.entries[1].instruction.id == "create:destination")
+    assert(sent[1].payload.schedule.entries[1].instruction.data.text == "B")
+    assert(sent[1].payload.schedule.entries[1].conditions[1][1].id == "create:delay")
   end,
 
   test_depot_request_updates_track = function()
