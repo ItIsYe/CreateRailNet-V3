@@ -4,6 +4,7 @@ Public API: new(context) -> runtime with handle_event(event), run().
 ]]
 
 local message_handlers = require("src.shared.message_handlers")
+local diagnostics = require("src.domain.diagnostics")
 
 local master_runtime = {}
 
@@ -20,6 +21,7 @@ function master_runtime.new(context)
     network = context.network,
     ui = context.ui,
     logger = context.logger,
+    config = context.config,
     pull_event = context.pull_event or os.pullEvent,
     heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
     timeout_timer = nil,
@@ -30,6 +32,14 @@ function master_runtime.new(context)
   local handlers = {}
 
   local function panel_snapshot()
+    local context_view = {
+      config = runtime.config,
+      registry = runtime.registry,
+      logger = runtime.logger,
+      dispatcher = runtime.dispatcher,
+      route_integration = runtime.route_integration,
+      service_plan_registry = runtime.service_plan_registry
+    }
     return {
       cmd = "panel_update",
       master_state = "ONLINE",
@@ -38,13 +48,7 @@ function master_runtime.new(context)
       stations = runtime.station_registry and runtime.station_registry.list() or {},
       depots = runtime.depot_registry and runtime.depot_registry.list() or {},
       service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {},
-      diagnostics = {
-        nodes = runtime.registry and runtime.registry.all() or {},
-        queue = runtime.dispatcher and runtime.dispatcher.get_queue and runtime.dispatcher.get_queue() or {},
-        switch_locks = runtime.dispatcher and runtime.dispatcher.get_switch_locks and runtime.dispatcher.get_switch_locks() or {},
-        deadlocks = runtime.dispatcher and runtime.dispatcher.get_deadlocks and runtime.dispatcher.get_deadlocks() or {},
-        pending_departures = runtime.route_integration and runtime.route_integration.get_pending_departures and runtime.route_integration.get_pending_departures() or {}
-      }
+      diagnostics = diagnostics.build(context_view)
     }
   end
 
