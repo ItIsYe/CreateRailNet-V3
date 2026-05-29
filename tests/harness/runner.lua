@@ -24,7 +24,8 @@ local tests = {
   "tests/test_dwell_manual_control.lua",
   "tests/test_v316_v318.lua",
   "tests/test_tools_v322_v326.lua",
-  "tests/test_tools.lua"
+  "tests/test_tools.lua",
+  "tests/test_diagnostics_v328_v332.lua"
 }
 
 local total = 0
