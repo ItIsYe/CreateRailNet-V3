@@ -94,15 +94,15 @@ local function render_diagnostics(monitor, state)
   local diag = state.diagnostics or {}
   local health = diag.node_health or {}
   local cfg = diag.config or {}
+  local maintenance = diag.maintenance or {}
   line(monitor, 5, "Diagnostics")
-  line(monitor, 6, "Nodes up/down: " .. tostring(health.up or 0) .. "/" .. tostring(health.down or 0) .. " total " .. tostring(health.total or 0))
-  line(monitor, 7, "Cfg N/B/R/SP: " .. tostring(cfg.nodes or 0) .. "/" .. tostring(cfg.blocks or 0) .. "/" .. tostring(cfg.routes or 0) .. "/" .. tostring(cfg.service_plans or 0))
-  line(monitor, 8, "Queue: " .. tostring(#(diag.queue or {})) .. " Deadlocks: " .. tostring(count_table(diag.deadlocks or {})))
-  line(monitor, 9, "SwitchLocks: " .. tostring(count_table(diag.switch_locks or {})) .. " Pending: " .. tostring(count_table(diag.pending_departures or {})))
-  local row = render_recent_logs(monitor, 11, diag.recent_logs or {})
-  if row < 18 then
-    line(monitor, row + 1, "Channel: " .. tostring(cfg.channel or "-") .. " Master: " .. tostring(cfg.master_id or "-"))
-  end
+  line(monitor, 6, "Maint: " .. tostring(maintenance.enabled and "LOCKED" or "open") .. " " .. tostring(maintenance.reason or ""))
+  line(monitor, 7, "Nodes up/down: " .. tostring(health.up or 0) .. "/" .. tostring(health.down or 0) .. " total " .. tostring(health.total or 0))
+  line(monitor, 8, "Cfg N/B/R/SP: " .. tostring(cfg.nodes or 0) .. "/" .. tostring(cfg.blocks or 0) .. "/" .. tostring(cfg.routes or 0) .. "/" .. tostring(cfg.service_plans or 0))
+  line(monitor, 9, "Queue: " .. tostring(#(diag.queue or {})) .. " Deadlocks: " .. tostring(count_table(diag.deadlocks or {})))
+  line(monitor, 10, "SwitchLocks: " .. tostring(count_table(diag.switch_locks or {})) .. " Pending: " .. tostring(count_table(diag.pending_departures or {})))
+  local row = render_recent_logs(monitor, 12, diag.recent_logs or {})
+  if row < 18 then line(monitor, row + 1, "Channel: " .. tostring(cfg.channel or "-") .. " Master: " .. tostring(cfg.master_id or "-")) end
 end
 
 function panel_renderer.render(monitor, state)
