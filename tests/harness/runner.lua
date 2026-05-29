@@ -3,6 +3,8 @@ Purpose: Test runner for CreateRailNet-V3.
 Public API: none (script).
 ]]
 
+pcall(dofile, "tests/harness/cc_bootstrap.lua")
+
 local tests = {
   "tests/test_config.lua",
   "tests/test_net.lua",
@@ -26,31 +28,53 @@ local tests = {
   "tests/test_tools_v322_v326.lua",
   "tests/test_tools.lua",
   "tests/test_diagnostics_v328_v332.lua",
-  "tests/test_audit_maintenance_v333_v338.lua"
+  "tests/test_audit_maintenance_v333_v338.lua",
+  "tests/test_smoke_load.lua"
 }
 
 local total = 0
 local passed = 0
+local failed = 0
+
+local function sorted_names(t)
+  local names = {}
+  for name in pairs(t or {}) do table.insert(names, name) end
+  table.sort(names)
+  return names
+end
 
 for _, path in ipairs(tests) do
   local ok, mod = pcall(dofile, path)
   if not ok then
-    print("FAIL " .. path .. ": " .. tostring(mod))
+    total = total + 1
+    failed = failed + 1
+    print("FAIL load " .. path .. ": " .. tostring(mod))
+  elseif type(mod) ~= "table" then
+    total = total + 1
+    failed = failed + 1
+    print("FAIL load " .. path .. ": test file must return table")
   else
-    for name, fn in pairs(mod) do
+    for _, name in ipairs(sorted_names(mod)) do
+      local fn = mod[name]
       total = total + 1
-      local ok_test, err = pcall(fn)
-      if ok_test then
-        passed = passed + 1
-        print("PASS " .. name)
+      if type(fn) ~= "function" then
+        failed = failed + 1
+        print("FAIL " .. path .. "." .. name .. ": test is not function")
       else
-        print("FAIL " .. name .. ": " .. tostring(err))
+        local ok_test, err = pcall(fn)
+        if ok_test then
+          passed = passed + 1
+          print("PASS " .. name)
+        else
+          failed = failed + 1
+          print("FAIL " .. name .. ": " .. tostring(err))
+        end
       end
     end
   end
 end
 
-print(string.format("%d/%d PASS", passed, total))
-if passed ~= total then
+print(string.format("%d/%d PASS (%d failed)", passed, total, failed))
+if failed ~= 0 or passed ~= total then
   error("tests failed")
 end
