@@ -29,7 +29,8 @@ local tests = {
   "tests/test_tools.lua",
   "tests/test_diagnostics_v328_v332.lua",
   "tests/test_audit_maintenance_v333_v338.lua",
-  "tests/test_smoke_load.lua"
+  "tests/test_smoke_load.lua",
+  "tests/test_stability_regressions.lua"
 }
 
 local total = 0
