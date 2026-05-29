@@ -94,7 +94,12 @@ function route_integration.new(context)
     local plan = self.service_plan_registry.for_train(train_id)
     if not plan then return false, "no service plan assigned" end
     local stops = copy_stops(plan.stops)
-    local schedule = create_train_schedule.build_schedule(stops)
+    local schedule, schedule_err = create_train_schedule.build_schedule(stops)
+    if not schedule then
+      audit("service_plan_rejected", { train_id = train_id, service_plan = plan.id, error = schedule_err })
+      send_cmd(self.network, resolve_train_node(train_id), "update_display", { train_id = train_id, message = "Schedule build failed: " .. tostring(schedule_err) })
+      return false, schedule_err
+    end
     send_cmd(self.network, resolve_train_node(train_id), "set_schedule", { train_id = train_id, service_plan = plan.id, service_stop_index = plan.current_index, route_id = stops[plan.current_index] and stops[plan.current_index].route_id, destination = stops[plan.current_index] and stops[plan.current_index].to, stops = stops, schedule = schedule })
     audit("service_plan_sent", { train_id = train_id, service_plan = plan.id })
     return true, plan
