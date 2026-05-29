@@ -25,14 +25,20 @@ local function recent_logs(logger, limit)
   local start = math.max(1, #buffer - max + 1)
   for i = start, #buffer do
     local entry = buffer[i]
-    table.insert(out, {
-      level = entry.level,
-      msg = entry.msg,
-      ts = entry.ts,
-      context = entry.context
-    })
+    table.insert(out, { level = entry.level, msg = entry.msg, ts = entry.ts, context = entry.context })
   end
   return out
+end
+
+local function recent_audit(audits, limit)
+  if not audits or not audits.list then return {} end
+  return audits.list(limit or 8)
+end
+
+local function maintenance_status(maintenance)
+  if not maintenance then return { enabled = false } end
+  if maintenance.status then return maintenance.status() end
+  return { enabled = maintenance.enabled == true, reason = maintenance.reason }
 end
 
 local function count_node_health(registry)
@@ -49,14 +55,7 @@ local function count_node_health(registry)
 end
 
 local function config_report(cfg)
-  return {
-    nodes = count_array((cfg or {}).nodes),
-    blocks = count_array((cfg or {}).blocks),
-    routes = count_array((cfg or {}).routes),
-    service_plans = count_array((cfg or {}).service_plans or (cfg or {}).schedules),
-    channel = (cfg or {}).channel,
-    master_id = (cfg or {}).master_id
-  }
+  return { nodes = count_array((cfg or {}).nodes), blocks = count_array((cfg or {}).blocks), routes = count_array((cfg or {}).routes), service_plans = count_array((cfg or {}).service_plans or (cfg or {}).schedules), channel = (cfg or {}).channel, master_id = (cfg or {}).master_id }
 end
 
 function diagnostics.build(context)
@@ -67,6 +66,8 @@ function diagnostics.build(context)
     config = config_report(context.config),
     node_health = count_node_health(context.registry),
     recent_logs = recent_logs(context.logger, 8),
+    recent_audit = recent_audit(context.audit_log, 8),
+    maintenance = maintenance_status(context.maintenance),
     queue = dispatcher and dispatcher.get_queue and dispatcher.get_queue() or {},
     switch_locks = dispatcher and dispatcher.get_switch_locks and dispatcher.get_switch_locks() or {},
     deadlocks = dispatcher and dispatcher.get_deadlocks and dispatcher.get_deadlocks() or {},
