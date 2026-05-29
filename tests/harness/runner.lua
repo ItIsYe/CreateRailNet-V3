@@ -23,7 +23,8 @@ local tests = {
   "tests/test_create_train_schedule.lua",
   "tests/test_dwell_manual_control.lua",
   "tests/test_v316_v318.lua",
-  "tests/test_tools_v322_v326.lua"
+  "tests/test_tools_v322_v326.lua",
+  "tests/test_tools.lua"
 }
 
 local total = 0
