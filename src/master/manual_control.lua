@@ -1,9 +1,13 @@
 --[[
-Purpose: Manual control helper for panel/operator commands.
+Purpose: Manual control helper for panel/operator commands with maintenance guard.
 Public API: new(context) -> helper with handle(command, src).
 ]]
 
+local errors = require("src.shared.error_codes")
+
 local manual_control = {}
+
+local SAFE_ACTIONS = { enter_maintenance = true, exit_maintenance = true, hold_train = true, emergency_stop = true }
 
 local function send_cmd(network, dst, cmd, payload)
   local body = payload or {}
@@ -17,16 +21,48 @@ function manual_control.new(context)
     network = context.network,
     logger = context.logger,
     train_registry = context.train_registry,
-    route_integration = context.route_integration
+    route_integration = context.route_integration,
+    maintenance = context.maintenance,
+    audit_log = context.audit_log
   }
+
+  local function audit(kind, data)
+    if self.audit_log then self.audit_log.record(kind, data) end
+  end
 
   local function train_node_id(train_id)
     local train = self.train_registry and self.train_registry.get(train_id)
     return (train and train.node_id) or train_id
   end
 
+  local function maintenance_blocked(action)
+    return self.maintenance and self.maintenance.enabled and not SAFE_ACTIONS[action]
+  end
+
   function self.handle(command, src)
     local cmd = command or {}
+    audit("manual_control", { src = src, action = cmd.action, train_id = cmd.train_id, route_id = cmd.route_id })
+
+    if cmd.action == "enter_maintenance" then
+      if self.maintenance then
+        self.maintenance.enabled = true
+        self.maintenance.reason = cmd.reason or "manual maintenance"
+      end
+      return true
+    elseif cmd.action == "exit_maintenance" then
+      if self.maintenance then
+        self.maintenance.enabled = false
+        self.maintenance.reason = nil
+      end
+      return true
+    end
+
+    if maintenance_blocked(cmd.action) then
+      local err = errors.make(errors.codes.MAINTENANCE_LOCKED, "manual action blocked by maintenance", { action = cmd.action })
+      audit("manual_rejected", err)
+      return false, err.message
+    end
+
     if cmd.action == "request_route" then
       if self.route_integration then
         return self.route_integration.handle_train_request({
@@ -41,25 +77,15 @@ function manual_control.new(context)
       end
       return false, "route integration unavailable"
     elseif cmd.action == "hold_train" then
-      send_cmd(self.network, train_node_id(cmd.train_id), "hold_position", {
-        train_id = cmd.train_id,
-        reason = cmd.reason or "manual hold"
-      })
+      send_cmd(self.network, train_node_id(cmd.train_id), "hold_position", { train_id = cmd.train_id, reason = cmd.reason or "manual hold" })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "WAITING_DEPARTURE" }) end
       return true
     elseif cmd.action == "authorize_train" then
-      send_cmd(self.network, train_node_id(cmd.train_id), "depart_authorized", {
-        train_id = cmd.train_id,
-        route_id = cmd.route_id,
-        destination = cmd.destination
-      })
+      send_cmd(self.network, train_node_id(cmd.train_id), "depart_authorized", { train_id = cmd.train_id, route_id = cmd.route_id, destination = cmd.destination })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "ROUTE_ASSIGNED", route_id = cmd.route_id, destination = cmd.destination }) end
       return true
     elseif cmd.action == "emergency_stop" then
-      send_cmd(self.network, train_node_id(cmd.train_id), "emergency_stop", {
-        train_id = cmd.train_id,
-        reason = cmd.reason or "manual emergency stop"
-      })
+      send_cmd(self.network, train_node_id(cmd.train_id), "emergency_stop", { train_id = cmd.train_id, reason = cmd.reason or "manual emergency stop" })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "FAULT", error = cmd.reason or "manual emergency stop" }) end
       return true
     elseif cmd.action == "set_signal" then
