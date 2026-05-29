@@ -8,13 +8,30 @@ local validate = require("src.shared.validate")
 
 local config = {}
 
-function config.load(path)
-  local fh = io.open(path, "r")
-  if not fh then
-    error("config load failed: cannot open " .. path)
+local function read_file(path)
+  if io and io.open then
+    local fh = io.open(path, "r")
+    if fh then
+      local content = fh:read("*a")
+      fh:close()
+      return content
+    end
   end
-  local content = fh:read("*a")
-  fh:close()
+
+  if fs and fs.open then
+    local fh = fs.open(path, "r")
+    if fh then
+      local content = fh.readAll and fh.readAll() or fh.read and fh.read("*a")
+      fh.close()
+      return content
+    end
+  end
+
+  error("config load failed: cannot open " .. tostring(path))
+end
+
+function config.load(path)
+  local content = read_file(path)
   local data = json.decode(content)
   local ok, errors = validate.validate_config(data)
   if not ok then
