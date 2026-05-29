@@ -80,11 +80,29 @@ local function render_manual(monitor, state)
   if state.last_action then line(monitor, row + 1, "Last: " .. tostring(state.last_action)) end
 end
 
+local function render_recent_logs(monitor, row, logs)
+  line(monitor, row, "Recent logs")
+  row = row + 1
+  for _, entry in ipairs(logs or {}) do
+    line(monitor, row, tostring(entry.level or "-") .. " " .. tostring(entry.msg or "-"))
+    row = row + 1
+  end
+  return row
+end
+
 local function render_diagnostics(monitor, state)
+  local diag = state.diagnostics or {}
+  local health = diag.node_health or {}
+  local cfg = diag.config or {}
   line(monitor, 5, "Diagnostics")
-  line(monitor, 7, "Last update: " .. tostring(state.last_update or 0))
-  local row = 9
-  for key, value in pairs(state.diagnostics or {}) do line(monitor, row, tostring(key) .. ": " .. tostring(value)); row = row + 1 end
+  line(monitor, 6, "Nodes up/down: " .. tostring(health.up or 0) .. "/" .. tostring(health.down or 0) .. " total " .. tostring(health.total or 0))
+  line(monitor, 7, "Cfg N/B/R/SP: " .. tostring(cfg.nodes or 0) .. "/" .. tostring(cfg.blocks or 0) .. "/" .. tostring(cfg.routes or 0) .. "/" .. tostring(cfg.service_plans or 0))
+  line(monitor, 8, "Queue: " .. tostring(#(diag.queue or {})) .. " Deadlocks: " .. tostring(count_table(diag.deadlocks or {})))
+  line(monitor, 9, "SwitchLocks: " .. tostring(count_table(diag.switch_locks or {})) .. " Pending: " .. tostring(count_table(diag.pending_departures or {})))
+  local row = render_recent_logs(monitor, 11, diag.recent_logs or {})
+  if row < 18 then
+    line(monitor, row + 1, "Channel: " .. tostring(cfg.channel or "-") .. " Master: " .. tostring(cfg.master_id or "-"))
+  end
 end
 
 function panel_renderer.render(monitor, state)
