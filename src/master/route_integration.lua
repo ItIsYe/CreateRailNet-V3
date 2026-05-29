@@ -31,6 +31,8 @@ function route_integration.new(context)
     dispatcher = context.dispatcher,
     route_resolver = context.route_resolver,
     service_plan_registry = context.service_plan_registry,
+    maintenance = context.maintenance,
+    audit_log = context.audit_log,
     network = context.network,
     logger = context.logger,
     train_registry = context.train_registry,
@@ -39,9 +41,26 @@ function route_integration.new(context)
     pending_departures = {}
   }
 
+  local function audit(kind, data)
+    if self.audit_log then self.audit_log.record(kind, data) end
+  end
+
+  local function is_locked()
+    if not self.maintenance then return false end
+    if self.maintenance.is_locked then return self.maintenance.is_locked() end
+    return self.maintenance.enabled == true
+  end
+
   local function resolve_train_node(train_id)
     local train = self.train_registry and self.train_registry.get(train_id)
     return (train and train.node_id) or train_id
+  end
+
+  local function reject_locked(train_id, route_id)
+    audit("route_rejected", { train_id = train_id, route_id = route_id, reason = "maintenance" })
+    send_cmd(self.network, resolve_train_node(train_id), "hold_position", { train_id = train_id, route_id = route_id, reason = "maintenance locked" })
+    if self.train_registry then self.train_registry.update_status(train_id, { state = "WAITING_DEPARTURE", route_id = route_id }) end
+    return false, "maintenance locked"
   end
 
   local function enrich_from_service_plan(train_id, payload)
@@ -64,23 +83,9 @@ function route_integration.new(context)
   local function schedule_departure(train_id, stop)
     if not stop then return false end
     local dwell = stop.dwell_seconds or 0
-    self.pending_departures[train_id] = {
-      train_id = train_id,
-      due_at = os.clock() + dwell,
-      route_id = stop.route_id,
-      from = stop.from,
-      to = stop.to,
-      kind = stop.kind,
-      priority = stop.priority,
-      service_stop_index = stop.index
-    }
-    send_cmd(self.network, resolve_train_node(train_id), "hold_position", {
-      train_id = train_id,
-      route_id = stop.route_id,
-      destination = stop.to,
-      service_stop_index = stop.index,
-      reason = "dwell " .. tostring(dwell) .. "s"
-    })
+    self.pending_departures[train_id] = { train_id = train_id, due_at = os.clock() + dwell, route_id = stop.route_id, from = stop.from, to = stop.to, kind = stop.kind, priority = stop.priority, service_stop_index = stop.index }
+    audit("departure_scheduled", { train_id = train_id, route_id = stop.route_id, dwell_seconds = dwell })
+    send_cmd(self.network, resolve_train_node(train_id), "hold_position", { train_id = train_id, route_id = stop.route_id, destination = stop.to, service_stop_index = stop.index, reason = "dwell " .. tostring(dwell) .. "s" })
     return true
   end
 
@@ -90,15 +95,8 @@ function route_integration.new(context)
     if not plan then return false, "no service plan assigned" end
     local stops = copy_stops(plan.stops)
     local schedule = create_train_schedule.build_schedule(stops)
-    send_cmd(self.network, resolve_train_node(train_id), "set_schedule", {
-      train_id = train_id,
-      service_plan = plan.id,
-      service_stop_index = plan.current_index,
-      route_id = stops[plan.current_index] and stops[plan.current_index].route_id,
-      destination = stops[plan.current_index] and stops[plan.current_index].to,
-      stops = stops,
-      schedule = schedule
-    })
+    send_cmd(self.network, resolve_train_node(train_id), "set_schedule", { train_id = train_id, service_plan = plan.id, service_stop_index = plan.current_index, route_id = stops[plan.current_index] and stops[plan.current_index].route_id, destination = stops[plan.current_index] and stops[plan.current_index].to, stops = stops, schedule = schedule })
+    audit("service_plan_sent", { train_id = train_id, service_plan = plan.id })
     return true, plan
   end
 
@@ -119,6 +117,8 @@ function route_integration.new(context)
     local train_id = payload.train_id or src
     local request, stop = enrich_from_service_plan(train_id, payload)
     local route_id, resolve_err, route = route_id_for(request)
+    if is_locked() then return reject_locked(train_id, route_id) end
+    audit("route_request", { train_id = train_id, route_id = route_id, src = src })
     local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
     if not route_id then ok, status = false, resolve_err end
 
@@ -127,8 +127,10 @@ function route_integration.new(context)
     if self.train_registry then self.train_registry.update_status(train_id, { state = ok and "ROUTE_ASSIGNED" or "WAITING_FOR_ROUTE", route_id = route_id, destination = destination }) end
 
     if ok then
+      audit("route_authorized", { train_id = train_id, route_id = route_id })
       send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", { train_id = train_id, route_id = route_id, destination = destination, service_stop_index = request.service_stop_index })
     else
+      audit("route_queued", { train_id = train_id, route_id = route_id, reason = status })
       send_cmd(self.network, resolve_train_node(train_id), "hold_position", { train_id = train_id, route_id = route_id, reason = status, service_stop_index = request.service_stop_index })
     end
     return ok, status, route
@@ -136,6 +138,7 @@ function route_integration.new(context)
 
   function self.handle_train_arrival(payload, src)
     local train_id = payload.train_id or src
+    audit("train_arrival", { train_id = train_id, station = payload.station, route_id = payload.route_id })
     if self.train_registry then self.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station or payload.destination, route_id = payload.route_id }) end
     if self.service_plan_registry then
       self.service_plan_registry.mark_current(train_id, "ARRIVED")
@@ -155,6 +158,8 @@ function route_integration.new(context)
     local train_id = payload.train_id
     local request, stop = enrich_from_service_plan(train_id, payload)
     local route_id, resolve_err, route = route_id_for(request)
+    if is_locked() then return reject_locked(train_id, route_id) end
+    audit("depot_dispatch_request", { train_id = train_id, route_id = route_id, src = src })
     local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
     if not route_id then ok, status = false, resolve_err end
 
@@ -177,6 +182,8 @@ function route_integration.new(context)
     if not train_id then return false, "station ready missing train_id" end
     local request, stop = enrich_from_service_plan(train_id, payload)
     local route_id, resolve_err, route = route_id_for(request)
+    if is_locked() then return reject_locked(train_id, route_id) end
+    audit("station_departure_request", { train_id = train_id, route_id = route_id, src = src })
     local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
     if not route_id then ok, status = false, resolve_err end
 
@@ -190,15 +197,13 @@ function route_integration.new(context)
   end
 
   function self.process_queue()
+    if is_locked() then return {} end
     local processed = self.dispatcher and self.dispatcher.process_queue(3) or {}
     for _, item in ipairs(processed) do
       if item.ok then
         local route = self.dispatcher.routes and self.dispatcher.routes[item.route_id]
-        send_cmd(self.network, resolve_train_node(item.train_id), "depart_authorized", {
-          train_id = item.train_id,
-          route_id = item.route_id,
-          destination = route and route.to
-        })
+        audit("queue_authorized", { train_id = item.train_id, route_id = item.route_id })
+        send_cmd(self.network, resolve_train_node(item.train_id), "depart_authorized", { train_id = item.train_id, route_id = item.route_id, destination = route and route.to })
         if self.train_registry then self.train_registry.update_status(item.train_id, { state = "ROUTE_ASSIGNED", route_id = item.route_id, destination = route and route.to }) end
       end
     end
@@ -206,6 +211,7 @@ function route_integration.new(context)
   end
 
   function self.process_due(now)
+    if is_locked() then return {} end
     local clock = now or os.clock()
     local fired = {}
     for train_id, pending in pairs(self.pending_departures) do
