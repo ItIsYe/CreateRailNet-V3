@@ -15,6 +15,7 @@ local tests = {
   "tests/test_topology.lua",
   "tests/test_adapter_methods.lua",
   "tests/test_redstone_adapters.lua",
+  "tests/test_create_hardware_adapters.lua",
   "tests/test_trains.lua",
   "tests/test_stations.lua",
   "tests/test_depots.lua",
