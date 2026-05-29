@@ -1,15 +1,11 @@
 --[[
 Purpose: Domain registry for stations and their platforms/tracks.
-Public API: new(config) -> registry with register, update_platform, update_status, list, get.
+Public API: new(config) -> registry with register, update_platform, update_status, find_available_platform, reserve_platform, release_platform, list, get.
 ]]
 
 local stations = {}
 
-local STATION_TYPES = {
-  passenger = true,
-  freight = true,
-  mixed = true
-}
+local STATION_TYPES = { passenger = true, freight = true, mixed = true }
 
 local PLATFORM_STATES = {
   EMPTY = "EMPTY",
@@ -22,12 +18,18 @@ local PLATFORM_STATES = {
   FAULT = "FAULT"
 }
 
+local FREE_STATES = { EMPTY = true }
+
 local function shallow_copy(src)
   local dst = {}
-  for k, v in pairs(src or {}) do
-    dst[k] = v
-  end
+  for k, v in pairs(src or {}) do dst[k] = v end
   return dst
+end
+
+local function kind_matches(platform_kind, requested_kind)
+  local pk = platform_kind or "mixed"
+  local rk = requested_kind or "mixed"
+  return pk == "mixed" or rk == "mixed" or pk == rk
 end
 
 local function normalize_platform(platform)
@@ -41,8 +43,15 @@ local function normalize_platform(platform)
     state = platform.state or PLATFORM_STATES.EMPTY,
     train_id = platform.train_id,
     route_id = platform.route_id,
-    destination = platform.destination
+    destination = platform.destination,
+    priority = platform.priority or 0,
+    capacity = platform.capacity or 1
   }
+end
+
+local function platform_sort(a, b)
+  if (a.priority or 0) ~= (b.priority or 0) then return (a.priority or 0) > (b.priority or 0) end
+  return tostring(a.id) < tostring(b.id)
 end
 
 function stations.new(config)
@@ -61,14 +70,10 @@ function stations.new(config)
         last_seen = 0,
         platforms = {}
       }
-
       for _, platform in ipairs(node.platforms or node.tracks or {}) do
         local normalized = normalize_platform(platform)
-        if normalized.id then
-          station.platforms[normalized.id] = normalized
-        end
+        if normalized.id then station.platforms[normalized.id] = normalized end
       end
-
       by_id[station_id] = station
     end
   end
@@ -76,17 +81,8 @@ function stations.new(config)
   function self.register(station_id, node_id, info)
     local id = station_id or node_id
     if not by_id[id] then
-      by_id[id] = {
-        id = id,
-        node_id = node_id,
-        display_name = (info and info.display_name) or id,
-        station_type = (info and info.station_type) or "mixed",
-        state = "ONLINE",
-        last_seen = os.clock(),
-        platforms = {}
-      }
+      by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, station_type = (info and info.station_type) or "mixed", state = "ONLINE", last_seen = os.clock(), platforms = {} }
     end
-
     local station = by_id[id]
     station.node_id = node_id or station.node_id
     station.display_name = (info and info.display_name) or station.display_name
@@ -106,35 +102,65 @@ function stations.new(config)
 
   function self.update_platform(station_id, platform_id, patch)
     local station = self.register(station_id, station_id, {})
-    if not station.platforms[platform_id] then
-      station.platforms[platform_id] = normalize_platform({ id = platform_id })
-    end
+    if not station.platforms[platform_id] then station.platforms[platform_id] = normalize_platform({ id = platform_id }) end
     local platform = station.platforms[platform_id]
-    for k, v in pairs(patch or {}) do
-      platform[k] = v
-    end
+    for k, v in pairs(patch or {}) do platform[k] = v end
     station.last_seen = os.clock()
     return platform
   end
 
-  function self.mark_offline(station_id)
-    if by_id[station_id] then
-      by_id[station_id].state = "OFFLINE"
+  function self.find_available_platform(station_id, opts)
+    local station = by_id[station_id]
+    if not station or station.state == "OFFLINE" or station.state == "FAULT" then return nil, "station unavailable" end
+    local options = opts or {}
+    local candidates = {}
+    for _, platform in pairs(station.platforms or {}) do
+      if FREE_STATES[platform.state or PLATFORM_STATES.EMPTY] and kind_matches(platform.kind, options.kind) then
+        table.insert(candidates, platform)
+      end
     end
+    table.sort(candidates, platform_sort)
+    if not candidates[1] then return nil, "no available platform" end
+    return candidates[1]
   end
 
-  function self.get(station_id)
-    return by_id[station_id]
+  function self.reserve_platform(station_id, opts)
+    local platform, err = self.find_available_platform(station_id, opts)
+    if not platform then return nil, err end
+    local options = opts or {}
+    platform.state = PLATFORM_STATES.RESERVED
+    platform.train_id = options.train_id
+    platform.route_id = options.route_id
+    platform.destination = options.destination
+    platform.reserved_at = os.clock()
+    return platform
   end
+
+  function self.release_platform(station_id, platform_id)
+    local station = by_id[station_id]
+    if not station or not station.platforms[platform_id] then return false, "platform not found" end
+    local platform = station.platforms[platform_id]
+    platform.state = PLATFORM_STATES.EMPTY
+    platform.train_id = nil
+    platform.route_id = nil
+    platform.destination = nil
+    platform.reserved_at = nil
+    station.last_seen = os.clock()
+    return true
+  end
+
+  function self.mark_offline(station_id)
+    if by_id[station_id] then by_id[station_id].state = "OFFLINE" end
+  end
+
+  function self.get(station_id) return by_id[station_id] end
 
   function self.list()
     local out = {}
     for id, station in pairs(by_id) do
       local copy = shallow_copy(station)
       copy.platforms = {}
-      for platform_id, platform in pairs(station.platforms or {}) do
-        copy.platforms[platform_id] = shallow_copy(platform)
-      end
+      for platform_id, platform in pairs(station.platforms or {}) do copy.platforms[platform_id] = shallow_copy(platform) end
       out[id] = copy
     end
     return out
@@ -145,5 +171,6 @@ end
 
 stations.PLATFORM_STATES = PLATFORM_STATES
 stations.STATION_TYPES = STATION_TYPES
+stations.kind_matches = kind_matches
 
 return stations
