@@ -27,7 +27,7 @@
   ],
   "nodes": [
     {"id": "MASTER-1", "role": "master"},
-    {"id": "TRAIN-1", "role": "train", "train_id": "TRAIN-1", "display_name": "Regio 1", "monitor": "monitor", "service_plan": "SP-REGIO-1"},
+    {"id": "TRAIN-1", "role": "train", "train_id": "TRAIN-1", "display_name": "Regio 1", "monitor": "monitor", "service_plan": "SP-REGIO-1", "create_station": "Create_Station_0", "schedule_station": "Create_Station_0"},
     {"id": "PANEL-1", "role": "panel", "display_name": "Main Panel", "monitor": "monitor", "refresh_seconds": 2, "pages": ["overview", "trains", "stations", "depots", "service_plans", "manual", "diagnostics"], "manual_actions": [{"label": "Hold TRAIN-1", "action": "hold_train", "train_id": "TRAIN-1"}, {"label": "Emergency TRAIN-1", "action": "emergency_stop", "train_id": "TRAIN-1"}, {"label": "Signal AB Green", "action": "set_signal", "signal_id": "SIG-AB-IN", "aspect": "GREEN"}]},
     {"id": "ST-A", "role": "station", "station_type": "passenger", "display_name": "Station A", "monitor": "monitor", "platforms": [{"id": "P1", "kind": "passenger", "sensor_id": "SEN-AB", "block_id": "B-AB", "dwell_seconds": 10}]},
     {"id": "ST-B", "role": "station", "station_type": "mixed", "display_name": "Station B", "monitor": "monitor", "platforms": [{"id": "P1", "kind": "passenger", "sensor_id": "SEN-BC", "block_id": "B-BC", "dwell_seconds": 10}, {"id": "D1", "kind": "mixed", "sensor_id": "SEN-BD", "block_id": "B-BD", "dwell_seconds": 5}]},
