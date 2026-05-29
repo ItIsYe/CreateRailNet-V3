@@ -7,6 +7,7 @@ pcall(dofile, "tests/harness/cc_bootstrap.lua")
 
 local tests = {
   "tests/test_config.lua",
+  "tests/test_config_loader.lua",
   "tests/test_net.lua",
   "tests/test_dispatcher.lua",
   "tests/test_nodes.lua",
