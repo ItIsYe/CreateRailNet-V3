@@ -1,10 +1,11 @@
 --[[
-Purpose: Master event runtime for modem, UI, and timeout handling.
+Purpose: Master event runtime for modem, UI, timeout handling, audit, and maintenance guard.
 Public API: new(context) -> runtime with handle_event(event), run().
 ]]
 
 local message_handlers = require("src.shared.message_handlers")
 local diagnostics = require("src.domain.diagnostics")
+local errors = require("src.shared.error_codes")
 
 local master_runtime = {}
 
@@ -22,6 +23,8 @@ function master_runtime.new(context)
     ui = context.ui,
     logger = context.logger,
     config = context.config,
+    audit_log = context.audit_log,
+    maintenance = context.maintenance,
     pull_event = context.pull_event or os.pullEvent,
     heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
     timeout_timer = nil,
@@ -31,6 +34,23 @@ function master_runtime.new(context)
 
   local handlers = {}
 
+  local function audit(kind, data)
+    if runtime.audit_log then runtime.audit_log.record(kind, data) end
+  end
+
+  local function maintenance_enabled()
+    return runtime.maintenance and runtime.maintenance.enabled
+  end
+
+  local function reject_maintenance(msg, action)
+    local err = errors.make(errors.codes.MAINTENANCE_LOCKED, "event blocked by maintenance", { action = action, src = msg.src })
+    audit("maintenance_rejected", err)
+    if runtime.logger then runtime.logger.warn("maintenance rejected event", err) end
+    runtime.network.ack_for(msg)
+    runtime.ui.mark_dirty()
+    return true
+  end
+
   local function panel_snapshot()
     local context_view = {
       config = runtime.config,
@@ -38,11 +58,13 @@ function master_runtime.new(context)
       logger = runtime.logger,
       dispatcher = runtime.dispatcher,
       route_integration = runtime.route_integration,
-      service_plan_registry = runtime.service_plan_registry
+      service_plan_registry = runtime.service_plan_registry,
+      audit_log = runtime.audit_log,
+      maintenance = runtime.maintenance
     }
     return {
       cmd = "panel_update",
-      master_state = "ONLINE",
+      master_state = maintenance_enabled() and "MAINTENANCE" or "ONLINE",
       overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {},
       trains = runtime.train_registry and runtime.train_registry.list() or {},
       stations = runtime.station_registry and runtime.station_registry.list() or {},
@@ -58,11 +80,14 @@ function master_runtime.new(context)
 
   handlers.register = function(msg)
     local role = msg.payload and msg.payload.role
+    audit("register", { src = msg.src, role = role })
+    local previous = runtime.registry.all and runtime.registry.all()[msg.src]
     runtime.registry.register(msg.src, role, nil)
+    if previous and previous.status == "down" then audit("node_reconnect", { node_id = msg.src, role = role }) end
     if role == "train" and runtime.train_registry then
       local train_id = msg.payload.train_id or msg.src
       runtime.train_registry.register(train_id, msg.src, msg.payload or {})
-      if runtime.route_integration then runtime.route_integration.send_service_plan(train_id) end
+      if runtime.route_integration and not maintenance_enabled() then runtime.route_integration.send_service_plan(train_id) end
     elseif role == "station" and runtime.station_registry then
       runtime.station_registry.register(msg.payload.station_id or msg.src, msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then
@@ -89,6 +114,8 @@ function master_runtime.new(context)
   end
 
   local function handle_sensor_event(msg)
+    if maintenance_enabled() then return reject_maintenance(msg, "sensor") end
+    audit("sensor", { src = msg.src, sensor_id = msg.payload.sensor_id, action = msg.payload.action })
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
     runtime.network.ack_for(msg)
     if ok == false and runtime.logger then runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id }) end
@@ -100,6 +127,8 @@ function master_runtime.new(context)
     if not runtime.train_registry then runtime.network.ack_for(msg); return end
     local payload = msg.payload or {}
     local train_id = payload.train_id or msg.src
+    audit("train_event", { src = msg.src, train_id = train_id, event_type = payload.type })
+    if maintenance_enabled() and (payload.type == "request_departure" or payload.type == "arrived") then return reject_maintenance(msg, payload.type) end
     if payload.type == "train_status" then
       runtime.train_registry.update_status(train_id, payload)
     elseif payload.type == "request_departure" then
@@ -121,6 +150,8 @@ function master_runtime.new(context)
     if not runtime.station_registry then runtime.network.ack_for(msg); return end
     local payload = msg.payload or {}
     local station_id = payload.station_id or msg.src
+    audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
+    if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
     if payload.type == "station_status" then
       runtime.station_registry.update_status(station_id, payload)
     elseif payload.type == "platform_status" then
@@ -141,6 +172,8 @@ function master_runtime.new(context)
     if not runtime.depot_registry then runtime.network.ack_for(msg); return end
     local payload = msg.payload or {}
     local depot_id = payload.depot_id or msg.src
+    audit("depot_event", { src = msg.src, depot_id = depot_id, event_type = payload.type })
+    if maintenance_enabled() and payload.type == "depot_request_dispatch" then return reject_maintenance(msg, payload.type) end
     if payload.type == "depot_status" then
       runtime.depot_registry.update_status(depot_id, payload)
     elseif payload.type == "depot_track_status" then
@@ -162,6 +195,7 @@ function master_runtime.new(context)
 
   local function handle_panel_event(msg)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then
+      audit("panel_snapshot", { src = msg.src })
       send_panel_snapshot(msg.src)
       runtime.network.ack_for(msg)
     elseif msg.payload and msg.payload.type == "manual_control" then
@@ -188,6 +222,7 @@ function master_runtime.new(context)
   handlers.cmd = function() runtime.ui.mark_dirty(); return true end
   handlers.ack = function() runtime.ui.mark_dirty(); return true end
   handlers.err = function(msg)
+    audit("node_error", { src = msg.src, payload = msg.payload })
     if runtime.logger then runtime.logger.warn("node error", msg.payload or {}) end
     runtime.ui.mark_dirty()
     return true
@@ -199,6 +234,7 @@ function master_runtime.new(context)
       if now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id)
         runtime.dispatcher.timeout_node(node_id)
+        audit("node_timeout", { node_id = node_id, role = node_state.role })
         if runtime.train_registry and node_state.role == "train" then runtime.train_registry.mark_offline(node_id) end
         if runtime.station_registry and node_state.role == "station" then runtime.station_registry.mark_offline(node_id) end
         if runtime.depot_registry and node_state.role == "depot" then runtime.depot_registry.mark_offline(node_id) end
@@ -225,7 +261,7 @@ function master_runtime.new(context)
       check_timeouts()
       runtime.timeout_timer = os.startTimer(1)
     elseif event[1] == "timer" and event[2] == runtime.dwell_timer then
-      if runtime.route_integration then runtime.route_integration.process_due() end
+      if runtime.route_integration and not maintenance_enabled() then runtime.route_integration.process_due() end
       runtime.dwell_timer = os.startTimer(1)
       runtime.ui.mark_dirty()
     elseif event[1] == "timer" and event[2] == runtime.ui_timer then
