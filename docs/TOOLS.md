@@ -62,6 +62,24 @@ local dbg = require("src.tools.debug_events")
 dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 ```
 
+## Maintenance mode
+
+Maintenance mode is controlled through manual panel actions:
+
+```json
+{"label": "Enter Maintenance", "action": "enter_maintenance", "reason": "track work"}
+```
+
+```json
+{"label": "Exit Maintenance", "action": "exit_maintenance"}
+```
+
+When maintenance is active, normal route requests and automatic dwell departures are blocked. Safe actions such as holding or emergency stopping trains remain allowed.
+
+## Audit diagnostics
+
+The master keeps a bounded in-memory audit log for important events such as manual actions, route requests, queued routes, maintenance entry and route rejection. Recent audit entries are exposed through panel diagnostics.
+
 ## Safe test order
 
 1. Run config check.
@@ -73,3 +91,4 @@ dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 7. Start field nodes.
 8. Start train node.
 9. Use debug events before relying on real hardware.
+10. Use maintenance mode before changing real track hardware.
