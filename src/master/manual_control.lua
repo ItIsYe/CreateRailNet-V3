@@ -36,7 +36,21 @@ function manual_control.new(context)
   end
 
   local function maintenance_blocked(action)
-    return self.maintenance and self.maintenance.enabled and not SAFE_ACTIONS[action]
+    if not self.maintenance then return false end
+    if self.maintenance.is_locked then return self.maintenance.is_locked() and not SAFE_ACTIONS[action] end
+    return self.maintenance.enabled and not SAFE_ACTIONS[action]
+  end
+
+  local function enter_maintenance(reason, actor)
+    if self.maintenance and self.maintenance.enable then return self.maintenance.enable(reason, actor) end
+    if self.maintenance then self.maintenance.enabled = true; self.maintenance.reason = reason end
+    return true
+  end
+
+  local function exit_maintenance(actor)
+    if self.maintenance and self.maintenance.disable then return self.maintenance.disable(actor) end
+    if self.maintenance then self.maintenance.enabled = false; self.maintenance.reason = nil end
+    return true
   end
 
   function self.handle(command, src)
@@ -44,16 +58,12 @@ function manual_control.new(context)
     audit("manual_control", { src = src, action = cmd.action, train_id = cmd.train_id, route_id = cmd.route_id })
 
     if cmd.action == "enter_maintenance" then
-      if self.maintenance then
-        self.maintenance.enabled = true
-        self.maintenance.reason = cmd.reason or "manual maintenance"
-      end
+      enter_maintenance(cmd.reason or "manual maintenance", src)
+      audit("maintenance_enter", { src = src, reason = cmd.reason })
       return true
     elseif cmd.action == "exit_maintenance" then
-      if self.maintenance then
-        self.maintenance.enabled = false
-        self.maintenance.reason = nil
-      end
+      exit_maintenance(src)
+      audit("maintenance_exit", { src = src })
       return true
     end
 
@@ -65,15 +75,7 @@ function manual_control.new(context)
 
     if cmd.action == "request_route" then
       if self.route_integration then
-        return self.route_integration.handle_train_request({
-          train_id = cmd.train_id,
-          route_id = cmd.route_id,
-          from = cmd.from,
-          to = cmd.to,
-          destination = cmd.destination,
-          priority = cmd.priority,
-          kind = cmd.kind
-        }, src or cmd.train_id)
+        return self.route_integration.handle_train_request({ train_id = cmd.train_id, route_id = cmd.route_id, from = cmd.from, to = cmd.to, destination = cmd.destination, priority = cmd.priority, kind = cmd.kind }, src or cmd.train_id)
       end
       return false, "route integration unavailable"
     elseif cmd.action == "hold_train" then
