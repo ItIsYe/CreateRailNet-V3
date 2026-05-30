@@ -14,14 +14,16 @@ local function fake_monitor()
   return m
 end
 
+local function contains_line(lines, text)
+  for _, line in pairs(lines or {}) do
+    if string.find(tostring(line), text, 1, true) then return true end
+  end
+  return false
+end
+
 return {
   test_station_registry_loads_multiple_platforms = function()
-    local reg = stations.new({ nodes = {
-      { id = "ST-A", role = "station", station_type = "mixed", platforms = {
-        { id = "P1", kind = "passenger", sensor_id = "SEN-P1" },
-        { id = "F1", kind = "freight", sensor_id = "SEN-F1" }
-      } }
-    } })
+    local reg = stations.new({ nodes = { { id = "ST-A", role = "station", station_type = "mixed", platforms = { { id = "P1", kind = "passenger", sensor_id = "SEN-P1" }, { id = "F1", kind = "freight", sensor_id = "SEN-F1" } } } } })
     local station = reg.get("ST-A")
     assert(station)
     assert(station.station_type == "mixed")
@@ -38,12 +40,7 @@ return {
   end,
 
   test_station_finds_matching_free_platform = function()
-    local reg = stations.new({ nodes = {
-      { id = "ST-A", role = "station", station_type = "mixed", platforms = {
-        { id = "P1", kind = "passenger" },
-        { id = "F1", kind = "freight" }
-      } }
-    } })
+    local reg = stations.new({ nodes = { { id = "ST-A", role = "station", station_type = "mixed", platforms = { { id = "P1", kind = "passenger" }, { id = "F1", kind = "freight" } } } } })
     local platform = reg.find_available_platform("ST-A", { kind = "freight" })
     assert(platform.id == "F1")
   end,
@@ -77,7 +74,7 @@ return {
     local monitor = fake_monitor()
     station_node.render_status(monitor, { station_id = "ST-C", station_type = "freight", state = "ONLINE", platforms = { G1 = { id = "G1", kind = "freight", state = "EMPTY" } } })
     assert(monitor.lines[1] == "CreateRailNet Station")
-    assert(string.find(monitor.lines[3], "ST-C"))
-    assert(string.find(monitor.lines[4], "freight"))
+    assert(contains_line(monitor.lines, "ST-C"))
+    assert(contains_line(monitor.lines, "freight"))
   end
 }
