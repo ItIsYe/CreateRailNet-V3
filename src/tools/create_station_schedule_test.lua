@@ -73,7 +73,6 @@ function tool.run(args)
   local destination = options.destination or options[2] or "ST-B"
   local dwell = tonumber(options.dwell_seconds or options[3] or 5) or 5
   local confirm = options.confirm == true or options[4] == "confirm"
-
   print("CreateRailNet Create Station Schedule Test")
   print("station=" .. tostring(station) .. " destination=" .. tostring(destination) .. " dwell=" .. tostring(dwell))
   local info, err = tool.inspect_station(station)
@@ -83,18 +82,10 @@ function tool.run(args)
   print("train_name=" .. tostring(info.train_name))
   print("has_schedule=" .. tostring(info.has_schedule))
   if #info.errors > 0 then for _, e in ipairs(info.errors) do print("warn: " .. tostring(e)) end end
-
-  if not confirm then
-    print("No schedule was applied. To apply, call with confirm=true or fourth arg 'confirm'.")
-    return true, info
-  end
-
+  if not confirm then print("No schedule was applied. To apply, call with confirm=true or fourth arg 'confirm'."); return true, info end
   local ok, result = tool.apply_test_schedule(station, destination, dwell, true)
   print(ok and "schedule applied" or ("schedule failed: " .. tostring(result)))
   return ok, result
 end
-
-local raw = {...}
-if raw and #raw > 0 then tool.run(raw) end
 
 return tool
