@@ -67,6 +67,7 @@ local modules = {
   "src.tools.health_report",
   "src.tools.peripheral_inspector",
   "src.tools.redstone_side_report",
+  "src.tools.runtime_packager",
   "src.tools.setup_wizard",
   "src.tools.system_check"
 }
