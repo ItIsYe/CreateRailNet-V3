@@ -20,5 +20,8 @@ jobs:
       - name: Syntax check
         run: lua5.4 scripts/check_syntax.lua
 
+      - name: Config checks
+        run: lua5.4 scripts/check_configs.lua
+
       - name: Offline tests
         run: lua5.4 scripts/run_tests.lua
