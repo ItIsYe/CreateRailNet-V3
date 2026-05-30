@@ -50,7 +50,4 @@ function diagnose.run(args)
   for _, line in ipairs(lines) do print(line) end
 end
 
-local raw = {...}
-if #raw > 0 then diagnose.run({ config = raw[1] }) end
-
 return diagnose
