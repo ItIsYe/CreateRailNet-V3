@@ -39,7 +39,10 @@ function master_runtime.new(context)
   end
 
   local function maintenance_enabled()
-    return runtime.maintenance and runtime.maintenance.enabled
+    if not runtime.maintenance then return false end
+    if runtime.maintenance.is_locked then return runtime.maintenance.is_locked() end
+    if runtime.maintenance.status then return runtime.maintenance.status().enabled == true end
+    return runtime.maintenance.enabled == true
   end
 
   local function reject_maintenance(msg, action)
@@ -52,26 +55,8 @@ function master_runtime.new(context)
   end
 
   local function panel_snapshot()
-    local context_view = {
-      config = runtime.config,
-      registry = runtime.registry,
-      logger = runtime.logger,
-      dispatcher = runtime.dispatcher,
-      route_integration = runtime.route_integration,
-      service_plan_registry = runtime.service_plan_registry,
-      audit_log = runtime.audit_log,
-      maintenance = runtime.maintenance
-    }
-    return {
-      cmd = "panel_update",
-      master_state = maintenance_enabled() and "MAINTENANCE" or "ONLINE",
-      overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {},
-      trains = runtime.train_registry and runtime.train_registry.list() or {},
-      stations = runtime.station_registry and runtime.station_registry.list() or {},
-      depots = runtime.depot_registry and runtime.depot_registry.list() or {},
-      service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {},
-      diagnostics = diagnostics.build(context_view)
-    }
+    local context_view = { config = runtime.config, registry = runtime.registry, logger = runtime.logger, dispatcher = runtime.dispatcher, route_integration = runtime.route_integration, service_plan_registry = runtime.service_plan_registry, audit_log = runtime.audit_log, maintenance = runtime.maintenance }
+    return { cmd = "panel_update", master_state = maintenance_enabled() and "MAINTENANCE" or "ONLINE", overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
   end
 
   local function send_panel_snapshot(dst)
@@ -157,7 +142,10 @@ function master_runtime.new(context)
     elseif payload.type == "platform_status" then
       runtime.station_registry.update_platform(station_id, payload.platform_id, payload)
     elseif payload.type == "train_arrived_station" then
-      runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "DWELLING", train_id = payload.train_id, route_id = payload.route_id, destination = payload.destination })
+      runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "DWELLING", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
+    elseif payload.type == "train_left_station" then
+      if runtime.station_registry.release_platform then runtime.station_registry.release_platform(station_id, payload.platform_id)
+      else runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "EMPTY", train_id = nil, train_name = nil, route_id = nil, destination = nil }) end
     elseif payload.type == "station_ready_departure" then
       if runtime.route_integration then runtime.route_integration.handle_station_ready(payload, msg.src) end
     elseif payload.type == "station_fault" then
@@ -179,12 +167,15 @@ function master_runtime.new(context)
     elseif payload.type == "depot_track_status" then
       runtime.depot_registry.update_track(depot_id, payload.track_id, payload)
     elseif payload.type == "depot_train_ready" then
-      runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "READY", train_id = payload.train_id, route_id = payload.route_id, destination = payload.destination })
+      runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "READY", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
     elseif payload.type == "depot_request_dispatch" then
       if runtime.route_integration then runtime.route_integration.handle_depot_request(payload, msg.src) end
       if runtime.logger then runtime.logger.info("depot requested dispatch", payload) end
     elseif payload.type == "depot_train_arrived" then
-      runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "OCCUPIED", train_id = payload.train_id, route_id = payload.route_id })
+      runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "OCCUPIED", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id })
+    elseif payload.type == "depot_train_left" then
+      if runtime.depot_registry.release_track then runtime.depot_registry.release_track(depot_id, payload.track_id)
+      else runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "EMPTY", train_id = nil, train_name = nil, route_id = nil, destination = nil }) end
     elseif payload.type == "depot_fault" then
       runtime.depot_registry.update_status(depot_id, { state = "FAULT", message = payload.error })
       if runtime.logger then runtime.logger.warn("depot fault", payload) end
@@ -208,14 +199,14 @@ function master_runtime.new(context)
   end
 
   handlers.event = function(msg)
-    if msg.payload and msg.payload.type == "sensor" then handle_sensor_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "train_" then handle_train_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 8) == "station_" then handle_station_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "depot_" then handle_depot_event(msg)
-    elseif msg.payload and string.sub(tostring(msg.payload.type), 1, 6) == "panel_" then handle_panel_event(msg)
-    elseif msg.payload and msg.payload.type == "manual_control" then handle_panel_event(msg)
-    elseif msg.payload and msg.payload.type == "platform_status" then handle_station_event(msg)
-    elseif msg.payload and (msg.payload.type == "request_departure" or msg.payload.type == "arrived" or msg.payload.type == "schedule_applied") then handle_train_event(msg) end
+    local ptype = msg.payload and tostring(msg.payload.type) or ""
+    if ptype == "sensor" then handle_sensor_event(msg)
+    elseif ptype == "train_arrived_station" or ptype == "train_left_station" or ptype == "platform_status" or string.sub(ptype, 1, 8) == "station_" then handle_station_event(msg)
+    elseif ptype == "depot_train_arrived" or ptype == "depot_train_left" or ptype == "depot_track_status" or string.sub(ptype, 1, 6) == "depot_" then handle_depot_event(msg)
+    elseif string.sub(ptype, 1, 6) == "train_" then handle_train_event(msg)
+    elseif string.sub(ptype, 1, 6) == "panel_" then handle_panel_event(msg)
+    elseif ptype == "manual_control" then handle_panel_event(msg)
+    elseif ptype == "request_departure" or ptype == "arrived" or ptype == "schedule_applied" then handle_train_event(msg) end
     return true
   end
 
