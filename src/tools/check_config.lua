@@ -18,16 +18,10 @@ function check_config.run(args)
   local path = args and args.config or args and args[1] or "configs/templates/network.full.example.json"
   print("CreateRailNet config check: " .. tostring(path))
   local ok, errors = check_config.check(path)
-  if ok then
-    print("OK")
-    return true
-  end
+  if ok then print("OK"); return true end
   print("FAILED")
   for _, err in ipairs(errors or {}) do print("- " .. tostring(err)) end
   return false
 end
-
-local raw = {...}
-if #raw > 0 then check_config.run({ config = raw[1] }) end
 
 return check_config
