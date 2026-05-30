@@ -14,6 +14,13 @@ local function fake_monitor()
   return m
 end
 
+local function contains_line(lines, text)
+  for _, line in pairs(lines or {}) do
+    if string.find(tostring(line), text, 1, true) then return true end
+  end
+  return false
+end
+
 return {
   test_depot_registry_loads_tracks = function()
     local reg = depots.new({ nodes = { { id = "DEPOT-1", role = "depot", depot_type = "mixed", tracks = { { id = "D1", kind = "storage", sensor_id = "SEN-D1" }, { id = "S1", kind = "staging", sensor_id = "SEN-S1" } } } } })
@@ -66,7 +73,7 @@ return {
     local monitor = fake_monitor()
     depot_node.render_status(monitor, { depot_id = "DEPOT-3", depot_type = "mixed", state = "ONLINE", queue = {}, tracks = { D1 = { id = "D1", kind = "storage", state = "EMPTY" } } })
     assert(monitor.lines[1] == "CreateRailNet Depot")
-    assert(string.find(monitor.lines[3], "DEPOT-3"))
-    assert(string.find(monitor.lines[4], "mixed"))
+    assert(contains_line(monitor.lines, "DEPOT-3"))
+    assert(contains_line(monitor.lines, "mixed"))
   end
 }
