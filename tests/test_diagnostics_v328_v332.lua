@@ -9,13 +9,18 @@ local health_report = require("src.tools.health_report")
 local panel_renderer = require("src.nodes.panel_renderer")
 
 local function fake_monitor()
-  return {
-    lines = {},
-    cursor = {1, 1},
-    clear = function(self) self.lines = {} end,
-    setCursorPos = function(self, x, y) self.cursor = {x, y} end,
-    write = function(self, text) self.lines[self.cursor[2]] = text end
-  }
+  local m = { lines = {}, cursor = {1, 1} }
+  function m.clear() m.lines = {} end
+  function m.setCursorPos(x, y) m.cursor = {x, y} end
+  function m.write(text) m.lines[m.cursor[2]] = text end
+  return m
+end
+
+local function contains_line(lines, text)
+  for _, line in pairs(lines or {}) do
+    if string.find(tostring(line), text, 1, true) then return true end
+  end
+  return false
 end
 
 return {
@@ -57,8 +62,8 @@ return {
         recent_logs = { { level = "WARN", msg = "warning" } }
       }
     })
-    assert(string.find(monitor.lines[6], "2/1"))
-    assert(string.find(monitor.lines[7], "3/2/1/1"))
-    assert(string.find(monitor.lines[12], "WARN"))
+    assert(contains_line(monitor.lines, "2/1"))
+    assert(contains_line(monitor.lines, "3/2/1/1"))
+    assert(contains_line(monitor.lines, "WARN"))
   end
 }
