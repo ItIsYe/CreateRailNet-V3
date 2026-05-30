@@ -25,6 +25,7 @@ local tests = {
   "tests/test_route_resolver.lua",
   "tests/test_service_plans.lua",
   "tests/test_create_train_schedule.lua",
+  "tests/test_create_station_schedule_tool.lua",
   "tests/test_dwell_manual_control.lua",
   "tests/test_v316_v318.lua",
   "tests/test_tools_v322_v326.lua",
@@ -50,30 +51,16 @@ end
 
 for _, path in ipairs(tests) do
   local ok, mod = pcall(dofile, path)
-  if not ok then
-    total = total + 1
-    failed = failed + 1
-    print("FAIL load " .. path .. ": " .. tostring(mod))
-  elseif type(mod) ~= "table" then
-    total = total + 1
-    failed = failed + 1
-    print("FAIL load " .. path .. ": test file must return table")
+  if not ok then total = total + 1; failed = failed + 1; print("FAIL load " .. path .. ": " .. tostring(mod))
+  elseif type(mod) ~= "table" then total = total + 1; failed = failed + 1; print("FAIL load " .. path .. ": test file must return table")
   else
     for _, name in ipairs(sorted_names(mod)) do
       local fn = mod[name]
       total = total + 1
-      if type(fn) ~= "function" then
-        failed = failed + 1
-        print("FAIL " .. path .. "." .. name .. ": test is not function")
+      if type(fn) ~= "function" then failed = failed + 1; print("FAIL " .. path .. "." .. name .. ": test is not function")
       else
         local ok_test, err = pcall(fn)
-        if ok_test then
-          passed = passed + 1
-          print("PASS " .. name)
-        else
-          failed = failed + 1
-          print("FAIL " .. name .. ": " .. tostring(err))
-        end
+        if ok_test then passed = passed + 1; print("PASS " .. name) else failed = failed + 1; print("FAIL " .. name .. ": " .. tostring(err)) end
       end
     end
   end
