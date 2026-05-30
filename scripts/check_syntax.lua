@@ -75,6 +75,7 @@ local files = {
   "src/tools/health_report.lua",
   "src/tools/peripheral_inspector.lua",
   "src/tools/redstone_side_report.lua",
+  "src/tools/runtime_packager.lua",
   "src/tools/setup_wizard.lua",
   "src/tools/system_check.lua",
   "tests/harness/cc_bootstrap.lua",
