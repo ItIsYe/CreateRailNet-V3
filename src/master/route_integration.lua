@@ -89,6 +89,24 @@ function route_integration.new(context)
     return true
   end
 
+  local function reserve_station_platform(station_id, payload, route_id, destination)
+    if not self.station_registry or not station_id then return nil end
+    if payload.platform_id then
+      return self.station_registry.update_platform(station_id, payload.platform_id, { state = "RESERVED", train_id = payload.train_id, route_id = route_id, destination = destination })
+    end
+    local platform = self.station_registry.reserve_platform and self.station_registry.reserve_platform(station_id, { train_id = payload.train_id, route_id = route_id, destination = destination, kind = payload.kind })
+    return platform
+  end
+
+  local function reserve_depot_track(depot_id, payload, route_id, destination)
+    if not self.depot_registry or not depot_id then return nil end
+    if payload.track_id then
+      return self.depot_registry.update_track(depot_id, payload.track_id, { state = "RESERVED", train_id = payload.train_id, route_id = route_id, destination = destination })
+    end
+    local track = self.depot_registry.reserve_track and self.depot_registry.reserve_track(depot_id, { train_id = payload.train_id, route_id = route_id, destination = destination, kind = payload.kind })
+    return track
+  end
+
   function self.send_service_plan(train_id)
     if not self.service_plan_registry then return false, "service plan registry unavailable" end
     local plan = self.service_plan_registry.for_train(train_id)
@@ -145,6 +163,9 @@ function route_integration.new(context)
     local train_id = payload.train_id or src
     audit("train_arrival", { train_id = train_id, station = payload.station, route_id = payload.route_id })
     if self.train_registry then self.train_registry.update_status(train_id, { state = "ARRIVED", destination = payload.station or payload.destination, route_id = payload.route_id }) end
+    if payload.station and payload.platform_id and self.station_registry then
+      self.station_registry.update_platform(payload.station, payload.platform_id, { state = "DWELLING", train_id = train_id, route_id = payload.route_id, destination = payload.destination })
+    end
     if self.service_plan_registry then
       self.service_plan_registry.mark_current(train_id, "ARRIVED")
       local next_stop = self.service_plan_registry.advance(train_id)
@@ -171,8 +192,9 @@ function route_integration.new(context)
     local destination = (route and route.to) or request.destination or request.to
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
     if self.depot_registry then
-      self.depot_registry.enqueue(payload.depot_id or src, request)
-      if payload.track_id then self.depot_registry.update_track(payload.depot_id or src, payload.track_id, { state = ok and "DEPARTING" or "READY", train_id = train_id, route_id = route_id, destination = destination }) end
+      if not ok then self.depot_registry.enqueue(payload.depot_id or src, request) end
+      local track = reserve_depot_track(payload.depot_id or src, payload, route_id, destination)
+      if track then track.state = ok and "DEPARTING" or "READY" end
     end
 
     if train_id then
@@ -194,7 +216,10 @@ function route_integration.new(context)
 
     local destination = (route and route.to) or request.destination or request.to
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
-    if self.station_registry then self.station_registry.update_platform(payload.station_id or src, payload.platform_id, { state = ok and "DEPARTING" or "READY_TO_DEPART", train_id = train_id, route_id = route_id, destination = destination }) end
+    if self.station_registry then
+      local platform = reserve_station_platform(payload.station_id or src, payload, route_id, destination)
+      if platform then platform.state = ok and "DEPARTING" or "READY_TO_DEPART" end
+    end
 
     if ok then send_cmd(self.network, resolve_train_node(train_id), "depart_authorized", { train_id = train_id, route_id = route_id, destination = destination })
     else send_cmd(self.network, resolve_train_node(train_id), "hold_position", { train_id = train_id, route_id = route_id, reason = status }) end
