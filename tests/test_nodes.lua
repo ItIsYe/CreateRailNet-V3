@@ -9,7 +9,7 @@ return {
   assert(#sent==1 and sent[1].type=="ack")
  end,
  test_sensor_check_emits_event=function()
-  local sent={} local node={net={send=function(_,t,d,p) table.insert(sent,p) end}}
+  local sent={} local node={net={send=function(_,_,p) table.insert(sent,p) end}}
   local adapter={readOccupied=function() return true,true end}
   local check=sensor_node.build_check_fn(node,adapter,"SEN-1","MASTER-1"); check(); assert(sent[1].sensor_id=="SEN-1" and sent[1].action=="enter")
  end
