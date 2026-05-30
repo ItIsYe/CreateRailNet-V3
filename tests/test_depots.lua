@@ -7,23 +7,16 @@ local depots = require("src.domain.depots")
 local depot_node = require("src.nodes.depot_node")
 
 local function fake_monitor()
-  return {
-    lines = {},
-    cursor = {1, 1},
-    clear = function(self) self.lines = {} end,
-    setCursorPos = function(self, x, y) self.cursor = {x, y} end,
-    write = function(self, text) self.lines[self.cursor[2]] = text end
-  }
+  local m = { lines = {}, cursor = {1, 1} }
+  function m.clear() m.lines = {} end
+  function m.setCursorPos(x, y) m.cursor = {x, y} end
+  function m.write(text) m.lines[m.cursor[2]] = text end
+  return m
 end
 
 return {
   test_depot_registry_loads_tracks = function()
-    local reg = depots.new({ nodes = {
-      { id = "DEPOT-1", role = "depot", depot_type = "mixed", tracks = {
-        { id = "D1", kind = "storage", sensor_id = "SEN-D1" },
-        { id = "S1", kind = "staging", sensor_id = "SEN-S1" }
-      } }
-    } })
+    local reg = depots.new({ nodes = { { id = "DEPOT-1", role = "depot", depot_type = "mixed", tracks = { { id = "D1", kind = "storage", sensor_id = "SEN-D1" }, { id = "S1", kind = "staging", sensor_id = "SEN-S1" } } } } })
     local depot = reg.get("DEPOT-1")
     assert(depot)
     assert(depot.tracks.D1.kind == "storage")
@@ -63,9 +56,7 @@ return {
   end,
 
   test_depot_node_builds_track_map = function()
-    local tracks = depot_node.build_track_map({ depot_type = "mixed", tracks = {
-      { id = "A", sensor_id = "SEN-A", ready_after_seconds = 3 }
-    } })
+    local tracks = depot_node.build_track_map({ depot_type = "mixed", tracks = { { id = "A", sensor_id = "SEN-A", ready_after_seconds = 3 } } })
     assert(tracks.A)
     assert(tracks.A.sensor_id == "SEN-A")
     assert(tracks.A.ready_after_seconds == 3)
