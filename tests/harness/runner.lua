@@ -33,7 +33,8 @@ local tests = {
   "tests/test_audit_maintenance_v333_v338.lua",
   "tests/test_smoke_load.lua",
   "tests/test_stability_regressions.lua",
-  "tests/test_ingame_inspection_tools.lua"
+  "tests/test_ingame_inspection_tools.lua",
+  "tests/test_sensor_occupancy_flow.lua"
 }
 
 local total = 0
@@ -79,6 +80,4 @@ for _, path in ipairs(tests) do
 end
 
 print(string.format("%d/%d PASS (%d failed)", passed, total, failed))
-if failed ~= 0 or passed ~= total then
-  error("tests failed")
-end
+if failed ~= 0 or passed ~= total then error("tests failed") end
