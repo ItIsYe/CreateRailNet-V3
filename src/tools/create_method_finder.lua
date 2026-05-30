@@ -7,9 +7,7 @@ local inspector = require("src.tools.peripheral_inspector")
 
 local finder = {}
 
-local DEFAULT_PATTERNS = {
-  "train", "schedule", "station", "destination", "speed", "stop", "start", "assemble", "disassemble", "track", "signal", "switch"
-}
+local DEFAULT_PATTERNS = { "train", "schedule", "station", "destination", "speed", "stop", "start", "assemble", "disassemble", "track", "signal", "switch" }
 
 function finder.find(args)
   local patterns = args and args.patterns or DEFAULT_PATTERNS
@@ -20,13 +18,8 @@ function finder.run(args)
   local matches = finder.find(args or {})
   print("CreateRailNet Create Method Finder")
   if #matches == 0 then print("No matching methods found") end
-  for _, match in ipairs(matches) do
-    print(tostring(match.name) .. " type=" .. tostring(match.type) .. " ." .. tostring(match.method))
-  end
+  for _, match in ipairs(matches) do print(tostring(match.name) .. " type=" .. tostring(match.type) .. " ." .. tostring(match.method)) end
   return matches
 end
-
-local raw = {...}
-if raw and #raw > 0 then finder.run({ patterns = raw }) end
 
 return finder
