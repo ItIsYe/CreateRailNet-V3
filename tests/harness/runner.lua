@@ -39,7 +39,8 @@ local tests = {
   "tests/test_setup_wizard.lua",
   "tests/test_sim_basic_flow.lua",
   "tests/test_sim_multitrain_conflict.lua",
-  "tests/test_runtime_manifest.lua"
+  "tests/test_runtime_manifest.lua",
+  "tests/test_runtime_packager.lua"
 }
 
 local total = 0
