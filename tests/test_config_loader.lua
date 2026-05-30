@@ -14,6 +14,18 @@ return {
     assert(type(cfg.nodes) == "table")
   end,
 
+  test_config_loads_create_example = function()
+    local cfg = config.load("configs/templates/network.create.example.json")
+    assert(cfg.master_id == "MASTER-1")
+    assert(cfg.nodes[2].create_station == "Create_Station_0")
+  end,
+
+  test_config_loads_mixed_example = function()
+    local cfg = config.load("configs/templates/network.mixed.example.json")
+    assert(cfg.channel == 778)
+    assert(cfg.nodes[2].schedule_station == "Create_Station_0")
+  end,
+
   test_config_load_reports_missing_file = function()
     local ok, err = pcall(function() config.load("configs/templates/does-not-exist.json") end)
     assert(not ok)
