@@ -35,7 +35,8 @@ local tests = {
   "tests/test_smoke_load.lua",
   "tests/test_stability_regressions.lua",
   "tests/test_ingame_inspection_tools.lua",
-  "tests/test_sensor_occupancy_flow.lua"
+  "tests/test_sensor_occupancy_flow.lua",
+  "tests/test_setup_wizard.lua"
 }
 
 local total = 0
