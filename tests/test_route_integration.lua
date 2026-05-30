@@ -8,12 +8,7 @@ local service_plans = require("src.domain.service_plans")
 
 local function fake_network()
   local sent = {}
-  return sent, {
-    send = function(msg_type, dst, payload)
-      table.insert(sent, { type = msg_type, dst = dst, payload = payload })
-      return { id = "msg-test" }
-    end
-  }
+  return sent, { send = function(msg_type, dst, payload) table.insert(sent, { type = msg_type, dst = dst, payload = payload }); return { id = "msg-test" } end }
 end
 
 local function fake_train_registry()
@@ -32,11 +27,7 @@ return {
   test_train_request_authorizes_when_dispatcher_reserves = function()
     local sent, network = fake_network()
     local trains = fake_train_registry()
-    local integration = route_integration.new({
-      network = network,
-      train_registry = trains,
-      dispatcher = { request_route = function() return true, "reserved" end }
-    })
+    local integration = route_integration.new({ network = network, train_registry = trains, dispatcher = { request_route = function() return true, "reserved" end } })
     local ok = integration.handle_train_request({ train_id = "TRAIN-1", route_id = "R1", to = "ST-B" }, "TRAIN-NODE-1")
     assert(ok)
     assert(sent[1].dst == "TRAIN-NODE-1")
@@ -47,11 +38,7 @@ return {
   test_train_request_holds_when_queued = function()
     local sent, network = fake_network()
     local trains = fake_train_registry()
-    local integration = route_integration.new({
-      network = network,
-      train_registry = trains,
-      dispatcher = { request_route = function() return false, "queued" end }
-    })
+    local integration = route_integration.new({ network = network, train_registry = trains, dispatcher = { request_route = function() return false, "queued" end } })
     local ok = integration.handle_train_request({ train_id = "TRAIN-1", route_id = "R1" }, "TRAIN-NODE-1")
     assert(not ok)
     assert(sent[1].payload.cmd == "hold_position")
@@ -78,10 +65,7 @@ return {
       network = network,
       train_registry = fake_train_registry(),
       dispatcher = { request_route = function() return true, "reserved" end },
-      depot_registry = {
-        enqueue = function() end,
-        update_track = function(_, _, patch) depot_patch = patch end
-      }
+      depot_registry = { enqueue = function() end, update_track = function(_, _, patch) depot_patch = patch; return patch end }
     })
     local ok = integration.handle_depot_request({ depot_id = "DEPOT-1", track_id = "D1", train_id = "TRAIN-1", route_id = "R1" }, "DEPOT-1")
     assert(ok)
@@ -96,9 +80,7 @@ return {
       network = network,
       train_registry = fake_train_registry(),
       dispatcher = { request_route = function() return false, "queued" end },
-      station_registry = {
-        update_platform = function(_, _, patch) platform_patch = patch end
-      }
+      station_registry = { update_platform = function(_, _, patch) platform_patch = patch; return patch end }
     })
     local ok = integration.handle_station_ready({ station_id = "ST-A", platform_id = "P1", train_id = "TRAIN-1", route_id = "R1" }, "ST-A")
     assert(not ok)
