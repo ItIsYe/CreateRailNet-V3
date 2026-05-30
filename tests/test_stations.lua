@@ -39,6 +39,34 @@ return {
     assert(station.platforms.P2.train_id == "TRAIN-1")
   end,
 
+  test_station_finds_matching_free_platform = function()
+    local reg = stations.new({ nodes = {
+      { id = "ST-A", role = "station", station_type = "mixed", platforms = {
+        { id = "P1", kind = "passenger" },
+        { id = "F1", kind = "freight" }
+      } }
+    } })
+    local platform = reg.find_available_platform("ST-A", { kind = "freight" })
+    assert(platform.id == "F1")
+  end,
+
+  test_station_reserve_and_release_platform = function()
+    local reg = stations.new({ nodes = { { id = "ST-A", role = "station", platforms = { { id = "P1", kind = "passenger" } } } } })
+    local platform = reg.reserve_platform("ST-A", { train_id = "TRAIN-1", route_id = "R1", kind = "passenger" })
+    assert(platform.state == "RESERVED")
+    assert(platform.train_id == "TRAIN-1")
+    local ok = reg.release_platform("ST-A", "P1")
+    assert(ok)
+    assert(reg.get("ST-A").platforms.P1.state == "EMPTY")
+  end,
+
+  test_station_rejects_occupied_platform = function()
+    local reg = stations.new({ nodes = { { id = "ST-A", role = "station", platforms = { { id = "P1", kind = "passenger", state = "OCCUPIED" } } } } })
+    local platform, err = reg.find_available_platform("ST-A", { kind = "passenger" })
+    assert(platform == nil)
+    assert(err == "no available platform")
+  end,
+
   test_station_node_builds_platform_map = function()
     local platforms = station_node.build_platform_map({ station_type = "passenger", platforms = {
       { id = "A", sensor_id = "SEN-A", dwell_seconds = 5 }
@@ -51,12 +79,7 @@ return {
 
   test_station_render_writes_monitor = function()
     local monitor = fake_monitor()
-    station_node.render_status(monitor, {
-      station_id = "ST-C",
-      station_type = "freight",
-      state = "ONLINE",
-      platforms = { G1 = { id = "G1", kind = "freight", state = "EMPTY" } }
-    })
+    station_node.render_status(monitor, { station_id = "ST-C", station_type = "freight", state = "ONLINE", platforms = { G1 = { id = "G1", kind = "freight", state = "EMPTY" } } })
     assert(monitor.lines[1] == "CreateRailNet Station")
     assert(string.find(monitor.lines[3], "ST-C"))
     assert(string.find(monitor.lines[4], "freight"))
