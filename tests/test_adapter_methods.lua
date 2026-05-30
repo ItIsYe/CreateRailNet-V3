@@ -7,16 +7,12 @@ local helper = require("src.adapter.methods")
 
 local function backend()
   return {
-    wrap = function(_, id)
-      if id == "DEVICE" then
-        return { readValue = function(value) return value end }
-      end
+    wrap = function(id)
+      if id == "DEVICE" then return { readValue = function(value) return value end } end
       return nil, "device unavailable"
     end,
-    methods = function(_, id)
-      if id == "DEVICE" then
-        return { "readValue" }
-      end
+    methods = function(id)
+      if id == "DEVICE" then return { "readValue" } end
       return {}
     end
   }
