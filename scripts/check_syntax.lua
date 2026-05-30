@@ -72,6 +72,7 @@ local files = {
   "src/tools/health_report.lua",
   "src/tools/peripheral_inspector.lua",
   "src/tools/redstone_side_report.lua",
+  "src/tools/setup_wizard.lua",
   "src/tools/system_check.lua",
   "tests/harness/cc_bootstrap.lua",
   "tests/harness/runner.lua"
@@ -91,12 +92,7 @@ for _, path in ipairs(files) do
   if file_exists(path) then
     total = total + 1
     local ok, err = loadfile(path)
-    if ok then
-      print("PASS syntax " .. path)
-    else
-      failed = failed + 1
-      print("FAIL syntax " .. path .. ": " .. tostring(err))
-    end
+    if ok then print("PASS syntax " .. path) else failed = failed + 1; print("FAIL syntax " .. path .. ": " .. tostring(err)) end
   else
     print("SKIP missing " .. path)
   end
