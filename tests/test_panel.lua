@@ -7,7 +7,11 @@ local panel_state = require("src.domain.panel_state")
 local renderer = require("src.nodes.panel_renderer")
 
 local function fake_monitor()
-  return { lines = {}, cursor = {1, 1}, clear = function(self) self.lines = {} end, setCursorPos = function(self, x, y) self.cursor = {x, y} end, write = function(self, text) self.lines[self.cursor[2]] = text end }
+  local m = { lines = {}, cursor = {1, 1} }
+  function m.clear() m.lines = {} end
+  function m.setCursorPos(x, y) m.cursor = {x, y} end
+  function m.write(text) m.lines[m.cursor[2]] = text end
+  return m
 end
 
 return {
