@@ -38,6 +38,30 @@ return {
     assert(item.route_id == "R1")
   end,
 
+  test_depot_queue_prioritizes_high_priority = function()
+    local reg = depots.new({ nodes = {} })
+    reg.enqueue("DEPOT-2", { train_id = "LOW", priority = 1 })
+    reg.enqueue("DEPOT-2", { train_id = "HIGH", priority = 10 })
+    local item = reg.dequeue("DEPOT-2")
+    assert(item.train_id == "HIGH")
+  end,
+
+  test_depot_finds_matching_track = function()
+    local reg = depots.new({ nodes = { { id = "DEPOT-1", role = "depot", tracks = { { id = "S1", kind = "storage" }, { id = "M1", kind = "mixed" } } } } })
+    local track = reg.find_available_track("DEPOT-1", { kind = "passenger" })
+    assert(track.id == "M1")
+  end,
+
+  test_depot_reserve_and_release_track = function()
+    local reg = depots.new({ nodes = { { id = "DEPOT-1", role = "depot", tracks = { { id = "D1", kind = "storage" } } } } })
+    local track = reg.reserve_track("DEPOT-1", { train_id = "TRAIN-1", route_id = "R1", kind = "storage" })
+    assert(track.state == "RESERVED")
+    assert(track.train_id == "TRAIN-1")
+    local ok = reg.release_track("DEPOT-1", "D1")
+    assert(ok)
+    assert(reg.get("DEPOT-1").tracks.D1.state == "EMPTY")
+  end,
+
   test_depot_node_builds_track_map = function()
     local tracks = depot_node.build_track_map({ depot_type = "mixed", tracks = {
       { id = "A", sensor_id = "SEN-A", ready_after_seconds = 3 }
@@ -49,13 +73,7 @@ return {
 
   test_depot_render_writes_monitor = function()
     local monitor = fake_monitor()
-    depot_node.render_status(monitor, {
-      depot_id = "DEPOT-3",
-      depot_type = "mixed",
-      state = "ONLINE",
-      queue = {},
-      tracks = { D1 = { id = "D1", kind = "storage", state = "EMPTY" } }
-    })
+    depot_node.render_status(monitor, { depot_id = "DEPOT-3", depot_type = "mixed", state = "ONLINE", queue = {}, tracks = { D1 = { id = "D1", kind = "storage", state = "EMPTY" } } })
     assert(monitor.lines[1] == "CreateRailNet Depot")
     assert(string.find(monitor.lines[3], "DEPOT-3"))
     assert(string.find(monitor.lines[4], "mixed"))
