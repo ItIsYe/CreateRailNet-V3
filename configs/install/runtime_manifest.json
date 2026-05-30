@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "purpose": "Runtime-only file manifest for ingame CC:Tweaked installation.",
+  "include": [
+    "startup.lua",
+    "scripts/start_master.lua",
+    "scripts/start_train.lua",
+    "scripts/start_panel.lua",
+    "scripts/start_signal.lua",
+    "scripts/start_sensor.lua",
+    "scripts/start_switch.lua",
+    "scripts/start_station.lua",
+    "scripts/start_depot.lua",
+    "src/shared/**",
+    "src/domain/**",
+    "src/adapter/**",
+    "src/master/**",
+    "src/nodes/**",
+    "configs/templates/network.create.example.json",
+    "configs/templates/network.mixed.example.json",
+    "configs/templates/network.full.example.json",
+    "configs/templates/network.service_plan.example.json"
+  ],
+  "exclude": [
+    "src/sim/**",
+    "tests/**",
+    "docs/**",
+    ".github/**",
+    "scripts/check_syntax.lua",
+    "scripts/check_configs.lua",
+    "scripts/run_tests.lua",
+    "src/tools/**"
+  ],
+  "notes": [
+    "src/sim is offline-only and must never be installed on ingame computers.",
+    "tests and GitHub workflow files are offline-only.",
+    "src/tools contains development and diagnostic tools; install manually only when explicitly needed."
+  ]
+}
