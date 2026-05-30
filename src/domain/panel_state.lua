@@ -5,20 +5,16 @@ Public API: new(config, panel_id) -> state with update, set_page, next_page, act
 
 local panel_state = {}
 
-local DEFAULT_PAGES = { "overview", "trains", "stations", "depots", "service_plans", "manual", "diagnostics" }
+local DEFAULT_PAGES = { "overview", "trains", "stations", "depots", "service_plans", "manual", "diagnostics", "audit", "maintenance" }
 
 local function copy_table(src)
   local dst = {}
-  for k, v in pairs(src or {}) do
-    if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end
-  end
+  for k, v in pairs(src or {}) do if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end end
   return dst
 end
 
 local function find_panel_config(config, panel_id)
-  for _, node in ipairs((config and config.nodes) or {}) do
-    if node.id == panel_id then return node end
-  end
+  for _, node in ipairs((config and config.nodes) or {}) do if node.id == panel_id then return node end end
   return { id = panel_id, role = "panel" }
 end
 
@@ -29,24 +25,7 @@ end
 function panel_state.new(config, panel_id)
   local panel_cfg = find_panel_config(config, panel_id)
   local pages = panel_cfg.pages or DEFAULT_PAGES
-  local state = {
-    panel_id = panel_id,
-    display_name = panel_cfg.display_name or panel_id,
-    pages = pages,
-    page_index = 1,
-    page = pages[1] or "overview",
-    master_state = "UNKNOWN",
-    last_update = 0,
-    overview = {},
-    trains = {},
-    stations = {},
-    depots = {},
-    service_plans = {},
-    diagnostics = {},
-    manual_actions = copy_table(default_actions(panel_cfg)),
-    last_action = nil
-  }
-
+  local state = { panel_id = panel_id, display_name = panel_cfg.display_name or panel_id, pages = pages, page_index = 1, page = pages[1] or "overview", master_state = "UNKNOWN", last_update = 0, overview = {}, trains = {}, stations = {}, depots = {}, service_plans = {}, diagnostics = {}, manual_actions = copy_table(default_actions(panel_cfg)), last_action = nil }
   local self = {}
 
   function self.update(payload)
@@ -63,9 +42,7 @@ function panel_state.new(config, panel_id)
   end
 
   function self.set_page(page)
-    for i, candidate in ipairs(state.pages) do
-      if candidate == page then state.page_index = i; state.page = page; return true end
-    end
+    for i, candidate in ipairs(state.pages) do if candidate == page then state.page_index = i; state.page = page; return true end end
     return false
   end
 
@@ -88,16 +65,11 @@ function panel_state.new(config, panel_id)
   function self.action_at(row)
     local index = row - 6
     local action = state.manual_actions[index]
-    if action then
-      state.last_action = action.label or action.action
-      return copy_table(action)
-    end
+    if action then state.last_action = action.label or action.action; return copy_table(action) end
     return nil
   end
 
-  function self.snapshot()
-    return state
-  end
+  function self.snapshot() return state end
 
   return self
 end
