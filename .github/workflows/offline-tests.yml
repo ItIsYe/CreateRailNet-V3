@@ -1,0 +1,24 @@
+name: Offline Lua checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lua-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lua
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+
+      - name: Syntax check
+        run: lua5.4 scripts/check_syntax.lua
+
+      - name: Offline tests
+        run: lua5.4 scripts/run_tests.lua
