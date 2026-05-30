@@ -65,7 +65,4 @@ function system_check.run(path)
   return true
 end
 
-local args = {...}
-if #args > 0 then system_check.run(args[1]) end
-
 return system_check
