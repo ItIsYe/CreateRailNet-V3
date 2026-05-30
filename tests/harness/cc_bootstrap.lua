@@ -10,12 +10,19 @@ local function install_fs()
   _G.fs = {
     open = function(path, mode)
       local fh = assert(io.open(path, mode == "w" and "w" or "r"))
-      return {
-        readAll = function() return fh:read("*a") end,
-        read = function(_, fmt) return fh:read(fmt or "*a") end,
-        write = function(_, text) fh:write(text) end,
-        close = function() fh:close() end
-      }
+      local handle = {}
+      function handle.readAll() return fh:read("*a") end
+      function handle.read(_, fmt) return fh:read(fmt or "*a") end
+      function handle.write(a, b)
+        local text = b ~= nil and b or a
+        fh:write(tostring(text or ""))
+      end
+      function handle.writeLine(a, b)
+        local text = b ~= nil and b or a
+        fh:write(tostring(text or ""), "\n")
+      end
+      function handle.close() fh:close() end
+      return handle
     end,
     exists = function(path)
       local fh = io.open(path, "r")
@@ -34,16 +41,9 @@ end
 local function install_textutils()
   if _G.textutils then return end
   _G.textutils = {
-    serialize = function(value)
-      if type(value) == "table" then return "<table>" end
-      return tostring(value)
-    end,
-    unserializeJSON = function()
-      return nil
-    end,
-    serializeJSON = function(value)
-      return tostring(value)
-    end
+    serialize = function(value) if type(value) == "table" then return "<table>" end; return tostring(value) end,
+    unserializeJSON = function() return nil end,
+    serializeJSON = function(value) return tostring(value) end
   }
 end
 
@@ -71,14 +71,8 @@ local function install_shell()
 end
 
 function bootstrap.install()
-  install_os()
-  install_fs()
-  install_textutils()
-  install_peripheral()
-  install_shell()
-  return true
+  install_os(); install_fs(); install_textutils(); install_peripheral(); install_shell(); return true
 end
 
 bootstrap.install()
-
 return bootstrap
