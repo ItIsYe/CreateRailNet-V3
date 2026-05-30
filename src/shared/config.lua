@@ -19,8 +19,11 @@ local function read_file(path)
   end
 
   if fs and fs.open then
-    local fh = fs.open(path, "r")
-    if fh then
+    if fs.exists and not fs.exists(path) then
+      error("config load failed: cannot open " .. tostring(path))
+    end
+    local ok, fh = pcall(fs.open, path, "r")
+    if ok and fh then
       local content = fh.readAll and fh.readAll() or fh.read and fh.read("*a")
       fh.close()
       return content
