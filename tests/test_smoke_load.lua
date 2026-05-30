@@ -57,9 +57,14 @@ local modules = {
   "src.nodes.switch_node",
   "src.nodes.train_node",
   "src.tools.check_config",
+  "src.tools.create_method_finder",
+  "src.tools.create_station_schedule_test",
   "src.tools.diagnose_config",
+  "src.tools.hardware_binding_report",
   "src.tools.health_report",
   "src.tools.peripheral_inspector",
+  "src.tools.redstone_side_report",
+  "src.tools.setup_wizard",
   "src.tools.system_check"
 }
 
