@@ -60,6 +60,7 @@ return {
     assert(sent[1].payload.cmd == "set_schedule")
     assert(sent[1].payload.service_plan == "SP1")
     assert(#sent[1].payload.stops == 2)
-    assert(sent[1].payload.schedule.stops[1].route_id == "R1")
+    assert(sent[1].payload.schedule.entries[1].instruction.id == "create:destination")
+    assert(sent[1].payload.schedule.entries[1].instruction.data.text == "B")
   end
 }
