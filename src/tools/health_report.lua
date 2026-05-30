@@ -57,7 +57,4 @@ function health_report.run(args)
   return report.ok, report
 end
 
-local raw = {...}
-if #raw > 0 then health_report.run({ config = raw[1] }) end
-
 return health_report
