@@ -1,6 +1,6 @@
 --[[
 Purpose: Domain registry for stations and their platforms/tracks.
-Public API: new(config) -> registry with register, update_platform, update_status, find_available_platform, reserve_platform, release_platform, list, get.
+Public API: new(config) -> registry with register, update_platform, update_status, resolve_create_destination, find_available_platform, reserve_platform, release_platform, list, get.
 ]]
 
 local stations = {}
@@ -49,6 +49,10 @@ local function normalize_platform(platform)
   }
 end
 
+local function create_name_for(node, station_id)
+  return node.create_station_name or node.create_destination or node.schedule_destination or node.create_name or station_id
+end
+
 local function platform_sort(a, b)
   if (a.priority or 0) ~= (b.priority or 0) then return (a.priority or 0) > (b.priority or 0) end
   return tostring(a.id) < tostring(b.id)
@@ -65,6 +69,9 @@ function stations.new(config)
         id = station_id,
         node_id = node.id,
         display_name = node.display_name or station_id,
+        create_station_name = create_name_for(node, station_id),
+        create_destination = node.create_destination,
+        schedule_destination = node.schedule_destination,
         station_type = STATION_TYPES[node.station_type or node.type] and (node.station_type or node.type) or "mixed",
         state = node.state or "ONLINE",
         last_seen = 0,
@@ -81,15 +88,24 @@ function stations.new(config)
   function self.register(station_id, node_id, info)
     local id = station_id or node_id
     if not by_id[id] then
-      by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, station_type = (info and info.station_type) or "mixed", state = "ONLINE", last_seen = os.clock(), platforms = {} }
+      by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, create_station_name = (info and (info.create_station_name or info.create_destination or info.schedule_destination)) or id, station_type = (info and info.station_type) or "mixed", state = "ONLINE", last_seen = os.clock(), platforms = {} }
     end
     local station = by_id[id]
     station.node_id = node_id or station.node_id
     station.display_name = (info and info.display_name) or station.display_name
+    station.create_station_name = (info and (info.create_station_name or info.create_destination or info.schedule_destination)) or station.create_station_name
+    station.create_destination = (info and info.create_destination) or station.create_destination
+    station.schedule_destination = (info and info.schedule_destination) or station.schedule_destination
     station.station_type = (info and info.station_type) or station.station_type
     station.state = (info and info.state) or station.state or "ONLINE"
     station.last_seen = os.clock()
     return station
+  end
+
+  function self.resolve_create_destination(station_id, fallback)
+    local station = by_id[station_id]
+    if not station then return fallback or station_id end
+    return station.create_station_name or station.create_destination or station.schedule_destination or fallback or station_id
   end
 
   function self.update_status(station_id, status)
@@ -115,9 +131,7 @@ function stations.new(config)
     local options = opts or {}
     local candidates = {}
     for _, platform in pairs(station.platforms or {}) do
-      if FREE_STATES[platform.state or PLATFORM_STATES.EMPTY] and kind_matches(platform.kind, options.kind) then
-        table.insert(candidates, platform)
-      end
+      if FREE_STATES[platform.state or PLATFORM_STATES.EMPTY] and kind_matches(platform.kind, options.kind) then table.insert(candidates, platform) end
     end
     table.sort(candidates, platform_sort)
     if not candidates[1] then return nil, "no available platform" end
