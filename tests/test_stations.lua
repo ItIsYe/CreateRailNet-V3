@@ -15,9 +15,7 @@ local function fake_monitor()
 end
 
 local function contains_line(lines, text)
-  for _, line in pairs(lines or {}) do
-    if string.find(tostring(line), text, 1, true) then return true end
-  end
+  for _, line in pairs(lines or {}) do if string.find(tostring(line), text, 1, true) then return true end end
   return false
 end
 
@@ -29,6 +27,13 @@ return {
     assert(station.station_type == "mixed")
     assert(station.platforms.P1.kind == "passenger")
     assert(station.platforms.F1.kind == "freight")
+  end,
+
+  test_station_registry_stores_create_destination_name = function()
+    local reg = stations.new({ nodes = { { id = "ST-B", role = "station", create_station_name = "Hauptbahnhof B", station_type = "passenger", platforms = {} } } })
+    local station = reg.get("ST-B")
+    assert(station.create_station_name == "Hauptbahnhof B")
+    assert(reg.resolve_create_destination("ST-B") == "Hauptbahnhof B")
   end,
 
   test_station_registry_updates_platform = function()
