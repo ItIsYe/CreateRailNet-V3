@@ -1,14 +1,37 @@
 --[[
 Purpose: Adapter for applying official Create train schedules through Create Train Station peripherals.
-Public API: new(peripherals, opts), build_schedule(stops, opts), apply(train_id, schedule, opts), apply_stops(train_id, stops, opts).
+Public API: new(peripherals, opts), build_schedule(stops, opts), apply(train_id, schedule, opts), apply_stops(train_id, stops, opts), resolve_destination(stop, opts).
 ]]
 
 local create_train_schedule = {}
 
 local DEFAULT_TIME_UNIT_SECONDS = 1
 
-local function destination_text(stop)
-  return stop.station_name or stop.station_id or stop.to or stop.destination
+local function station_lookup(options, station_id)
+  if not station_id or station_id == "" then return nil end
+  if options.station_registry and options.station_registry.get then return options.station_registry.get(station_id) end
+  if options.stations and options.stations[station_id] then return options.stations[station_id] end
+  return nil
+end
+
+function create_train_schedule.resolve_destination(stop, opts)
+  local options = opts or {}
+  local s = stop or {}
+
+  if s.create_destination and s.create_destination ~= "" then return s.create_destination end
+  if s.create_station_name and s.create_station_name ~= "" then return s.create_station_name end
+  if s.schedule_destination and s.schedule_destination ~= "" then return s.schedule_destination end
+
+  local station_id = s.station_id or s.to or s.destination
+  local station = station_lookup(options, station_id)
+  if station then
+    if station.create_station_name and station.create_station_name ~= "" then return station.create_station_name end
+    if station.create_destination and station.create_destination ~= "" then return station.create_destination end
+    if station.schedule_destination and station.schedule_destination ~= "" then return station.schedule_destination end
+    if station.display_name and station.display_name ~= "" and options.use_display_name == true then return station.display_name end
+  end
+
+  return s.station_name or station_id
 end
 
 local function dwell_seconds(stop)
@@ -27,9 +50,9 @@ local function build_delay_condition(seconds)
   }
 end
 
-local function build_entry(stop)
-  local destination = destination_text(stop)
-  if not destination or destination == "" then return nil, "missing destination/station name" end
+local function build_entry(stop, opts)
+  local destination = create_train_schedule.resolve_destination(stop, opts)
+  if not destination or destination == "" then return nil, "missing Create destination/station name" end
   return {
     instruction = {
       id = "create:destination",
@@ -53,7 +76,7 @@ function create_train_schedule.build_schedule(stops, opts)
   }
 
   for _, stop in ipairs(stops or {}) do
-    local entry, err = build_entry(stop)
+    local entry, err = build_entry(stop, options)
     if not entry then return nil, err end
     table.insert(schedule.entries, entry)
   end
