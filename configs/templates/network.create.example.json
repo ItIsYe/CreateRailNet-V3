@@ -21,10 +21,10 @@
       {"label": "Exit Maintenance", "action": "exit_maintenance"},
       {"label": "Hold TRAIN-1", "action": "hold_train", "train_id": "TRAIN-1"}
     ]},
-    {"id": "ST-A", "role": "station", "station_type": "passenger", "display_name": "Station A", "monitor": "monitor", "platforms": [
+    {"id": "ST-A", "role": "station", "station_type": "passenger", "display_name": "Station A", "create_station_name": "Station A", "monitor": "monitor", "platforms": [
       {"id": "P1", "kind": "passenger", "sensor_id": "OBS-A", "block_id": "B-ST-A", "dwell_seconds": 5}
     ]},
-    {"id": "ST-B", "role": "station", "station_type": "passenger", "display_name": "Station B", "monitor": "monitor", "platforms": [
+    {"id": "ST-B", "role": "station", "station_type": "passenger", "display_name": "Station B", "create_station_name": "Station B", "monitor": "monitor", "platforms": [
       {"id": "P1", "kind": "passenger", "sensor_id": "OBS-B", "dwell_seconds": 5}
     ]},
     {"id": "SIG-A", "role": "signal", "peripheral": "Create_Signal_0"},
