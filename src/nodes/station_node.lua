@@ -36,9 +36,7 @@ function station_node.build_platform_map(station_config)
   local platforms = {}
   for _, platform in ipairs(station_config.platforms or station_config.tracks or {}) do
     local id = platform.id or platform.track_id or platform.name
-    if id then
-      platforms[id] = { id = id, track_id = platform.track_id or id, kind = platform.kind or platform.type or station_config.station_type or "mixed", sensor_id = platform.sensor_id, block_id = platform.block_id, dwell_seconds = platform.dwell_seconds or station_config.dwell_seconds or 15, state = PLATFORM_EMPTY, train_id = platform.train_id, train_name = platform.train_name, occupied_since = nil, last_occupied = false }
-    end
+    if id then platforms[id] = { id = id, track_id = platform.track_id or id, kind = platform.kind or platform.type or station_config.station_type or "mixed", sensor_id = platform.sensor_id, block_id = platform.block_id, dwell_seconds = platform.dwell_seconds or station_config.dwell_seconds or 15, state = platform.state or PLATFORM_EMPTY, train_id = platform.train_id, train_name = platform.train_name, occupied_since = nil, last_occupied = false } end
   end
   return platforms
 end
@@ -51,11 +49,7 @@ function station_node.render_status(monitor, state)
   monitor.setCursorPos(1, 4); monitor.write("Type: " .. tostring(state.station_type or "mixed"))
   monitor.setCursorPos(1, 5); monitor.write("State: " .. tostring(state.state or "ONLINE"))
   local row = 7
-  for platform_id, platform in pairs(state.platforms or {}) do
-    monitor.setCursorPos(1, row)
-    monitor.write(platform_id .. " " .. tostring(platform.kind or "mixed") .. " " .. tostring(platform.state or "-") .. " " .. tostring(platform.train_name or platform.train_id or ""))
-    row = row + 1
-  end
+  for platform_id, platform in pairs(state.platforms or {}) do monitor.setCursorPos(1, row); monitor.write(platform_id .. " " .. tostring(platform.kind or "mixed") .. " " .. tostring(platform.state or "-") .. " " .. tostring(platform.train_name or platform.train_id or "")); row = row + 1 end
 end
 
 local function platform_payload(state, platform)
@@ -87,10 +81,20 @@ function station_node.new_runtime(args_or_context)
     return true
   end } })
 
-  node.register = function() return node.net.send("register", context.config.master_id, { role = "station", station_id = station_id, display_name = display_name, station_type = station_type, state = state.state }) end
-  node.heartbeat = function() return node.net.heartbeat(context.config.master_id, { role = "station", station_id = station_id, display_name = display_name, station_type = station_type, state = state.state }) end
+  local function station_status_payload(reason)
+    return { role = "station", station_id = station_id, display_name = display_name, station_type = station_type, state = state.state, reconnect_reason = reason, platforms = state.platforms }
+  end
 
   local function send_platform(platform) node.net.send("event", context.config.master_id, platform_payload(state, platform)) end
+
+  local function send_full_status(reason)
+    node.net.send("register", context.config.master_id, station_status_payload(reason))
+    node.net.send("event", context.config.master_id, { type = "station_status", station_id = station_id, station_type = station_type, display_name = display_name, state = state.state, reconnect_reason = reason })
+    for _, platform in pairs(state.platforms or {}) do send_platform(platform) end
+  end
+
+  node.register = function() return send_full_status("register") end
+  node.heartbeat = function() return node.net.heartbeat(context.config.master_id, station_status_payload("heartbeat")) end
 
   local function read_train_name(platform)
     local ok, train_name = sensor_adapter.readTrainName(platform.sensor_id)
@@ -106,24 +110,18 @@ function station_node.new_runtime(args_or_context)
           if occupied ~= platform.last_occupied then
             platform.last_occupied = occupied
             if occupied then
-              platform.train_name = read_train_name(platform)
-              platform.train_id = platform.train_id or platform.train_name
-              platform.state = PLATFORM_DWELLING
-              platform.occupied_since = os.clock()
+              platform.train_name = read_train_name(platform); platform.train_id = platform.train_id or platform.train_name; platform.state = PLATFORM_DWELLING; platform.occupied_since = os.clock()
               node.net.send("event", context.config.master_id, { type = "train_arrived_station", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
             else
-              local leaving_train_id = platform.train_id
-              local leaving_train_name = platform.train_name
+              local leaving_train_id = platform.train_id; local leaving_train_name = platform.train_name
               node.net.send("event", context.config.master_id, { type = "train_left_station", station_id = station_id, platform_id = platform.id, train_id = leaving_train_id, train_name = leaving_train_name, block_id = platform.block_id })
               platform.state = PLATFORM_EMPTY; platform.train_id = nil; platform.train_name = nil; platform.occupied_since = nil
             end
             send_platform(platform)
-          elseif occupied and platform.state == PLATFORM_DWELLING and platform.occupied_since then
-            if os.clock() - platform.occupied_since >= platform.dwell_seconds then
-              platform.state = PLATFORM_READY
-              node.net.send("event", context.config.master_id, { type = "station_ready_departure", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
-              send_platform(platform)
-            end
+          elseif occupied and platform.state == PLATFORM_DWELLING and platform.occupied_since and os.clock() - platform.occupied_since >= platform.dwell_seconds then
+            platform.state = PLATFORM_READY
+            node.net.send("event", context.config.master_id, { type = "station_ready_departure", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
+            send_platform(platform)
           end
         else
           platform.state = PLATFORM_FAULT
@@ -135,8 +133,7 @@ function station_node.new_runtime(args_or_context)
 
   local old_start = node.start
   node.start = function()
-    old_start(); station_node.render_status(monitor, state); node.station_timer = os.startTimer(0.5)
-    node.net.send("event", context.config.master_id, { type = "station_status", station_id = station_id, station_type = station_type, state = state.state })
+    old_start(); station_node.render_status(monitor, state); node.station_timer = os.startTimer(0.5); send_full_status("start")
   end
 
   node.handlers.on_event = function(event)
