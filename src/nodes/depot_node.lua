@@ -37,9 +37,7 @@ function depot_node.build_track_map(depot_config)
   local tracks = {}
   for _, track in ipairs(depot_config.tracks or depot_config.slots or {}) do
     local id = track.id or track.track_id or track.name
-    if id then
-      tracks[id] = { id = id, track_id = track.track_id or id, kind = track.kind or track.type or depot_config.depot_type or "mixed", sensor_id = track.sensor_id, block_id = track.block_id, state = TRACK_EMPTY, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination, ready_after_seconds = track.ready_after_seconds or depot_config.ready_after_seconds or 5, occupied_since = nil, last_occupied = false }
-    end
+    if id then tracks[id] = { id = id, track_id = track.track_id or id, kind = track.kind or track.type or depot_config.depot_type or "mixed", sensor_id = track.sensor_id, block_id = track.block_id, state = track.state or TRACK_EMPTY, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination, ready_after_seconds = track.ready_after_seconds or depot_config.ready_after_seconds or 5, occupied_since = nil, last_occupied = false } end
   end
   return tracks
 end
@@ -52,11 +50,7 @@ function depot_node.render_status(monitor, state)
   monitor.setCursorPos(1, 4); monitor.write("Type: " .. tostring(state.depot_type or "mixed"))
   monitor.setCursorPos(1, 5); monitor.write("State: " .. tostring(state.state or "ONLINE"))
   local row = 7
-  for track_id, track in pairs(state.tracks or {}) do
-    monitor.setCursorPos(1, row)
-    monitor.write(track_id .. " " .. tostring(track.kind or "mixed") .. " " .. tostring(track.state or "-") .. " " .. tostring(track.train_name or track.train_id or ""))
-    row = row + 1
-  end
+  for track_id, track in pairs(state.tracks or {}) do monitor.setCursorPos(1, row); monitor.write(track_id .. " " .. tostring(track.kind or "mixed") .. " " .. tostring(track.state or "-") .. " " .. tostring(track.train_name or track.train_id or "")); row = row + 1 end
   monitor.setCursorPos(1, row + 1); monitor.write("Queue: " .. tostring(#(state.queue or {})))
 end
 
@@ -93,10 +87,20 @@ function depot_node.new_runtime(args_or_context)
     return true
   end } })
 
-  node.register = function() return node.net.send("register", context.config.master_id, { role = "depot", depot_id = depot_id, display_name = display_name, depot_type = depot_type, state = state.state }) end
-  node.heartbeat = function() return node.net.heartbeat(context.config.master_id, { role = "depot", depot_id = depot_id, display_name = display_name, depot_type = depot_type, state = state.state }) end
+  local function depot_status_payload(reason)
+    return { role = "depot", depot_id = depot_id, display_name = display_name, depot_type = depot_type, state = state.state, reconnect_reason = reason, tracks = state.tracks }
+  end
 
   local function send_track(track) node.net.send("event", context.config.master_id, track_payload(state, track)) end
+
+  local function send_full_status(reason)
+    node.net.send("register", context.config.master_id, depot_status_payload(reason))
+    node.net.send("event", context.config.master_id, { type = "depot_status", depot_id = depot_id, depot_type = depot_type, display_name = display_name, state = state.state, reconnect_reason = reason })
+    for _, track in pairs(state.tracks or {}) do send_track(track) end
+  end
+
+  node.register = function() return send_full_status("register") end
+  node.heartbeat = function() return node.net.heartbeat(context.config.master_id, depot_status_payload("heartbeat")) end
 
   local function read_train_name(track)
     local ok, train_name = sensor_adapter.readTrainName(track.sensor_id)
@@ -112,24 +116,18 @@ function depot_node.new_runtime(args_or_context)
           if occupied ~= track.last_occupied then
             track.last_occupied = occupied
             if occupied then
-              track.train_name = read_train_name(track)
-              track.train_id = track.train_id or track.train_name
-              track.state = TRACK_OCCUPIED
-              track.occupied_since = os.clock()
+              track.train_name = read_train_name(track); track.train_id = track.train_id or track.train_name; track.state = TRACK_OCCUPIED; track.occupied_since = os.clock()
               node.net.send("event", context.config.master_id, { type = "depot_train_arrived", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id })
             else
-              local leaving_train_id = track.train_id
-              local leaving_train_name = track.train_name
+              local leaving_train_id = track.train_id; local leaving_train_name = track.train_name
               node.net.send("event", context.config.master_id, { type = "depot_train_left", depot_id = depot_id, track_id = track.id, train_id = leaving_train_id, train_name = leaving_train_name, route_id = track.route_id })
               track.state = TRACK_EMPTY; track.train_id = nil; track.train_name = nil; track.route_id = nil; track.destination = nil; track.occupied_since = nil
             end
             send_track(track)
-          elseif occupied and track.state == TRACK_OCCUPIED and track.occupied_since then
-            if os.clock() - track.occupied_since >= track.ready_after_seconds then
-              track.state = TRACK_READY
-              node.net.send("event", context.config.master_id, { type = "depot_train_ready", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination })
-              send_track(track)
-            end
+          elseif occupied and track.state == TRACK_OCCUPIED and track.occupied_since and os.clock() - track.occupied_since >= track.ready_after_seconds then
+            track.state = TRACK_READY
+            node.net.send("event", context.config.master_id, { type = "depot_train_ready", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination })
+            send_track(track)
           end
         else
           track.state = TRACK_FAULT
@@ -141,8 +139,7 @@ function depot_node.new_runtime(args_or_context)
 
   local old_start = node.start
   node.start = function()
-    old_start(); depot_node.render_status(monitor, state); node.depot_timer = os.startTimer(0.5)
-    node.net.send("event", context.config.master_id, { type = "depot_status", depot_id = depot_id, depot_type = depot_type, state = state.state })
+    old_start(); depot_node.render_status(monitor, state); node.depot_timer = os.startTimer(0.5); send_full_status("start")
   end
 
   node.handlers.on_event = function(event)
