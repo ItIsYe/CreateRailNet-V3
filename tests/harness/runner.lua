@@ -38,6 +38,7 @@ local tests = {
   "tests/test_ingame_inspection_tools.lua",
   "tests/test_sensor_occupancy_flow.lua",
   "tests/test_master_state_store.lua",
+  "tests/test_recovery_safe_mode.lua",
   "tests/test_setup_wizard.lua",
   "tests/test_sim_basic_flow.lua",
   "tests/test_sim_multitrain_conflict.lua",
