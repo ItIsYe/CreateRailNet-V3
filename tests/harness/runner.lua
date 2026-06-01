@@ -21,6 +21,7 @@ local tests = {
   "tests/test_depots.lua",
   "tests/test_panel.lua",
   "tests/test_dispatcher_multitrain.lua",
+  "tests/test_dispatcher_recovery.lua",
   "tests/test_route_integration.lua",
   "tests/test_route_resolver.lua",
   "tests/test_service_plans.lua",
