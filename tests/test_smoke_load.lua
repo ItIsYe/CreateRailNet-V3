@@ -25,6 +25,7 @@ local modules = {
   "src.domain.depots",
   "src.domain.diagnostics",
   "src.domain.maintenance",
+  "src.domain.master_state_store",
   "src.domain.panel_state",
   "src.domain.route_queue",
   "src.domain.route_resolver",
