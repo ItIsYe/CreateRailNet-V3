@@ -29,6 +29,7 @@ local files = {
   "src/domain/depots.lua",
   "src/domain/diagnostics.lua",
   "src/domain/maintenance.lua",
+  "src/domain/master_state_store.lua",
   "src/domain/panel_state.lua",
   "src/domain/route_queue.lua",
   "src/domain/route_resolver.lua",
