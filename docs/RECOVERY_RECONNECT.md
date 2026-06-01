@@ -1,4 +1,4 @@
-# Recovery and Reconnect V1/V2
+# Recovery and Reconnect V1/V2/V3
 
 ## Goal
 
@@ -115,7 +115,7 @@ recovery_required is cleared by the incoming state payload if absent/false
 
 ## Dispatcher recovery V2
 
-The dispatcher now supports in-memory snapshot/restore:
+The dispatcher supports in-memory snapshot/restore:
 
 ```lua
 dispatcher.snapshot()
@@ -176,9 +176,68 @@ TRAIN-1.current_block = B1
 
 Queued route requests are restored into a fresh queue object so they can continue being processed after recovery.
 
+## Persistent recovery V3
+
+The master runtime now persists dispatcher snapshots to disk through:
+
+```text
+src/domain/master_state_store.lua
+```
+
+Default state file:
+
+```text
+state/master_state.json
+```
+
+A config can override it with:
+
+```json
+{
+  "state_file": "state/my_network_master_state.json"
+}
+```
+
+### Save triggers
+
+The master saves a dispatcher snapshot after safety-relevant events, including:
+
+```text
+register/reconnect
+sensor enter/leave
+route request
+train arrival
+station departure request
+depot dispatch request
+manual control
+timeout
+dwell processing
+```
+
+### Restore trigger
+
+On `runtime.start()`, the master tries to load the saved dispatcher snapshot and calls:
+
+```lua
+dispatcher.restore(snapshot)
+```
+
+If no file exists, restore is skipped with `missing`.
+
+### Panel diagnostics
+
+The panel snapshot includes:
+
+```text
+diagnostics.recovery.restored
+diagnostics.recovery.saved
+diagnostics.recovery.last_error
+diagnostics.recovery.last_save_reason
+```
+
 ## Important limitation
 
-Dispatcher recovery V2 provides snapshot/restore primitives, but persistent disk save/load is a later block. Until disk persistence is added, this protects simulation/runtime handoff code paths but does not yet survive a full CC computer reboot by itself.
+Persistent recovery V3 persists dispatcher state only. Station/depot physical occupancy still depends on reconnect snapshots from the station/depot nodes. If there is doubt after a real reboot, operator review is still required before clearing UNKNOWN or FAULT states.
 
 ## Files involved
 
@@ -189,8 +248,10 @@ src/nodes/station_node.lua
 src/domain/stations.lua
 src/nodes/depot_node.lua
 src/domain/depots.lua
+src/domain/master_state_store.lua
 src/master/runtime.lua
 src/master/dispatcher.lua
 tests/test_sensor_occupancy_flow.lua
 tests/test_dispatcher_recovery.lua
+tests/test_master_state_store.lua
 ```
