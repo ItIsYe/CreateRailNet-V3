@@ -1,6 +1,6 @@
 --[[
-Purpose: Master event runtime for modem, UI, timeout handling, audit, maintenance guard, and persistent dispatcher recovery.
-Public API: new(context) -> runtime with handle_event(event), run(), save_recovery_state(), restore_recovery_state().
+Purpose: Master event runtime for modem, UI, timeout handling, audit, maintenance guard, persistent dispatcher recovery, and safe recovery mode.
+Public API: new(context) -> runtime with handle_event(event), run(), save_recovery_state(), restore_recovery_state(), confirm_recovery().
 ]]
 
 local message_handlers = require("src.shared.message_handlers")
@@ -29,7 +29,7 @@ function master_runtime.new(context)
     state_store = context.state_store or master_state_store.new((context.config and context.config.state_file) or nil),
     auto_restore_state = context.auto_restore_state ~= false,
     auto_save_state = context.auto_save_state ~= false,
-    recovery = { restored = false, saved = false, last_error = nil },
+    recovery = { restored = false, saved = false, required = false, confirmed = true, last_error = nil, last_save_reason = nil },
     pull_event = context.pull_event or os.pullEvent,
     heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
     timeout_timer = nil,
@@ -41,6 +41,7 @@ function master_runtime.new(context)
 
   local function audit(kind, data) if runtime.audit_log then runtime.audit_log.record(kind, data) end end
   local function maintenance_enabled() if not runtime.maintenance then return false end; if runtime.maintenance.is_locked then return runtime.maintenance.is_locked() end; if runtime.maintenance.status then return runtime.maintenance.status().enabled == true end; return runtime.maintenance.enabled == true end
+  local function recovery_locked() return runtime.recovery.required == true and runtime.recovery.confirmed ~= true end
 
   function runtime.save_recovery_state(reason)
     if not runtime.auto_save_state or not runtime.state_store or not runtime.dispatcher or not runtime.dispatcher.snapshot then return true end
@@ -62,9 +63,23 @@ function master_runtime.new(context)
     end
     local ok, err = runtime.dispatcher.restore(snapshot)
     runtime.recovery.restored = ok == true
+    runtime.recovery.required = ok == true
+    runtime.recovery.confirmed = ok ~= true
     runtime.recovery.last_error = ok and nil or err
-    if ok then audit("state_restored", { saved_at = payload_or_err and payload_or_err.saved_at }) elseif runtime.logger then runtime.logger.warn("state restore failed", { error = err }) end
+    if ok then audit("state_restored", { saved_at = payload_or_err and payload_or_err.saved_at, recovery_required = true }) elseif runtime.logger then runtime.logger.warn("state restore failed", { error = err }) end
     return ok, err
+  end
+
+  function runtime.confirm_recovery(operator, reason)
+    runtime.recovery.required = false
+    runtime.recovery.confirmed = true
+    runtime.recovery.confirmed_by = operator or "operator"
+    runtime.recovery.confirm_reason = reason
+    runtime.recovery.last_error = nil
+    audit("recovery_confirmed", { by = runtime.recovery.confirmed_by, reason = reason })
+    runtime.save_recovery_state("recovery_confirmed")
+    runtime.ui.mark_dirty()
+    return true
   end
 
   local function save_after(reason) runtime.save_recovery_state(reason) end
@@ -78,9 +93,19 @@ function master_runtime.new(context)
     return true
   end
 
+  local function reject_recovery(msg, action)
+    local payload = msg.payload or {}
+    audit("recovery_blocked", { action = action, src = msg.src, train_id = payload.train_id, route_id = payload.route_id })
+    if payload.train_id then runtime.network.send("cmd", msg.src, { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "recovery review required" }) end
+    runtime.network.ack_for(msg)
+    runtime.ui.mark_dirty()
+    return true
+  end
+
   local function panel_snapshot()
     local context_view = { config = runtime.config, registry = runtime.registry, logger = runtime.logger, dispatcher = runtime.dispatcher, route_integration = runtime.route_integration, service_plan_registry = runtime.service_plan_registry, audit_log = runtime.audit_log, maintenance = runtime.maintenance }
-    local built = { cmd = "panel_update", master_state = maintenance_enabled() and "MAINTENANCE" or "ONLINE", overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
+    local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or "ONLINE")
+    local built = { cmd = "panel_update", master_state = master_state, overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
     built.diagnostics.recovery = runtime.recovery
     return built
   end
@@ -95,7 +120,10 @@ function master_runtime.new(context)
     local previous = runtime.registry.all and runtime.registry.all()[msg.src]
     runtime.registry.register(msg.src, role, nil)
     if previous and previous.status == "down" then audit("node_reconnect", { node_id = msg.src, role = role }) end
-    if role == "train" and runtime.train_registry then local train_id = msg.payload.train_id or msg.src; runtime.train_registry.register(train_id, msg.src, msg.payload or {}); if runtime.route_integration and not maintenance_enabled() then runtime.route_integration.send_service_plan(train_id) end
+    if role == "train" and runtime.train_registry then
+      local train_id = msg.payload.train_id or msg.src
+      runtime.train_registry.register(train_id, msg.src, msg.payload or {})
+      if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.send_service_plan(train_id) end
     elseif role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then apply_depot_snapshot(msg.payload.depot_id or msg.src, msg.payload or {})
     elseif role == "panel" then send_panel_snapshot(msg.src) end
@@ -116,7 +144,7 @@ function master_runtime.new(context)
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
     runtime.network.ack_for(msg)
     if ok == false and runtime.logger then runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id }) end
-    if runtime.route_integration then runtime.route_integration.process_queue() end
+    if runtime.route_integration and not recovery_locked() then runtime.route_integration.process_queue() end
     runtime.ui.mark_dirty(); save_after("sensor")
   end
 
@@ -125,6 +153,7 @@ function master_runtime.new(context)
     local payload = msg.payload or {}; local train_id = payload.train_id or msg.src
     audit("train_event", { src = msg.src, train_id = train_id, event_type = payload.type })
     if maintenance_enabled() and (payload.type == "request_departure" or payload.type == "arrived") then return reject_maintenance(msg, payload.type) end
+    if recovery_locked() and payload.type == "request_departure" then return reject_recovery(msg, payload.type) end
     if payload.type == "train_status" then runtime.train_registry.update_status(train_id, payload)
     elseif payload.type == "request_departure" then if runtime.route_integration then runtime.route_integration.handle_train_request(payload, msg.src) end; if runtime.logger then runtime.logger.info("train requested departure", payload) end; save_after("route_request")
     elseif payload.type == "arrived" then if runtime.route_integration then runtime.route_integration.handle_train_arrival(payload, msg.src) end; save_after("train_arrival")
@@ -138,6 +167,7 @@ function master_runtime.new(context)
     local payload = msg.payload or {}; local station_id = payload.station_id or msg.src
     audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
+    if recovery_locked() and payload.type == "station_ready_departure" then return reject_recovery(msg, payload.type) end
     if payload.type == "station_status" then runtime.station_registry.update_status(station_id, payload); if payload.platforms then apply_station_snapshot(station_id, payload) end
     elseif payload.type == "platform_status" then runtime.station_registry.update_platform(station_id, payload.platform_id, payload)
     elseif payload.type == "train_arrived_station" then runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "DWELLING", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
@@ -152,6 +182,7 @@ function master_runtime.new(context)
     local payload = msg.payload or {}; local depot_id = payload.depot_id or msg.src
     audit("depot_event", { src = msg.src, depot_id = depot_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "depot_request_dispatch" then return reject_maintenance(msg, payload.type) end
+    if recovery_locked() and payload.type == "depot_request_dispatch" then return reject_recovery(msg, payload.type) end
     if payload.type == "depot_status" then runtime.depot_registry.update_status(depot_id, payload); if payload.tracks then apply_depot_snapshot(depot_id, payload) end
     elseif payload.type == "depot_track_status" then runtime.depot_registry.update_track(depot_id, payload.track_id, payload)
     elseif payload.type == "depot_train_ready" then runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "READY", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
@@ -164,7 +195,13 @@ function master_runtime.new(context)
 
   local function handle_panel_event(msg)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg)
-    elseif msg.payload and msg.payload.type == "manual_control" then local ok, err = false, "manual control unavailable"; if runtime.manual_control then ok, err = runtime.manual_control.handle(msg.payload, msg.src) end; if not ok and runtime.logger then runtime.logger.warn("manual control rejected", { error = err, src = msg.src }) end; runtime.network.ack_for(msg); runtime.ui.mark_dirty(); save_after("manual_control") end
+    elseif msg.payload and msg.payload.type == "manual_control" then
+      if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg); return true end
+      local ok, err = false, "manual control unavailable"
+      if runtime.manual_control and not recovery_locked() then ok, err = runtime.manual_control.handle(msg.payload, msg.src) elseif recovery_locked() then ok, err = false, "recovery review required" end
+      if not ok and runtime.logger then runtime.logger.warn("manual control rejected", { error = err, src = msg.src }) end
+      runtime.network.ack_for(msg); runtime.ui.mark_dirty(); save_after("manual_control")
+    end
   end
 
   handlers.event = function(msg)
@@ -208,7 +245,7 @@ function master_runtime.new(context)
     if event[1] == "modem_message" then local msg = event[5]; local status = runtime.network.receive(msg); if status == "ok" then message_handlers.dispatch(msg, handlers) end
     elseif event[1] == "monitor_touch" then runtime.ui.handle_touch(event[3], event[4])
     elseif event[1] == "timer" and event[2] == runtime.timeout_timer then check_timeouts(); runtime.timeout_timer = os.startTimer(1)
-    elseif event[1] == "timer" and event[2] == runtime.dwell_timer then if runtime.route_integration and not maintenance_enabled() then runtime.route_integration.process_due(); save_after("dwell") end; runtime.dwell_timer = os.startTimer(1); runtime.ui.mark_dirty()
+    elseif event[1] == "timer" and event[2] == runtime.dwell_timer then if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.process_due(); save_after("dwell") end; runtime.dwell_timer = os.startTimer(1); runtime.ui.mark_dirty()
     elseif event[1] == "timer" and event[2] == runtime.ui_timer then runtime.ui.draw(); runtime.ui_timer = os.startTimer(0.2) end
     runtime.network.tick()
   end
