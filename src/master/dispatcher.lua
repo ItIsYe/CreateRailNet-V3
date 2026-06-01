@@ -1,6 +1,6 @@
 --[[
 Purpose: Core block dispatcher for the master node.
-Public API: new(config, adapters), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id).
+Public API: new(config, adapters), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
 ]]
 
 local util = require("src.shared.util")
@@ -12,8 +12,15 @@ local switch_locks = require("src.domain.switch_locks")
 
 local dispatcher = {}
 local STATES = block_domain.STATES
-
 local TRAIN_STATES = { QUEUED = "QUEUED", RESERVED = "RESERVED", RUNNING = "RUNNING", WAITING = "WAITING", ARRIVED = "ARRIVED", FAULT = "FAULT" }
+
+local function copy_table(src)
+  local dst = {}
+  for k, v in pairs(src or {}) do
+    if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end
+  end
+  return dst
+end
 
 function dispatcher.new(config, adapters)
   local self = { blocks = block_domain.build_map(config.blocks), routes = util.index_by(config.routes or {}, "id"), trains = {}, adapters = adapters or {}, queue = route_queue.new(), switch_locks = switch_locks.new(), active_routes = {}, deadlocks = {} }
@@ -30,10 +37,7 @@ function dispatcher.new(config, adapters)
 
   local function blocked_by_blocks(route)
     local out = {}
-    for _, block_id in ipairs(route.blocks or {}) do
-      local block = self.blocks[block_id]
-      if block and not block_domain.is_free(block) then table.insert(out, block.reserved_by or block.occupied_by or block_id) end
-    end
+    for _, block_id in ipairs(route.blocks or {}) do local block = self.blocks[block_id]; if block and not block_domain.is_free(block) then table.insert(out, block.reserved_by or block.occupied_by or block_id) end end
     return out
   end
 
@@ -60,10 +64,7 @@ function dispatcher.new(config, adapters)
   end
 
   local function apply_switches(requirements)
-    for _, req in ipairs(requirements or {}) do
-      local ok, err = set_switch(req.id, req.position)
-      if not ok then return false, "switch set failed: " .. tostring(req.id) .. ": " .. tostring(err) end
-    end
+    for _, req in ipairs(requirements or {}) do local ok, err = set_switch(req.id, req.position); if not ok then return false, "switch set failed: " .. tostring(req.id) .. ": " .. tostring(err) end end
     return true
   end
 
@@ -82,6 +83,13 @@ function dispatcher.new(config, adapters)
       return set_signal(next_block.entry_signal, aspect)
     end
     return true
+  end
+
+  local function rebuild_route_blocks(route_id)
+    local route = self.routes[route_id]
+    local blocks = {}
+    for _, block_id in ipairs((route and route.blocks) or {}) do if self.blocks[block_id] then table.insert(blocks, self.blocks[block_id]) end end
+    return blocks
   end
 
   local function finish_train(train)
@@ -138,9 +146,7 @@ function dispatcher.new(config, adapters)
       local ok, err, blockers = self.reserve_route(item.train_id, item.route_id)
       table.insert(processed, { train_id = item.train_id, route_id = item.route_id, ok = ok, error = err, blocked_by = blockers, attempts = item.attempts })
       if not ok then
-        item.reason = err
-        item.blocked_by = blockers
-        item.attempts = (item.attempts or 0) + 1
+        item.reason = err; item.blocked_by = blockers; item.attempts = (item.attempts or 0) + 1
         if item.attempts >= 3 then record_deadlock(item, err) end
         self.queue.push(item)
         break
@@ -188,6 +194,34 @@ function dispatcher.new(config, adapters)
   function self.get_queue() return self.queue.list() end
   function self.get_switch_locks() return self.switch_locks.list() end
   function self.get_deadlocks() return self.deadlocks end
+
+  function self.snapshot()
+    local blocks = {}
+    for id, block in pairs(self.blocks) do blocks[id] = { id = id, state = block.state, reserved_by = block.reserved_by } end
+    return { version = 1, blocks = blocks, trains = self.get_trains(), queue = self.get_queue(), switch_locks = self.get_switch_locks(), deadlocks = copy_table(self.deadlocks) }
+  end
+
+  function self.restore(snapshot)
+    local snap = snapshot or {}
+    for id, saved in pairs(snap.blocks or {}) do
+      local block = self.blocks[id]
+      if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; set_block_red(block) end
+    end
+    self.trains = {}
+    self.active_routes = {}
+    for train_id, saved in pairs(snap.trains or {}) do
+      local route_id = saved.route
+      local owner = route_owner(train_id, route_id)
+      local train = { id = train_id, route = route_id, owner = owner, state = saved.state or TRAIN_STATES.WAITING, route_blocks = rebuild_route_blocks(route_id), route_index = saved.route_index or 1, current_block = saved.current_block, destination = saved.destination, priority = saved.priority or 0 }
+      self.trains[train_id] = train
+      if train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING then self.active_routes[owner] = train end
+      update_route_signals(train)
+    end
+    self.queue = route_queue.new()
+    for _, item in ipairs(snap.queue or {}) do self.queue.push(copy_table(item)) end
+    self.deadlocks = copy_table(snap.deadlocks or {})
+    return true
+  end
 
   return self
 end
