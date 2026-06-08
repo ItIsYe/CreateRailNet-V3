@@ -16,14 +16,32 @@ local TRAIN_STATES = { QUEUED = "QUEUED", RESERVED = "RESERVED", RUNNING = "RUNN
 
 local function copy_table(src)
   local dst = {}
-  for k, v in pairs(src or {}) do
-    if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end
-  end
+  for k, v in pairs(src or {}) do if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end end
   return dst
 end
 
+local function sort_pair(a, b)
+  a = tostring(a or "")
+  b = tostring(b or "")
+  if a < b then return a .. "<->" .. b end
+  return b .. "<->" .. a
+end
+
+local function route_direction(route)
+  return tostring(route.from or "?") .. "->" .. tostring(route.to or "?")
+end
+
+local function route_conflict_groups(route)
+  local groups = {}
+  if route.conflict_group then table.insert(groups, route.conflict_group) end
+  if route.conflict_groups then for _, group in ipairs(route.conflict_groups) do table.insert(groups, group) end end
+  if route.from or route.to then table.insert(groups, "dir:" .. sort_pair(route.from, route.to)) end
+  for _, block_id in ipairs(route.blocks or {}) do table.insert(groups, "block:" .. tostring(block_id)) end
+  return groups
+end
+
 function dispatcher.new(config, adapters)
-  local self = { blocks = block_domain.build_map(config.blocks), routes = util.index_by(config.routes or {}, "id"), trains = {}, adapters = adapters or {}, queue = route_queue.new(), switch_locks = switch_locks.new(), active_routes = {}, deadlocks = {} }
+  local self = { blocks = block_domain.build_map(config.blocks), routes = util.index_by(config.routes or {}, "id"), trains = {}, adapters = adapters or {}, queue = route_queue.new(), switch_locks = switch_locks.new(), active_routes = {}, active_conflicts = {}, deadlocks = {} }
   self.sensor_to_block = topology.build_sensor_to_block(self.blocks)
 
   local function signal_adapter() return self.adapters.signals end
@@ -34,6 +52,28 @@ function dispatcher.new(config, adapters)
   local function mark_fault(block) block_domain.fault(block); set_block_red(block) end
   local function route_owner(train_id, route_id) return tostring(train_id) .. ":" .. tostring(route_id) end
   local function get_route(_, route_id) local route = self.routes[route_id]; if not route then return nil, "route not found" end; return route end
+
+  local function conflict_reason(route, train_id)
+    local groups = route_conflict_groups(route)
+    for _, group in ipairs(groups) do
+      local active = self.active_conflicts[group]
+      if active and active.train_id ~= train_id then
+        local reason = "route conflict group busy: " .. tostring(group)
+        if string.sub(group, 1, 4) == "dir:" then reason = "opposite direction conflict: " .. tostring(group) end
+        return false, reason, { active.train_id }, group
+      end
+    end
+    return true, nil, nil, nil
+  end
+
+  local function lock_conflicts(route, train)
+    for _, group in ipairs(route_conflict_groups(route)) do self.active_conflicts[group] = { owner = train.owner, train_id = train.id, route_id = train.route, direction = train.direction } end
+  end
+
+  local function release_conflicts(train)
+    if not train then return end
+    for group, active in pairs(self.active_conflicts) do if active.owner == train.owner then self.active_conflicts[group] = nil end end
+  end
 
   local function blocked_by_blocks(route)
     local out = {}
@@ -97,16 +137,19 @@ function dispatcher.new(config, adapters)
     train.current_block = nil
     train.route_index = #(train.route_blocks or {}) + 1
     self.switch_locks.release_by_route(train.owner)
+    release_conflicts(train)
     self.active_routes[train.owner] = nil
   end
 
   local function record_deadlock(item, err)
-    self.deadlocks[item.train_id] = { train_id = item.train_id, route_id = item.route_id, reason = err, attempts = item.attempts or 0, blocked_by = item.blocked_by }
+    self.deadlocks[item.train_id] = { train_id = item.train_id, route_id = item.route_id, reason = err, attempts = item.attempts or 0, blocked_by = item.blocked_by, conflict_group = item.conflict_group }
   end
 
   function self.reserve_route(train_id, route_id)
     local route, route_err = get_route(train_id, route_id)
     if not route then return false, route_err end
+    local ok_conflict, conflict_err, conflict_blockers, conflict_group = conflict_reason(route, train_id)
+    if not ok_conflict then return false, conflict_err, conflict_blockers, conflict_group end
     local route_blocks, collect_err, blockers = collect_route_blocks(route, train_id)
     if not route_blocks then return false, collect_err, blockers end
     local owner = route_owner(train_id, route_id)
@@ -116,24 +159,26 @@ function dispatcher.new(config, adapters)
     local ok_switch, switch_err = apply_switches(switch_requirements)
     if not ok_switch then self.switch_locks.release_by_route(owner); for _, block in ipairs(route_blocks) do set_block_red(block) end; return false, switch_err end
     reserve_blocks(route_blocks, train_id)
-    local train = { id = train_id, route = route_id, owner = owner, state = TRAIN_STATES.RESERVED, route_blocks = route_blocks, route_index = 1, current_block = nil, destination = route.to, from = route.from, priority = route.priority or 0 }
+    local train = { id = train_id, route = route_id, owner = owner, state = TRAIN_STATES.RESERVED, route_blocks = route_blocks, route_index = 1, current_block = nil, destination = route.to, from = route.from, priority = route.priority or 0, direction = route_direction(route), conflict_groups = route_conflict_groups(route) }
     self.trains[train_id] = train
     self.active_routes[owner] = train
+    lock_conflicts(route, train)
     self.deadlocks[train_id] = nil
     local ok_signal, signal_err = update_route_signals(train)
-    if not ok_signal then release_blocks(route_blocks); self.switch_locks.release_by_route(owner); self.trains[train_id] = nil; self.active_routes[owner] = nil; return false, "signal set failed: " .. tostring(signal_err) end
+    if not ok_signal then release_blocks(route_blocks); self.switch_locks.release_by_route(owner); release_conflicts(train); self.trains[train_id] = nil; self.active_routes[owner] = nil; return false, "signal set failed: " .. tostring(signal_err) end
     return true
   end
 
   function self.request_route(train_id, route_id, opts)
     local options = opts or {}
-    local ok, err, blockers = self.reserve_route(train_id, route_id)
+    local ok, err, blockers, conflict_group = self.reserve_route(train_id, route_id)
     if ok then return true, "reserved" end
     local route = self.routes[route_id]
-    local queued = self.queue.push({ train_id = train_id, route_id = route_id, from = route and route.from, to = route and route.to, priority = options.priority or (route and route.priority) or 0, reason = err, blocked_by = blockers })
+    local queued = self.queue.push({ train_id = train_id, route_id = route_id, from = route and route.from, to = route and route.to, direction = route and route_direction(route), conflict_group = conflict_group, priority = options.priority or (route and route.priority) or 0, reason = err, blocked_by = blockers })
     self.trains[train_id] = self.trains[train_id] or { id = train_id }
     self.trains[train_id].state = TRAIN_STATES.QUEUED
     self.trains[train_id].route = route_id
+    self.trains[train_id].direction = route and route_direction(route) or nil
     return false, "queued", queued
   end
 
@@ -143,10 +188,10 @@ function dispatcher.new(config, adapters)
     for _ = 1, max do
       local item = self.queue.pop()
       if not item then break end
-      local ok, err, blockers = self.reserve_route(item.train_id, item.route_id)
-      table.insert(processed, { train_id = item.train_id, route_id = item.route_id, ok = ok, error = err, blocked_by = blockers, attempts = item.attempts })
+      local ok, err, blockers, conflict_group = self.reserve_route(item.train_id, item.route_id)
+      table.insert(processed, { train_id = item.train_id, route_id = item.route_id, ok = ok, error = err, blocked_by = blockers, attempts = item.attempts, conflict_group = conflict_group })
       if not ok then
-        item.reason = err; item.blocked_by = blockers; item.attempts = (item.attempts or 0) + 1
+        item.reason = err; item.blocked_by = blockers; item.conflict_group = conflict_group or item.conflict_group; item.attempts = (item.attempts or 0) + 1
         if item.attempts >= 3 then record_deadlock(item, err) end
         self.queue.push(item)
         break
@@ -190,35 +235,33 @@ function dispatcher.new(config, adapters)
   function self.timeout_node(node_id) for _, block in pairs(self.blocks) do if topology.references_node(block, node_id) then mark_fault(block) end end end
   function self.get_overview() local summary = {}; for id, block in pairs(self.blocks) do summary[id] = { state = block.state, reserved_by = block.reserved_by } end; return summary end
   function self.get_block(id) return self.blocks[id] end
-  function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority } end; return out end
+  function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority, direction = train.direction, conflict_groups = copy_table(train.conflict_groups) } end; return out end
   function self.get_queue() return self.queue.list() end
   function self.get_switch_locks() return self.switch_locks.list() end
+  function self.get_conflicts() return copy_table(self.active_conflicts) end
   function self.get_deadlocks() return self.deadlocks end
 
   function self.snapshot()
     local blocks = {}
     for id, block in pairs(self.blocks) do blocks[id] = { id = id, state = block.state, reserved_by = block.reserved_by } end
-    return { version = 1, blocks = blocks, trains = self.get_trains(), queue = self.get_queue(), switch_locks = self.get_switch_locks(), deadlocks = copy_table(self.deadlocks) }
+    return { version = 2, blocks = blocks, trains = self.get_trains(), queue = self.get_queue(), switch_locks = self.get_switch_locks(), active_conflicts = self.get_conflicts(), deadlocks = copy_table(self.deadlocks) }
   end
 
   function self.restore(snapshot)
     local snap = snapshot or {}
-    for id, saved in pairs(snap.blocks or {}) do
-      local block = self.blocks[id]
-      if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; set_block_red(block) end
-    end
-    self.trains = {}
-    self.active_routes = {}
+    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; set_block_red(block) end end
+    self.trains = {}; self.active_routes = {}; self.active_conflicts = {}
     for train_id, saved in pairs(snap.trains or {}) do
       local route_id = saved.route
       local owner = route_owner(train_id, route_id)
-      local train = { id = train_id, route = route_id, owner = owner, state = saved.state or TRAIN_STATES.WAITING, route_blocks = rebuild_route_blocks(route_id), route_index = saved.route_index or 1, current_block = saved.current_block, destination = saved.destination, priority = saved.priority or 0 }
+      local route = self.routes[route_id]
+      local train = { id = train_id, route = route_id, owner = owner, state = saved.state or TRAIN_STATES.WAITING, route_blocks = rebuild_route_blocks(route_id), route_index = saved.route_index or 1, current_block = saved.current_block, destination = saved.destination, priority = saved.priority or 0, direction = saved.direction or (route and route_direction(route)), conflict_groups = saved.conflict_groups or (route and route_conflict_groups(route)) or {} }
       self.trains[train_id] = train
-      if train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING then self.active_routes[owner] = train end
+      if train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING then self.active_routes[owner] = train; if route then lock_conflicts(route, train) end end
       update_route_signals(train)
     end
-    self.queue = route_queue.new()
-    for _, item in ipairs(snap.queue or {}) do self.queue.push(copy_table(item)) end
+    for group, active in pairs(snap.active_conflicts or {}) do if not self.active_conflicts[group] then self.active_conflicts[group] = copy_table(active) end end
+    self.queue = route_queue.new(); for _, item in ipairs(snap.queue or {}) do self.queue.push(copy_table(item)) end
     self.deadlocks = copy_table(snap.deadlocks or {})
     return true
   end
@@ -228,5 +271,7 @@ end
 
 dispatcher.STATES = STATES
 dispatcher.TRAIN_STATES = TRAIN_STATES
+dispatcher.route_conflict_groups = route_conflict_groups
+dispatcher.route_direction = route_direction
 
 return dispatcher
