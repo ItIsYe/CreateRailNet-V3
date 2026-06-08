@@ -13,6 +13,7 @@ local function cfg()
     },
     routes = {
       { id = "R1", from = "ST-A", to = "ST-B", blocks = { "B1" }, priority = 10 },
+      { id = "R1R", from = "ST-B", to = "ST-A", blocks = { "B1" }, priority = 10 },
       { id = "R2", from = "ST-B", to = "ST-C", blocks = { "B2" }, priority = 5 }
     }
   }
@@ -40,7 +41,6 @@ return {
     local d1 = dispatcher.new(cfg(), adapters())
     assert(d1.reserve_route("TRAIN-1", "R1"))
     local snap = d1.snapshot()
-
     local d2 = dispatcher.new(cfg(), adapters())
     assert(d2.restore(snap))
     local overview = d2.get_overview()
@@ -54,7 +54,6 @@ return {
     assert(d1.reserve_route("TRAIN-1", "R1"))
     assert(d1.on_sensor_event("B1", "enter"))
     local snap = d1.snapshot()
-
     local d2 = dispatcher.new(cfg(), adapters())
     assert(d2.restore(snap))
     local overview = d2.get_overview()
@@ -70,12 +69,24 @@ return {
     local ok2 = d1.request_route("TRAIN-2", "R1")
     assert(not ok2)
     local snap = d1.snapshot()
-
     local d2 = dispatcher.new(cfg(), adapters())
     assert(d2.restore(snap))
     local queue = d2.get_queue()
     assert(#queue == 1)
     assert(queue[1].train_id == "TRAIN-2")
     assert(queue[1].route_id == "R1")
+  end,
+
+  test_restore_preserves_conflict_groups = function()
+    local d1 = dispatcher.new(cfg(), adapters())
+    assert(d1.reserve_route("TRAIN-1", "R1"))
+    local snap = d1.snapshot()
+    assert(snap.active_conflicts["dir:ST-A<->ST-B"])
+    local d2 = dispatcher.new(cfg(), adapters())
+    assert(d2.restore(snap))
+    assert(d2.get_conflicts()["dir:ST-A<->ST-B"])
+    local ok, err = d2.reserve_route("TRAIN-2", "R1R")
+    assert(not ok)
+    assert(string.find(err, "conflict") or string.find(err, "block not free"), err)
   end
 }
