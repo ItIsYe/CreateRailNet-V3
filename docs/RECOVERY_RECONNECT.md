@@ -1,4 +1,4 @@
-# Recovery and Reconnect V1/V2/V3
+# Recovery and Reconnect V1/V2/V3/V4
 
 ## Goal
 
@@ -134,51 +134,9 @@ switch_locks
 
 The restore path keeps reserved and occupied blocks reserved/occupied. It does not turn them into FREE.
 
-### Reserved block example
-
-Before restart:
-
-```text
-B1.state = RESERVED
-B1.reserved_by = TRAIN-1
-TRAIN-1.state = RESERVED
-```
-
-After restore:
-
-```text
-B1.state = RESERVED
-B1.reserved_by = TRAIN-1
-TRAIN-1.state = RESERVED
-```
-
-### Occupied block example
-
-Before restart:
-
-```text
-B1.state = OCCUPIED
-B1.reserved_by = TRAIN-1
-TRAIN-1.state = RUNNING
-TRAIN-1.current_block = B1
-```
-
-After restore:
-
-```text
-B1.state = OCCUPIED
-B1.reserved_by = TRAIN-1
-TRAIN-1.state = RUNNING
-TRAIN-1.current_block = B1
-```
-
-### Queue recovery
-
-Queued route requests are restored into a fresh queue object so they can continue being processed after recovery.
-
 ## Persistent recovery V3
 
-The master runtime now persists dispatcher snapshots to disk through:
+The master runtime persists dispatcher snapshots to disk through:
 
 ```text
 src/domain/master_state_store.lua
@@ -198,9 +156,7 @@ A config can override it with:
 }
 ```
 
-### Save triggers
-
-The master saves a dispatcher snapshot after safety-relevant events, including:
+The master saves a dispatcher snapshot after safety-relevant events:
 
 ```text
 register/reconnect
@@ -214,30 +170,80 @@ timeout
 dwell processing
 ```
 
-### Restore trigger
-
 On `runtime.start()`, the master tries to load the saved dispatcher snapshot and calls:
 
 ```lua
 dispatcher.restore(snapshot)
 ```
 
-If no file exists, restore is skipped with `missing`.
+## Safe recovery mode V4
 
-### Panel diagnostics
+After a successful restore, the master enters safe recovery mode:
+
+```text
+recovery.required = true
+recovery.confirmed = false
+master_state = RECOVERY
+```
+
+While recovery is locked, the master blocks actions that could move trains or change the live network automatically:
+
+```text
+train request_departure
+station_ready_departure
+depot_request_dispatch
+manual_control, except confirm_recovery
+queue processing after sensor events
+dwell-triggered departures
+service-plan resend on train reconnect
+```
+
+Sensor events and station/depot snapshots are still accepted, because they help rebuild the actual state.
+
+## Confirming recovery
+
+The operator confirms recovery through manual control:
+
+```text
+type = manual_control
+action = confirm_recovery
+reason = operator checked physical state
+```
+
+After confirmation:
+
+```text
+recovery.required = false
+recovery.confirmed = true
+master_state = ONLINE or MAINTENANCE
+```
+
+The runtime records:
+
+```text
+recovery.confirmed_by
+recovery.confirm_reason
+```
+
+and saves a fresh dispatcher snapshot.
+
+## Panel diagnostics
 
 The panel snapshot includes:
 
 ```text
 diagnostics.recovery.restored
 diagnostics.recovery.saved
+diagnostics.recovery.required
+diagnostics.recovery.confirmed
+diagnostics.recovery.confirmed_by
 diagnostics.recovery.last_error
 diagnostics.recovery.last_save_reason
 ```
 
 ## Important limitation
 
-Persistent recovery V3 persists dispatcher state only. Station/depot physical occupancy still depends on reconnect snapshots from the station/depot nodes. If there is doubt after a real reboot, operator review is still required before clearing UNKNOWN or FAULT states.
+Persistent recovery V3/V4 persists dispatcher state only. Station/depot physical occupancy still depends on reconnect snapshots from the station/depot nodes. If there is doubt after a real reboot, operator review is still required before confirming recovery.
 
 ## Files involved
 
@@ -254,4 +260,5 @@ src/master/dispatcher.lua
 tests/test_sensor_occupancy_flow.lua
 tests/test_dispatcher_recovery.lua
 tests/test_master_state_store.lua
+tests/test_recovery_safe_mode.lua
 ```
