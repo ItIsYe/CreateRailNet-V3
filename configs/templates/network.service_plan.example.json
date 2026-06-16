@@ -3,14 +3,65 @@
   "channel": 777,
   "master_id": "MASTER-1",
   "blocks": [
-    {"id": "B-AB", "entry_signal": "SIG-1", "exit_signal": "SIG-2", "sensors": ["SEN-AB"], "switches": []},
-    {"id": "B-BC", "entry_signal": "SIG-3", "exit_signal": "SIG-4", "sensors": ["SEN-BC"], "switches": []},
-    {"id": "B-CD", "entry_signal": "SIG-5", "exit_signal": "SIG-6", "sensors": ["SEN-CD"], "switches": []}
+    {
+      "id": "B-AB",
+      "entry_signal": "SIG-1",
+      "exit_signal": "SIG-2",
+      "sensors": [
+        "SEN-AB"
+      ],
+      "switches": []
+    },
+    {
+      "id": "B-BC",
+      "entry_signal": "SIG-3",
+      "exit_signal": "SIG-4",
+      "sensors": [
+        "SEN-BC"
+      ],
+      "switches": []
+    },
+    {
+      "id": "B-CD",
+      "entry_signal": "SIG-5",
+      "exit_signal": "SIG-6",
+      "sensors": [
+        "SEN-CD"
+      ],
+      "switches": []
+    }
   ],
   "routes": [
-    {"id": "R-AB", "from": "ST-A", "to": "ST-B", "blocks": ["B-AB"], "priority": 10, "kind": "passenger"},
-    {"id": "R-BC", "from": "ST-B", "to": "ST-C", "blocks": ["B-BC"], "priority": 10, "kind": "passenger"},
-    {"id": "R-CD", "from": "ST-C", "to": "DEPOT-1", "blocks": ["B-CD"], "priority": 5, "kind": "passenger"}
+    {
+      "id": "R-AB",
+      "from": "ST-A",
+      "to": "ST-B",
+      "blocks": [
+        "B-AB"
+      ],
+      "priority": 10,
+      "kind": "passenger"
+    },
+    {
+      "id": "R-BC",
+      "from": "ST-B",
+      "to": "ST-C",
+      "blocks": [
+        "B-BC"
+      ],
+      "priority": 10,
+      "kind": "passenger"
+    },
+    {
+      "id": "R-CD",
+      "from": "ST-C",
+      "to": "DEPOT-1",
+      "blocks": [
+        "B-CD"
+      ],
+      "priority": 5,
+      "kind": "passenger"
+    }
   ],
   "service_plans": [
     {
@@ -19,23 +70,115 @@
       "display_name": "Regio Loop 1",
       "repeat_plan": false,
       "stops": [
-        {"from": "ST-A", "to": "ST-B", "route_id": "R-AB", "kind": "passenger", "dwell_seconds": 20},
-        {"from": "ST-B", "to": "ST-C", "route_id": "R-BC", "kind": "passenger", "dwell_seconds": 20},
-        {"from": "ST-C", "to": "DEPOT-1", "route_id": "R-CD", "kind": "passenger", "dwell_seconds": 0}
+        {
+          "from": "ST-A",
+          "to": "ST-B",
+          "route_id": "R-AB",
+          "kind": "passenger",
+          "dwell_seconds": 20
+        },
+        {
+          "from": "ST-B",
+          "to": "ST-C",
+          "route_id": "R-BC",
+          "kind": "passenger",
+          "dwell_seconds": 20
+        },
+        {
+          "from": "ST-C",
+          "to": "DEPOT-1",
+          "route_id": "R-CD",
+          "kind": "passenger",
+          "dwell_seconds": 0
+        }
       ]
     }
   ],
   "nodes": [
-    {"id": "MASTER-1", "role": "master"},
-    {"id": "TRAIN-1", "role": "train", "train_id": "TRAIN-1", "display_name": "Regio 1", "monitor": "monitor", "service_plan": "SP-REGIO-1"},
-    {"id": "SIG-1", "role": "signal", "adapter": "redstone", "side": "right"},
-    {"id": "SIG-2", "role": "signal", "adapter": "redstone", "side": "left"},
-    {"id": "SIG-3", "role": "signal", "adapter": "redstone", "side": "top"},
-    {"id": "SIG-4", "role": "signal", "adapter": "redstone", "side": "bottom"},
-    {"id": "SIG-5", "role": "signal", "adapter": "redstone", "side": "front"},
-    {"id": "SIG-6", "role": "signal", "adapter": "redstone", "side": "back"},
-    {"id": "SEN-AB", "role": "sensor", "adapter": "redstone", "side": "front"},
-    {"id": "SEN-BC", "role": "sensor", "adapter": "redstone", "side": "back"},
-    {"id": "SEN-CD", "role": "sensor", "adapter": "redstone", "side": "top"}
+    {
+      "id": "MASTER-1",
+      "role": "master"
+    },
+    {
+      "id": "TRAIN-1",
+      "role": "train",
+      "train_id": "TRAIN-1",
+      "display_name": "Regio 1",
+      "monitor": "monitor",
+      "service_plan": "SP-REGIO-1"
+    },
+    {
+      "id": "SIG-1",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "right"
+    },
+    {
+      "id": "SIG-2",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "left"
+    },
+    {
+      "id": "SIG-3",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "top"
+    },
+    {
+      "id": "SIG-4",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "bottom"
+    },
+    {
+      "id": "SIG-5",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "front"
+    },
+    {
+      "id": "SIG-6",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "back"
+    },
+    {
+      "id": "SEN-AB",
+      "role": "sensor",
+      "adapter": "redstone",
+      "side": "front"
+    },
+    {
+      "id": "SEN-BC",
+      "role": "sensor",
+      "adapter": "redstone",
+      "side": "back"
+    },
+    {
+      "id": "SEN-CD",
+      "role": "sensor",
+      "adapter": "redstone",
+      "side": "top"
+    },
+    {
+      "id": "ST-A",
+      "role": "station",
+      "create_station_name": "Station A"
+    },
+    {
+      "id": "ST-B",
+      "role": "station",
+      "create_station_name": "Station B"
+    },
+    {
+      "id": "ST-C",
+      "role": "station",
+      "create_station_name": "Station C"
+    },
+    {
+      "id": "DEPOT-1",
+      "role": "depot"
+    }
   ]
 }
