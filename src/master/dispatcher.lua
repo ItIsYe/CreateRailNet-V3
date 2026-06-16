@@ -35,9 +35,20 @@ local function route_conflict_groups(route)
   local groups = {}
   if route.conflict_group then table.insert(groups, route.conflict_group) end
   if route.conflict_groups then for _, group in ipairs(route.conflict_groups) do table.insert(groups, group) end end
-  if route.from or route.to then table.insert(groups, "dir:" .. sort_pair(route.from, route.to)) end
+  -- Opposite-direction conflict: "opp:A<->B" blocks trains going in reverse on the same corridor.
+  -- Same-direction routes (both A->B) share the same opp-group and are NOT blocked by each other here.
+  -- Block-level conflicts below handle actual physical exclusion.
+  if route.from and route.to then
+    table.insert(groups, "opp:" .. sort_pair(route.from, route.to))
+  end
+  -- Per-block exclusion: only one train may reserve/occupy a block at a time.
   for _, block_id in ipairs(route.blocks or {}) do table.insert(groups, "block:" .. tostring(block_id)) end
   return groups
+end
+
+-- Returns true if two routes run in the same direction (A->B vs A->B)
+local function same_direction(route_a, route_b)
+  return route_a.from == route_b.from and route_a.to == route_b.to
 end
 
 function dispatcher.new(config, adapters)
@@ -58,10 +69,20 @@ function dispatcher.new(config, adapters)
     for _, group in ipairs(groups) do
       local active = self.active_conflicts[group]
       if active and active.train_id ~= train_id then
+        -- Same-direction trains may share the opp: group (they go the same way)
+        if string.sub(group, 1, 4) == "opp:" then
+          local active_route = self.routes[active.route_id]
+          if active_route and same_direction(active_route, route) then
+            -- Not a conflict: both trains going same direction on this corridor
+            goto continue
+          end
+          return false, "opposite direction conflict: " .. tostring(group), { active.train_id }, group
+        end
+        -- block: groups are always exclusive
         local reason = "route conflict group busy: " .. tostring(group)
-        if string.sub(group, 1, 4) == "dir:" then reason = "opposite direction conflict: " .. tostring(group) end
         return false, reason, { active.train_id }, group
       end
+      ::continue::
     end
     return true, nil, nil, nil
   end
