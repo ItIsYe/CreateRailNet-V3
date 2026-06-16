@@ -46,18 +46,24 @@ end
 
 local function write_file(path, body)
   ensure_dir(path)
+  -- Atomic write: write to temp file first, then rename/replace
+  -- This prevents corruption if the computer crashes mid-write
+  local tmp = path .. ".tmp"
   if fs and fs.open then
-    local fh = fs.open(path, "w")
-    if not fh then return false, "cannot open " .. tostring(path) end
+    local fh = fs.open(tmp, "w")
+    if not fh then return false, "cannot open tmp " .. tostring(tmp) end
     fh.write(body)
     fh.close()
+    if fs.exists and fs.exists(path) then fs.delete(path) end
+    fs.move(tmp, path)
     return true
   end
   if io and io.open then
-    local fh = io.open(path, "w")
-    if not fh then return false, "cannot open " .. tostring(path) end
+    local fh = io.open(tmp, "w")
+    if not fh then return false, "cannot open tmp " .. tostring(tmp) end
     fh:write(body)
     fh:close()
+    os.rename(tmp, path)
     return true
   end
   return false, "no file API available"
@@ -106,3 +112,4 @@ end
 master_state_store.DEFAULT_PATH = DEFAULT_PATH
 
 return master_state_store
+
