@@ -22,7 +22,7 @@ function route_queue.new()
       base_priority = request.base_priority or request.priority or 0,
       attempts = (request.attempts or 0),
       blocked_by = request.blocked_by,
-      queued_at = request.queued_at or os.clock(),
+      queued_at = request.queued_at or os.time(),
       state = "QUEUED",
       reason = request.reason
     }
@@ -30,10 +30,14 @@ function route_queue.new()
     return item
   end
 
+  local last_reprioritize = 0
+  local REPRIORITIZE_INTERVAL = 10  -- seconds; avoids O(N) on every pop
+
   function self.reprioritize(now, aging_step_s, aging_bonus)
-    local clock = now or os.clock()
+    local clock = now or os.time()
     local step = aging_step_s or 30
     local bonus = aging_bonus or 1
+    last_reprioritize = clock
     for _, item in ipairs(items) do
       local age_steps = math.floor((clock - (item.queued_at or clock)) / step)
       item.priority = (item.base_priority or item.priority or 0) + (age_steps * bonus) + (item.attempts or 0)
@@ -42,7 +46,10 @@ function route_queue.new()
 
   function self.pop()
     if #items == 0 then return nil end
-    self.reprioritize()
+    local now = os.time()
+    if now - last_reprioritize >= REPRIORITIZE_INTERVAL then
+      self.reprioritize(now)
+    end
     local best_index = 1
     for i = 2, #items do
       local best = items[best_index]
