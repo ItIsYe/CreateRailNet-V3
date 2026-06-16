@@ -34,6 +34,15 @@ local function install_fs()
       if not b or b == "" then return a end
       if string.sub(a, -1) == "/" then return a .. b end
       return a .. "/" .. b
+    end,
+    move = function(src_path, dst_path)
+      os.rename(src_path, dst_path)
+    end,
+    delete = function(path)
+      os.remove(path)
+    end,
+    makeDir = function(path)
+      os.execute("mkdir -p " .. tostring(path))
     end
   }
 end
@@ -61,6 +70,7 @@ end
 local function install_os()
   _G.os = _G.os or {}
   _G.os.clock = _G.os.clock or function() return 0 end
+  _G.os.time = _G.os.time or os.time or function() return 0 end
   _G.os.startTimer = _G.os.startTimer or function() return 0 end
   _G.os.pullEvent = _G.os.pullEvent or function() return "terminate" end
 end
