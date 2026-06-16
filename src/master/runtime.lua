@@ -221,7 +221,7 @@ function master_runtime.new(context)
   handlers.err = function(msg) audit("node_error", { src = msg.src, payload = msg.payload }); if runtime.logger then runtime.logger.warn("node error", msg.payload or {}) end; runtime.ui.mark_dirty(); return true end
 
   local function check_timeouts()
-    local now = os.clock()
+    local now = os.time()
     for node_id, node_state in pairs(runtime.registry.all()) do
       if now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id); runtime.dispatcher.timeout_node(node_id); audit("node_timeout", { node_id = node_id, role = node_state.role })
@@ -255,3 +255,4 @@ function master_runtime.new(context)
 end
 
 return master_runtime
+
