@@ -42,7 +42,16 @@ function depots.new(config)
   end
 
   function self.update_status(depot_id, status) local depot = self.register(depot_id, depot_id, status); depot.state = status.state or depot.state; depot.message = status.message; depot.last_seen = os.clock(); return depot end
-  function self.update_track(depot_id, track_id, patch) local depot = self.register(depot_id, depot_id, {}); if not depot.tracks[track_id] then depot.tracks[track_id] = normalize_track({ id = track_id }) end; local track = depot.tracks[track_id]; for k, v in pairs(patch or {}) do track[k] = v end; depot.last_seen = os.clock(); return track end
+  function self.update_track(depot_id, track_id, patch)
+    local depot = self.register(depot_id, depot_id, {})
+    if not depot.tracks[track_id] then depot.tracks[track_id] = normalize_track({ id = track_id }) end
+    local track = depot.tracks[track_id]
+    for k, v in pairs(patch or {}) do track[k] = v end
+    -- Clear recovery flag when a definitive state is provided
+    if patch and patch.state and patch.state ~= "UNKNOWN" then track.recovery_required = false end
+    depot.last_seen = os.time()
+    return track
+  end
 
   function self.find_available_track(depot_id, opts)
     local depot = by_id[depot_id]
