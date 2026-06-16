@@ -69,20 +69,19 @@ function dispatcher.new(config, adapters)
     for _, group in ipairs(groups) do
       local active = self.active_conflicts[group]
       if active and active.train_id ~= train_id then
-        -- Same-direction trains may share the opp: group (they go the same way)
         if string.sub(group, 1, 4) == "opp:" then
+          -- Same-direction trains may share the opp: group (they go the same way)
           local active_route = self.routes[active.route_id]
-          if active_route and same_direction(active_route, route) then
-            -- Not a conflict: both trains going same direction on this corridor
-            goto continue
+          local is_same_dir = active_route and same_direction(active_route, route)
+          if not is_same_dir then
+            return false, "opposite direction conflict: " .. tostring(group), { active.train_id }, group
           end
-          return false, "opposite direction conflict: " .. tostring(group), { active.train_id }, group
+          -- else: same direction, not a conflict, continue loop
+        else
+          -- block: groups are always exclusive
+          return false, "route conflict group busy: " .. tostring(group), { active.train_id }, group
         end
-        -- block: groups are always exclusive
-        local reason = "route conflict group busy: " .. tostring(group)
-        return false, reason, { active.train_id }, group
       end
-      ::continue::
     end
     return true, nil, nil, nil
   end
@@ -98,7 +97,7 @@ function dispatcher.new(config, adapters)
 
   local function blocked_by_blocks(route)
     local out = {}
-    for _, block_id in ipairs(route.blocks or {}) do local block = self.blocks[block_id]; if block and not block_domain.is_free(block) then table.insert(out, block.reserved_by or block.occupied_by or block_id)  -- occupied_by now set by occupy() end end
+    for _, block_id in ipairs(route.blocks or {}) do local block = self.blocks[block_id]; if block and not block_domain.is_free(block) then table.insert(out, block.reserved_by or block.occupied_by or block_id) end end  -- occupied_by is now set by occupy()
     return out
   end
 
@@ -221,7 +220,12 @@ function dispatcher.new(config, adapters)
     return processed
   end
 
-  local function train_for_block(block) if not block or not block.reserved_by then return nil end; return self.trains[block.reserved_by] end
+  local function train_for_block(block)
+    if not block then return nil end
+    local owner = block.reserved_by or block.occupied_by
+    if not owner then return nil end
+    return self.trains[owner]
+  end
 
   function self.on_sensor_event_by_sensor(sensor_id, action)
     local block_id = topology.block_for_sensor(self.sensor_to_block, sensor_id)
@@ -254,18 +258,22 @@ function dispatcher.new(config, adapters)
     return false, "unknown action"
   end
 
+  local function train_references_node(train, node_id)
+    if train.id == node_id then return true end
+    for _, b in ipairs(train.route_blocks or {}) do
+      if topology.references_node(b, node_id) then return true end
+    end
+    return false
+  end
+
   function self.timeout_node(node_id)
     -- Fault all blocks that reference the timed-out node
     for _, block in pairs(self.blocks) do
       if topology.references_node(block, node_id) then mark_fault(block) end
     end
     -- Release train entries and conflict locks for trains that owned those blocks
-    for train_id, train in pairs(self.trains) do
-      if train.id == node_id or (train.route_blocks and (function()
-        for _, b in ipairs(train.route_blocks) do
-          if topology.references_node(b, node_id) then return true end
-        end
-      end)()) then
+    for _, train in pairs(self.trains) do
+      if train_references_node(train, node_id) then
         train.state = TRAIN_STATES.FAULT
         release_conflicts(train)
         self.active_routes[train.owner] = nil
@@ -273,7 +281,19 @@ function dispatcher.new(config, adapters)
       end
     end
   end
-  function self.get_overview() local summary = {}; for id, block in pairs(self.blocks) do summary[id] = { state = block.state, reserved_by = block.reserved_by } end; return summary end
+  function self.release_route(train_id, route_id)
+    local train = self.trains[train_id]
+    if not train then return false, "train not found" end
+    if train.route_blocks then release_blocks(train.route_blocks) end
+    self.switch_locks.release_by_route(train.owner)
+    release_conflicts(train)
+    self.active_routes[train.owner] = nil
+    self.trains[train_id] = nil
+    -- Do not call process_queue here; let the caller (route_integration) decide
+    return true
+  end
+
+  function self.get_overview() local summary = {}; for id, block in pairs(self.blocks) do summary[id] = { state = block.state, reserved_by = block.reserved_by, occupied_by = block.occupied_by } end; return summary end
   function self.get_block(id) return self.blocks[id] end
   function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority, direction = train.direction, conflict_groups = copy_table(train.conflict_groups) } end; return out end
   function self.get_queue() return self.queue.list() end
@@ -283,13 +303,13 @@ function dispatcher.new(config, adapters)
 
   function self.snapshot()
     local blocks = {}
-    for id, block in pairs(self.blocks) do blocks[id] = { id = id, state = block.state, reserved_by = block.reserved_by } end
+    for id, block in pairs(self.blocks) do blocks[id] = { id = id, state = block.state, reserved_by = block.reserved_by, occupied_by = block.occupied_by } end
     return { version = 2, blocks = blocks, trains = self.get_trains(), queue = self.get_queue(), switch_locks = self.get_switch_locks(), active_conflicts = self.get_conflicts(), deadlocks = copy_table(self.deadlocks) }
   end
 
   function self.restore(snapshot)
     local snap = snapshot or {}
-    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; set_block_red(block) end end
+    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; block.occupied_by = saved.occupied_by; set_block_red(block) end end
     self.trains = {}; self.active_routes = {}; self.active_conflicts = {}
     for train_id, saved in pairs(snap.trains or {}) do
       local route_id = saved.route
