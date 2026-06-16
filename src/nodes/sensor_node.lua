@@ -24,7 +24,7 @@ function sensor_node.build_check_fn(node, adapter, sensor_id, master_id)
     end
     if occupied ~= last_state then
       local action = occupied and "enter" or "leave"
-      node.net.send("event", master_id, { type = "sensor", sensor_id = sensor_id, action = action })
+      node.net.send_reliable("event", master_id, { type = "sensor", sensor_id = sensor_id, action = action })
       last_state = occupied
     end
     return true
@@ -84,3 +84,4 @@ if args.id then
 end
 
 return sensor_node
+
