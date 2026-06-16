@@ -77,7 +77,7 @@ function dispatcher.new(config, adapters)
 
   local function blocked_by_blocks(route)
     local out = {}
-    for _, block_id in ipairs(route.blocks or {}) do local block = self.blocks[block_id]; if block and not block_domain.is_free(block) then table.insert(out, block.reserved_by or block.occupied_by or block_id) end end
+    for _, block_id in ipairs(route.blocks or {}) do local block = self.blocks[block_id]; if block and not block_domain.is_free(block) then table.insert(out, block.reserved_by or block.occupied_by or block_id)  -- occupied_by now set by occupy() end end
     return out
   end
 
@@ -194,7 +194,7 @@ function dispatcher.new(config, adapters)
         item.reason = err; item.blocked_by = blockers; item.conflict_group = conflict_group or item.conflict_group; item.attempts = (item.attempts or 0) + 1
         if item.attempts >= 3 then record_deadlock(item, err) end
         self.queue.push(item)
-        break
+        -- Do NOT break: allow other queue items to be tried this round
       end
     end
     return processed
@@ -214,7 +214,8 @@ function dispatcher.new(config, adapters)
     if action == "enter" then
       if block.state == STATES.RESERVED then
         local train = train_for_block(block)
-        block_domain.occupy(block)
+        local occupying_train = (train and train.id) or block.reserved_by
+        block_domain.occupy(block, occupying_train)
         if train then train.state = TRAIN_STATES.RUNNING; train.current_block = block_id; for i, route_block in ipairs(train.route_blocks or {}) do if route_block.id == block_id then train.route_index = i end end; update_route_signals(train) end
         return true
       end
@@ -232,7 +233,25 @@ function dispatcher.new(config, adapters)
     return false, "unknown action"
   end
 
-  function self.timeout_node(node_id) for _, block in pairs(self.blocks) do if topology.references_node(block, node_id) then mark_fault(block) end end end
+  function self.timeout_node(node_id)
+    -- Fault all blocks that reference the timed-out node
+    for _, block in pairs(self.blocks) do
+      if topology.references_node(block, node_id) then mark_fault(block) end
+    end
+    -- Release train entries and conflict locks for trains that owned those blocks
+    for train_id, train in pairs(self.trains) do
+      if train.id == node_id or (train.route_blocks and (function()
+        for _, b in ipairs(train.route_blocks) do
+          if topology.references_node(b, node_id) then return true end
+        end
+      end)()) then
+        train.state = TRAIN_STATES.FAULT
+        release_conflicts(train)
+        self.active_routes[train.owner] = nil
+        self.switch_locks.release_by_route(train.owner)
+      end
+    end
+  end
   function self.get_overview() local summary = {}; for id, block in pairs(self.blocks) do summary[id] = { state = block.state, reserved_by = block.reserved_by } end; return summary end
   function self.get_block(id) return self.blocks[id] end
   function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority, direction = train.direction, conflict_groups = copy_table(train.conflict_groups) } end; return out end
@@ -275,3 +294,4 @@ dispatcher.route_conflict_groups = route_conflict_groups
 dispatcher.route_direction = route_direction
 
 return dispatcher
+
