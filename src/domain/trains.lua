@@ -43,7 +43,7 @@ function trains.new(config)
         create_destination = node.default_create_destination or node.create_destination,
         route_id = nil,
         state = STATES.OFFLINE,
-        last_seen = 0,
+        last_seen = 0  -- will be set to os.time() on first register,
         status = {}
       }
     end
@@ -62,24 +62,29 @@ function trains.new(config)
     train.destination = (info and info.destination) or train.destination
     train.create_destination = (info and info.create_destination) or train.create_destination
     train.state = (info and info.state) or STATES.IDLE
-    train.last_seen = os.clock()
+    train.last_seen = os.time()
     return train
   end
 
+  -- update_status: fields present in `status` (even if nil/false) overwrite train fields.
+  -- Use status.clear = {"route_id", ...} to explicitly nil specific fields.
   function self.update_status(train_id, status)
     local train = self.register(train_id, train_id, status)
     train.status = copy(status)
-    train.state = status.state or train.state
-    train.route_id = status.route_id or train.route_id
-    train.destination = status.destination or train.destination
-    train.create_destination = status.create_destination or train.create_destination
-    train.current_block = status.current_block or train.current_block
-    train.schedule_state = status.schedule_state or train.schedule_state
-    train.schedule_station = status.schedule_station or train.schedule_station
-    train.service_plan = status.service_plan or train.service_plan
-    train.service_stop_index = status.service_stop_index or train.service_stop_index
-    train.message = status.message or train.message
-    train.last_seen = os.clock()
+    if status.state ~= nil then train.state = status.state end
+    if status.route_id ~= nil then train.route_id = status.route_id
+    elseif status.route_id == nil and status.state == "ARRIVED" then train.route_id = nil end
+    if status.destination ~= nil then train.destination = status.destination end
+    if status.create_destination ~= nil then train.create_destination = status.create_destination end
+    if status.current_block ~= nil then train.current_block = status.current_block end
+    if status.schedule_state ~= nil then train.schedule_state = status.schedule_state end
+    if status.schedule_station ~= nil then train.schedule_station = status.schedule_station end
+    if status.service_plan ~= nil then train.service_plan = status.service_plan end
+    if status.service_stop_index ~= nil then train.service_stop_index = status.service_stop_index end
+    if status.message ~= nil then train.message = status.message end
+    -- Support explicit field clearing: status.clear = {"route_id", "destination", ...}
+    for _, field in ipairs(status.clear or {}) do train[field] = nil end
+    train.last_seen = os.time()
     return train
   end
 
@@ -89,7 +94,7 @@ function trains.new(config)
     train.destination = destination or train.destination
     train.create_destination = create_destination or train.create_destination
     train.state = STATES.ROUTE_ASSIGNED
-    train.last_seen = os.clock()
+    train.last_seen = os.time()
     return train
   end
 
@@ -111,3 +116,4 @@ end
 trains.STATES = STATES
 
 return trains
+
