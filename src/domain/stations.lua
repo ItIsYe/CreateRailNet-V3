@@ -50,7 +50,16 @@ function stations.new(config)
 
   function self.resolve_create_destination(station_id, fallback) local station = by_id[station_id]; if not station then return fallback or station_id end; return station.create_station_name or station.create_destination or station.schedule_destination or fallback or station_id end
   function self.update_status(station_id, status) local station = self.register(station_id, station_id, status); station.state = status.state or station.state; station.message = status.message; station.last_seen = os.clock(); return station end
-  function self.update_platform(station_id, platform_id, patch) local station = self.register(station_id, station_id, {}); if not station.platforms[platform_id] then station.platforms[platform_id] = normalize_platform({ id = platform_id }) end; local platform = station.platforms[platform_id]; for k, v in pairs(patch or {}) do platform[k] = v end; station.last_seen = os.clock(); return platform end
+  function self.update_platform(station_id, platform_id, patch)
+    local station = self.register(station_id, station_id, {})
+    if not station.platforms[platform_id] then station.platforms[platform_id] = normalize_platform({ id = platform_id }) end
+    local platform = station.platforms[platform_id]
+    for k, v in pairs(patch or {}) do platform[k] = v end
+    -- Clear recovery flag when a definitive state is provided
+    if patch and patch.state and patch.state ~= "UNKNOWN" then platform.recovery_required = false end
+    station.last_seen = os.time()
+    return platform
+  end
 
   function self.find_available_platform(station_id, opts)
     local station = by_id[station_id]
