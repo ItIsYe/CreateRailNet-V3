@@ -37,7 +37,7 @@ return {
 
   test_station_reconnect_snapshot_restores_platform = function()
     local ctx = context_with_station_depot(); ctx.station_registry.mark_offline("ST-A"); local rt = runtime_factory.new(ctx)
-    rt.handle_event({ "modem_message", nil, nil, nil, { type = "register", src = "ST-A", payload = { role = "station", station_id = "ST-A", state = "ONLINE", platforms = { P1 = { id = "P1", kind = "passenger", state = "DWELLING", train_id = "TRAIN-1", train_name = "Regio 1" } } } } })
+    rt.handle_event({ "modem_message", nil, nil, nil, { v=1, id="msg-st-reconnect", type = "register", src = "ST-A", dst = ctx.config.master_id, ts=0, payload = { role = "station", station_id = "ST-A", state = "ONLINE", platforms = { P1 = { id = "P1", kind = "passenger", state = "DWELLING", train_id = "TRAIN-1", train_name = "Regio 1" } } } } })
     local platform = ctx.station_registry.get("ST-A").platforms.P1
     assert(ctx.station_registry.get("ST-A").state == "ONLINE"); assert(platform.state == "DWELLING"); assert(platform.recovery_required == nil or platform.recovery_required == false)
   end,
@@ -64,7 +64,7 @@ return {
 
   test_depot_reconnect_snapshot_restores_track = function()
     local ctx = context_with_station_depot(); ctx.depot_registry.mark_offline("DEPOT-1"); local rt = runtime_factory.new(ctx)
-    rt.handle_event({ "modem_message", nil, nil, nil, { type = "register", src = "DEPOT-1", payload = { role = "depot", depot_id = "DEPOT-1", state = "ONLINE", tracks = { D1 = { id = "D1", kind = "storage", state = "READY", train_id = "TRAIN-1", train_name = "Regio 1" } } } } })
+    rt.handle_event({ "modem_message", nil, nil, nil, { v=1, id="msg-depot-reconnect", type = "register", src = "DEPOT-1", dst = ctx.config.master_id, ts=0, payload = { role = "depot", depot_id = "DEPOT-1", state = "ONLINE", tracks = { D1 = { id = "D1", kind = "storage", state = "READY", train_id = "TRAIN-1", train_name = "Regio 1" } } } } })
     local track = ctx.depot_registry.get("DEPOT-1").tracks.D1
     assert(ctx.depot_registry.get("DEPOT-1").state == "ONLINE"); assert(track.state == "READY"); assert(track.recovery_required == nil or track.recovery_required == false)
   end,
