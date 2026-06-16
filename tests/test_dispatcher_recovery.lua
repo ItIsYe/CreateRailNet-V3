@@ -58,7 +58,7 @@ return {
     assert(d2.restore(snap))
     local overview = d2.get_overview()
     assert(overview.B1.state == "OCCUPIED")
-    assert(overview.B1.reserved_by == "TRAIN-1")
+    assert(overview.B1.occupied_by == "TRAIN-1")  -- reserved_by is nil when OCCUPIED
     assert(d2.get_trains()["TRAIN-1"].state == "RUNNING")
     assert(d2.get_trains()["TRAIN-1"].current_block == "B1")
   end,
@@ -81,10 +81,10 @@ return {
     local d1 = dispatcher.new(cfg(), adapters())
     assert(d1.reserve_route("TRAIN-1", "R1"))
     local snap = d1.snapshot()
-    assert(snap.active_conflicts["dir:ST-A<->ST-B"])
+    assert(snap.active_conflicts["opp:ST-A<->ST-B"])
     local d2 = dispatcher.new(cfg(), adapters())
     assert(d2.restore(snap))
-    assert(d2.get_conflicts()["dir:ST-A<->ST-B"])
+    assert(d2.get_conflicts()["opp:ST-A<->ST-B"])
     local ok, err = d2.reserve_route("TRAIN-2", "R1R")
     assert(not ok)
     assert(string.find(err, "conflict") or string.find(err, "block not free"), err)
