@@ -13,7 +13,7 @@ function registry.new()
       id = node_id,
       role = role,
       caps = caps or {},
-      last_seen = os.clock(),
+      last_seen = os.time(),
       status = "UP"
     }
   end
@@ -21,7 +21,7 @@ function registry.new()
   function reg.heartbeat(node_id)
     local node = reg.nodes[node_id]
     if node then
-      node.last_seen = os.clock()
+      node.last_seen = os.time()
       node.status = "UP"
     end
   end
@@ -45,3 +45,4 @@ function registry.new()
 end
 
 return registry
+
