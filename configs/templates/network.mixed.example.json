@@ -3,30 +3,141 @@
   "channel": 778,
   "master_id": "MASTER-1",
   "blocks": [
-    {"id": "B-MIX-1", "entry_signal": "SIG-CREATE", "exit_signal": "SIG-RS", "sensors": ["OBS-MIX"], "switches": [{"id": "SW-RS", "position": "DIVERGING"}]}
+    {
+      "id": "B-MIX-1",
+      "entry_signal": "SIG-CREATE",
+      "exit_signal": "SIG-RS",
+      "sensors": [
+        "OBS-MIX"
+      ],
+      "switches": [
+        {
+          "id": "SW-RS",
+          "position": "DIVERGING"
+        }
+      ]
+    }
   ],
   "routes": [
-    {"id": "R-MIX", "from": "ST-MIX-A", "to": "DEPOT-MIX", "blocks": ["B-MIX-1"], "priority": 5, "kind": "mixed"}
+    {
+      "id": "R-MIX",
+      "from": "ST-MIX-A",
+      "to": "DEPOT-MIX",
+      "blocks": [
+        "B-MIX-1"
+      ],
+      "priority": 5,
+      "kind": "mixed"
+    }
   ],
   "service_plans": [
-    {"id": "SP-MIX-1", "train_id": "TRAIN-1", "display_name": "Mixed Hardware Test", "repeat_plan": false, "stops": [
-      {"from": "ST-MIX-A", "to": "DEPOT-MIX", "route_id": "R-MIX", "kind": "mixed", "dwell_seconds": 5}
-    ]}
+    {
+      "id": "SP-MIX-1",
+      "train_id": "TRAIN-1",
+      "display_name": "Mixed Hardware Test",
+      "repeat_plan": false,
+      "stops": [
+        {
+          "from": "ST-MIX-A",
+          "to": "DEPOT-MIX",
+          "route_id": "R-MIX",
+          "kind": "mixed",
+          "dwell_seconds": 5
+        }
+      ]
+    }
   ],
   "nodes": [
-    {"id": "MASTER-1", "role": "master"},
-    {"id": "TRAIN-1", "role": "train", "train_id": "TRAIN-1", "display_name": "Mixed Train", "monitor": "monitor", "service_plan": "SP-MIX-1", "create_station": "Create_Station_0", "schedule_station": "Create_Station_0"},
-    {"id": "PANEL-1", "role": "panel", "display_name": "Mixed Panel", "monitor": "monitor", "pages": ["overview", "trains", "stations", "depots", "service_plans", "manual", "diagnostics", "audit", "maintenance"]},
-    {"id": "ST-MIX-A", "role": "station", "station_type": "mixed", "display_name": "Mixed Station A", "platforms": [
-      {"id": "P1", "kind": "mixed", "sensor_id": "OBS-MIX", "block_id": "B-MIX-1", "dwell_seconds": 5}
-    ]},
-    {"id": "DEPOT-MIX", "role": "depot", "depot_type": "mixed", "display_name": "Mixed Depot", "tracks": [
-      {"id": "D1", "kind": "mixed", "sensor_id": "SEN-RS", "block_id": "B-MIX-1", "ready_after_seconds": 5}
-    ]},
-    {"id": "SIG-CREATE", "role": "signal", "peripheral": "Create_Signal_0"},
-    {"id": "SIG-RS", "role": "signal", "adapter": "redstone", "side": "right"},
-    {"id": "OBS-MIX", "role": "sensor", "peripheral": "Create_TrainObserver_0"},
-    {"id": "SEN-RS", "role": "sensor", "adapter": "redstone", "side": "left"},
-    {"id": "SW-RS", "role": "switch", "adapter": "redstone", "side": "back", "active_position": "DIVERGING"}
+    {
+      "id": "MASTER-1",
+      "role": "master"
+    },
+    {
+      "id": "TRAIN-1",
+      "role": "train",
+      "train_id": "TRAIN-1",
+      "display_name": "Mixed Train",
+      "monitor": "monitor",
+      "service_plan": "SP-MIX-1",
+      "create_station": "Create_Station_0",
+      "schedule_station": "Create_Station_0"
+    },
+    {
+      "id": "PANEL-1",
+      "role": "panel",
+      "display_name": "Mixed Panel",
+      "monitor": "monitor",
+      "pages": [
+        "overview",
+        "trains",
+        "stations",
+        "depots",
+        "service_plans",
+        "manual",
+        "diagnostics",
+        "audit",
+        "maintenance"
+      ]
+    },
+    {
+      "id": "ST-MIX-A",
+      "role": "station",
+      "station_type": "mixed",
+      "display_name": "Mixed Station A",
+      "platforms": [
+        {
+          "id": "P1",
+          "kind": "mixed",
+          "sensor_id": "OBS-MIX",
+          "block_id": "B-MIX-1",
+          "dwell_seconds": 5
+        }
+      ],
+      "create_station_name": "Station Mix A"
+    },
+    {
+      "id": "DEPOT-MIX",
+      "role": "depot",
+      "depot_type": "mixed",
+      "display_name": "Mixed Depot",
+      "tracks": [
+        {
+          "id": "D1",
+          "kind": "mixed",
+          "sensor_id": "SEN-RS",
+          "block_id": "B-MIX-1",
+          "ready_after_seconds": 5
+        }
+      ]
+    },
+    {
+      "id": "SIG-CREATE",
+      "role": "signal",
+      "peripheral": "Create_Signal_0"
+    },
+    {
+      "id": "SIG-RS",
+      "role": "signal",
+      "adapter": "redstone",
+      "side": "right"
+    },
+    {
+      "id": "OBS-MIX",
+      "role": "sensor",
+      "peripheral": "Create_TrainObserver_0"
+    },
+    {
+      "id": "SEN-RS",
+      "role": "sensor",
+      "adapter": "redstone",
+      "side": "left"
+    },
+    {
+      "id": "SW-RS",
+      "role": "switch",
+      "adapter": "redstone",
+      "side": "back",
+      "active_position": "DIVERGING"
+    }
   ]
 }
