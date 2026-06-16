@@ -83,6 +83,16 @@ function manual_control.new(context)
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "WAITING_DEPARTURE" }) end
       return true
     elseif cmd.action == "authorize_train" then
+      -- Reserve the route in the dispatcher before authorizing the train.
+      -- Without this, sensor events for unreserved blocks would cause FAULT.
+      if self.dispatcher and cmd.route_id then
+        local ok, err = self.dispatcher.reserve_route(cmd.train_id, cmd.route_id)
+        if not ok then
+          audit("manual_authorize_failed", { src = src, train_id = cmd.train_id, route_id = cmd.route_id, error = err })
+          if self.logger then self.logger.warn("manual authorize_train: reserve_route failed", { error = err }) end
+          return false, "reserve_route failed: " .. tostring(err)
+        end
+      end
       send_cmd(self.network, train_node_id(cmd.train_id), "depart_authorized", { train_id = cmd.train_id, route_id = cmd.route_id, destination = cmd.destination })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "ROUTE_ASSIGNED", route_id = cmd.route_id, destination = cmd.destination }) end
       return true
