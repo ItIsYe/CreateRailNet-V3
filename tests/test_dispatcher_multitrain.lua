@@ -64,7 +64,7 @@ return {
     local queued = d.get_queue()[1]
     assert(queued.route_id == "R-BA")
     assert(queued.direction == "ST-B->ST-A")
-    assert(queued.conflict_group == "dir:ST-A<->ST-B" or queued.conflict_group == "block:B3")
+    assert(queued.conflict_group == "opp:ST-A<->ST-B" or queued.conflict_group == "block:B3")
     assert(string.find(queued.reason, "conflict") or string.find(queued.reason, "block not free"), queued.reason)
   end,
 
@@ -72,10 +72,10 @@ return {
     local a = adapters()
     local d = dispatcher.new(cfg(), a)
     assert(d.reserve_route("TRAIN-1", "R-AB"))
-    assert(d.get_conflicts()["dir:ST-A<->ST-B"])
+    assert(d.get_conflicts()["opp:ST-A<->ST-B"])
     assert(d.on_sensor_event_by_sensor("SEN-3", "enter"))
     assert(d.on_sensor_event_by_sensor("SEN-3", "leave"))
-    assert(d.get_conflicts()["dir:ST-A<->ST-B"] == nil)
+    assert(d.get_conflicts()["opp:ST-A<->ST-B"] == nil)
   end,
 
   test_train_progress_releases_block_and_finishes = function()
