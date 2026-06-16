@@ -157,8 +157,13 @@ function route_integration.new(context)
     local route_id, resolve_err, route = route_id_for(request)
     if is_locked() then return reject_locked(train_id, route_id) end
     audit("route_request", { train_id = train_id, route_id = route_id, src = src })
-    local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
-    if not route_id then ok, status = false, resolve_err end
+    -- Guard: do not call dispatcher with nil route_id
+    local ok, status
+    if not route_id then
+      ok, status = false, resolve_err
+    else
+      ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
+    end
 
     local destination = (route and route.to) or request.to or request.destination
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
@@ -200,8 +205,13 @@ function route_integration.new(context)
     local route_id, resolve_err, route = route_id_for(request)
     if is_locked() then return reject_locked(train_id, route_id) end
     audit("depot_dispatch_request", { train_id = train_id, route_id = route_id, src = src })
-    local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
-    if not route_id then ok, status = false, resolve_err end
+    -- Guard: do not call dispatcher with nil route_id
+    local ok, status
+    if not route_id then
+      ok, status = false, resolve_err
+    else
+      ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
+    end
 
     local destination = (route and route.to) or request.destination or request.to
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
@@ -225,8 +235,13 @@ function route_integration.new(context)
     local route_id, resolve_err, route = route_id_for(request)
     if is_locked() then return reject_locked(train_id, route_id) end
     audit("station_departure_request", { train_id = train_id, route_id = route_id, src = src })
-    local ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
-    if not route_id then ok, status = false, resolve_err end
+    -- Guard: do not call dispatcher with nil route_id
+    local ok, status
+    if not route_id then
+      ok, status = false, resolve_err
+    else
+      ok, status = reserve_or_queue(self.dispatcher, train_id, route_id, request.priority)
+    end
 
     local destination = (route and route.to) or request.destination or request.to
     if self.service_plan_registry and stop then self.service_plan_registry.mark_current(train_id, ok and "AUTHORIZED" or "REQUESTED") end
@@ -279,3 +294,4 @@ function route_integration.new(context)
 end
 
 return route_integration
+
