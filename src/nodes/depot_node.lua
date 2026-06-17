@@ -76,11 +76,11 @@ function depot_node.new_runtime(args_or_context)
     elseif cmd == "clear_track" and track then track.state = TRACK_EMPTY; track.train_id = nil; track.train_name = nil; track.route_id = nil; track.destination = nil; track.occupied_since = nil
     elseif cmd == "stage_train" and track then track.state = TRACK_STAGING; track.train_id = payload.train_id or track.train_id; track.train_name = payload.train_name or track.train_name; track.route_id = payload.route_id or track.route_id; track.destination = payload.destination or track.destination
     elseif cmd == "mark_ready" and track then
-      track.state = TRACK_READY; track.train_id = payload.train_id or track.train_id; track.train_name = payload.train_name or track.train_name; track.route_id = payload.route_id or track.route_id; track.destination = payload.destination or track.destination
-      node.net.send("event", context.config.master_id, { type = "depot_train_ready", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination })
+      track.state = TRACK_READY; track.occupied_since = nil; track.train_id = payload.train_id or track.train_id; track.train_name = payload.train_name or track.train_name; track.route_id = payload.route_id or track.route_id; track.destination = payload.destination or track.destination
+      node.net.send_reliable("event", context.config.master_id, { type = "depot_train_ready", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination })
     elseif cmd == "dispatch_train" and track then
       track.state = TRACK_DEPARTING
-      node.net.send("event", context.config.master_id, { type = "depot_request_dispatch", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = payload.route_id or track.route_id, destination = payload.destination or track.destination })
+      node.net.send_reliable("event", context.config.master_id, { type = "depot_request_dispatch", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = payload.route_id or track.route_id, destination = payload.destination or track.destination })
     elseif cmd == "set_depot_message" then state.message = payload.message
     else return false, "unknown depot cmd: " .. tostring(cmd) end
     depot_node.render_status(monitor, state)
@@ -91,12 +91,12 @@ function depot_node.new_runtime(args_or_context)
     return { role = "depot", depot_id = depot_id, display_name = display_name, depot_type = depot_type, state = state.state, reconnect_reason = reason, tracks = state.tracks }
   end
 
-  local function send_track(track) node.net.send("event", context.config.master_id, track_payload(state, track)) end
+  local function send_track(track) node.net.send_reliable("event", context.config.master_id, track_payload(state, track)) end
 
   local function send_full_status(reason)
-    node.net.send("register", context.config.master_id, depot_status_payload(reason))
+    node.net.send_reliable("register", context.config.master_id, depot_status_payload(reason))
     node.net.send("event", context.config.master_id, { type = "depot_status", depot_id = depot_id, depot_type = depot_type, display_name = display_name, state = state.state, reconnect_reason = reason })
-    for _, track in pairs(state.tracks or {}) do send_track(track) end
+    for _, track in pairs(state.tracks or {}) do node.net.send("event", context.config.master_id, track_payload(state, track)) end
   end
 
   node.register = function() return send_full_status("register") end
@@ -117,16 +117,16 @@ function depot_node.new_runtime(args_or_context)
             track.last_occupied = occupied
             if occupied then
               track.train_name = read_train_name(track); track.train_id = track.train_id or track.train_name; track.state = TRACK_OCCUPIED; track.occupied_since = os.clock()
-              node.net.send("event", context.config.master_id, { type = "depot_train_arrived", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id })
+              node.net.send_reliable("event", context.config.master_id, { type = "depot_train_arrived", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id })
             else
               local leaving_train_id = track.train_id; local leaving_train_name = track.train_name
-              node.net.send("event", context.config.master_id, { type = "depot_train_left", depot_id = depot_id, track_id = track.id, train_id = leaving_train_id, train_name = leaving_train_name, route_id = track.route_id })
+              node.net.send_reliable("event", context.config.master_id, { type = "depot_train_left", depot_id = depot_id, track_id = track.id, train_id = leaving_train_id, train_name = leaving_train_name, route_id = track.route_id })
               track.state = TRACK_EMPTY; track.train_id = nil; track.train_name = nil; track.route_id = nil; track.destination = nil; track.occupied_since = nil
             end
             send_track(track)
           elseif occupied and track.state == TRACK_OCCUPIED and track.occupied_since and os.clock() - track.occupied_since >= track.ready_after_seconds then
             track.state = TRACK_READY
-            node.net.send("event", context.config.master_id, { type = "depot_train_ready", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination })
+            node.net.send_reliable("event", context.config.master_id, { type = "depot_train_ready", depot_id = depot_id, track_id = track.id, train_id = track.train_id, train_name = track.train_name, route_id = track.route_id, destination = track.destination })
             send_track(track)
           end
         else
