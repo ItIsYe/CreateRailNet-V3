@@ -3,6 +3,8 @@ Purpose: Logging with levels and ring buffer; optional remote sink.
 Public API: new(level, buffer_size, sink), levels.
 ]]
 
+local time = require("src.shared.time")
+
 local log = {}
 
 log.levels = { DEBUG = 10, INFO = 20, WARN = 30, ERROR = 40 }
@@ -38,7 +40,7 @@ function log.new(level, buffer_size, sink)
     local entry = {
       level = lvl,
       msg = msg,
-      ts = os.time(),
+      ts = time.now_s(),
       context = context
     }
     push(entry)
