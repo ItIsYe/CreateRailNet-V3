@@ -59,7 +59,7 @@ function panel_node.new_runtime(args_or_context)
   })
 
   node.register = function()
-    return node.net.send("register", context.config.master_id, { role = "panel", panel_id = context.id, display_name = panel_cfg.display_name or context.id, page = state_model.snapshot().page })
+    return node.net.send_reliable("register", context.config.master_id, { role = "panel", panel_id = context.id, display_name = panel_cfg.display_name or context.id, page = state_model.snapshot().page })
   end
 
   node.heartbeat = function()
@@ -74,7 +74,8 @@ function panel_node.new_runtime(args_or_context)
     if not action then return false end
     action.type = "manual_control"
     action.panel_id = context.id
-    node.net.send("event", context.config.master_id, action)
+    -- Manual control commands are critical (e.g. emergency stop)
+    node.net.send_reliable("event", context.config.master_id, action)
     return true
   end
 
