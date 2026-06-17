@@ -38,7 +38,7 @@ function log.new(level, buffer_size, sink)
     local entry = {
       level = lvl,
       msg = msg,
-      ts = os.clock(),
+      ts = os.time(),
       context = context
     }
     push(entry)
