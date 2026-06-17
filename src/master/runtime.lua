@@ -3,6 +3,8 @@ Purpose: Master event runtime for modem, UI, timeout handling, audit, maintenanc
 Public API: new(context) -> runtime with handle_event(event), run(), save_recovery_state(), restore_recovery_state(), confirm_recovery().
 ]]
 
+local time = require("src.shared.time")
+
 local message_handlers = require("src.shared.message_handlers")
 local diagnostics = require("src.domain.diagnostics")
 local errors = require("src.shared.error_codes")
@@ -262,7 +264,7 @@ function master_runtime.new(context)
   handlers.err = function(msg) audit("node_error", { src = msg.src, payload = msg.payload }); if runtime.logger then runtime.logger.warn("node error", msg.payload or {}) end; runtime.ui.mark_dirty(); return true end
 
   local function check_timeouts()
-    local now = os.time()
+    local now = time.now_s()
     local any_timeout = false
     for node_id, node_state in pairs(runtime.registry.all()) do
       if now - node_state.last_seen > runtime.heartbeat_timeout_s then
