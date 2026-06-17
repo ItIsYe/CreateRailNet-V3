@@ -9,6 +9,7 @@ function stations_panel.new(station_registry)
   local self = {}
 
   function self.draw(monitor)
+    if not monitor then return end
     monitor.clear()
     monitor.setCursorPos(1, 1)
     monitor.write("CreateRailNet Stations")
