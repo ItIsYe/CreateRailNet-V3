@@ -73,8 +73,8 @@ function station_node.new_runtime(args_or_context)
     if cmd == "reserve_platform" and platform then platform.state = "RESERVED"; platform.train_id = payload.train_id; platform.train_name = payload.train_name
     elseif cmd == "clear_platform" and platform then platform.state = PLATFORM_EMPTY; platform.train_id = nil; platform.train_name = nil; platform.occupied_since = nil
     elseif cmd == "mark_ready_departure" and platform then
-      platform.state = PLATFORM_READY; platform.train_id = payload.train_id or platform.train_id; platform.train_name = payload.train_name or platform.train_name
-      node.net.send("event", context.config.master_id, { type = "station_ready_departure", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, route_id = payload.route_id, destination = payload.destination })
+      platform.state = PLATFORM_READY; platform.occupied_since = nil; platform.train_id = payload.train_id or platform.train_id; platform.train_name = payload.train_name or platform.train_name
+      node.net.send_reliable("event", context.config.master_id, { type = "station_ready_departure", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, route_id = payload.route_id, destination = payload.destination })
     elseif cmd == "set_station_message" then state.message = payload.message
     else return false, "unknown station cmd: " .. tostring(cmd) end
     station_node.render_status(monitor, state)
@@ -85,12 +85,12 @@ function station_node.new_runtime(args_or_context)
     return { role = "station", station_id = station_id, display_name = display_name, station_type = station_type, state = state.state, reconnect_reason = reason, platforms = state.platforms }
   end
 
-  local function send_platform(platform) node.net.send("event", context.config.master_id, platform_payload(state, platform)) end
+  local function send_platform(platform) node.net.send_reliable("event", context.config.master_id, platform_payload(state, platform)) end
 
   local function send_full_status(reason)
-    node.net.send("register", context.config.master_id, station_status_payload(reason))
+    node.net.send_reliable("register", context.config.master_id, station_status_payload(reason))
     node.net.send("event", context.config.master_id, { type = "station_status", station_id = station_id, station_type = station_type, display_name = display_name, state = state.state, reconnect_reason = reason })
-    for _, platform in pairs(state.platforms or {}) do send_platform(platform) end
+    for _, platform in pairs(state.platforms or {}) do node.net.send("event", context.config.master_id, platform_payload(state, platform)) end
   end
 
   node.register = function() return send_full_status("register") end
@@ -111,16 +111,16 @@ function station_node.new_runtime(args_or_context)
             platform.last_occupied = occupied
             if occupied then
               platform.train_name = read_train_name(platform); platform.train_id = platform.train_id or platform.train_name; platform.state = PLATFORM_DWELLING; platform.occupied_since = os.clock()
-              node.net.send("event", context.config.master_id, { type = "train_arrived_station", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
+              node.net.send_reliable("event", context.config.master_id, { type = "train_arrived_station", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
             else
               local leaving_train_id = platform.train_id; local leaving_train_name = platform.train_name
-              node.net.send("event", context.config.master_id, { type = "train_left_station", station_id = station_id, platform_id = platform.id, train_id = leaving_train_id, train_name = leaving_train_name, block_id = platform.block_id })
+              node.net.send_reliable("event", context.config.master_id, { type = "train_left_station", station_id = station_id, platform_id = platform.id, train_id = leaving_train_id, train_name = leaving_train_name, block_id = platform.block_id })
               platform.state = PLATFORM_EMPTY; platform.train_id = nil; platform.train_name = nil; platform.occupied_since = nil
             end
             send_platform(platform)
           elseif occupied and platform.state == PLATFORM_DWELLING and platform.occupied_since and os.clock() - platform.occupied_since >= platform.dwell_seconds then
             platform.state = PLATFORM_READY
-            node.net.send("event", context.config.master_id, { type = "station_ready_departure", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
+            node.net.send_reliable("event", context.config.master_id, { type = "station_ready_departure", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
             send_platform(platform)
           end
         else
