@@ -63,6 +63,11 @@ function app.new(args)
   })
 
   local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger)
+  -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
+  network.on_drop = function(msg)
+    logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
+    if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
+  end
   local monitor = peri.wrap("monitor") or fallback_monitor()
   local ui = ui_core.new(monitor, {
     overview = overview_panel.new(disp, reg),
