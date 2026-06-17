@@ -71,6 +71,8 @@ local function install_os()
   _G.os = _G.os or {}
   _G.os.clock = _G.os.clock or function() return 0 end
   _G.os.time = _G.os.time or os.time or function() return 0 end
+  -- os.epoch("utc") returns ms since epoch; in tests use os.time()*1000
+  _G.os.epoch = _G.os.epoch or function(tz) return (os.time and os.time() or 0) * 1000 end
   _G.os.startTimer = _G.os.startTimer or function() return 0 end
   _G.os.pullEvent = _G.os.pullEvent or function() return "terminate" end
 end
