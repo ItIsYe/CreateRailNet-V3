@@ -28,7 +28,7 @@ local function base()
       { id = "SIG-1", role = "signal" },
       { id = "SIG-2", role = "signal" },
       { id = "SEN-1", role = "sensor" },
-      { id = "SW-1", role = "switch" }
+      { id = "SW-1", role = "switch", adapter = "redstone", side = "left" }
     }
   }
 end
@@ -48,7 +48,7 @@ return {
 
   test_duplicate_node_id_fails = function()
     local c = base()
-    table.insert(c.nodes, { id = "SW-1", role = "switch" })
+    table.insert(c.nodes, { id = "SW-1", role = "switch", adapter = "redstone", side = "left" })
     fails_with(c, "duplicate node id")
   end,
 
