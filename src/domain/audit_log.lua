@@ -23,7 +23,7 @@ function audit_log.new(limit)
     seq = seq + 1
     local entry = {
       seq = seq,
-      ts = os.clock(),
+      ts = os.time(),
       kind = kind or "event",
       data = copy_table(data or {})
     }
