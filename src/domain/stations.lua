@@ -34,7 +34,7 @@ function stations.new(config)
 
   function self.register(station_id, node_id, info)
     local id = station_id or node_id
-    if not by_id[id] then by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, create_station_name = (info and (info.create_station_name or info.create_destination or info.schedule_destination)) or id, station_type = (info and info.station_type) or "mixed", state = "ONLINE", last_seen = os.clock(), platforms = {} } end
+    if not by_id[id] then by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, create_station_name = (info and (info.create_station_name or info.create_destination or info.schedule_destination)) or id, station_type = (info and info.station_type) or "mixed", state = "ONLINE", last_seen = os.time(), platforms = {} } end
     local station = by_id[id]
     station.node_id = node_id or station.node_id
     station.display_name = (info and info.display_name) or station.display_name
@@ -44,12 +44,12 @@ function stations.new(config)
     station.station_type = (info and info.station_type) or station.station_type
     station.state = (info and info.state) or station.state or "ONLINE"
     station.reconnect_reason = info and info.reconnect_reason or station.reconnect_reason
-    station.last_seen = os.clock()
+    station.last_seen = os.time()
     return station
   end
 
   function self.resolve_create_destination(station_id, fallback) local station = by_id[station_id]; if not station then return fallback or station_id end; return station.create_station_name or station.create_destination or station.schedule_destination or fallback or station_id end
-  function self.update_status(station_id, status) local station = self.register(station_id, station_id, status); station.state = status.state or station.state; station.message = status.message; station.last_seen = os.clock(); return station end
+  function self.update_status(station_id, status) local station = self.register(station_id, station_id, status); station.state = status.state or station.state; station.message = status.message; station.last_seen = os.time(); return station end
   function self.update_platform(station_id, platform_id, patch)
     local station = self.register(station_id, station_id, {})
     if not station.platforms[platform_id] then station.platforms[platform_id] = normalize_platform({ id = platform_id }) end
@@ -73,12 +73,12 @@ function stations.new(config)
 
   function self.reserve_platform(station_id, opts)
     local platform, err = self.find_available_platform(station_id, opts); if not platform then return nil, err end
-    local options = opts or {}; platform.state = PLATFORM_STATES.RESERVED; platform.train_id = options.train_id; platform.route_id = options.route_id; platform.destination = options.destination; platform.reserved_at = os.clock(); return platform
+    local options = opts or {}; platform.state = PLATFORM_STATES.RESERVED; platform.train_id = options.train_id; platform.route_id = options.route_id; platform.destination = options.destination; platform.reserved_at = os.time(); return platform
   end
 
   function self.release_platform(station_id, platform_id)
     local station = by_id[station_id]; if not station or not station.platforms[platform_id] then return false, "platform not found" end
-    local platform = station.platforms[platform_id]; platform.state = PLATFORM_STATES.EMPTY; platform.train_id = nil; platform.route_id = nil; platform.destination = nil; platform.reserved_at = nil; station.last_seen = os.clock(); return true
+    local platform = station.platforms[platform_id]; platform.state = PLATFORM_STATES.EMPTY; platform.train_id = nil; platform.route_id = nil; platform.destination = nil; platform.reserved_at = nil; station.last_seen = os.time(); return true
   end
 
   function self.mark_offline(station_id)
