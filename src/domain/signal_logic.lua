@@ -13,11 +13,11 @@ function signal_logic.set_aspect(signal_id, aspect, adapter)
 end
 
 function signal_logic.set_block_red(block, adapter)
-  if not block then
-    return true
-  end
-  signal_logic.set_aspect(block.entry_signal, "RED", adapter)
-  signal_logic.set_aspect(block.exit_signal, "RED", adapter)
+  if not block then return true end
+  local ok1, err1 = signal_logic.set_aspect(block.entry_signal, "RED", adapter)
+  local ok2, err2 = signal_logic.set_aspect(block.exit_signal, "RED", adapter)
+  if not ok1 then return false, "entry signal failed: " .. tostring(err1) end
+  if not ok2 then return false, "exit signal failed: " .. tostring(err2) end
   return true
 end
 
