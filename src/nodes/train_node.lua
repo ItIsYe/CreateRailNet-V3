@@ -108,11 +108,14 @@ function train_node.new_runtime(args_or_context)
           state.state = state.schedule_state == "failed" and "SCHEDULE_FAILED" or "ROUTE_ASSIGNED"
           local payload_status = status_payload(state, train_id, display_name)
           payload_status.type = "schedule_applied"
-          node.net.send("event", context.config.master_id, payload_status)
+          node.net.send_reliable("event", context.config.master_id, payload_status)
         elseif cmd == "depart_authorized" then
           state.route_id = payload.route_id or state.route_id
           state.destination = payload.destination or state.destination
-          state.create_destination = payload.create_destination or state.create_destination
+          -- Explicitly allow nil to clear stale create_destination
+          if payload.create_destination ~= nil or payload.destination ~= nil then
+            state.create_destination = payload.create_destination
+          end
           state.service_stop_index = payload.service_stop_index or state.service_stop_index
           state.state = "DEPART_AUTHORIZED"
         elseif cmd == "hold_position" then
@@ -135,7 +138,7 @@ function train_node.new_runtime(args_or_context)
   })
 
   node.register = function()
-    return node.net.send("register", context.config.master_id, status_payload(state, train_id, display_name))
+    return node.net.send_reliable("register", context.config.master_id, status_payload(state, train_id, display_name))
   end
 
   node.heartbeat = function()
@@ -163,7 +166,7 @@ function train_node.new_runtime(args_or_context)
     state.state = "WAITING_FOR_ROUTE"
     state.destination = to_station or state.destination
     state.create_destination = create_destination or state.create_destination
-    return node.net.send("event", context.config.master_id, { type = "request_departure", train_id = train_id, from = from_station, to = to_station or state.destination, create_destination = state.create_destination, route_id = state.route_id, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
+    return node.net.send_reliable("event", context.config.master_id, { type = "request_departure", train_id = train_id, from = from_station, to = to_station or state.destination, create_destination = state.create_destination, route_id = state.route_id, service_plan = state.service_plan, service_stop_index = state.service_stop_index })
   end
 
   return node
