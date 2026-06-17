@@ -1,6 +1,15 @@
 --[[
-Purpose: Switch adapter with peripheral method support and redstone fallback.
+Purpose: Switch adapter for Create track switches with redstone control.
 Public API: new(peripherals, opts), setPosition(switch_id, position).
+
+IMPORTANT: Vanilla Create track switches DO NOT expose a CC:Tweaked peripheral.
+In Create, switches are controlled by redstone signals. Configure switch nodes
+with adapter="redstone" in hardware_config to use redstone side outputs.
+
+The peripheral path (setPosition method call) is provided for potential
+third-party mod compatibility (e.g. Immersive Railroading, custom addons)
+that may expose a setPosition peripheral method. It will NOT work with
+vanilla Create track switches — use redstone adapter instead.
 ]]
 
 local method_helper = require("src.adapter.methods")
@@ -27,6 +36,9 @@ function create_switches.new(peripherals, opts)
   end
 
   function self.setPosition(switch_id, position)
+    -- NOTE: Vanilla Create track switches use redstone control, not CC peripheral.
+    -- If adapter_for returns "peripheral", this call will likely fail unless
+    -- a third-party mod provides a setPosition method on the switch peripheral.
     if adapter_for(switch_id) == "redstone" then
       local invert = hardware and hardware.value(switch_id, "invert") or false
       local active_position = hardware and hardware.value(switch_id, "active_position") or "DIVERGING"
