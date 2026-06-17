@@ -3,6 +3,8 @@ Purpose: Domain registry for onboard train nodes and train state.
 Public API: new(config) -> registry with register, update_status, assign_route, list, get.
 ]]
 
+local time = require("src.shared.time")
+
 local trains = {}
 
 local STATES = {
@@ -43,7 +45,7 @@ function trains.new(config)
         create_destination = node.default_create_destination or node.create_destination,
         route_id = nil,
         state = STATES.OFFLINE,
-        last_seen = 0  -- will be set to os.time() on first register,
+        last_seen = 0,  -- will be set to time.now_s() on first register
         status = {}
       }
     end
@@ -52,7 +54,7 @@ function trains.new(config)
   function self.register(train_id, node_id, info)
     local id = train_id or node_id
     if not by_id[id] then
-      by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, state = STATES.REGISTERING, last_seen = os.clock(), status = {} }
+      by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, state = STATES.REGISTERING, last_seen = time.now_s(), status = {} }
     end
     local train = by_id[id]
     train.node_id = node_id or train.node_id
@@ -62,7 +64,7 @@ function trains.new(config)
     train.destination = (info and info.destination) or train.destination
     train.create_destination = (info and info.create_destination) or train.create_destination
     train.state = (info and info.state) or STATES.IDLE
-    train.last_seen = os.time()
+    train.last_seen = time.now_s()
     return train
   end
 
@@ -84,7 +86,7 @@ function trains.new(config)
     if status.message ~= nil then train.message = status.message end
     -- Support explicit field clearing: status.clear = {"route_id", "destination", ...}
     for _, field in ipairs(status.clear or {}) do train[field] = nil end
-    train.last_seen = os.time()
+    train.last_seen = time.now_s()
     return train
   end
 
@@ -94,7 +96,7 @@ function trains.new(config)
     train.destination = destination or train.destination
     train.create_destination = create_destination or train.create_destination
     train.state = STATES.ROUTE_ASSIGNED
-    train.last_seen = os.time()
+    train.last_seen = time.now_s()
     return train
   end
 
