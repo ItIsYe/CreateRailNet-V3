@@ -1,6 +1,16 @@
 --[[
 Purpose: Signal adapter with Create peripheral method support and redstone fallback.
 Public API: new(peripherals, opts), setAspect(signal_id, aspect), getState(signal_id).
+
+Create signal peripheral methods (confirmed in vanilla Create):
+  setForcedRed(bool) — force signal to red (true) or release (false)
+
+Methods that may not exist in vanilla Create (guarded with method_exists check):
+  setAspect(string)  — from Create addons or custom signal peripherals
+  getState()         — from Create addons
+  isForcedRed()      — may not exist; prefer setForcedRed state tracking
+
+For vanilla Create: configure signals with setForcedRed or use redstone adapter.
 ]]
 
 local method_helper = require("src.adapter.methods")
@@ -62,13 +72,16 @@ function create_signals.new(peripherals, opts)
     end
 
     local target = target_for(signal_id)
+    -- Try getState (addon signals), then isForcedRed (may not exist in vanilla Create)
     if method_exists(target, "getState") then return method_helper.call(peripherals, target, "getState") end
     if method_exists(target, "isForcedRed") then
       local ok, forced = method_helper.call(peripherals, target, "isForcedRed")
       if not ok then return false, forced end
       return true, forced and "RED" or "UNKNOWN"
     end
-    return false, "signal state method unavailable"
+    -- Vanilla Create signals: state cannot be read back via CC peripheral
+    -- Return UNKNOWN rather than error — caller should track state locally
+    return true, "UNKNOWN"
   end
 
   return self
