@@ -3,6 +3,8 @@ Purpose: Node registry with capabilities and heartbeat tracking.
 Public API: new(), register(node_id, role, caps), heartbeat(node_id).
 ]]
 
+local time = require("src.shared.time")
+
 local registry = {}
 
 function registry.new()
@@ -13,7 +15,7 @@ function registry.new()
       id = node_id,
       role = role,
       caps = caps or {},
-      last_seen = os.time(),
+      last_seen = time.now_s(),
       status = "UP"
     }
   end
@@ -21,7 +23,7 @@ function registry.new()
   function reg.heartbeat(node_id)
     local node = reg.nodes[node_id]
     if node then
-      node.last_seen = os.time()
+      node.last_seen = time.now_s()
       node.status = "UP"
     end
   end
