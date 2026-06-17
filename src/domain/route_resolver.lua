@@ -53,7 +53,7 @@ function route_resolver.new(routes)
   function self.resolve(request)
     local req = request or {}
     if req.route_id and by_id[req.route_id] then
-      return by_id[req.route_id], "route_id"
+      return copy_route(by_id[req.route_id]), "route_id"
     end
 
     local best = nil
@@ -68,7 +68,7 @@ function route_resolver.new(routes)
       end
     end
 
-    if best then return best, "from_to" end
+    if best then return copy_route(best), "from_to" end
     return nil, "no route for from/to"
   end
 
