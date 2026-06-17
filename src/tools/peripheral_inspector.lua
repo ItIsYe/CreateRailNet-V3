@@ -3,6 +3,8 @@ Purpose: Ingame helper to inspect CC:Tweaked peripherals and method names safely
 Public API: inspect(name), scan(), find_methods(patterns), write_report(path, report), run(args).
 ]]
 
+local time = require("src.shared.time")
+
 local json = require("src.shared.json")
 
 local inspector = {}
@@ -49,7 +51,7 @@ function inspector.inspect(name)
 end
 
 function inspector.scan()
-  local report = { generated_at = os.time(), peripherals = {} }
+  local report = { generated_at = time.now_s(), peripherals = {} }
   for _, name in ipairs(list_names()) do table.insert(report.peripherals, inspector.inspect(name)) end
   return report
 end
@@ -80,7 +82,7 @@ end
 
 function inspector.run(args)
   local options = args or {}
-  local report = options.side and { generated_at = os.time(), peripherals = { inspector.inspect(options.side) } } or inspector.scan()
+  local report = options.side and { generated_at = time.now_s(), peripherals = { inspector.inspect(options.side) } } or inspector.scan()
   print_line("CreateRailNet Peripheral Inspector")
   for _, info in ipairs(report.peripherals) do
     print_line("- " .. tostring(info.name) .. " type=" .. tostring(info.type) .. " present=" .. tostring(info.present) .. " methods=" .. tostring(info.method_count))
