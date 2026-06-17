@@ -3,6 +3,8 @@ Purpose: Priority queue helper for pending route requests with aging metadata.
 Public API: new() -> queue with push, pop, list, size, reprioritize.
 ]]
 
+local time = require("src.shared.time")
+
 local route_queue = {}
 
 function route_queue.new()
@@ -24,7 +26,7 @@ function route_queue.new()
       base_priority = request.base_priority or request.priority or 0,
       attempts = (request.attempts or 0),
       blocked_by = request.blocked_by,
-      queued_at = request.queued_at or os.time(),
+      queued_at = request.queued_at or time.now_s(),
       state = "QUEUED",
       reason = request.reason
     }
@@ -36,7 +38,7 @@ function route_queue.new()
   local REPRIORITIZE_INTERVAL = 10  -- seconds; avoids O(N) on every pop
 
   function self.reprioritize(now, aging_step_s, aging_bonus)
-    local clock = now or os.time()
+    local clock = now or time.now_s()
     local step = aging_step_s or 30
     local bonus = aging_bonus or 1
     last_reprioritize = clock
@@ -48,7 +50,7 @@ function route_queue.new()
 
   function self.pop()
     if #items == 0 then return nil end
-    local now = os.time()
+    local now = time.now_s()
     if now - last_reprioritize >= REPRIORITIZE_INTERVAL then
       self.reprioritize(now)
     end
