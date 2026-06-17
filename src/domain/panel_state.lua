@@ -31,7 +31,7 @@ function panel_state.new(config, panel_id)
   function self.update(payload)
     if type(payload) ~= "table" then return end
     state.master_state = payload.master_state or "ONLINE"
-    state.last_update = os.clock()
+    state.last_update = os.time()
     if payload.overview then state.overview = copy_table(payload.overview) end
     if payload.trains then state.trains = copy_table(payload.trains) end
     if payload.stations then state.stations = copy_table(payload.stations) end
