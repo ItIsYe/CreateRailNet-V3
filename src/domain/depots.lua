@@ -30,18 +30,18 @@ function depots.new(config)
 
   function self.register(depot_id, node_id, info)
     local id = depot_id or node_id
-    if not by_id[id] then by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, depot_type = (info and info.depot_type) or "mixed", state = "ONLINE", last_seen = os.clock(), queue = {}, tracks = {} } end
+    if not by_id[id] then by_id[id] = { id = id, node_id = node_id, display_name = (info and info.display_name) or id, depot_type = (info and info.depot_type) or "mixed", state = "ONLINE", last_seen = os.time(), queue = {}, tracks = {} } end
     local depot = by_id[id]
     depot.node_id = node_id or depot.node_id
     depot.display_name = (info and info.display_name) or depot.display_name
     depot.depot_type = (info and info.depot_type) or depot.depot_type
     depot.state = (info and info.state) or depot.state or "ONLINE"
     depot.reconnect_reason = info and info.reconnect_reason or depot.reconnect_reason
-    depot.last_seen = os.clock()
+    depot.last_seen = os.time()
     return depot
   end
 
-  function self.update_status(depot_id, status) local depot = self.register(depot_id, depot_id, status); depot.state = status.state or depot.state; depot.message = status.message; depot.last_seen = os.clock(); return depot end
+  function self.update_status(depot_id, status) local depot = self.register(depot_id, depot_id, status); depot.state = status.state or depot.state; depot.message = status.message; depot.last_seen = os.time(); return depot end
   function self.update_track(depot_id, track_id, patch)
     local depot = self.register(depot_id, depot_id, {})
     if not depot.tracks[track_id] then depot.tracks[track_id] = normalize_track({ id = track_id }) end
@@ -63,10 +63,10 @@ function depots.new(config)
     return candidates[1]
   end
 
-  function self.reserve_track(depot_id, opts) local track, err = self.find_available_track(depot_id, opts); if not track then return nil, err end; local options = opts or {}; track.state = TRACK_STATES.RESERVED; track.train_id = options.train_id; track.route_id = options.route_id; track.destination = options.destination; track.reserved_at = os.clock(); return track end
-  function self.release_track(depot_id, track_id) local depot = by_id[depot_id]; if not depot or not depot.tracks[track_id] then return false, "track not found" end; local track = depot.tracks[track_id]; track.state = TRACK_STATES.EMPTY; track.train_id = nil; track.route_id = nil; track.destination = nil; track.reserved_at = nil; depot.last_seen = os.clock(); return true end
-  function self.enqueue(depot_id, request) local depot = self.register(depot_id, depot_id, {}); seq = seq + 1; local item = copy(request or {}); item.seq = item.seq or seq; item.queued_at = item.queued_at or os.clock(); table.insert(depot.queue, item); table.sort(depot.queue, queue_sort); depot.last_seen = os.clock(); return #depot.queue end
-  function self.dequeue(depot_id) local depot = self.register(depot_id, depot_id, {}); depot.last_seen = os.clock(); table.sort(depot.queue, queue_sort); return table.remove(depot.queue, 1) end
+  function self.reserve_track(depot_id, opts) local track, err = self.find_available_track(depot_id, opts); if not track then return nil, err end; local options = opts or {}; track.state = TRACK_STATES.RESERVED; track.train_id = options.train_id; track.route_id = options.route_id; track.destination = options.destination; track.reserved_at = os.time(); return track end
+  function self.release_track(depot_id, track_id) local depot = by_id[depot_id]; if not depot or not depot.tracks[track_id] then return false, "track not found" end; local track = depot.tracks[track_id]; track.state = TRACK_STATES.EMPTY; track.train_id = nil; track.route_id = nil; track.destination = nil; track.reserved_at = nil; depot.last_seen = os.time(); return true end
+  function self.enqueue(depot_id, request) local depot = self.register(depot_id, depot_id, {}); seq = seq + 1; local item = copy(request or {}); item.seq = item.seq or seq; item.queued_at = item.queued_at or os.time(); table.insert(depot.queue, item); table.sort(depot.queue, queue_sort); depot.last_seen = os.time(); return #depot.queue end
+  function self.dequeue(depot_id) local depot = self.register(depot_id, depot_id, {}); depot.last_seen = os.time(); table.sort(depot.queue, queue_sort); return table.remove(depot.queue, 1) end
 
   function self.mark_offline(depot_id)
     local depot = by_id[depot_id]
