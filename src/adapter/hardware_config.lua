@@ -1,6 +1,22 @@
 --[[
 Purpose: Resolve node hardware configuration for adapters.
 Public API: new(config) -> resolver with node(id), target(id), adapter(id), side(id), value(id, key).
+
+Node config fields:
+  adapter    "peripheral" (default) | "redstone"
+  peripheral  peripheral name for adapter="peripheral" (e.g. "Create_Signal_0")
+  side        redstone side for adapter="redstone" (e.g. "left", "top", "right")
+  invert      boolean, for redstone switches: invert the output signal
+  active_position  for redstone switches: which position = active signal ("DIVERGING" default)
+
+Create mod specific notes:
+  Signals:  use adapter="peripheral", peripheral="Create_Signal_0"
+            Only setForcedRed(bool) is available in vanilla Create.
+  Sensors:  use adapter="peripheral", peripheral="Create_TrainObserver_0"
+            isTrainPassing() and getPassingTrainName() available.
+  Switches: MUST use adapter="redstone", side="left" (etc.)
+            Vanilla Create track switches have NO CC:Tweaked peripheral.
+  Station:  not a hardware node; configured directly in train/route nodes.
 ]]
 
 local hardware_config = {}
