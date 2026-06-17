@@ -96,7 +96,13 @@ function master_runtime.new(context)
   local function reject_recovery(msg, action)
     local payload = msg.payload or {}
     audit("recovery_blocked", { action = action, src = msg.src, train_id = payload.train_id, route_id = payload.route_id })
-    if payload.train_id then runtime.network.send("cmd", msg.src, { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "recovery review required" }) end
+    if payload.train_id then
+      if runtime.network.send_reliable then
+        runtime.network.send_reliable("cmd", msg.src, { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "recovery review required" })
+      else
+        runtime.network.send("cmd", msg.src, { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "recovery review required" })
+      end
+    end
     runtime.network.ack_for(msg)
     runtime.ui.mark_dirty()
     return true
@@ -110,7 +116,14 @@ function master_runtime.new(context)
     return built
   end
 
-  local function send_panel_snapshot(dst) runtime.network.send("cmd", dst, panel_snapshot()) end
+  local function send_panel_snapshot(dst)
+    local snap = panel_snapshot()
+    if runtime.network.send_reliable then
+      runtime.network.send_reliable("cmd", dst, snap)
+    else
+      runtime.network.send("cmd", dst, snap)
+    end
+  end
   local function apply_station_snapshot(station_id, payload) if not runtime.station_registry then return end; runtime.station_registry.register(station_id, payload.node_id or station_id, payload or {}); for platform_id, platform in pairs((payload and payload.platforms) or {}) do runtime.station_registry.update_platform(station_id, platform_id, platform) end end
   local function apply_depot_snapshot(depot_id, payload) if not runtime.depot_registry then return end; runtime.depot_registry.register(depot_id, payload.node_id or depot_id, payload or {}); for track_id, track in pairs((payload and payload.tracks) or {}) do runtime.depot_registry.update_track(depot_id, track_id, track) end end
 
@@ -204,15 +217,43 @@ function master_runtime.new(context)
     end
   end
 
+  -- Explicit event type routing table — no fragile prefix matching
+  local event_routes = {
+    sensor                   = handle_sensor_event,
+    -- train events
+    train_status             = handle_train_event,
+    request_departure        = handle_train_event,
+    arrived                  = handle_train_event,
+    schedule_applied         = handle_train_event,
+    train_fault              = handle_train_event,
+    -- station events
+    station_status           = handle_station_event,
+    station_ready_departure  = handle_station_event,
+    station_fault            = handle_station_event,
+    platform_status          = handle_station_event,
+    train_arrived_station    = handle_station_event,
+    train_left_station       = handle_station_event,
+    -- depot events
+    depot_status             = handle_depot_event,
+    depot_track_status       = handle_depot_event,
+    depot_train_ready        = handle_depot_event,
+    depot_request_dispatch   = handle_depot_event,
+    depot_train_arrived      = handle_depot_event,
+    depot_train_left         = handle_depot_event,
+    depot_fault              = handle_depot_event,
+    -- panel events
+    panel_request_snapshot   = handle_panel_event,
+    manual_control           = handle_panel_event,
+  }
+
   handlers.event = function(msg)
     local ptype = msg.payload and tostring(msg.payload.type) or ""
-    if ptype == "sensor" then handle_sensor_event(msg)
-    elseif ptype == "train_arrived_station" or ptype == "train_left_station" or ptype == "platform_status" or string.sub(ptype, 1, 8) == "station_" then handle_station_event(msg)
-    elseif ptype == "depot_train_arrived" or ptype == "depot_train_left" or ptype == "depot_track_status" or string.sub(ptype, 1, 6) == "depot_" then handle_depot_event(msg)
-    elseif string.sub(ptype, 1, 6) == "train_" then handle_train_event(msg)
-    elseif string.sub(ptype, 1, 6) == "panel_" then handle_panel_event(msg)
-    elseif ptype == "manual_control" then handle_panel_event(msg)
-    elseif ptype == "request_departure" or ptype == "arrived" or ptype == "schedule_applied" then handle_train_event(msg) end
+    local handler = event_routes[ptype]
+    if handler then
+      handler(msg)
+    elseif runtime.logger then
+      runtime.logger.warn("unrouted event type", { type = ptype, src = msg.src })
+    end
     return true
   end
 
@@ -222,19 +263,28 @@ function master_runtime.new(context)
 
   local function check_timeouts()
     local now = os.time()
+    local any_timeout = false
     for node_id, node_state in pairs(runtime.registry.all()) do
       if now - node_state.last_seen > runtime.heartbeat_timeout_s then
-        runtime.registry.mark_down(node_id); runtime.dispatcher.timeout_node(node_id); audit("node_timeout", { node_id = node_id, role = node_state.role })
+        runtime.registry.mark_down(node_id)
+        local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
+        if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
+        audit("node_timeout", { node_id = node_id, role = node_state.role })
         if runtime.train_registry and node_state.role == "train" then runtime.train_registry.mark_offline(node_id) end
         if runtime.station_registry and node_state.role == "station" then runtime.station_registry.mark_offline(node_id) end
         if runtime.depot_registry and node_state.role == "depot" then runtime.depot_registry.mark_offline(node_id) end
-        runtime.ui.mark_dirty(); save_after("timeout")
+        any_timeout = true
       end
     end
+    -- Single save and dirty-mark after all timeouts processed (not per-node)
+    if any_timeout then runtime.ui.mark_dirty(); save_after("timeout") end
   end
 
   function runtime.start()
-    runtime.restore_recovery_state()
+    local ok_restore, restore_err = pcall(runtime.restore_recovery_state)
+    if not ok_restore and runtime.logger then
+      runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
+    end
     runtime.timeout_timer = os.startTimer(1)
     runtime.ui_timer = os.startTimer(0.2)
     runtime.dwell_timer = os.startTimer(1)
@@ -242,11 +292,21 @@ function master_runtime.new(context)
   end
 
   function runtime.handle_event(event)
-    if event[1] == "modem_message" then local msg = event[5]; local status = runtime.network.receive(msg); if status == "ok" then message_handlers.dispatch(msg, handlers) end
+    if event[1] == "modem_message" then
+      local msg = event[5]
+      local status = runtime.network.receive(msg)
+      if status == "ok" then
+        local ok, err = pcall(message_handlers.dispatch, msg, handlers)
+        if not ok and runtime.logger then runtime.logger.error("message handler error", { error = tostring(err), type = msg and msg.type, src = msg and msg.src }) end
+      end
     elseif event[1] == "monitor_touch" then runtime.ui.handle_touch(event[3], event[4])
     elseif event[1] == "timer" and event[2] == runtime.timeout_timer then check_timeouts(); runtime.timeout_timer = os.startTimer(1)
     elseif event[1] == "timer" and event[2] == runtime.dwell_timer then if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.process_due(); save_after("dwell") end; runtime.dwell_timer = os.startTimer(1); runtime.ui.mark_dirty()
-    elseif event[1] == "timer" and event[2] == runtime.ui_timer then runtime.ui.draw(); runtime.ui_timer = os.startTimer(0.2) end
+    elseif event[1] == "timer" and event[2] == runtime.ui_timer then
+      local ok, err = pcall(runtime.ui.draw)
+      if not ok and runtime.logger then runtime.logger.warn("ui draw error", { error = tostring(err) }) end
+      runtime.ui_timer = os.startTimer(0.2)
+    end
     runtime.network.tick()
   end
 
