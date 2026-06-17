@@ -33,14 +33,28 @@ local function read_file(path)
   error("config load failed: cannot open " .. tostring(path))
 end
 
+-- load: returns config or raises error (use pcall for graceful handling)
+-- Also available: config.try_load(path) -> ok, data_or_errors
 function config.load(path)
-  local content = read_file(path)
-  local data = json.decode(content)
-  local ok, errors = validate.validate_config(data)
-  if not ok then
+  local ok_read, content = pcall(read_file, path)
+  if not ok_read then
+    error("config load failed: " .. tostring(content))
+  end
+  local ok_json, data = pcall(json.decode, content)
+  if not ok_json then
+    error("config JSON parse failed: " .. tostring(data))
+  end
+  local ok_valid, errors = validate.validate_config(data)
+  if not ok_valid then
     error("config validation failed:\n- " .. table.concat(errors, "\n- "))
   end
   return data
+end
+
+function config.try_load(path)
+  local ok, result = pcall(config.load, path)
+  if ok then return true, result end
+  return false, result
 end
 
 return config
