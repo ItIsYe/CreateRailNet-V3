@@ -16,6 +16,15 @@ function fake_network.new()
     return { id = "sim-" .. tostring(#self.sent) }
   end
 
+  -- In simulation, reliable = regular send (no packet loss)
+  function self.send_reliable(msg_type, dst, payload)
+    return self.send(msg_type, dst, payload)
+  end
+
+  function self.receive() return "ok" end
+  function self.ack_for() end
+  function self.tick() end
+
   function self.inbox(id)
     self.inboxes[id] = self.inboxes[id] or {}
     return self.inboxes[id]
