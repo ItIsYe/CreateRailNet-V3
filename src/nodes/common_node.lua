@@ -24,7 +24,7 @@ function common_node.new(opts)
   node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time)
 
   function node.register()
-    return node.net.send("register", node.config.master_id, { role = node.role })
+    return node.net.send_reliable("register", node.config.master_id, { role = node.role })
   end
 
   function node.heartbeat()
@@ -57,6 +57,9 @@ function common_node.new(opts)
       node.hb_timer = os.startTimer(node.heartbeat_ms / 1000)
     elseif event[1] == "modem_message" then
       node.handle_message(event[5])
+    elseif event[1] == "peripheral_detach" and node.peripherals then
+      -- Invalidate cached peripheral wrapper so next access re-wraps
+      node.peripherals.invalidate(event[2])
     end
 
     if node.handlers.on_event then
