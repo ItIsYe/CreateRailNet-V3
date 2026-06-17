@@ -79,7 +79,14 @@ function validate.validate_config(cfg)
       for j, page in ipairs(node.pages or {}) do if not nonempty(page) then add(errors, path .. ".pages[" .. j .. "]", "must be non-empty string") end end
     elseif node.role == "signal" then signal_ids[node.id] = true
     elseif node.role == "sensor" then sensor_ids[node.id] = true
-    elseif node.role == "switch" then switch_ids[node.id] = true end
+    elseif node.role == "switch" then
+      switch_ids[node.id] = true
+      -- Warn if switch uses peripheral adapter (vanilla Create switches need redstone)
+      local adapter = node.adapter or "peripheral"
+      if adapter == "peripheral" and not nonempty(node.peripheral) then
+        add(errors, path .. ".adapter", "switch nodes require adapter=\"redstone\" for vanilla Create; peripheral adapter needs explicit peripheral name")
+      end
+    end
   end
 
   if cfg.master_id and node_roles[cfg.master_id] ~= "master" then add(errors, "master_id", "must reference node with role master") end
