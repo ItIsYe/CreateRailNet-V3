@@ -101,8 +101,15 @@ function validate.validate_config(cfg)
   for i, route in ipairs(cfg.routes or {}) do
     local path = "routes[" .. i .. "]"
     mark_unique(errors, route_ids, route.id, path .. ".id", "route id")
-    if not nonempty(route.from) then add(errors, path .. ".from", "must be non-empty string") end
-    if not nonempty(route.to) then add(errors, path .. ".to", "must be non-empty string") end
+    if not nonempty(route.from) then add(errors, path .. ".from", "must be non-empty string")
+    elseif next(station_ids) ~= nil or next(depot_ids) ~= nil then
+      -- Only cross-check when station/depot nodes are defined in config
+      if not station_ids[route.from] and not depot_ids[route.from] then add(errors, path .. ".from", "references unknown station/depot \"" .. tostring(route.from) .. "\"; define a station/depot node or add it") end
+    end
+    if not nonempty(route.to) then add(errors, path .. ".to", "must be non-empty string")
+    elseif next(station_ids) ~= nil or next(depot_ids) ~= nil then
+      if not station_ids[route.to] and not depot_ids[route.to] then add(errors, path .. ".to", "references unknown station/depot \"" .. tostring(route.to) .. "\"; define a station/depot node or add it") end
+    end
     if route.kind and not route_kinds[route.kind] then add(errors, path .. ".kind", "must be passenger, freight, mixed, or depot") end
     if route.priority and type(route.priority) ~= "number" then add(errors, path .. ".priority", "must be number") end
     if type(route.blocks) ~= "table" or #route.blocks == 0 then add(errors, path .. ".blocks", "must contain at least one block") end
@@ -124,7 +131,9 @@ function validate.validate_config(cfg)
       local target = stop.to or stop.destination or stop.station_id
       if stop.route_id and not route_ids[stop.route_id] then add(errors, stop_path .. ".route_id", "references unknown route \"" .. tostring(stop.route_id) .. "\"") end
       if not stop.route_id and (not nonempty(stop.from) or not nonempty(target)) then add(errors, stop_path, "must provide route_id or from/to") end
-      if target and not station_ids[target] and not depot_ids[target] and not nonempty(stop.create_destination) then add(errors, stop_path .. ".to", "references unknown station/depot \"" .. tostring(target) .. "\" or needs create_destination override") end
+      if target and not station_ids[target] and not depot_ids[target] and not nonempty(stop.create_destination) then
+        add(errors, stop_path .. ".to", "references unknown station/depot \"" .. tostring(target) .. "\" or needs create_destination override")
+      end
       if stop.dwell_seconds and (type(stop.dwell_seconds) ~= "number" or stop.dwell_seconds < 0) then add(errors, stop_path .. ".dwell_seconds", "must be number >= 0") end
       if stop.kind and not route_kinds[stop.kind] then add(errors, stop_path .. ".kind", "must be passenger, freight, mixed, or depot") end
       if stop.create_destination and not nonempty(stop.create_destination) then add(errors, stop_path .. ".create_destination", "must be non-empty string") end
