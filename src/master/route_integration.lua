@@ -10,6 +10,10 @@ local route_integration = {}
 local function send_cmd(network, dst, cmd, payload)
   local body = payload or {}
   body.cmd = cmd
+  -- Commands to nodes are critical; use reliable delivery
+  if network.send_reliable then
+    return network.send_reliable("cmd", dst, body)
+  end
   return network.send("cmd", dst, body)
 end
 
