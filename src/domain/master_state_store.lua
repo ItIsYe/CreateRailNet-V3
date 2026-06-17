@@ -88,7 +88,7 @@ function master_state_store.new(path)
   end
 
   function self.save(snapshot)
-    local payload = { version = 1, saved_at = os.clock and os.clock() or 0, dispatcher = snapshot }
+    local payload = { version = 1, saved_at = os.time and os.time() or 0, dispatcher = snapshot }
     local body = json.encode(payload)
     return write_file(self.path, body)
   end
