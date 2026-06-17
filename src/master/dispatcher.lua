@@ -289,6 +289,18 @@ function dispatcher.new(config, adapters)
       end
     end
   end
+  -- Manual signal/switch control for operator overrides
+  function self.set_signal(signal_id, aspect)
+    if not signal_id then return false, "missing signal_id" end
+    return signal_logic.set_aspect(signal_id, aspect or "RED", signal_adapter())
+  end
+
+  function self.set_switch(switch_id, position)
+    if not switch_id or not position then return false, "missing switch_id or position" end
+    local ok, err = switch_adapter().setPosition(switch_id, position)
+    return ok, err
+  end
+
   function self.release_route(train_id, route_id)
     local train = self.trains[train_id]
     if not train then return false, "train not found" end
