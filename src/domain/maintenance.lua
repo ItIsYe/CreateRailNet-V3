@@ -18,7 +18,7 @@ function maintenance.new()
     state.enabled = true
     state.reason = reason or "maintenance"
     state.changed_by = actor
-    state.changed_at = os.clock()
+    state.changed_at = os.time()
     return true
   end
 
@@ -26,7 +26,7 @@ function maintenance.new()
     state.enabled = false
     state.reason = nil
     state.changed_by = actor
-    state.changed_at = os.clock()
+    state.changed_at = os.time()
     return true
   end
 
