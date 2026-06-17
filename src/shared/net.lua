@@ -70,7 +70,9 @@ function net.new(modem, channel, node_id, logger, time_mod)
       if now >= entry.next_ts then
         if entry.retry >= self.max_retries then
           self.pending[id] = nil
-          if self.logger then self.logger.error("net max retries exceeded", { id = id }) end
+          if self.logger then self.logger.error("net max retries exceeded", { id = id, type = entry.msg.type, dst = entry.msg.dst }) end
+          -- Fire on_drop callback so callers can react (e.g. mark node down)
+          if self.on_drop then pcall(self.on_drop, entry.msg) end
         else
           entry.retry = entry.retry + 1
           local backoff = math.min(self.retry_max, self.retry_min * (2 ^ (entry.retry - 1)))
