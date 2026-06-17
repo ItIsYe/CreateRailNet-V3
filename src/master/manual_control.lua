@@ -12,6 +12,10 @@ local SAFE_ACTIONS = { enter_maintenance = true, exit_maintenance = true, hold_t
 local function send_cmd(network, dst, cmd, payload)
   local body = payload or {}
   body.cmd = cmd
+  -- Manual control commands are critical (emergency stop, authorize, hold)
+  if network.send_reliable then
+    return network.send_reliable("cmd", dst, body)
+  end
   return network.send("cmd", dst, body)
 end
 
@@ -101,11 +105,11 @@ function manual_control.new(context)
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "FAULT", error = cmd.reason or "manual emergency stop" }) end
       return true
     elseif cmd.action == "set_signal" then
-      if not self.dispatcher or not self.dispatcher.adapters or not self.dispatcher.adapters.signals then return false, "signal adapter unavailable" end
-      return self.dispatcher.adapters.signals.setAspect(cmd.signal_id, cmd.aspect or "RED")
+      if not self.dispatcher or not self.dispatcher.set_signal then return false, "signal control unavailable" end
+      return self.dispatcher.set_signal(cmd.signal_id, cmd.aspect or "RED")
     elseif cmd.action == "set_switch" then
-      if not self.dispatcher or not self.dispatcher.adapters or not self.dispatcher.adapters.switches then return false, "switch adapter unavailable" end
-      return self.dispatcher.adapters.switches.setPosition(cmd.switch_id, cmd.position)
+      if not self.dispatcher or not self.dispatcher.set_switch then return false, "switch control unavailable" end
+      return self.dispatcher.set_switch(cmd.switch_id, cmd.position)
     end
     return false, "unknown manual action: " .. tostring(cmd.action)
   end
