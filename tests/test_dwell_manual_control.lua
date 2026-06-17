@@ -75,7 +75,9 @@ return {
 
   test_manual_control_set_signal = function()
     local aspect = nil
-    local manual = manual_control.new({ dispatcher = { adapters = { signals = { setAspect = function(_, value) aspect = value; return true end } } } })
+    -- set_signal is now a public method on dispatcher (not via adapters)
+    local mock_dispatcher = { set_signal = function(sig_id, asp) aspect = asp; return true end }
+    local manual = manual_control.new({ dispatcher = mock_dispatcher })
     local ok = manual.handle({ action = "set_signal", signal_id = "SIG-1", aspect = "GREEN" }, "PANEL-1")
     assert(ok)
     assert(aspect == "GREEN")
