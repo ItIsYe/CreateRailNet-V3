@@ -59,7 +59,15 @@ function dispatcher.new(config, adapters)
   local function switch_adapter() return self.adapters.switches end
   local function set_switch(switch_id, position) if not switch_adapter() then return true end; return switch_adapter().setPosition(switch_id, position) end
   local function set_signal(signal_id, aspect) if not signal_id then return true end; return signal_logic.set_aspect(signal_id, aspect, signal_adapter()) end
-  local function set_block_red(block) return signal_logic.set_block_red(block, signal_adapter()) end
+  local function set_block_red(block)
+    local ok, err = signal_logic.set_block_red(block, signal_adapter())
+    if not ok and block then
+      -- Signal hardware failure: mark block FAULT so no train enters
+      block_domain.fault(block)
+      if self.logger then self.logger.warn("set_block_red hardware failure", { block = block.id, error = err }) end
+    end
+    return ok, err
+  end
   local function mark_fault(block) block_domain.fault(block); set_block_red(block) end
   local function route_owner(train_id, route_id) return tostring(train_id) .. ":" .. tostring(route_id) end
   local function get_route(_, route_id) local route = self.routes[route_id]; if not route then return nil, "route not found" end; return route end
