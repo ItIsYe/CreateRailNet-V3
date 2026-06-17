@@ -52,7 +52,10 @@ function app.new(args)
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })
   local ok, err = modem:open(cfg.channel)
-  if ok == false then logger.error("master modem open failed", { error = err }) end
+  if ok == false then
+    logger.error("master modem open failed", { error = err })
+    error("master modem open failed: " .. tostring(err))
+  end
 
   local disp = dispatcher.new(cfg, {
     signals = create_signals.new(peri, { hardware = hw }),
