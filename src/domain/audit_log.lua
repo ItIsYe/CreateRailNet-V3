@@ -3,6 +3,8 @@ Purpose: In-memory event audit log with bounded ring buffer.
 Public API: new(limit) -> log with record, list, filter.
 ]]
 
+local time = require("src.shared.time")
+
 local audit_log = {}
 
 local function copy_table(src)
@@ -23,7 +25,7 @@ function audit_log.new(limit)
     seq = seq + 1
     local entry = {
       seq = seq,
-      ts = os.time(),
+      ts = time.now_s(),
       kind = kind or "event",
       data = copy_table(data or {})
     }
