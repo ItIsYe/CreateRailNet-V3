@@ -29,6 +29,7 @@ local create_signals = require("src.adapter.create_signals")
 local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
+local ota_manager = require("src.master.ota_manager")
 
 local app = {}
 
@@ -95,6 +96,7 @@ function app.new(args)
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
+  context.ota = ota_manager.new(network, reg, logger)
 
   local instance = { context = context }
   instance.runtime = runtime_factory.new(context)
