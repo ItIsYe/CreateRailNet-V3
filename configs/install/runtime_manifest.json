@@ -2,6 +2,7 @@
   "version": 1,
   "purpose": "Runtime-only file manifest for ingame CC:Tweaked installation.",
   "include": [
+    "scripts/setup.lua",
     "startup.lua",
     "scripts/start_master.lua",
     "scripts/start_train.lua",
