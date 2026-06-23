@@ -219,6 +219,18 @@ function master_runtime.new(context)
     end
   end
 
+  local function handle_ota_result(msg)
+    local payload = msg.payload or {}
+    if payload.success then
+      audit("ota_success", { node_id = payload.node_id, files = payload.files, version = payload.version })
+      if runtime.logger then runtime.logger.info("OTA update succeeded", { node_id = payload.node_id, version = payload.version }) end
+    else
+      audit("ota_failed", { node_id = payload.node_id, errors = payload.errors })
+      if runtime.logger then runtime.logger.warn("OTA update failed", { node_id = payload.node_id, errors = payload.errors }) end
+    end
+    runtime.ui.mark_dirty()
+  end
+
   -- Explicit event type routing table — no fragile prefix matching
   local event_routes = {
     sensor                   = handle_sensor_event,
@@ -246,6 +258,8 @@ function master_runtime.new(context)
     -- panel events
     panel_request_snapshot   = handle_panel_event,
     manual_control           = handle_panel_event,
+    -- OTA update results
+    ota_result               = handle_ota_result,
   }
 
   handlers.event = function(msg)
