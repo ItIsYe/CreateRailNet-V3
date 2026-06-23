@@ -123,10 +123,10 @@ end
 
 function setup_wizard.warnings(cfg, classified)
   local warnings = {}
-  if not first_by_role(classified, "create_station") then table.insert(warnings, "no Create Station detected; using Create_Station_0 placeholder") end
-  if not first_by_role(classified, "train_observer") then table.insert(warnings, "no Train Observer detected; using Create_TrainObserver placeholders") end
-  if not first_by_role(classified, "create_signal") then table.insert(warnings, "no Create Signal detected; using Create_Signal placeholders") end
-  if not first_by_role(classified, "monitor") then table.insert(warnings, "no monitor detected; using monitor placeholder") end
+  if not first_by_role(classified, "create_station") then table.insert(warnings, "Create Station not found — verify 'create_station' in config matches your station peripheral name") end
+  if not first_by_role(classified, "train_observer") then table.insert(warnings, "Train Observer not found — verify sensor peripheral names in config") end
+  if not first_by_role(classified, "create_signal") then table.insert(warnings, "Create Signal not found — signals may use redstone adapter; verify config") end
+  if not first_by_role(classified, "monitor") then table.insert(warnings, "Monitor not found — verify monitor peripheral is attached and named correctly") end
   return warnings
 end
 
