@@ -27,7 +27,8 @@ function manual_control.new(context)
     train_registry = context.train_registry,
     route_integration = context.route_integration,
     maintenance = context.maintenance,
-    audit_log = context.audit_log
+    audit_log = context.audit_log,
+    ota = context.ota
   }
 
   local function audit(kind, data)
@@ -110,6 +111,16 @@ function manual_control.new(context)
     elseif cmd.action == "set_switch" then
       if not self.dispatcher or not self.dispatcher.set_switch then return false, "switch control unavailable" end
       return self.dispatcher.set_switch(cmd.switch_id, cmd.position)
+    elseif cmd.action == "ota_push" then
+      if not self.ota then return false, "ota manager unavailable" end
+      local targets = cmd.node_id and { cmd.node_id } or nil
+      local results = self.ota.push_runtime({ nodes = targets, version = cmd.version })
+      local ok_count, fail_count = 0, 0
+      for _, r in pairs(results or {}) do
+        if r.ok then ok_count = ok_count + 1 else fail_count = fail_count + 1 end
+      end
+      if self.logger then self.logger.info("OTA push triggered", { ok = ok_count, targets = targets }) end
+      return true, "OTA push sent to " .. ok_count .. " nodes"
     end
     return false, "unknown manual action: " .. tostring(cmd.action)
   end
