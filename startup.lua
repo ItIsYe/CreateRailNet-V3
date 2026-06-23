@@ -21,7 +21,16 @@ local role_entrypoints = {
 local entrypoint = role_entrypoints[CRN_ROLE]
 if not entrypoint then error("Unknown CRN_ROLE: " .. tostring(CRN_ROLE)) end
 
-print("CreateRailNet starting role=" .. CRN_ROLE .. " id=" .. CRN_ID)
+-- Read version from version file if it exists (written by OTA push)
+local function read_version()
+  if fs and fs.exists and fs.exists("crn_version.txt") then
+    local fh = fs.open("crn_version.txt", "r")
+    if fh then local v = fh.readLine(); fh.close(); return v end
+  end
+  return "unknown"
+end
+local CRN_VERSION = read_version()
+print("CreateRailNet v" .. CRN_VERSION .. "  role=" .. CRN_ROLE .. "  id=" .. CRN_ID)
 local mod = require(entrypoint)
 if mod and mod.new_runtime then
   mod.new_runtime({ id = CRN_ID, config = CRN_CONFIG }).run()
