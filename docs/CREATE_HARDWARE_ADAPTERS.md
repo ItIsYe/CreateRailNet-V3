@@ -2,14 +2,22 @@
 
 ## Create Signal
 
-Ingame scan showed Create signals expose methods such as:
+Create signals expose these methods (confirmed in vanilla Create):
+
+```text
+setForcedRed    -- confirmed
+```
+
+Methods that may exist in addon signals but NOT guaranteed in vanilla:
 
 ```text
 getState
 isForcedRed
-setForcedRed
+setAspect
 listBlockingTrainNames
 ```
+
+The adapter checks `method_exists()` before calling any optional method and falls back gracefully.
 
 CreateRailNet now prefers `setForcedRed` when available:
 
@@ -52,3 +60,16 @@ Redstone fallback remains valid:
 ## Safe behavior
 
 The adapter performs no automatic signal cycling. It only forces red or clears forced red when the dispatcher requests an aspect change.
+
+## Create Track Switches
+
+**Vanilla Create track switches do NOT expose a CC:Tweaked peripheral.**
+
+Configure switch nodes with `adapter = "redstone"`:
+
+```json
+{"id": "SW-1", "role": "switch", "adapter": "redstone", "side": "left", "active_position": "DIVERGING"}
+```
+
+The `setPosition()` peripheral path is only for third-party mods that add CC support to track switches.
+
