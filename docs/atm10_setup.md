@@ -31,9 +31,9 @@ Unterstützte Modi:
 - `adapter` ist `redstone`: nutzt CC:Tweaked Redstone-I/O über `side`.
 
 ## Signalsteuerung
-Primär über Adapter mit Peripheral-Methode `setAspect(aspect)`.
+Create Signale verwenden `setForcedRed(bool)` — nicht `setAspect`. Der Adapter setzt `setForcedRed(true)` für ROT und `setForcedRed(false)` für GRÜN.
 
-Redstone-Fallback:
+Alternativ Redstone-Fallback:
 ```json
 {"id":"SIG-1","role":"signal","adapter":"redstone","side":"right"}
 ```
@@ -43,9 +43,9 @@ Dabei gilt:
 - `RED` setzt den Redstone-Ausgang auf `false`.
 
 ## Sensoren
-Primär über Peripheral-Methode `isOccupied()`.
+Create Train Observer verwendet `isTrainPassing()` — nicht `isOccupied()`. Der Adapter prüft `isTrainPassing()` primär, `isOccupied()` als Fallback für andere Mods.
 
-Redstone-Fallback:
+Alternativ Redstone-Fallback:
 ```json
 {"id":"SEN-1","role":"sensor","adapter":"redstone","side":"front"}
 ```
@@ -53,9 +53,9 @@ Redstone-Fallback:
 Dabei wird `redstone.getInput(side)` als Belegtmeldung gelesen.
 
 ## Weichen
-Primär über Peripheral-Methode `setPosition(position)`.
+**Vanilla Create Track Switches haben KEIN CC:Tweaked Peripheral.** Weichen müssen immer über Redstone gesteuert werden:
 
-Redstone-Fallback:
+Redstone (einzige Option für vanilla Create):
 ```json
 {"id":"SW-1","role":"switch","adapter":"redstone","side":"back","active_position":"DIVERGING"}
 ```
@@ -70,7 +70,7 @@ configs/templates/network.redstone.example.json
 ```
 
 ## Bekannte Limitierungen
-`setAspect`, `isOccupied`, `setPosition` sind in ATM10 nicht garantiert und müssen ingame geprüft werden. Redstone-Fallback ist einfacher, aber kann je nach Verkabelung nur binäre Zustände abbilden.
+`setAspect` und `isOccupied` existieren nicht in vanilla Create — der Adapter fällt automatisch auf `setForcedRed`/`isTrainPassing` zurück. `setPosition` existiert nicht als CC-Peripheral für Create-Weichen — ausschließlich Redstone verwenden. Redstone-Adapter sind zuverlässiger und empfohlen.
 
 ## Debug-Schritte
 - Node registriert sich nicht: Modem-Kanal/ID prüfen.
@@ -78,3 +78,23 @@ configs/templates/network.redstone.example.json
 - Sensor meldet nichts: `redstone.getInput(side)` oder Peripheral-Methoden prüfen.
 - Weiche stellt falsch: `active_position` und `invert` prüfen.
 - Block FAULT: Timeout oder inkonsistentes Enter/Leave prüfen.
+
+## Remote Updates (OTA)
+
+Alle Computer im Netzwerk können remote aktualisiert werden:
+
+```lua
+-- Auf dem Master-Computer ausführen:
+shell.run("scripts/ota_push.lua")
+
+-- Spezifischen Node aktualisieren:
+shell.run("scripts/ota_push.lua", "--node", "TRAIN-1")
+
+-- Mit Versionstag:
+shell.run("scripts/ota_push.lua", "--version", "v2.1")
+```
+
+Oder über das Panel: Manual-Seite → `OTA Push All` antippen.
+
+Jeder Node empfängt die neuen Dateien, schreibt sie atomar und startet automatisch neu.
+
