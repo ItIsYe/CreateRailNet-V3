@@ -92,6 +92,16 @@ function updater.new(network, node_id, logger)
       end
     end
 
+    -- Write version file so startup.lua can display it
+    local version_str = tostring(payload.version or "unknown")
+    if fs and fs.open then
+      local vf = fs.open("crn_version.txt", "w")
+      if vf then vf.write(version_str); vf.close() end
+    elseif io and io.open then
+      local vf = io.open("crn_version.txt", "w")
+      if vf then vf:write(version_str); vf:close() end
+    end
+
     if logger then
       logger.info("OTA update applied", {
         files = #payload.files,
