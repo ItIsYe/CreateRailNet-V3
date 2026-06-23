@@ -1,5 +1,26 @@
 # CreateRailNet-V3 Ingame Setup
 
+## First-Time Setup (Recommended)
+
+On each new CC:Tweaked computer, run the interactive setup wizard:
+
+```lua
+shell.run("scripts/setup.lua")
+```
+
+The wizard will:
+1. Ask for the **role** (master/train/sensor/signal/switch/station/depot/panel)
+2. Ask for the **Node ID** (must match the id in your network config)
+3. **Scan attached peripherals** and suggest the right peripheral names
+4. Guide through role-specific settings (redstone side for switches, station name for trains, etc.)
+5. **Write `startup.lua`** automatically — no manual editing required
+6. Optionally **reboot** into the configured role immediately
+
+After setup, the computer will auto-start on every reboot using the written `startup.lua`.
+
+To reconfigure a computer, delete `startup.lua` and run `scripts/setup.lua` again.
+
+
 ## Ziel
 
 Diese Datei beschreibt den einfachen Start in CC:Tweaked / ATM10.
