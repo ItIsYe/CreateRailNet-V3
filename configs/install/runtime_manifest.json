@@ -11,6 +11,7 @@
     "scripts/start_switch.lua",
     "scripts/start_station.lua",
     "scripts/start_depot.lua",
+    "scripts/ota_push.lua",
     "src/shared/**",
     "src/domain/**",
     "src/adapter/**",
