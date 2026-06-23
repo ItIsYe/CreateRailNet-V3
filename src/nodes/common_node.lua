@@ -6,6 +6,7 @@ Public API: new(opts) -> node with start(), run(), handle_event(event), handle_m
 local net = require("src.shared.net")
 local log = require("src.shared.log")
 local time = require("src.shared.time")
+local updater = require("src.shared.updater")
 
 local common_node = {}
 
@@ -31,15 +32,41 @@ function common_node.new(opts)
     return node.net.heartbeat(node.config.master_id, { role = node.role })
   end
 
+  -- Lazy-init updater so it only exists when needed
+  local node_updater = nil
+  local function get_updater()
+    if not node_updater then node_updater = updater.new(node.net, node.id, node.logger) end
+    return node_updater
+  end
+
   function node.handle_message(msg)
     local status = node.net.receive(msg)
     if status ~= "ok" or msg.type ~= "cmd" then
       return status
     end
 
+    local payload = msg.payload or {}
+
+    -- OTA update: apply new files and reboot
+    if payload.cmd == "ota_update" then
+      node.net.ack_for(msg)
+      if node.logger then node.logger.info("OTA update received", { files = payload.file_count, version = payload.version }) end
+      -- Apply runs in pcall so a write failure doesn't crash the node
+      local ok, errors = pcall(get_updater().apply, payload)
+      if not ok then
+        node.net.send("event", msg.src, {
+          type = "ota_result",
+          node_id = node.id,
+          success = false,
+          errors = { tostring(errors) }
+        })
+      end
+      return status
+    end
+
     local ok, err = true, nil
     if node.handlers.on_cmd then
-      ok, err = node.handlers.on_cmd(msg.payload or {}, msg)
+      ok, err = node.handlers.on_cmd(payload, msg)
     end
 
     if ok == false then
