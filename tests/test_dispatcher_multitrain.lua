@@ -7,6 +7,7 @@ local dispatcher = require("src.master.dispatcher")
 
 local function cfg()
   return {
+    sensor_guard_min_occupy_ms = 0,
     blocks = {
       { id = "B1", entry_signal = "SIG-1", exit_signal = "SIG-2", sensors = { "SEN-1" }, switches = { { id = "SW-1", position = "STRAIGHT" } } },
       { id = "B2", entry_signal = "SIG-3", exit_signal = "SIG-4", sensors = { "SEN-2" }, switches = { { id = "SW-1", position = "DIVERGING" } } },
