@@ -24,6 +24,7 @@ local trains_panel = require("src.master.ui.panels.trains")
 local stations_panel = require("src.master.ui.panels.stations")
 local depots_panel = require("src.master.ui.panels.depots")
 local ota_status_panel = require("src.master.ui.panels.ota_status")
+local service_plans_panel = require("src.master.ui.panels.service_plans")
 local peripherals = require("src.adapter.peripherals")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
@@ -72,12 +73,13 @@ function app.new(args)
   end
   local monitor = peri.wrap("monitor") or fallback_monitor()
   local ui = ui_core.new(monitor, {
-    overview = overview_panel.new(disp, reg),
-    diagnostics = diagnostics_panel.new(logger, disp),
-    trains = trains_panel.new(train_registry),
-    stations = stations_panel.new(station_registry),
-    depots = depots_panel.new(depot_registry),
-    ota = ota_status_panel.new(reg, audit)
+    overview  = overview_panel.new(disp, reg),
+    trains    = trains_panel.new(train_registry),
+    stations  = stations_panel.new(station_registry),
+    depots    = depots_panel.new(depot_registry),
+    fahrplan  = service_plans_panel.new(service_plan_registry, train_registry),
+    diag      = diagnostics_panel.new(logger, disp),
+    ota       = ota_status_panel.new(reg, audits)
   })
   ui.set_panel("overview")
 
