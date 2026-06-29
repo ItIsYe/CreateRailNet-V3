@@ -1,78 +1,104 @@
 --[[
-Purpose: Overview panel for block status and node health.
-Public API: new(dispatcher, registry).
+Purpose: Overview panel — live block map, train positions, node health.
+Like a real railway control centre: blocks colored by state, trains named.
 ]]
 
+local ui_utils = require("src.master.ui.ui_utils")
 local overview = {}
-
--- State color indicators
-local STATE_SYMBOLS = {
-  FREE     = "+",
-  RESERVED = "R",
-  OCCUPIED = "O",
-  FAULT    = "!",
-  ONLINE   = ".",
-  OFFLINE  = "x",
-  down     = "x",
-}
-
-local function symbol(state)
-  return STATE_SYMBOLS[tostring(state)] or "?"
-end
 
 function overview.new(dispatcher, registry)
   local panel = {}
 
+  local function sorted_pairs(t, key_fn)
+    local list = {}
+    for k, v in pairs(t or {}) do table.insert(list, { k=k, v=v }) end
+    table.sort(list, function(a,b) return (key_fn and key_fn(a) or a.k) < (key_fn and key_fn(b) or b.k) end)
+    return list
+  end
+
   function panel.draw(monitor)
     if not monitor then return end
-    local w, h = 51, 19
-    if monitor.getSize then w, h = monitor.getSize() end
-    monitor.clear()
+    local u = ui_utils.new(monitor)
+    local w, h = u.size()
+    local C = ui_utils.colors
 
-    -- Header
-    monitor.setCursorPos(1, 1)
-    monitor.write("== OVERVIEW ==  [touch: next page]")
+    u.clear(C.black)
 
-    -- Left column: Blocks
+    -- ── Header ─────────────────────────────────────────────────────
+    u.header(1, "NETWORK OVERVIEW", nil, w)
+
+    -- ── Block map ──────────────────────────────────────────────────
     local row = 3
-    monitor.setCursorPos(1, row); monitor.write("BLOCKS"); row = row + 1
     local bdata = dispatcher and dispatcher.get_overview and dispatcher.get_overview() or {}
-    local sorted_blocks = {}
-    for id, b in pairs(bdata) do table.insert(sorted_blocks, {id=id, b=b}) end
-    table.sort(sorted_blocks, function(a,b) return a.id < b.id end)
-    for _, entry in ipairs(sorted_blocks) do
-      if row > h - 3 then break end
-      local s = symbol(entry.b.state)
-      local owner = entry.b.occupied_by or entry.b.reserved_by or ""
-      monitor.setCursorPos(1, row)
-      monitor.write(string.format("%s %s %s", s, entry.id:sub(1,10), owner:sub(1,8)))
-      row = row + 1
+    local blocks = sorted_pairs(bdata)
+
+    u.write_at(1, row, "STRECKENBLOECKE", C.cyan)
+    row = row + 1
+
+    local col_w = math.floor(w / 2) - 1
+    local left_row, right_row = row, row
+    for i, entry in ipairs(blocks) do
+      local b = entry.v
+      local target_row, target_col
+      if i % 2 == 1 then
+        target_row = left_row; target_col = 1
+        left_row = left_row + 1
+      else
+        target_row = right_row; target_col = w - col_w + 1
+        right_row = right_row + 1
+      end
+      if target_row > h - 6 then break end
+
+      -- Block badge
+      u.state_badge(target_col, target_row, b.state)
+      -- Block ID
+      local bid = tostring(entry.k):sub(1, col_w - 6)
+      u.write_at(target_col + 5, target_row, bid, C.white)
+      -- Owner (train) if occupied/reserved
+      local owner = b.occupied_by or b.reserved_by or ""
+      if owner ~= "" then
+        local ow = tostring(owner):sub(1, col_w - #bid - 6)
+        u.write_at(target_col + 5 + #bid + 1, target_row, ow, C.yellow)
+      end
     end
 
-    -- Right column: Nodes
-    local nrow = 3
+    row = math.max(left_row, right_row) + 1
+    if row > h - 5 then row = h - 5 end
+
+    -- ── Node health summary ────────────────────────────────────────
+    u.separator(row, w); row = row + 1
     local nodes = registry and registry.all and registry.all() or {}
-    local sorted_nodes = {}
-    for id, n in pairs(nodes) do table.insert(sorted_nodes, {id=id, n=n}) end
-    table.sort(sorted_nodes, function(a,b) return a.id < b.id end)
-    local col2 = math.floor(w/2) + 2
-    monitor.setCursorPos(col2, nrow); monitor.write("NODES"); nrow = nrow + 1
-    for _, entry in ipairs(sorted_nodes) do
-      if nrow > h - 3 then break end
-      local s = symbol(entry.n.status)
-      monitor.setCursorPos(col2, nrow)
-      monitor.write(string.format("%s %s %s", s, (entry.n.role or "?"):sub(1,7), entry.id:sub(1,8)))
-      nrow = nrow + 1
+    local up, down_n, total = 0, 0, 0
+    local roles = {}
+    for _, n in pairs(nodes) do
+      total = total + 1
+      if n.status == "ONLINE" then up = up + 1 else down_n = down_n + 1 end
+      roles[n.role or "?"] = (roles[n.role or "?"] or 0) + 1
     end
+    u.write_at(1, row, "NODES ", C.cyan)
+    u.write_at(7, row, string.format("Online: %d", up), C.lime)
+    if down_n > 0 then
+      u.write_at(20, row, string.format("Offline: %d", down_n), C.red)
+    end
+    u.write_at(w - 8, row, string.format("Total:%d", total), C.lightGray)
+    row = row + 1
 
-    -- Footer
-    monitor.setCursorPos(1, h)
-    monitor.write("FREE:+ RESV:R OCCUP:O FAULT:!")
+    -- Role breakdown
+    local role_parts = {}
+    local role_order = {"master","train","station","depot","signal","sensor","switch","panel"}
+    for _, r in ipairs(role_order) do
+      if roles[r] then
+        table.insert(role_parts, roles[r] .. "×" .. r:sub(1,3))
+      end
+    end
+    local role_str = table.concat(role_parts, "  ")
+    u.write_at(1, row, role_str:sub(1, w), C.lightGray)
+
+    -- ── Footer ────────────────────────────────────────────────────
+    u.footer(h, "< Vor  |  Zurueck >  Seiten antippen", w)
   end
 
-  function panel.touch(x, y)
-    -- Touch on overview does nothing special; page switching handled by ui_core
-  end
+  function panel.touch(x, y) end
 
   return panel
 end
