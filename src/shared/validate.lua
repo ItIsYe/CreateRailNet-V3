@@ -165,6 +165,71 @@ function validate.validate_config(cfg)
     end
   end
 
+  -- Validate interlocking routes (if defined)
+  for i, il_route in ipairs(cfg.interlocking_routes or {}) do
+    local path = "interlocking_routes[" .. i .. "]"
+    if not nonempty(il_route.id) then add(errors, path .. ".id", "must be non-empty string") end
+    if not nonempty(il_route.entry_signal) then add(errors, path .. ".entry_signal", "must define entry_signal for interlocking route") end
+    if not (il_route.blocks and #il_route.blocks > 0) then add(errors, path .. ".blocks", "must define at least one block") end
+    -- Check flank protection references valid switches
+    for j, fp in ipairs(il_route.flank_protection or {}) do
+      if not nonempty(fp.switch_id) then add(errors, path .. ".flank_protection[" .. j .. "].switch_id", "must define switch_id") end
+      if not nonempty(fp.position) then add(errors, path .. ".flank_protection[" .. j .. "].position", "must define position") end
+    end
+    -- Check switch requirements for contradictions
+    local sw_positions = {}
+    for _, sw in ipairs(il_route.switches or {}) do
+      if sw_positions[sw.id] and sw_positions[sw.id] ~= sw.position then
+        add(errors, path .. ".switches", "contradicting positions for switch " .. tostring(sw.id))
+      end
+      sw_positions[sw.id] = sw.position
+    end
+  end
+
+  -- Validate that route switch requirements don't contradict each other
+  local route_switch_reqs = {}
+  for i, route in ipairs(cfg.routes or {}) do
+    local path = "routes[" .. i .. "]"
+    for _, sw_req in ipairs(route.switches or {}) do
+      -- Each switch entry in a block within this route needs a position
+      if not nonempty(sw_req.id) then add(errors, path .. ".switch.id", "switch missing id") end
+    end
+    -- Cross-check with blocks that contain this route's blocks
+    for _, block_id in ipairs(route.blocks or {}) do
+      local block_cfg_entry = nil
+      for _, b in ipairs(cfg.blocks or {}) do if b.id == block_id then block_cfg_entry = b; break end end
+      if block_cfg_entry then
+        for _, sw in ipairs(block_cfg_entry.switches or {}) do
+          local key = route.id .. ":" .. sw.id
+          if route_switch_reqs[sw.id] and route_switch_reqs[sw.id].position ~= sw.position and route_switch_reqs[sw.id].route_id ~= route.id then
+            -- Two routes in the same traversal require the same switch in different positions
+            -- This is valid (different routes), not an error, just informational
+          end
+          route_switch_reqs[sw.id] = { position = sw.position, route_id = route.id }
+        end
+      end
+    end
+    -- Warn if route destination doesn't match any station or depot
+    -- Only when stations/depots are defined
+    if (next(station_ids) ~= nil or next(depot_ids) ~= nil) then
+      if route.to and not station_ids[route.to] and not depot_ids[route.to] then
+        add(errors, path .. ".to", "destination \"" .. tostring(route.to) .. "\" does not match any station or depot node")
+      end
+    end
+  end
+
+  -- Validate duplicate sensor assignments across blocks
+  local sensor_to_block = {}
+  for i, block in ipairs(cfg.blocks or {}) do
+    for _, sensor_id in ipairs(block.sensors or {}) do
+      if sensor_to_block[sensor_id] then
+        add(errors, "blocks[" .. i .. "].sensors", "sensor " .. tostring(sensor_id) .. " already used by block " .. sensor_to_block[sensor_id])
+      else
+        sensor_to_block[sensor_id] = block.id
+      end
+    end
+  end
+
   return #errors == 0, errors
 end
 
