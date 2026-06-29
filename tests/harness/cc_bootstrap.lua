@@ -69,7 +69,9 @@ end
 
 local function install_os()
   _G.os = _G.os or {}
-  _G.os.clock = _G.os.clock or function() return 0 end
+  -- os.clock advances by 0.2s each call in tests (simulates real time passing)
+  local _clock_val = 0
+  _G.os.clock = _G.os.clock or function() _clock_val = _clock_val + 0.2; return _clock_val end
   _G.os.time = _G.os.time or os.time or function() return 0 end
   -- os.epoch("utc") returns ms since epoch; in tests use os.time()*1000
   _G.os.epoch = _G.os.epoch or function(tz) return (os.time and os.time() or 0) * 1000 end
