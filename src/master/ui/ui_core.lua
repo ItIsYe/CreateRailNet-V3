@@ -99,6 +99,8 @@ function ui_core.new(monitor, panels)
   end
 
   rebuild_order()
+  -- Expose rebuild_order for rewiring panels after init
+  ui.rebuild_order = rebuild_order
   return ui
 end
 
