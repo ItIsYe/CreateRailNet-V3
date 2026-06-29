@@ -25,6 +25,8 @@ local stations_panel = require("src.master.ui.panels.stations")
 local depots_panel = require("src.master.ui.panels.depots")
 local ota_status_panel = require("src.master.ui.panels.ota_status")
 local service_plans_panel = require("src.master.ui.panels.service_plans")
+local cargo_panel = require("src.master.ui.panels.cargo")
+local gleisbild_panel = require("src.master.ui.panels.gleisbild")
 local peripherals = require("src.adapter.peripherals")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
@@ -32,6 +34,7 @@ local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
 local ota_manager = require("src.master.ota_manager")
+local cargo_module = require("src.domain.cargo")
 
 local app = {}
 
@@ -73,11 +76,13 @@ function app.new(args)
   end
   local monitor = peri.wrap("monitor") or fallback_monitor()
   local ui = ui_core.new(monitor, {
-    overview  = overview_panel.new(disp, reg, nil),  -- manual_control wired after context built
+    overview  = overview_panel.new(disp, reg, nil),
+    gleisbild = gleisbild_panel.new(disp, reg, nil),
     trains    = trains_panel.new(train_registry, nil),
     stations  = stations_panel.new(station_registry, nil, network, function() return parsed.id or cfg.master_id end),
     depots    = depots_panel.new(depot_registry, nil, network),
     fahrplan  = service_plans_panel.new(service_plan_registry, train_registry),
+    cargo     = cargo_panel.new(nil, nil),
     diag      = diagnostics_panel.new(logger, disp),
     ota       = ota_status_panel.new(reg, audits)
   })
@@ -102,13 +107,16 @@ function app.new(args)
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
   context.ota = ota_manager.new(network, reg, logger)
+  context.cargo = cargo_module.new(cfg)
 
   -- Rewire interactive panels with manual_control and full context
   local mc = context.manual_control
   if ui.panels.overview then ui.panels.overview = overview_panel.new(disp, reg, mc) end
+  if ui.panels.gleisbild then ui.panels.gleisbild = gleisbild_panel.new(disp, reg, disp.interlocking) end
   if ui.panels.trains then ui.panels.trains = trains_panel.new(train_registry, mc) end
   if ui.panels.stations then ui.panels.stations = stations_panel.new(station_registry, mc, network, function() return parsed.id or cfg.master_id end) end
   if ui.panels.depots then ui.panels.depots = depots_panel.new(depot_registry, mc, network) end
+  if ui.panels.cargo then ui.panels.cargo = cargo_panel.new(context.cargo, mc) end
   -- Rebuild page order after rewiring
   if ui.rebuild_order then ui.rebuild_order() end
 
