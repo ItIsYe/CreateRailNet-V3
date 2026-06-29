@@ -9,6 +9,8 @@ local topology = require("src.domain.topology")
 local signal_logic = require("src.domain.signal_logic")
 local route_queue = require("src.domain.route_queue")
 local switch_locks = require("src.domain.switch_locks")
+local interlocking_module = require("src.domain.interlocking")
+local sensor_guard_module = require("src.domain.sensor_guard")
 
 local dispatcher = {}
 local STATES = block_domain.STATES
@@ -52,8 +54,11 @@ local function same_direction(route_a, route_b)
 end
 
 function dispatcher.new(config, adapters)
-  local self = { blocks = block_domain.build_map(config.blocks), routes = util.index_by(config.routes or {}, "id"), trains = {}, adapters = adapters or {}, queue = route_queue.new(), switch_locks = switch_locks.new(), active_routes = {}, active_conflicts = {}, deadlocks = {} }
+  local sw_locks = switch_locks.new()
+  local self = { blocks = block_domain.build_map(config.blocks), routes = util.index_by(config.routes or {}, "id"), trains = {}, adapters = adapters or {}, queue = route_queue.new(), switch_locks = sw_locks, active_routes = {}, active_conflicts = {}, deadlocks = {} }
   self.sensor_to_block = topology.build_sensor_to_block(self.blocks)
+  self.interlocking = interlocking_module.new(config, sw_locks, self.blocks)
+  self.sensor_guard = sensor_guard_module.new(config)
 
   local function signal_adapter() return self.adapters.signals end
   local function switch_adapter() return self.adapters.switches end
@@ -194,6 +199,13 @@ function dispatcher.new(config, adapters)
     self.deadlocks[train_id] = nil
     local ok_signal, signal_err = update_route_signals(train)
     if not ok_signal then release_blocks(route_blocks); self.switch_locks.release_by_route(owner); release_conflicts(train); self.trains[train_id] = nil; self.active_routes[owner] = nil; return false, "signal set failed: " .. tostring(signal_err) end
+    -- Set interlocking route (Fahrstraße stellen)
+    -- Note: interlocking uses its own lock — may partially overlap with switch_locks
+    -- Failure is logged but not fatal (dispatcher-level safety still applies)
+    local ok_il, il_err = self.interlocking.set_route(route_id)
+    if not ok_il and self.logger then
+      self.logger.warn("interlocking set_route failed", { route=route_id, error=il_err })
+    end
     return true
   end
 
@@ -235,33 +247,56 @@ function dispatcher.new(config, adapters)
     return self.trains[owner]
   end
 
-  function self.on_sensor_event_by_sensor(sensor_id, action)
+  function self.on_sensor_event_by_sensor(sensor_id, action, ts)
     local block_id = topology.block_for_sensor(self.sensor_to_block, sensor_id)
     if not block_id then return false, "unknown sensor: " .. tostring(sensor_id) end
-    return self.on_sensor_event(block_id, action)
+    return self.on_sensor_event(block_id, action, sensor_id, ts)
   end
 
-  function self.on_sensor_event(block_id, action)
+  function self.on_sensor_event(block_id, action, sensor_id, ts)
     local block = self.blocks[block_id]
     if not block then return false, "block not found" end
+    local guard = self.sensor_guard
+
     if action == "enter" then
+      -- Debounce + staleness check
+      local ok, err = guard.validate_enter(block_id, sensor_id, ts)
+      if not ok then
+        if self.logger then self.logger.warn("sensor enter rejected", { block=block_id, reason=err }) end
+        return false, "sensor guard: " .. tostring(err)
+      end
+      guard.record_enter(block_id, ts)
+      guard.detect_direction(block_id, sensor_id)
+
       if block.state == STATES.RESERVED then
         local train = train_for_block(block)
         local occupying_train = (train and train.id) or block.reserved_by
         block_domain.occupy(block, occupying_train)
+        -- Notify interlocking
+        if train and train.route then self.interlocking.enter_route(train.route) end
         if train then train.state = TRAIN_STATES.RUNNING; train.current_block = block_id; for i, route_block in ipairs(train.route_blocks or {}) do if route_block.id == block_id then train.route_index = i end end; update_route_signals(train) end
         return true
       end
-      mark_fault(block); return false, "unexpected enter"
+      mark_fault(block); return false, "unexpected enter on block " .. block_id
     elseif action == "leave" then
+      local enter_time = guard.get_enter_time(block_id)
+      local ok, err = guard.validate_leave(block_id, sensor_id, ts, enter_time)
+      if not ok then
+        if self.logger then self.logger.warn("sensor leave rejected", { block=block_id, reason=err }) end
+        return false, "sensor guard: " .. tostring(err)
+      end
+      guard.record_leave(block_id, ts)
+
       if block.state == STATES.OCCUPIED then
         local train = train_for_block(block)
         block_domain.release(block); set_block_red(block)
+        -- Partial dissolution (Teilauflösung)
+        if train and train.route then self.interlocking.section_free(train.route, block_id) end
         if train then local next_index = (train.route_index or 1) + 1; train.route_index = next_index; train.current_block = nil; if next_index > #(train.route_blocks or {}) then finish_train(train) else train.state = TRAIN_STATES.RESERVED; update_route_signals(train) end end
         self.process_queue(1)
         return true
       end
-      mark_fault(block); return false, "unexpected leave"
+      mark_fault(block); return false, "unexpected leave on block " .. block_id
     end
     return false, "unknown action"
   end
@@ -289,10 +324,18 @@ function dispatcher.new(config, adapters)
       end
     end
   end
-  -- Manual signal/switch control for operator overrides
+  -- Manual signal control — GREEN is ONLY allowed if interlocking confirms a route covers this signal.
+  -- This prevents dangerous manual GREEN signals that bypass Fahrstraßen safety.
   function self.set_signal(signal_id, aspect)
     if not signal_id then return false, "missing signal_id" end
-    return signal_logic.set_aspect(signal_id, aspect or "RED", signal_adapter())
+    local target_aspect = aspect or "RED"
+    if target_aspect ~= "RED" then
+      local allowed, route_id = self.interlocking.is_signal_green_allowed(signal_id)
+      if not allowed then
+        return false, "SICHERHEIT: Signal " .. tostring(signal_id) .. " darf nicht auf " .. target_aspect .. " gestellt werden — keine aktive Fahrstrasse. (" .. tostring(route_id) .. ")"
+      end
+    end
+    return signal_logic.set_aspect(signal_id, target_aspect, signal_adapter())
   end
 
   function self.set_switch(switch_id, position)
@@ -313,7 +356,21 @@ function dispatcher.new(config, adapters)
     return true
   end
 
-  function self.get_overview() local summary = {}; for id, block in pairs(self.blocks) do summary[id] = { state = block.state, reserved_by = block.reserved_by, occupied_by = block.occupied_by } end; return summary end
+  function self.get_overview()
+    local summary = {}
+    for id, block in pairs(self.blocks) do
+      local route_id, route_state = self.interlocking.route_for_block(id)
+      summary[id] = {
+        state = block.state,
+        reserved_by = block.reserved_by,
+        occupied_by = block.occupied_by,
+        interlocking_route = route_id,
+        interlocking_state = route_state,
+      }
+    end
+    return summary
+  end
+  function self.get_interlocking() return self.interlocking.list() end
   function self.get_block(id) return self.blocks[id] end
   function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority, direction = train.direction, conflict_groups = copy_table(train.conflict_groups) } end; return out end
   function self.get_queue() return self.queue.list() end
