@@ -24,9 +24,33 @@ local function short(text, max_len)
 end
 
 function panel_renderer.render_header(monitor, state)
-  line(monitor, 1, "CreateRailNet Panel")
-  line(monitor, 2, tostring(state.display_name or state.panel_id) .. " | " .. tostring(state.page or "overview"))
-  line(monitor, 3, "Master: " .. tostring(state.master_state or "UNKNOWN"))
+  -- Use color if available
+  local has_color = false
+  if monitor and monitor.isColor then
+    local ok, v = pcall(function() return monitor.isColor() end)
+    has_color = ok and v
+  end
+  if has_color then
+    pcall(monitor.setBackgroundColor, 8192)  -- green
+    pcall(monitor.setTextColor, 1)            -- white
+  end
+  local w = 51
+  if monitor and monitor.getSize then w = monitor.getSize() end
+  if monitor then
+    pcall(monitor.setCursorPos, 1, 1)
+    pcall(monitor.write, string.rep(" ", w))
+    pcall(monitor.setCursorPos, 1, 1)
+    pcall(monitor.write, " CreateRailNet  " .. tostring(state.display_name or state.panel_id):sub(1,15))
+    local page_str = tostring(state.page or "overview"):upper()
+    pcall(monitor.setCursorPos, w - #page_str, 1)
+    pcall(monitor.write, page_str)
+  end
+  if has_color then
+    pcall(monitor.setBackgroundColor, 32768)  -- black
+    pcall(monitor.setTextColor, 1)
+  end
+  line(monitor, 2, "Master: " .. tostring(state.master_state or "UNBEKANNT") ..
+    (state.maintenance_locked and "  [WARTUNG]" or ""))
 end
 
 local function render_overview(monitor, state)
