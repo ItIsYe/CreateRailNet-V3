@@ -1,25 +1,23 @@
 --[[
-Purpose: OTA update status panel — shows version per node and update history.
-Public API: new(registry, audit_log) -> panel with draw(monitor), touch(x, y).
+Purpose: OTA update status panel — version tracking per node, push trigger.
 ]]
 
+local ui_utils = require("src.master.ui.ui_utils")
 local ota_status = {}
 
 function ota_status.new(registry, audit_log_ref)
   local self = { offset = 0 }
+  local C = ui_utils.colors
 
-  -- Collect latest OTA result per node from audit log
   local function get_ota_results()
     local results = {}
     local entries = audit_log_ref and audit_log_ref.list and audit_log_ref.list() or {}
-    -- Walk backwards to get most recent per node
     for i = #entries, 1, -1 do
       local e = entries[i]
       if e.kind == "ota_success" or e.kind == "ota_failed" then
         local nid = e.data and e.data.node_id
         if nid and not results[nid] then
           results[nid] = {
-            node_id = nid,
             success = (e.kind == "ota_success"),
             version = e.data and e.data.version or "?",
             ts = e.ts
@@ -30,72 +28,79 @@ function ota_status.new(registry, audit_log_ref)
     return results
   end
 
-  function self.draw(monitor)
-    if not monitor then return end
-    local w, h = 51, 19
-    if monitor.getSize then w, h = monitor.getSize() end
-    monitor.clear()
-
-    monitor.setCursorPos(1, 1)
-    monitor.write("== OTA STATUS ==")
-
-    -- Current version from crn_version.txt
-    local current_version = "unknown"
+  local function master_version()
     if fs and fs.exists and fs.exists("crn_version.txt") then
       local fh = fs.open("crn_version.txt", "r")
-      if fh then current_version = fh.readLine() or "unknown"; fh.close() end
+      if fh then local v = fh.readLine(); fh.close(); return v or "?" end
     end
-    monitor.setCursorPos(1, 2)
-    monitor.write("Master: " .. tostring(current_version):sub(1, w-9))
+    return "nicht gesetzt"
+  end
 
-    -- Per-node OTA results
-    local row = 4
-    monitor.setCursorPos(1, row); monitor.write("Node             Ver              Status")
-    row = row + 1
+  function self.draw(monitor)
+    if not monitor then return end
+    local u = ui_utils.new(monitor)
+    local w, h = u.size()
+
+    u.clear(C.black)
+    u.header(1, "FERNUPDATE  (OTA)", nil, w)
+
+    -- Master version
+    local mver = master_version()
+    u.fill_line(2, C.blue, w)
+    u.write_at(1, 2, " Master-Version: " .. tostring(mver):sub(1, w-18), C.white, C.blue)
+
+    -- Column headers
+    u.fill_line(3, C.gray, w)
+    u.write_at(1, 3, string.format("%-18s %-18s %-6s %-5s", "NODE-ID", "VERSION", "STATUS", "ROLLE"), C.white, C.gray)
 
     local ota_results = get_ota_results()
     local nodes = registry and registry.all and registry.all() or {}
     local sorted = {}
     for id, n in pairs(nodes) do table.insert(sorted, {id=id, n=n}) end
-    table.sort(sorted, function(a, b) return a.id < b.id end)
+    table.sort(sorted, function(a,b) return a.id < b.id end)
 
-    local max_row = h - 2
+    local row = 4
     local start = self.offset + 1
 
     for i = start, #sorted do
-      if row > max_row then break end
+      if row > h - 3 then break end
       local entry = sorted[i]
       local r = ota_results[entry.id]
+
+      u.fill_line(row, C.black, w)
+      u.write_at(1, row, tostring(entry.id):sub(1, 17), C.white)
+
       local ver = r and r.version or "-"
-      local status = r and (r.success and "OK" or "FAIL") or "?"
-      monitor.setCursorPos(1, row)
-      monitor.write(string.format("%-16s %-16s %s",
-        entry.id:sub(1,16),
-        tostring(ver):sub(1,16),
-        status
-      ))
+      local same_ver = (r and r.version == mver)
+      u.write_at(20, row, tostring(ver):sub(1, 17), same_ver and C.lime or C.yellow)
+
+      if r then
+        local sc = r.success and C.lime or C.red
+        u.write_at(39, row, r.success and "OK    " or "FEHLER", sc)
+      else
+        u.write_at(39, row, "?     ", C.lightGray)
+      end
+
+      local role_str = tostring(entry.n.role or "?"):sub(1,6)
+      u.write_at(46, row, role_str, C.cyan)
       row = row + 1
     end
 
     if #sorted == 0 then
-      monitor.setCursorPos(1, row)
-      monitor.write("  (no nodes registered)")
+      u.write_at(3, 4, "Keine Nodes registriert.", C.lightGray)
     end
 
-    -- Footer
-    monitor.setCursorPos(1, h - 1)
-    monitor.write("Touch: up=scroll up  down=scroll down")
-    monitor.setCursorPos(1, h)
-    local hint = "Panel manual action: ota_push to update all"
-    monitor.write(hint:sub(1, w))
+    u.separator(h - 2, w)
+    u.write_at(1, h - 1, "OTA Push: manual action 'ota_push' im Panel", C.lightGray)
+    u.footer(h, string.format("Antippen=Scroll  %d/%d Nodes", math.min(self.offset+1, math.max(1, #sorted)), #sorted), w)
   end
 
   function self.touch(x, y)
-    local h = 19
-    if y <= h / 2 then
-      self.offset = math.max(0, self.offset - 1)
-    else
+    local _, h = 51, 19
+    if y > h / 2 then
       self.offset = self.offset + 1
+    else
+      self.offset = math.max(0, self.offset - 1)
     end
   end
 
