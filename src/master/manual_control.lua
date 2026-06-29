@@ -28,7 +28,8 @@ function manual_control.new(context)
     route_integration = context.route_integration,
     maintenance = context.maintenance,
     audit_log = context.audit_log,
-    ota = context.ota
+    ota = context.ota,
+    cargo = context.cargo
   }
 
   local function audit(kind, data)
@@ -111,6 +112,43 @@ function manual_control.new(context)
     elseif cmd.action == "set_switch" then
       if not self.dispatcher or not self.dispatcher.set_switch then return false, "switch control unavailable" end
       return self.dispatcher.set_switch(cmd.switch_id, cmd.position)
+    elseif cmd.action == "cargo_order" then
+      -- Create a freight order
+      if not self.cargo then return false, "cargo system unavailable" end
+      local order_id = self.cargo.create_order({
+        cargo_type    = cmd.cargo_type,
+        amount        = cmd.amount or 1,
+        from_industry = cmd.from_industry or cmd.from,
+        to_industry   = cmd.to_industry or cmd.to,
+        from_track    = cmd.from_track,
+        to_track      = cmd.to_track,
+        priority      = cmd.priority,
+        train_class   = cmd.train_class or "freight",
+      })
+      audit("cargo_order_created", { order_id=order_id, src=src, cargo_type=cmd.cargo_type })
+      return true, "order created: " .. tostring(order_id)
+    elseif cmd.action == "cargo_assign" then
+      if not self.cargo then return false, "cargo system unavailable" end
+      local ok, err = self.cargo.assign_train(cmd.order_id, cmd.train_id)
+      audit("cargo_assign", { order_id=cmd.order_id, train_id=cmd.train_id, ok=ok })
+      return ok, err
+    elseif cmd.action == "cargo_loaded" then
+      if not self.cargo then return false, "cargo system unavailable" end
+      self.cargo.start_loading(cmd.order_id)
+      local ok, err = self.cargo.finish_loading(cmd.order_id)
+      audit("cargo_loaded", { order_id=cmd.order_id, ok=ok })
+      return ok, err
+    elseif cmd.action == "cargo_delivered" then
+      if not self.cargo then return false, "cargo system unavailable" end
+      self.cargo.start_unloading(cmd.order_id)
+      local ok, err = self.cargo.finish_unloading(cmd.order_id)
+      audit("cargo_delivered", { order_id=cmd.order_id, ok=ok })
+      return ok, err
+    elseif cmd.action == "cargo_cancel" then
+      if not self.cargo then return false, "cargo system unavailable" end
+      local ok, err = self.cargo.cancel_order(cmd.order_id)
+      audit("cargo_cancel", { order_id=cmd.order_id })
+      return ok, err
     elseif cmd.action == "ota_push" then
       if not self.ota then return false, "ota manager unavailable" end
       local targets = cmd.node_id and { cmd.node_id } or nil
