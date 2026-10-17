@@ -24,6 +24,7 @@ local files = {
   "src/shared/message_handlers.lua",
   "src/shared/net.lua",
   "src/shared/registry.lua",
+  "src/shared/safe_write.lua",
   "src/shared/sleep_guard.lua",
   "src/shared/ticker.lua",
   "src/shared/time.lua",
@@ -87,6 +88,7 @@ local files = {
   "src/tools/system_check.lua",
   "tests/harness/cc_bootstrap.lua",
   "tests/harness/runner.lua",
+  "tests/test_safe_write.lua",
   "tests/test_sleep_guard.lua",
   "tests/test_ticker.lua",
   "tests/test_timer_loss.lua"

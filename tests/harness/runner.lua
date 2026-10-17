@@ -45,6 +45,7 @@ local tests = {
   "tests/test_master_state_store.lua",
   "tests/test_ticker.lua",
   "tests/test_sleep_guard.lua",
+  "tests/test_safe_write.lua",
   "tests/test_timer_loss.lua",
   "tests/test_recovery_safe_mode.lua",
   "tests/test_setup_wizard.lua",
