@@ -76,6 +76,50 @@ return {
     end
   end,
 
+  -- net.tick runs after every event; on a master with hundreds of nodes it must not walk big tables every time
+  test_tick_does_not_walk_the_tables_when_nothing_is_due = function()
+    local now = 0
+    local modem = { send = function() return true end, broadcast = function() return true end }
+    local endpoint = net.new(modem, 1, "M", quiet_logger(), { now_ms = function() return now end })
+    for i = 1, 500 do endpoint.receive({ v = 1, id = "e." .. i, src = "N" .. i, dst = "M", type = "event", payload = {} }) end
+    local walked = 0
+    local real_pairs = pairs
+    _G.pairs = function(t)
+      if t == endpoint.dedup or t == endpoint.pending then walked = walked + 1 end
+      return real_pairs(t)
+    end
+    local ok, err = pcall(function()
+      for step = 1, 100 do now = step * 5; endpoint.tick() end
+    end)
+    _G.pairs = real_pairs
+    assert(ok, err)
+    assert(walked <= 1, "tick walked the dedup table " .. walked .. " times in half a second")
+  end,
+
+  test_dedup_entries_are_still_pruned_after_their_ttl = function()
+    local now = 0
+    local modem = { send = function() return true end, broadcast = function() return true end }
+    local endpoint = net.new(modem, 1, "M", quiet_logger(), { now_ms = function() return now end })
+    endpoint.receive({ v = 1, id = "e.1", src = "N1", dst = "M", type = "event", payload = {} })
+    endpoint.tick()
+    now = 31000; endpoint.tick()
+    assert(endpoint.dedup["N1/e.1"] == nil)
+  end,
+
+  test_a_retry_scheduled_while_retries_are_processed_is_not_lost = function()
+    local now, sent = 0, 0
+    local modem = { send = function() sent = sent + 1; return true end, broadcast = function() return true end }
+    local endpoint = net.new(modem, 1, "M", quiet_logger(), { now_ms = function() return now end })
+    local first = endpoint.send_reliable("cmd", "N1", {})
+    endpoint.on_drop = function() endpoint.send_reliable("cmd", "N2", {}) end
+    for _ = 1, 8 do now = now + 6000; endpoint.tick() end
+    assert(endpoint.pending[first.id] == nil, "the first message ran out of retries")
+    local follow_up_retried = false
+    now = now + 6000; endpoint.tick()
+    for _, entry in pairs(endpoint.pending) do if entry.retry >= 1 then follow_up_retried = true end end
+    assert(follow_up_retried, "the message sent from the drop handler keeps being retried")
+  end,
+
   test_clean_link_delivers_and_confirms_everything = function()
     local applied, dropped = run(13, 60, { drop = 0, duplicate = 0, delay_max_ms = 0 })
     for n = 1, 60 do assert(applied[n] == 1 and not dropped[n], "command " .. n) end

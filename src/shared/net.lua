@@ -63,6 +63,10 @@ function net.new(modem, channel, node_id, logger, time_mod)
   local sequence = 0
   local sequence_sent = 0
   local peer_count = 0
+  -- tick() runs after every event; with hundreds of nodes that is hundreds of calls a second, so it only walks the tables when
+  -- something can be due: the earliest retry time is tracked, the dedup table is pruned once a second
+  local min_due = math.huge
+  local last_prune = nil
   local function next_id()
     sequence = sequence + 1
     return id_prefix .. "." .. sequence
@@ -86,7 +90,9 @@ function net.new(modem, channel, node_id, logger, time_mod)
     local msg, err = self.send(msg_type, dst, payload)
     if not msg then return nil, err end
     sequence_sent = sequence_sent + 1
-    self.pending[msg.id] = { msg = msg, retry = 0, next_ts = now_ms(time_mod) + self.retry_min, seq = sequence_sent }
+    local entry = { msg = msg, retry = 0, next_ts = now_ms(time_mod) + self.retry_min, seq = sequence_sent }
+    self.pending[msg.id] = entry
+    if entry.next_ts < min_due then min_due = entry.next_ts end
     return msg
   end
 
@@ -115,14 +121,20 @@ function net.new(modem, channel, node_id, logger, time_mod)
     return "ok"
   end
 
-  function self.tick()
-    local now = now_ms(time_mod)
+  local function retry_due(now)
     -- oldest message first: retries go out in the order the messages were sent, whatever pairs() would say
     local due = {}
+    local earliest_waiting = math.huge
     for id, entry in pairs(self.pending) do
-      if now >= entry.next_ts then due[#due + 1] = id end
+      if now >= entry.next_ts then
+        due[#due + 1] = id
+      elseif entry.next_ts < earliest_waiting then
+        earliest_waiting = entry.next_ts
+      end
     end
     table.sort(due, function(a, b) return self.pending[a].seq < self.pending[b].seq end)
+    -- anything sent from inside the loop (a drop handler may send) lowers min_due again by itself
+    min_due = math.huge
     for _, id in ipairs(due) do
       local entry = self.pending[id]
       if entry then
@@ -137,10 +149,20 @@ function net.new(modem, channel, node_id, logger, time_mod)
           entry.next_ts = now + backoff
           send_raw(entry.msg)
           if self.logger then self.logger.warn("net retry", { id = id, retry = entry.retry }) end
+          if entry.next_ts < earliest_waiting then earliest_waiting = entry.next_ts end
         end
       end
     end
-    for id, ts in pairs(self.dedup) do if now - ts > self.dedup_ttl then self.dedup[id] = nil end end
+    if earliest_waiting < min_due then min_due = earliest_waiting end
+  end
+
+  function self.tick()
+    local now = now_ms(time_mod)
+    if now >= min_due then retry_due(now) end
+    if not last_prune or now - last_prune >= 1000 then
+      last_prune = now
+      for id, ts in pairs(self.dedup) do if now - ts > self.dedup_ttl then self.dedup[id] = nil end end
+    end
   end
 
   function self.heartbeat(dst, payload) return self.send("heartbeat", dst, payload) end
