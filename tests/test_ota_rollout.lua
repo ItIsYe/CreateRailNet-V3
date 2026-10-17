@@ -165,7 +165,7 @@ return {
         local state = w.nodes[id]
         local is_new, is_old = snapshot_matches(state, expected), snapshot_matches(state, OLD)
         assert(is_new or is_old, string.format("seed %d %s ended with a mixed file set", seed, id))
-        assert(states(w)[id].state == "CONFIRMED" and is_new, string.format("seed %d %s is %s", seed, id, states(w)[id].state))
+        assert(states(w)[id].state == "CONFIRMED" and is_new, string.format("seed %d %s is %s (%s)", seed, id, states(w)[id].state, tostring(states(w)[id].error)))
       end
     end
   end,

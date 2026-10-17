@@ -62,6 +62,20 @@ return {
     assert(delivered_but_dropped <= 2, delivered_but_dropped .. " commands were applied but never confirmed to the sender")
   end,
 
+  -- pairs() order differs from run to run on Lua 5.4; retries must not
+  test_retries_go_out_in_the_order_the_messages_were_sent = function()
+    for _ = 1, 8 do
+      local sent, now = {}, 0
+      local modem = { send = function(_, _, _, msg) sent[#sent + 1] = msg.payload.n; return true end, broadcast = function() return true end }
+      local sender = net.new(modem, 1, "M", quiet_logger(), { now_ms = function() return now end })
+      for n = 1, 12 do sender.send_reliable("cmd", "N1", { n = n }) end
+      sent = {}
+      now = 250
+      sender.tick()
+      for i = 1, 12 do assert(sent[i] == i, "retry " .. i .. " was message " .. tostring(sent[i])) end
+    end
+  end,
+
   test_clean_link_delivers_and_confirms_everything = function()
     local applied, dropped = run(13, 60, { drop = 0, duplicate = 0, delay_max_ms = 0 })
     for n = 1, 60 do assert(applied[n] == 1 and not dropped[n], "command " .. n) end

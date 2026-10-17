@@ -35,6 +35,7 @@ function net.new(modem, channel, node_id, logger, time_mod)
   }
   local id_prefix = tostring(node_id) .. "." .. boot_nonce()
   local sequence = 0
+  local sequence_sent = 0
   local function next_id()
     sequence = sequence + 1
     return id_prefix .. "." .. sequence
@@ -57,7 +58,8 @@ function net.new(modem, channel, node_id, logger, time_mod)
   function self.send_reliable(msg_type, dst, payload)
     local msg, err = self.send(msg_type, dst, payload)
     if not msg then return nil, err end
-    self.pending[msg.id] = { msg = msg, retry = 0, next_ts = now_ms(time_mod) + self.retry_min }
+    sequence_sent = sequence_sent + 1
+    self.pending[msg.id] = { msg = msg, retry = 0, next_ts = now_ms(time_mod) + self.retry_min, seq = sequence_sent }
     return msg
   end
 
@@ -81,8 +83,15 @@ function net.new(modem, channel, node_id, logger, time_mod)
 
   function self.tick()
     local now = now_ms(time_mod)
+    -- oldest message first: retries go out in the order the messages were sent, whatever pairs() would say
+    local due = {}
     for id, entry in pairs(self.pending) do
-      if now >= entry.next_ts then
+      if now >= entry.next_ts then due[#due + 1] = id end
+    end
+    table.sort(due, function(a, b) return self.pending[a].seq < self.pending[b].seq end)
+    for _, id in ipairs(due) do
+      local entry = self.pending[id]
+      if entry then
         if entry.retry >= self.max_retries then
           self.pending[id] = nil
           if self.logger then self.logger.error("net max retries exceeded", { id = id, type = entry.msg.type, dst = entry.msg.dst }) end
