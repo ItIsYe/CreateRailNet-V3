@@ -11,6 +11,7 @@ local hardware_config = require("src.adapter.hardware_config")
 local create_sensors = require("src.adapter.create_sensors")
 local cc_modem = require("src.adapter.cc_modem")
 local common_node = require("src.nodes.common_node")
+local once_log = require("src.shared.once_log")
 local bootstrap = require("src.nodes.bootstrap")
 
 local depot_node = {}
@@ -108,10 +109,20 @@ function depot_node.new_runtime(args_or_context)
     return track.train_name or track.train_id
   end
 
+  -- a sensor that stays broken is reported when it breaks and every 30 s, not twice a second
+  local fault_once = once_log.new(context.logger, { repeat_ms = 30000 })
+
   local function check_tracks()
     for _, track in pairs(state.tracks) do
       if track.sensor_id then
         local ok, occupied = sensor_adapter.readOccupied(track.sensor_id)
+        if ok and track.state == TRACK_FAULT then
+          -- the sensor is back: the track returns to what it was before, then the normal checks below run
+          track.state = track.state_before_fault or TRACK_EMPTY
+          track.state_before_fault = nil
+          fault_once.ok("track:" .. track.id, "track sensor " .. tostring(track.sensor_id) .. " answers again")
+          send_track(track)
+        end
         if ok then
           if occupied ~= track.last_occupied then
             track.last_occupied = occupied
@@ -130,8 +141,11 @@ function depot_node.new_runtime(args_or_context)
             send_track(track)
           end
         else
+          if track.state ~= TRACK_FAULT then track.state_before_fault = track.state end
           track.state = TRACK_FAULT
-          node.net.send("event", context.config.master_id, { type = "depot_fault", depot_id = depot_id, track_id = track.id, error = occupied })
+          if fault_once.first("track:" .. track.id) then
+            node.net.send("event", context.config.master_id, { type = "depot_fault", depot_id = depot_id, track_id = track.id, error = occupied })
+          end
         end
       end
     end
