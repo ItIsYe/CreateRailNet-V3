@@ -6,7 +6,8 @@ All messages are JSON tables transmitted over a shared modem channel:
 
 ```
 {
-  v   = 1,                          -- protocol version
+  v   = 1,                          -- protocol major version, must match
+  pv  = 2,                          -- protocol revision (additive changes only; older nodes send none = 1)
   type = "register|heartbeat|cmd|event|ack|err",
   id  = "<unique string>",          -- for dedup and ack matching
   src = "<node_id>",
@@ -33,10 +34,28 @@ Key commands: `depart_authorized`, `hold_position`, `set_aspect`, `set_position`
 Critical events use `send_reliable` (sensor enter/leave, arrived, request_departure, etc.).
 Status-only events are fire-and-forget.
 
-**ack** — acknowledgement. Payload: `{ ack_id = "<original msg id>" }`.
-Cancels the retry entry for that message.
+**ack** — acknowledgement. Payload: `{ ack_id = "<original msg id>", applied = true|nil }`.
+Cancels the retry entry for that message. Without `applied` it means *delivered* (transport level, e.g. an OTA chunk that
+was stored). With `applied = true` the receiver also did what the message asked: a node ran the command, the master handled the
+event. `net.on_ack(ack_payload, original_message)` lets the sender tell the two apart.
 
 **err** — command failed. Payload: `{ ref_id, error }`.
+
+## Validation and who may send what
+
+`net.receive` is fail-closed: a message with a wrong major version, an id/src/dst that is not a non-empty string of sane length,
+an unknown `type`, a payload that is not a table, or a non-numeric `ts`/`pv` is `"invalid"` and dropped. The revision a peer
+announced is kept (`net.peer_revision(id)`, at most 1024 peers) so newer features can be used only towards nodes that have them;
+during a rolling OTA old and new nodes talk to each other, so changes to the envelope stay additive.
+
+- **Commands to a node** are executed only when `src` is `master_id` or listed in `config.cmd_sources`; anything else gets an
+  `err` ("source not allowed") and is logged once per sender and minute. OTA commands follow `config.ota_sources` instead
+  (see `docs/OTA.md`), so the OTA tool can update but not steer.
+- **Sensor events** are only accepted from the sensor node they name (`payload.sensor_id == src`); **manual control** only from a
+  registered node with role `panel`. Rejected events are audited (`event_rejected`) and still acknowledged so the sender stops
+  retrying.
+- **Heartbeats** of nodes the master does not know (it restarted, nodes only register at their own start) register them
+  (`node_adopted`); a heartbeat or register of a node that was DOWN is audited as `node_reconnect`.
 
 ## Reliability
 

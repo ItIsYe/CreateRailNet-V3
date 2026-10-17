@@ -20,7 +20,8 @@ local function fake_network()
 end
 
 local function fake_registry()
-  return { all = function() return {} end, register = function() end, heartbeat = function() end, mark_down = function() end }
+  -- the panel is a registered node: manual control is only accepted from panels
+  return { all = function() return { ["PANEL-1"] = { role = "panel", status = "UP", last_seen = math.huge } } end, register = function() end, heartbeat = function() end, mark_down = function() end }
 end
 
 local function ctx()

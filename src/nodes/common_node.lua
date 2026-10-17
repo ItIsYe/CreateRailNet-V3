@@ -10,6 +10,7 @@ local log = require("src.shared.log")
 local time = require("src.shared.time")
 local updater = require("src.shared.updater")
 local ticker = require("src.shared.ticker")
+local once_log = require("src.shared.once_log")
 
 local common_node = {}
 
@@ -96,12 +97,23 @@ function common_node.new(opts)
     outcomes[key] = { ok = ok ~= false, err = err, at = now }
   end
 
+  -- the command was executed (or refused with an error): this is the "applied" kind of acknowledgement
   local function answer(msg, ok, err)
     if ok == false then
       node.net.send("err", msg.src, { ref_id = msg.id, error = tostring(err) })
     else
-      node.net.ack_for(msg)
+      node.net.ack_for(msg, true)
     end
+  end
+
+  -- commands steer hardware: only the master (and ids listed in config.cmd_sources) may send them; OTA commands have their own
+  -- list in the updater (master_id plus config.ota_sources)
+  local source_log = once_log.new(node.logger)
+  local function command_allowed(msg, payload)
+    if OTA_COMMANDS[payload.cmd] then return true end
+    if msg.src == node.config.master_id then return true end
+    for _, id in ipairs(node.config.cmd_sources or {}) do if id == msg.src then return true end end
+    return false
   end
 
   function node.handle_message(msg)
@@ -116,6 +128,12 @@ function common_node.new(opts)
     end
 
     local payload = msg.payload or {}
+
+    if not command_allowed(msg, payload) then
+      source_log.warn("cmd:" .. tostring(msg.src), "command from a sender that is not allowed", { src = msg.src, cmd = payload.cmd })
+      node.net.send("err", msg.src, { ref_id = msg.id, error = "source not allowed: " .. tostring(msg.src) })
+      return status
+    end
 
     -- OTA: offer / chunk / commit / abort, or the single-message update of older senders
     local ota_step = OTA_COMMANDS[payload.cmd]

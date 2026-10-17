@@ -1,6 +1,10 @@
 --[[
 Purpose: Reliable messaging with ack/retry/dedup and heartbeat helpers.
-Public API: new(modem, channel, node_id, logger, time_mod).
+Public API: new(modem, channel, node_id, logger, time_mod), validate(msg) -> ok, reason, PROTOCOL_VERSION, PROTOCOL_REVISION.
+  net instance: send, send_reliable, ack_for(msg, applied), receive, tick, heartbeat, peer_revision(node_id), on_drop, on_ack.
+Envelope: v is the major version and must match; pv is the revision (additive changes only, older nodes send none and count as 1).
+Receivers reject malformed envelopes (wrong types, oversize ids, unknown message types) instead of guessing.
+An ack says "delivered"; ack_for(msg, true) adds applied = true: the receiver also did what the message asked.
 Message ids are "<node>.<boot nonce>.<n>": every computer counts from 1 after a boot, so bare numbers collide between nodes and
 between two boots of one node. Duplicates are recognised by sender and id.
 ]]
@@ -8,6 +12,27 @@ between two boots of one node. Duplicates are recognised by sender and id.
 local time = require("src.shared.time")
 
 local net = {}
+
+net.PROTOCOL_VERSION = 1
+net.PROTOCOL_REVISION = 2
+
+local MAX_ID_LENGTH = 160
+local MAX_NODE_LENGTH = 64
+local MAX_PEERS = 1024
+local VALID_TYPES = { register = true, heartbeat = true, cmd = true, event = true, ack = true, err = true }
+
+function net.validate(msg)
+  if type(msg) ~= "table" then return false, "not a table" end
+  if msg.v ~= net.PROTOCOL_VERSION then return false, "protocol version " .. tostring(msg.v) end
+  if type(msg.id) ~= "string" or msg.id == "" or #msg.id > MAX_ID_LENGTH then return false, "bad id" end
+  if type(msg.src) ~= "string" or msg.src == "" or #msg.src > MAX_NODE_LENGTH then return false, "bad src" end
+  if type(msg.dst) ~= "string" or msg.dst == "" or #msg.dst > MAX_NODE_LENGTH then return false, "bad dst" end
+  if not VALID_TYPES[msg.type] then return false, "unknown type " .. tostring(msg.type) end
+  if msg.payload ~= nil and type(msg.payload) ~= "table" then return false, "payload is not a table" end
+  if msg.ts ~= nil and type(msg.ts) ~= "number" then return false, "bad ts" end
+  if msg.pv ~= nil and type(msg.pv) ~= "number" then return false, "bad pv" end
+  return true
+end
 
 -- differs between boots of the same node: real milliseconds plus a random part (several nets in one test process too)
 local function boot_nonce()
@@ -28,6 +53,7 @@ function net.new(modem, channel, node_id, logger, time_mod)
     logger = logger,
     pending = {},
     dedup = {},
+    peers = {},
     dedup_ttl = 30000,
     retry_min = 200,
     retry_max = 5000,
@@ -36,6 +62,7 @@ function net.new(modem, channel, node_id, logger, time_mod)
   local id_prefix = tostring(node_id) .. "." .. boot_nonce()
   local sequence = 0
   local sequence_sent = 0
+  local peer_count = 0
   local function next_id()
     sequence = sequence + 1
     return id_prefix .. "." .. sequence
@@ -49,7 +76,7 @@ function net.new(modem, channel, node_id, logger, time_mod)
   end
 
   function self.send(msg_type, dst, payload)
-    local msg = { v = 1, type = msg_type, id = next_id(), src = self.node_id, dst = dst, ts = now_ms(time_mod), payload = payload or {} }
+    local msg = { v = net.PROTOCOL_VERSION, pv = net.PROTOCOL_REVISION, type = msg_type, id = next_id(), src = self.node_id, dst = dst, ts = now_ms(time_mod), payload = payload or {} }
     local ok, err = send_raw(msg)
     if ok == false then return nil, err end
     return msg
@@ -63,19 +90,26 @@ function net.new(modem, channel, node_id, logger, time_mod)
     return msg
   end
 
-  function self.ack_for(msg) return self.send("ack", msg.src, { ack_id = msg.id }) end
+  function self.ack_for(msg, applied) return self.send("ack", msg.src, { ack_id = msg.id, applied = applied and true or nil }) end
+
+  -- the protocol revision a node announced in its messages (1 for nodes that send none), nil for strangers
+  function self.peer_revision(node_id) return self.peers[node_id] end
 
   function self.receive(msg)
-    if type(msg) ~= "table" then return "invalid" end
-    if msg.v ~= 1 or type(msg.id) ~= "string" or type(msg.src) ~= "string" or type(msg.dst) ~= "string" or type(msg.type) ~= "string" then
-      return "invalid"
-    end
+    if not net.validate(msg) then return "invalid" end
     if msg.dst ~= self.node_id and msg.dst ~= "broadcast" then return "not_for_me" end
+    local known = self.peers[msg.src] ~= nil
+    if known or peer_count < MAX_PEERS then
+      if not known then peer_count = peer_count + 1 end
+      self.peers[msg.src] = msg.pv or 1
+    end
     local key = msg.src .. "/" .. msg.id
     if self.dedup[key] then return "duplicate" end
     self.dedup[key] = now_ms(time_mod)
     if msg.type == "ack" and msg.payload and msg.payload.ack_id then
+      local entry = self.pending[msg.payload.ack_id]
       self.pending[msg.payload.ack_id] = nil
+      if self.on_ack then pcall(self.on_ack, msg.payload, entry and entry.msg) end
       return "ack"
     end
     return "ok"

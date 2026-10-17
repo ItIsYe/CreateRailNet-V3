@@ -40,6 +40,7 @@ function master_runtime.new(context)
     heartbeat_timeout_s = context.heartbeat_timeout_s or 6
   }
   local ui_once = once_log.new(context.logger)
+  local event_once = once_log.new(context.logger)
   runtime.ticker = ticker.new({
     clock = context.clock,
     start_timer = context.start_timer,
@@ -100,7 +101,7 @@ function master_runtime.new(context)
     local err = errors.make(errors.codes.MAINTENANCE_LOCKED, "event blocked by maintenance", { action = action, src = msg.src })
     audit("maintenance_rejected", err)
     if runtime.logger then runtime.logger.warn("maintenance rejected event", err) end
-    runtime.network.ack_for(msg)
+    runtime.network.ack_for(msg, true)
     runtime.ui.mark_dirty()
     return true
   end
@@ -115,7 +116,7 @@ function master_runtime.new(context)
         runtime.network.send("cmd", msg.src, { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "recovery review required" })
       end
     end
-    runtime.network.ack_for(msg)
+    runtime.network.ack_for(msg, true)
     runtime.ui.mark_dirty()
     return true
   end
@@ -145,7 +146,7 @@ function master_runtime.new(context)
     audit("register", { src = msg.src, role = role })
     local previous = runtime.registry.all and runtime.registry.all()[msg.src]
     runtime.registry.register(msg.src, role, nil)
-    if previous and previous.status == "down" then audit("node_reconnect", { node_id = msg.src, role = role }) end
+    if previous and tostring(previous.status):lower() == "down" then audit("node_reconnect", { node_id = msg.src, role = role }) end
     if role == "train" and runtime.train_registry then
       local train_id = msg.payload.train_id or msg.src
       runtime.train_registry.register(train_id, msg.src, msg.payload or {})
@@ -153,10 +154,19 @@ function master_runtime.new(context)
     elseif role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then apply_depot_snapshot(msg.payload.depot_id or msg.src, msg.payload or {})
     elseif role == "panel" then send_panel_snapshot(msg.src) end
-    runtime.network.ack_for(msg); runtime.ui.mark_dirty(); save_after("register"); return true
+    runtime.network.ack_for(msg, true); runtime.ui.mark_dirty(); save_after("register"); return true
   end
 
   handlers.heartbeat = function(msg)
+    local known = runtime.registry.all and runtime.registry.all()[msg.src]
+    local announced_role = msg.payload and msg.payload.role
+    if not known and announced_role and runtime.registry.register then
+      -- after a master restart the nodes keep heartbeating but never register again: adopt them
+      runtime.registry.register(msg.src, announced_role, nil)
+      audit("node_adopted", { node_id = msg.src, role = announced_role })
+    elseif known and tostring(known.status):lower() == "down" then
+      audit("node_reconnect", { node_id = msg.src, role = known.role })
+    end
     runtime.registry.heartbeat(msg.src)
     if msg.payload and msg.payload.role == "train" and runtime.train_registry then runtime.train_registry.register(msg.payload.train_id or msg.src, msg.src, msg.payload)
     elseif msg.payload and msg.payload.role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload)
@@ -168,14 +178,14 @@ function master_runtime.new(context)
     if maintenance_enabled() then return reject_maintenance(msg, "sensor") end
     audit("sensor", { src = msg.src, sensor_id = msg.payload.sensor_id, action = msg.payload.action })
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
-    runtime.network.ack_for(msg)
+    runtime.network.ack_for(msg, true)
     if ok == false and runtime.logger then runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id }) end
     if runtime.route_integration and not recovery_locked() then runtime.route_integration.process_queue() end
     runtime.ui.mark_dirty(); save_after("sensor")
   end
 
   local function handle_train_event(msg)
-    if not runtime.train_registry then runtime.network.ack_for(msg); return end
+    if not runtime.train_registry then runtime.network.ack_for(msg, true); return end
     local payload = msg.payload or {}; local train_id = payload.train_id or msg.src
     audit("train_event", { src = msg.src, train_id = train_id, event_type = payload.type })
     if maintenance_enabled() and (payload.type == "request_departure" or payload.type == "arrived") then return reject_maintenance(msg, payload.type) end
@@ -185,11 +195,11 @@ function master_runtime.new(context)
     elseif payload.type == "arrived" then if runtime.route_integration then runtime.route_integration.handle_train_arrival(payload, msg.src) end; save_after("train_arrival")
     elseif payload.type == "schedule_applied" then runtime.train_registry.update_status(train_id, { state = payload.state or (payload.schedule_state == "failed" and "SCHEDULE_FAILED" or "ROUTE_ASSIGNED"), route_id = payload.route_id, destination = payload.destination, create_destination = payload.create_destination, schedule_state = payload.schedule_state, schedule_station = payload.schedule_station, service_plan = payload.service_plan, service_stop_index = payload.service_stop_index, message = payload.message })
     elseif payload.type == "train_fault" then runtime.train_registry.update_status(train_id, { state = "FAULT", error = payload.error, message = payload.error }); if runtime.logger then runtime.logger.warn("train fault", payload) end end
-    runtime.network.ack_for(msg); runtime.ui.mark_dirty()
+    runtime.network.ack_for(msg, true); runtime.ui.mark_dirty()
   end
 
   local function handle_station_event(msg)
-    if not runtime.station_registry then runtime.network.ack_for(msg); return end
+    if not runtime.station_registry then runtime.network.ack_for(msg, true); return end
     local payload = msg.payload or {}; local station_id = payload.station_id or msg.src
     audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
@@ -200,11 +210,11 @@ function master_runtime.new(context)
     elseif payload.type == "train_left_station" then if runtime.station_registry.release_platform then runtime.station_registry.release_platform(station_id, payload.platform_id) else runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "EMPTY", train_id = nil, train_name = nil, route_id = nil, destination = nil }) end
     elseif payload.type == "station_ready_departure" then if runtime.route_integration then runtime.route_integration.handle_station_ready(payload, msg.src) end; save_after("station_departure")
     elseif payload.type == "station_fault" then runtime.station_registry.update_status(station_id, { state = "FAULT", message = payload.error }); if runtime.logger then runtime.logger.warn("station fault", payload) end end
-    runtime.network.ack_for(msg); runtime.ui.mark_dirty()
+    runtime.network.ack_for(msg, true); runtime.ui.mark_dirty()
   end
 
   local function handle_depot_event(msg)
-    if not runtime.depot_registry then runtime.network.ack_for(msg); return end
+    if not runtime.depot_registry then runtime.network.ack_for(msg, true); return end
     local payload = msg.payload or {}; local depot_id = payload.depot_id or msg.src
     audit("depot_event", { src = msg.src, depot_id = depot_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "depot_request_dispatch" then return reject_maintenance(msg, payload.type) end
@@ -216,30 +226,30 @@ function master_runtime.new(context)
     elseif payload.type == "depot_train_arrived" then runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "OCCUPIED", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id })
     elseif payload.type == "depot_train_left" then if runtime.depot_registry.release_track then runtime.depot_registry.release_track(depot_id, payload.track_id) else runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "EMPTY", train_id = nil, train_name = nil, route_id = nil, destination = nil }) end
     elseif payload.type == "depot_fault" then runtime.depot_registry.update_status(depot_id, { state = "FAULT", message = payload.error }); if runtime.logger then runtime.logger.warn("depot fault", payload) end end
-    runtime.network.ack_for(msg); runtime.ui.mark_dirty()
+    runtime.network.ack_for(msg, true); runtime.ui.mark_dirty()
   end
 
   local function handle_panel_event(msg)
-    if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg)
+    if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg, true)
     elseif msg.payload and msg.payload.type == "manual_control" then
-      if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg); return true end
+      if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg, true); return true end
       local ok, err = false, "manual control unavailable"
       if runtime.manual_control and not recovery_locked() then ok, err = runtime.manual_control.handle(msg.payload, msg.src) elseif recovery_locked() then ok, err = false, "recovery review required" end
       if not ok and runtime.logger then runtime.logger.warn("manual control rejected", { error = err, src = msg.src }) end
-      runtime.network.ack_for(msg); runtime.ui.mark_dirty(); save_after("manual_control")
+      runtime.network.ack_for(msg, true); runtime.ui.mark_dirty(); save_after("manual_control")
     end
   end
 
   local function handle_ota_need(msg)
     if runtime.ota then runtime.ota.on_need(msg) end
-    runtime.network.ack_for(msg)
+    runtime.network.ack_for(msg, true)
   end
 
   local function handle_ota_confirmed(msg)
     local payload = msg.payload or {}
     if runtime.ota then runtime.ota.on_confirmed(msg) end
     audit("ota_confirmed", { node_id = msg.src, version = payload.version })
-    runtime.network.ack_for(msg)
+    runtime.network.ack_for(msg, true)
     runtime.ui.mark_dirty()
   end
 
@@ -289,8 +299,29 @@ function master_runtime.new(context)
     ota_confirmed            = handle_ota_confirmed,
   }
 
+  -- Who may send what: a sensor event must come from the sensor it names, manual control only from a panel node.
+  local function event_sender_problem(msg, ptype)
+    local payload = msg.payload or {}
+    if ptype == "sensor" and payload.sensor_id ~= msg.src then
+      return "sensor event for " .. tostring(payload.sensor_id) .. " sent by " .. tostring(msg.src)
+    end
+    if ptype == "manual_control" then
+      local sender = runtime.registry.all and runtime.registry.all()[msg.src]
+      if not sender or sender.role ~= "panel" then return "manual control from a node that is not a panel" end
+    end
+    return nil
+  end
+
   handlers.event = function(msg)
     local ptype = msg.payload and tostring(msg.payload.type) or ""
+    local problem = event_sender_problem(msg, ptype)
+    if problem then
+      audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
+      event_once.warn("event:" .. tostring(msg.src) .. ":" .. ptype, "event rejected", { src = msg.src, type = ptype, reason = problem })
+      -- acknowledged all the same: the sender must not retry what will never be accepted
+      runtime.network.ack_for(msg, true)
+      return true
+    end
     local handler = event_routes[ptype]
     if handler then
       handler(msg)
@@ -363,7 +394,7 @@ function master_runtime.new(context)
         if not ok and runtime.logger then runtime.logger.error("message handler error", { error = tostring(err), type = msg and msg.type, src = msg and msg.src }) end
       elseif status == "duplicate" and (msg.type == "event" or msg.type == "register") then
         -- the sender retries because our ack got lost: confirm again, the work was done the first time
-        runtime.network.ack_for(msg)
+        runtime.network.ack_for(msg, true)
       end
     elseif event[1] == "monitor_touch" then runtime.ui.handle_touch(event[3], event[4])
     end
