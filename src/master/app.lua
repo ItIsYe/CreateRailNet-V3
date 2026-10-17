@@ -18,6 +18,7 @@ local route_integration = require("src.master.route_integration")
 local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
+local status_panel = require("src.master.ui.panels.status")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local trains_panel = require("src.master.ui.panels.trains")
@@ -75,7 +76,16 @@ function app.new(args)
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
   local monitor = peri.wrap("monitor") or fallback_monitor()
+  -- filled in below; the status page reads them through functions because it is built before them
+  local context, instance
   local ui = ui_core.new(monitor, {
+    status    = status_panel.new({
+      registry = reg,
+      dispatcher = disp,
+      maintenance = maintenance,
+      ota = function() return context and context.ota end,
+      recovery = function() return instance and instance.runtime and instance.runtime.recovery end
+    }),
     overview  = overview_panel.new(disp, reg, nil),
     gleisbild = gleisbild_panel.new(disp, reg, nil),
     trains    = trains_panel.new(train_registry, nil),
@@ -85,11 +95,11 @@ function app.new(args)
     cargo     = cargo_panel.new(nil, nil),
     diag      = diagnostics_panel.new(logger, disp),
     ota       = ota_status_panel.new(reg, audits)
-  })
+  }, { logger = logger })
   -- Wire manual_control into interactive panels once context is built (below)
-  ui.set_panel("overview")
+  ui.set_panel("status")
 
-  local context = {
+  context = {
     config = cfg,
     logger = logger,
     registry = reg,
@@ -120,7 +130,7 @@ function app.new(args)
   -- Rebuild page order after rewiring
   if ui.rebuild_order then ui.rebuild_order() end
 
-  local instance = { context = context }
+  instance = { context = context }
   instance.runtime = runtime_factory.new(context)
   function instance.run() instance.runtime.run() end
   return instance

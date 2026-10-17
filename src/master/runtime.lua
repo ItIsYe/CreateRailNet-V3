@@ -6,6 +6,7 @@ Public API: new(context) -> runtime with handle_event(event), run(), save_recove
 
 local time = require("src.shared.time")
 local ticker = require("src.shared.ticker")
+local once_log = require("src.shared.once_log")
 
 local message_handlers = require("src.shared.message_handlers")
 local diagnostics = require("src.domain.diagnostics")
@@ -38,6 +39,7 @@ function master_runtime.new(context)
     pull_event = context.pull_event or os.pullEvent,
     heartbeat_timeout_s = context.heartbeat_timeout_s or 6
   }
+  local ui_once = once_log.new(context.logger)
   runtime.ticker = ticker.new({
     clock = context.clock,
     start_timer = context.start_timer,
@@ -348,7 +350,8 @@ function master_runtime.new(context)
 
   runtime.ticker.every("ui", 0.2, function()
     local ok, err = pcall(runtime.ui.draw)
-    if not ok and runtime.logger then runtime.logger.warn("ui draw error", { error = tostring(err) }) end
+    if ok then ui_once.ok("ui_draw", "ui draws again")
+    else ui_once.warn("ui_draw", "ui draw error", { error = tostring(err) }) end
   end)
 
   function runtime.handle_event(event)
