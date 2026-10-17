@@ -53,8 +53,39 @@ function common_node.new(opts)
     return node_updater
   end
 
+  -- Outcome of recent commands by message id. A duplicate means the sender never saw our answer: answer again, same outcome,
+  -- without running the command twice.
+  local outcomes, outcome_count = {}, 0
+  local OUTCOME_TTL_MS = 30000
+  local OUTCOME_PRUNE_AT = 64
+
+  local function remember_outcome(msg, ok, err)
+    local now = time.now_ms()
+    if outcome_count >= OUTCOME_PRUNE_AT then
+      outcome_count = 0
+      for id, entry in pairs(outcomes) do
+        if now - entry.at > OUTCOME_TTL_MS then outcomes[id] = nil else outcome_count = outcome_count + 1 end
+      end
+    end
+    if not outcomes[msg.id] then outcome_count = outcome_count + 1 end
+    outcomes[msg.id] = { ok = ok ~= false, err = err, at = now }
+  end
+
+  local function answer(msg, ok, err)
+    if ok == false then
+      node.net.send("err", msg.src, { ref_id = msg.id, error = tostring(err) })
+    else
+      node.net.ack_for(msg)
+    end
+  end
+
   function node.handle_message(msg)
     local status = node.net.receive(msg)
+    if status == "duplicate" and msg.type == "cmd" then
+      local previous = outcomes[msg.id]
+      if previous then answer(msg, previous.ok, previous.err) end
+      return status
+    end
     if status ~= "ok" or msg.type ~= "cmd" then
       return status
     end
@@ -63,6 +94,7 @@ function common_node.new(opts)
 
     -- OTA update: apply new files and reboot
     if payload.cmd == "ota_update" then
+      remember_outcome(msg, true)
       node.net.ack_for(msg)
       if node.logger then node.logger.info("OTA update received", { files = payload.file_count, version = payload.version }) end
       -- Apply runs in pcall so a write failure doesn't crash the node
@@ -83,11 +115,8 @@ function common_node.new(opts)
       ok, err = node.handlers.on_cmd(payload, msg)
     end
 
-    if ok == false then
-      node.net.send("err", msg.src, { ref_id = msg.id, error = tostring(err) })
-    else
-      node.net.ack_for(msg)
-    end
+    remember_outcome(msg, ok, err)
+    answer(msg, ok, err)
 
     return status
   end

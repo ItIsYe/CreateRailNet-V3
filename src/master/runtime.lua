@@ -335,6 +335,9 @@ function master_runtime.new(context)
       if status == "ok" then
         local ok, err = pcall(message_handlers.dispatch, msg, handlers)
         if not ok and runtime.logger then runtime.logger.error("message handler error", { error = tostring(err), type = msg and msg.type, src = msg and msg.src }) end
+      elseif status == "duplicate" and (msg.type == "event" or msg.type == "register") then
+        -- the sender retries because our ack got lost: confirm again, the work was done the first time
+        runtime.network.ack_for(msg)
       end
     elseif event[1] == "monitor_touch" then runtime.ui.handle_touch(event[3], event[4])
     end
