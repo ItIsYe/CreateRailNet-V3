@@ -1,9 +1,11 @@
 --[[
 Purpose: Master event runtime for modem, UI, timeout handling, audit, maintenance guard, persistent dispatcher recovery, and safe recovery mode.
 Public API: new(context) -> runtime with handle_event(event), run(), save_recovery_state(), restore_recovery_state(), confirm_recovery().
+  runtime.ticker drives the timeout / dwell / ui jobs; context.clock, context.start_timer and context.tick_grace are for tests.
 ]]
 
 local time = require("src.shared.time")
+local ticker = require("src.shared.ticker")
 
 local message_handlers = require("src.shared.message_handlers")
 local diagnostics = require("src.domain.diagnostics")
@@ -33,11 +35,16 @@ function master_runtime.new(context)
     auto_save_state = context.auto_save_state ~= false,
     recovery = { restored = false, saved = false, required = false, confirmed = true, last_error = nil, last_save_reason = nil },
     pull_event = context.pull_event or os.pullEvent,
-    heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
-    timeout_timer = nil,
-    ui_timer = nil,
-    dwell_timer = nil
+    heartbeat_timeout_s = context.heartbeat_timeout_s or 6
   }
+  runtime.ticker = ticker.new({
+    clock = context.clock,
+    start_timer = context.start_timer,
+    grace = context.tick_grace,
+    on_error = function(name, err, count)
+      if runtime.logger then runtime.logger.warn("tick job failed", { job = name, error = err, count = count }) end
+    end
+  })
 
   local handlers = {}
 
@@ -115,6 +122,7 @@ function master_runtime.new(context)
     local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or "ONLINE")
     local built = { cmd = "panel_update", master_state = master_state, overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
     built.diagnostics.recovery = runtime.recovery
+    built.diagnostics.loop = runtime.ticker.stats()
     return built
   end
 
@@ -301,11 +309,24 @@ function master_runtime.new(context)
     if not ok_restore and runtime.logger then
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
     end
-    runtime.timeout_timer = os.startTimer(1)
-    runtime.ui_timer = os.startTimer(0.2)
-    runtime.dwell_timer = os.startTimer(1)
+    runtime.ticker.start()
     runtime.ui.draw()
   end
+
+  runtime.ticker.every("timeouts", 1, check_timeouts)
+
+  runtime.ticker.every("dwell", 1, function()
+    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then
+      runtime.route_integration.process_due()
+      save_after("dwell")
+    end
+    runtime.ui.mark_dirty()
+  end)
+
+  runtime.ticker.every("ui", 0.2, function()
+    local ok, err = pcall(runtime.ui.draw)
+    if not ok and runtime.logger then runtime.logger.warn("ui draw error", { error = tostring(err) }) end
+  end)
 
   function runtime.handle_event(event)
     if event[1] == "modem_message" then
@@ -316,13 +337,9 @@ function master_runtime.new(context)
         if not ok and runtime.logger then runtime.logger.error("message handler error", { error = tostring(err), type = msg and msg.type, src = msg and msg.src }) end
       end
     elseif event[1] == "monitor_touch" then runtime.ui.handle_touch(event[3], event[4])
-    elseif event[1] == "timer" and event[2] == runtime.timeout_timer then check_timeouts(); runtime.timeout_timer = os.startTimer(1)
-    elseif event[1] == "timer" and event[2] == runtime.dwell_timer then if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.process_due(); save_after("dwell") end; runtime.dwell_timer = os.startTimer(1); runtime.ui.mark_dirty()
-    elseif event[1] == "timer" and event[2] == runtime.ui_timer then
-      local ok, err = pcall(runtime.ui.draw)
-      if not ok and runtime.logger then runtime.logger.warn("ui draw error", { error = tostring(err) }) end
-      runtime.ui_timer = os.startTimer(0.2)
     end
+    -- after the message: a queued heartbeat must be counted before the timeout job looks at last_seen
+    runtime.ticker.handle_event(event)
     runtime.network.tick()
   end
 

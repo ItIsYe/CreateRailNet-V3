@@ -69,7 +69,7 @@ function depot_node.new_runtime(args_or_context)
   local sensor_adapter = create_sensors.new(context.peripherals, { hardware = context.hardware })
   local state = { node_id = context.id, depot_id = depot_id, display_name = display_name, depot_type = depot_type, state = "ONLINE", queue = {}, tracks = depot_node.build_track_map(depot_cfg) }
 
-  local node = common_node.new({ id = context.id, role = context.role, config = context.config, modem = context.modem, logger = context.logger, handlers = { on_cmd = function(payload)
+  local node = common_node.new({ id = context.id, role = context.role, config = context.config, modem = context.modem, logger = context.logger, clock = context.clock, start_timer = context.start_timer, tick_grace = context.tick_grace, handlers = { on_cmd = function(payload)
     local cmd = payload and payload.cmd
     local track = payload and payload.track_id and state.tracks[payload.track_id]
     if cmd == "reserve_track" and track then track.state = "RESERVED"; track.train_id = payload.train_id; track.train_name = payload.train_name; track.route_id = payload.route_id; track.destination = payload.destination
@@ -137,13 +137,11 @@ function depot_node.new_runtime(args_or_context)
     end
   end
 
+  node.ticker.every("tracks", 0.5, function() check_tracks(); depot_node.render_status(monitor, state) end)
+
   local old_start = node.start
   node.start = function()
-    old_start(); depot_node.render_status(monitor, state); node.depot_timer = os.startTimer(0.5); send_full_status("start")
-  end
-
-  node.handlers.on_event = function(event)
-    if event[1] == "timer" and event[2] == node.depot_timer then check_tracks(); depot_node.render_status(monitor, state); node.depot_timer = os.startTimer(0.5) end
+    old_start(); depot_node.render_status(monitor, state); send_full_status("start")
   end
 
   return node

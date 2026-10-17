@@ -57,23 +57,15 @@ function sensor_node.new_runtime(args_or_context)
     role = context.role,
     config = context.config,
     modem = context.modem,
-    logger = context.logger
+    logger = context.logger,
+    clock = context.clock,
+    start_timer = context.start_timer,
+    tick_grace = context.tick_grace
   })
 
   local check = sensor_node.build_check_fn(node, adapter, context.id, context.config.master_id)
 
-  local old_start = node.start
-  node.start = function()
-    old_start()
-    node.sensor_timer = os.startTimer(0.2)
-  end
-
-  node.handlers.on_event = function(event)
-    if event[1] == "timer" and event[2] == node.sensor_timer then
-      check()
-      node.sensor_timer = os.startTimer(0.2)
-    end
-  end
+  node.ticker.every("sensor", 0.2, check)
 
   return node
 end

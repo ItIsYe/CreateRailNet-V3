@@ -18,11 +18,17 @@ local files = {
   "src/shared/args.lua",
   "src/shared/config.lua",
   "src/shared/error_codes.lua",
+  "src/shared/eventbus.lua",
   "src/shared/json.lua",
   "src/shared/log.lua",
   "src/shared/message_handlers.lua",
   "src/shared/net.lua",
   "src/shared/registry.lua",
+  "src/shared/sleep_guard.lua",
+  "src/shared/ticker.lua",
+  "src/shared/time.lua",
+  "src/shared/updater.lua",
+  "src/shared/util.lua",
   "src/shared/validate.lua",
   "src/domain/audit_log.lua",
   "src/domain/blocks.lua",
@@ -80,7 +86,10 @@ local files = {
   "src/tools/setup_wizard.lua",
   "src/tools/system_check.lua",
   "tests/harness/cc_bootstrap.lua",
-  "tests/harness/runner.lua"
+  "tests/harness/runner.lua",
+  "tests/test_sleep_guard.lua",
+  "tests/test_ticker.lua",
+  "tests/test_timer_loss.lua"
 }
 
 local total = 0

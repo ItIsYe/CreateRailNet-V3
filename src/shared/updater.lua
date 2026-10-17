@@ -20,6 +20,7 @@ Public API (master_updater module):
 ]]
 
 local time = require("src.shared.time")
+local sleep_guard = require("src.shared.sleep_guard")
 
 local updater = {}
 
@@ -120,7 +121,7 @@ function updater.new(network, node_id, logger)
         version = payload.version
       })
       -- Give the message time to send before reboot
-      if os.sleep then os.sleep(0.5) end
+      if os.sleep then sleep_guard.sleep(0.5) end
     end
 
     -- Reboot to load new code

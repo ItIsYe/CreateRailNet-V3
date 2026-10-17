@@ -1,12 +1,15 @@
 --[[
 Purpose: Common node runtime for register/heartbeat/command handling.
 Public API: new(opts) -> node with start(), run(), handle_event(event), handle_message(msg).
+  node.ticker runs the periodic jobs (heartbeat built in); roles add theirs with node.ticker.every(name, seconds, fn)
+  before start(). opts.clock / opts.start_timer / opts.tick_grace are for tests.
 ]]
 
 local net = require("src.shared.net")
 local log = require("src.shared.log")
 local time = require("src.shared.time")
 local updater = require("src.shared.updater")
+local ticker = require("src.shared.ticker")
 
 local common_node = {}
 
@@ -23,6 +26,17 @@ function common_node.new(opts)
   }
 
   node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time)
+
+  node.ticker = ticker.new({
+    clock = opts.clock,
+    start_timer = opts.start_timer,
+    grace = opts.tick_grace,
+    on_error = function(name, err, count)
+      node.logger.warn("tick job failed", { job = name, error = err, count = count })
+    end
+  })
+  -- node.heartbeat is looked up on every tick because roles replace it after construction
+  node.ticker.every("heartbeat", node.heartbeat_ms / 1000, function() node.heartbeat() end)
 
   function node.register()
     return node.net.send_reliable("register", node.config.master_id, { role = node.role })
@@ -79,10 +93,9 @@ function common_node.new(opts)
   end
 
   function node.handle_event(event)
-    if event[1] == "timer" and event[2] == node.hb_timer then
-      node.heartbeat()
-      node.hb_timer = os.startTimer(node.heartbeat_ms / 1000)
-    elseif event[1] == "modem_message" then
+    node.ticker.handle_event(event)
+
+    if event[1] == "modem_message" then
       node.handle_message(event[5])
     elseif event[1] == "peripheral_detach" and node.peripherals then
       -- Invalidate cached peripheral wrapper so next access re-wraps
@@ -106,7 +119,7 @@ function common_node.new(opts)
 
     node.register()
     node.heartbeat()
-    node.hb_timer = os.startTimer(node.heartbeat_ms / 1000)
+    node.ticker.start()
   end
 
   function node.run()

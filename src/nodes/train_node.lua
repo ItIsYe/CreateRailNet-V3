@@ -79,6 +79,9 @@ function train_node.new_runtime(args_or_context)
     config = context.config,
     modem = context.modem,
     logger = context.logger,
+    clock = context.clock,
+    start_timer = context.start_timer,
+    tick_grace = context.tick_grace,
     handlers = {
       on_cmd = function(payload)
         local cmd = payload and payload.cmd
@@ -145,21 +148,17 @@ function train_node.new_runtime(args_or_context)
     return node.net.heartbeat(context.config.master_id, status_payload(state, train_id, display_name))
   end
 
+  node.ticker.every("status", 2, function()
+    local payload = status_payload(state, train_id, display_name)
+    payload.type = "train_status"
+    node.net.send("event", context.config.master_id, payload)
+    train_node.render_status(monitor, state)
+  end)
+
   local old_start = node.start
   node.start = function()
     old_start()
     train_node.render_status(monitor, state)
-    node.status_timer = os.startTimer(2)
-  end
-
-  node.handlers.on_event = function(event)
-    if event[1] == "timer" and event[2] == node.status_timer then
-      local payload = status_payload(state, train_id, display_name)
-      payload.type = "train_status"
-      node.net.send("event", context.config.master_id, payload)
-      train_node.render_status(monitor, state)
-      node.status_timer = os.startTimer(2)
-    end
   end
 
   node.request_departure = function(from_station, to_station, create_destination)
