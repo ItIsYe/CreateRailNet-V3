@@ -1,6 +1,6 @@
 --[[
 Purpose: Priority queue helper for pending route requests with aging metadata.
-Public API: new() -> queue with push, pop, list, size, reprioritize.
+Public API: new() -> queue with push, pop, find(train_id, route_id), remove_train(train_id), list, size, reprioritize.
 ]]
 
 local time = require("src.shared.time")
@@ -65,6 +65,23 @@ function route_queue.new()
 
   function self.size()
     return #items
+  end
+
+  -- drops every waiting request of a train, returns how many were removed
+  function self.remove_train(train_id)
+    local removed = 0
+    for i = #items, 1, -1 do
+      if items[i].train_id == train_id then table.remove(items, i); removed = removed + 1 end
+    end
+    return removed
+  end
+
+  -- live queue item for a train and route, or nil
+  function self.find(train_id, route_id)
+    for _, item in ipairs(items) do
+      if item.train_id == train_id and item.route_id == route_id then return item end
+    end
+    return nil
   end
 
   function self.list()
