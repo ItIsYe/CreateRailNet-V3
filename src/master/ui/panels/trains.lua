@@ -60,10 +60,14 @@ function trains_panel.new(train_registry, manual_control_ref)
     { x=40, w=12, label="][  ROUTE  ]", key="route",    fg=function(s) return C.cyan end },
   }
 
+  -- touch() has no monitor argument, so it uses the height of the last draw
+  local last_height = 19
+
   function self.draw(monitor)
     if not monitor then return end
     local u = ui_utils.new(monitor)
     local w, h = u.size()
+    last_height = h
     u.clear(C.black)
     u.header(1, "ZUGSTEUERUNG", nil, w)
 
@@ -141,7 +145,7 @@ function trains_panel.new(train_registry, manual_control_ref)
   end
 
   function self.touch(x, y)
-    local _, h = u_size_or(51, 19)
+    local h = last_height
     local sorted = get_sorted()
 
     -- Touch in action row area when train selected
@@ -179,9 +183,6 @@ function trains_panel.new(train_registry, manual_control_ref)
       self.offset = math.max(0, self.offset - 1)
     end
   end
-
-  -- Helper so touch can get size without monitor ref
-  function u_size_or(dw, dh) return dw, dh end
 
   return self
 end

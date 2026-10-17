@@ -1,5 +1,5 @@
 --[[
-CreateRailNet-V3 First-Time Setup Tool
+Purpose: CreateRailNet-V3 First-Time Setup Tool.
 Runs interactively on a fresh CC:Tweaked computer.
 Guides the user through role/ID selection, scans attached peripherals,
 writes startup.lua and a minimal config, then reboots.

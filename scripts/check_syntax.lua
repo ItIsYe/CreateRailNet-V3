@@ -91,7 +91,8 @@ local files = {
   "tests/test_safe_write.lua",
   "tests/test_sleep_guard.lua",
   "tests/test_ticker.lua",
-  "tests/test_timer_loss.lua"
+  "tests/test_timer_loss.lua",
+  "tests/test_trains_panel_touch.lua"
 }
 
 local total = 0

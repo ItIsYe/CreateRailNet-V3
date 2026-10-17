@@ -38,3 +38,11 @@ jobs:
 
       - name: Offline tests (LuaJIT)
         run: luajit scripts/run_tests.lua
+
+      # finds every .lua file itself: parse errors, missing Purpose headers, 5.2+ library calls, accidental globals
+      - name: CC compatibility guard
+        run: lua5.1 scripts/cc_parse_guard.lua
+
+      # the runner executes an explicit list; a test file missing from it would silently never run
+      - name: Test registry
+        run: lua5.4 scripts/check_test_registry.lua
