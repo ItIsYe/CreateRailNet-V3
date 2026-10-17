@@ -23,6 +23,7 @@ local alerts_panel = require("src.master.ui.panels.alerts")
 local alerts_module = require("src.domain.alerts")
 local logs_panel = require("src.master.ui.panels.logs")
 local log_collector = require("src.domain.log_collector")
+local trace_recorder = require("src.domain.trace_recorder")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local trains_panel = require("src.master.ui.panels.trains")
@@ -72,6 +73,10 @@ function app.new(args)
     signals = create_signals.new(peri, { hardware = hw }),
     switches = create_switches.new(peri, { hardware = hw })
   })
+
+  -- the last dispatcher calls are kept for replay offline (traces/*.json, scripts/replay_trace.lua)
+  local trace = trace_recorder.new({ capacity = cfg.trace_capacity or 500 })
+  trace.attach(disp)
 
   local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger)
   -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
@@ -123,7 +128,8 @@ function app.new(args)
     audit_log = audits,
     maintenance = maintenance,
     alerts = alerts,
-    logs = logs
+    logs = logs,
+    trace = trace
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)

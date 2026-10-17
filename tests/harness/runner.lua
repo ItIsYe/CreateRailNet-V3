@@ -61,6 +61,7 @@ local tests = {
   "tests/test_ui_core.lua",
   "tests/test_window_buffer.lua",
   "tests/test_startup_template.lua",
+  "tests/test_trace_recorder.lua",
   "tests/test_updater.lua",
   "tests/test_ota_rollout.lua",
   "tests/test_command_sources.lua",

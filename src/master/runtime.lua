@@ -36,6 +36,7 @@ function master_runtime.new(context)
     ota = context.ota,
     alerts = context.alerts,
     logs = context.logs,
+    trace = context.trace,
     state_store = context.state_store or master_state_store.new((context.config and context.config.state_file) or nil),
     auto_restore_state = context.auto_restore_state ~= false,
     auto_save_state = context.auto_save_state ~= false,
@@ -393,12 +394,31 @@ function master_runtime.new(context)
   -- the list of alerts follows the state of the network; one pass over nodes and blocks every 2 s
   if runtime.alerts then
     local rules = alert_rules.new(runtime.alerts)
+    local traced, last_trace_at = {}, nil
     runtime.ticker.every("alerts", 2, function()
       rules.evaluate(status_model.collect({
         registry = runtime.registry, dispatcher = runtime.dispatcher, maintenance = runtime.maintenance,
         ota = function() return runtime.ota end, recovery = function() return runtime.recovery end
       }))
       runtime.alerts.tick()
+      -- the moment a block faults, the last 500 dispatcher calls go to traces/fault_<n>.json (at most once a minute, 5 files),
+      -- ready for scripts/replay_trace.lua
+      if runtime.trace then
+        local now = time.now_s()
+        local active = {}
+        for _, alert in ipairs(runtime.alerts.list({ active_only = true })) do
+          if alert.severity == "RED" and alert.key:sub(1, 6) == "block:" then
+            active[alert.key] = true
+            if not traced[alert.key] and (not last_trace_at or now - last_trace_at >= 60) then
+              local path, err = runtime.trace.dump_slot("traces/fault_", 5)
+              traced[alert.key] = true
+              last_trace_at = now
+              audit("trace_dumped", { path = path, error = err, reason = alert.key })
+            end
+          end
+        end
+        for key in pairs(traced) do if not active[key] then traced[key] = nil end end
+      end
       runtime.ui.mark_dirty()
     end)
   end

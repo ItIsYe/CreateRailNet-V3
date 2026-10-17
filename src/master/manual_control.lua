@@ -32,7 +32,7 @@ function manual_control.new(context)
   -- ota, cargo and alerts are looked up when an action runs: the app builds this helper before those services exist, and
   -- reading them at construction left "ota manager unavailable" and "cargo system unavailable" on every call
   setmetatable(self, { __index = function(_, key)
-    if key == "ota" or key == "cargo" or key == "alerts" then return context[key] end
+    if key == "ota" or key == "cargo" or key == "alerts" or key == "trace" then return context[key] end
     return nil
   end })
 
@@ -110,6 +110,12 @@ function manual_control.new(context)
       send_cmd(self.network, train_node_id(cmd.train_id), "emergency_stop", { train_id = cmd.train_id, reason = cmd.reason or "manual emergency stop" })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "FAULT", error = cmd.reason or "manual emergency stop" }) end
       return true
+    elseif cmd.action == "trace_dump" then
+      if not self.trace then return false, "trace recorder unavailable" end
+      local path, err = self.trace.dump_slot("traces/trace_", 5)
+      audit("trace_dumped", { src = src, path = path, error = err })
+      if not path then return false, err end
+      return true, path
     elseif cmd.action == "ack_alert" then
       if not self.alerts then return false, "alerts unavailable" end
       if cmd.all then

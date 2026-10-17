@@ -1,6 +1,6 @@
 --[[
 Purpose: Shared fixture for dispatcher property and chaos tests: seeded topology generator, step functions and invariants.
-Public API: new(seed, opts) -> world, close(world), step_legal(world), step_chaos(world), violation(world, opts) -> string | nil,
+Public API: new(seed, opts) -> world, from_config(cfg, opts) -> world, close(world), step_legal(world), step_chaos(world), violation(world, opts) -> string | nil,
   recent(world, count) -> the last operations as text.
 Notes: new() replaces os.clock with the world's synthetic clock (the sensor guard measures event age with it) so runs are
   deterministic; close() puts the real one back.
@@ -52,6 +52,22 @@ function world_mod.new(seed, opts)
   local route_by_id = {}
   for _, route in ipairs(cfg.routes) do route_by_id[route.id] = route end
   local world = { rng = rng, cfg = cfg, aspects = aspects, routes = route_by_id, clock = 0, log = {}, chaos = opts and opts.chaos or false }
+  world.real_clock = os.clock
+  os.clock = function() return world.clock / 1000 end
+  world.d = dispatcher.new(cfg, adapters)
+  return world
+end
+
+-- a world around a real configuration (for trace replay): no generator, the caller drives the dispatcher
+function world_mod.from_config(cfg, opts)
+  local aspects = {}
+  local adapters = {
+    signals = { setAspect = function(id, aspect) aspects[id] = aspect; return true end },
+    switches = { setPosition = function() return true end }
+  }
+  local route_by_id = {}
+  for _, route in ipairs(cfg.routes or {}) do route_by_id[route.id] = route end
+  local world = { cfg = cfg, aspects = aspects, routes = route_by_id, clock = 0, log = {}, chaos = not (opts and opts.strict) }
   world.real_clock = os.clock
   os.clock = function() return world.clock / 1000 end
   world.d = dispatcher.new(cfg, adapters)
