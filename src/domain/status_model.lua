@@ -1,6 +1,7 @@
 --[[
 Purpose: Condenses the state of the whole network into one lamp, a few reasons and a short list of problems.
-Public API: build(inputs) -> model
+Public API: build(inputs) -> model, collect(sources) -> inputs
+  sources: registry, dispatcher, maintenance, ota (function -> ota manager), recovery (function -> { required, confirmed })
   inputs: nodes (registry.all() table: id -> { role, status }), blocks (dispatcher overview: id -> { state }),
           maintenance (boolean), recovery_required (boolean), deadlocks (table), ota (list from ota_manager.status()),
           critical_roles (set, default signal / switch / sensor)
@@ -26,6 +27,28 @@ local function sorted_keys(t)
   for key in pairs(t or {}) do keys[#keys + 1] = key end
   table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
   return keys
+end
+
+local function maintenance_on(maintenance)
+  if not maintenance then return false end
+  if maintenance.is_locked then return maintenance.is_locked() == true end
+  if maintenance.status then return maintenance.status().enabled == true end
+  return maintenance.enabled == true
+end
+
+-- reads the live objects of the master into the plain tables build() works on
+function status_model.collect(sources)
+  local src = sources or {}
+  local recovery = src.recovery and src.recovery() or nil
+  local manager = src.ota and src.ota() or nil
+  return {
+    nodes = src.registry and src.registry.all and src.registry.all() or {},
+    blocks = src.dispatcher and src.dispatcher.get_overview and src.dispatcher.get_overview() or {},
+    deadlocks = src.dispatcher and src.dispatcher.get_deadlocks and src.dispatcher.get_deadlocks() or {},
+    maintenance = maintenance_on(src.maintenance),
+    recovery_required = recovery ~= nil and recovery.required == true and recovery.confirmed ~= true,
+    ota = manager and manager.status and manager.status() or {}
+  }
 end
 
 function status_model.build(inputs)

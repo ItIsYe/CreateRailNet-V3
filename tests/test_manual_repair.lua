@@ -46,5 +46,22 @@ return {
     assert(d.get_block("B1").state == dispatcher.STATES.FREE and d.get_trains().T1 == nil)
     local ok = mc.handle({ action = "release_train", train_id = "T1" }, "PANEL-1")
     assert(ok == false)
+  end,
+
+  -- app.lua builds manual_control before the OTA manager, the cargo system and the alert list exist
+  test_services_created_after_manual_control_are_found_when_an_action_runs = function()
+    local context = { dispatcher = nil, network = { send = function() end } }
+    local mc = manual_control.new(context)
+    assert(mc.handle({ action = "ota_push" }, "PANEL-1") == false)
+    local pushed = {}
+    context.ota = { push_runtime = function(opts) pushed[#pushed + 1] = opts; return { ["NODE-1"] = { ok = true } } end }
+    context.alerts = { ack = function(key) return key == "a" end, ack_all = function() return 2 end }
+    context.cargo = { cancel_order = function() return true end }
+    local ok, message = mc.handle({ action = "ota_push", node_id = "NODE-1", version = "v9" }, "PANEL-1")
+    assert(ok == true and #pushed == 1 and pushed[1].version == "v9" and pushed[1].nodes[1] == "NODE-1", tostring(message))
+    assert(mc.handle({ action = "ack_alert", key = "a" }, "PANEL-1") == true)
+    assert(mc.handle({ action = "ack_alert", key = "zzz" }, "PANEL-1") == false)
+    assert(mc.handle({ action = "ack_alert", all = true }, "PANEL-1") == true)
+    assert(mc.handle({ action = "cargo_cancel", order_id = "O1" }, "PANEL-1") == true)
   end
 }

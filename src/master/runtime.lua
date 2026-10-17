@@ -7,6 +7,8 @@ Public API: new(context) -> runtime with handle_event(event), run(), save_recove
 local time = require("src.shared.time")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
+local status_model = require("src.domain.status_model")
+local alert_rules = require("src.domain.alert_rules")
 
 local message_handlers = require("src.shared.message_handlers")
 local diagnostics = require("src.domain.diagnostics")
@@ -32,6 +34,7 @@ function master_runtime.new(context)
     audit_log = context.audit_log,
     maintenance = context.maintenance,
     ota = context.ota,
+    alerts = context.alerts,
     state_store = context.state_store or master_state_store.new((context.config and context.config.state_file) or nil),
     auto_restore_state = context.auto_restore_state ~= false,
     auto_save_state = context.auto_save_state ~= false,
@@ -318,6 +321,7 @@ function master_runtime.new(context)
     if problem then
       audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
       event_once.warn("event:" .. tostring(msg.src) .. ":" .. ptype, "event rejected", { src = msg.src, type = ptype, reason = problem })
+      if runtime.alerts then runtime.alerts.raise("event:" .. tostring(msg.src) .. ":" .. ptype, "YELLOW", "Ereignis abgelehnt: " .. problem, nil, { ttl_s = 120 }) end
       -- acknowledged all the same: the sender must not retry what will never be accepted
       runtime.network.ack_for(msg, true)
       return true
@@ -378,6 +382,19 @@ function master_runtime.new(context)
   end)
 
   if runtime.ota and runtime.ota.tick then runtime.ticker.every("ota", 1, runtime.ota.tick) end
+
+  -- the list of alerts follows the state of the network; one pass over nodes and blocks every 2 s
+  if runtime.alerts then
+    local rules = alert_rules.new(runtime.alerts)
+    runtime.ticker.every("alerts", 2, function()
+      rules.evaluate(status_model.collect({
+        registry = runtime.registry, dispatcher = runtime.dispatcher, maintenance = runtime.maintenance,
+        ota = function() return runtime.ota end, recovery = function() return runtime.recovery end
+      }))
+      runtime.alerts.tick()
+      runtime.ui.mark_dirty()
+    end)
+  end
 
   runtime.ticker.every("ui", 0.2, function()
     local ok, err = pcall(runtime.ui.draw)

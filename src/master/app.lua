@@ -19,6 +19,8 @@ local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
 local status_panel = require("src.master.ui.panels.status")
+local alerts_panel = require("src.master.ui.panels.alerts")
+local alerts_module = require("src.domain.alerts")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local trains_panel = require("src.master.ui.panels.trains")
@@ -78,8 +80,11 @@ function app.new(args)
   local monitor = peri.wrap("monitor") or fallback_monitor()
   -- filled in below; the status page reads them through functions because it is built before them
   local context, instance
+  local alerts = alerts_module.new()
   local ui = ui_core.new(monitor, {
+    alerts    = alerts_panel.new(alerts, nil),
     status    = status_panel.new({
+      alerts = alerts,
       registry = reg,
       dispatcher = disp,
       maintenance = maintenance,
@@ -112,7 +117,8 @@ function app.new(args)
     network = network,
     ui = ui,
     audit_log = audits,
-    maintenance = maintenance
+    maintenance = maintenance,
+    alerts = alerts
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
@@ -121,6 +127,7 @@ function app.new(args)
 
   -- Rewire interactive panels with manual_control and full context
   local mc = context.manual_control
+  if ui.panels.alerts then ui.panels.alerts = alerts_panel.new(alerts, mc) end
   if ui.panels.overview then ui.panels.overview = overview_panel.new(disp, reg, mc) end
   if ui.panels.gleisbild then ui.panels.gleisbild = gleisbild_panel.new(disp, reg, disp.interlocking) end
   if ui.panels.trains then ui.panels.trains = trains_panel.new(train_registry, mc) end

@@ -1,7 +1,8 @@
 --[[
 Purpose: Status lamp page: one colour for the whole network, the reasons, per role counts and a paged list of problems.
 Public API: new(sources) -> panel with draw(monitor), touch(x, y), model()
-  sources: registry, dispatcher, maintenance, ota (function -> ota manager), recovery (function -> { required, confirmed })
+  sources: registry, dispatcher, maintenance, ota (function -> ota manager), recovery (function -> { required, confirmed }),
+           alerts (alert list, optional: its unacknowledged count is shown in the reasons)
 Notes: the words GRUEN / GELB / ROT stand next to the colours, so a monochrome monitor shows the same information. Faults are
   listed before nodes that are merely offline. The list pages (touch the left or right half of the bottom row), so a network with
   hundreds of nodes does not overflow the monitor.
@@ -20,13 +21,6 @@ local LAMP = {
 
 local TEXT_COLOR = { GREEN = ui_utils.colors.lime, YELLOW = ui_utils.colors.yellow, RED = ui_utils.colors.red }
 
-local function maintenance_on(maintenance)
-  if not maintenance then return false end
-  if maintenance.is_locked then return maintenance.is_locked() == true end
-  if maintenance.status then return maintenance.status().enabled == true end
-  return maintenance.enabled == true
-end
-
 function status_panel.new(sources)
   local src = sources or {}
   local panel = { page = 1 }
@@ -34,16 +28,13 @@ function status_panel.new(sources)
   local last_pages = 1
 
   function panel.model()
-    local recovery = src.recovery and src.recovery() or nil
-    local manager = src.ota and src.ota() or nil
-    return status_model.build({
-      nodes = src.registry and src.registry.all and src.registry.all() or {},
-      blocks = src.dispatcher and src.dispatcher.get_overview and src.dispatcher.get_overview() or {},
-      deadlocks = src.dispatcher and src.dispatcher.get_deadlocks and src.dispatcher.get_deadlocks() or {},
-      maintenance = maintenance_on(src.maintenance),
-      recovery_required = recovery ~= nil and recovery.required == true and recovery.confirmed ~= true,
-      ota = manager and manager.status and manager.status() or {}
-    })
+    local m = status_model.build(status_model.collect(src))
+    local alerts = src.alerts and src.alerts.counts and src.alerts.counts()
+    if alerts and alerts.unacked > 0 then
+      m.reasons[#m.reasons + 1] = alerts.unacked .. " Meldung(en) nicht quittiert"
+      if m.lamp == "GREEN" then m.lamp = "YELLOW" end
+    end
+    return m
   end
 
   local function center(text, w)

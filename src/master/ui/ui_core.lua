@@ -3,7 +3,7 @@ Purpose: Master UI core: fixed page order, dirty redraw on an off-screen buffer,
 Public API: new(monitor, panels, opts) -> ui with set_panel(name), next_panel(), prev_panel(), mark_dirty(), draw(),
   handle_touch(x, y), rebuild_order(), page_order.
   opts: window (CC window API for double buffering, default the global), logger, now_ms, repeat_ms (log repeat interval)
-Notes: pages follow PAGE_ORDER, panels that are not listed come after them alphabetically; the first page is the status lamp.
+Notes: pages follow PAGE_ORDER, panels that are not listed come after them alphabetically; the first pages are the status lamp and the messages.
   A frame is drawn into an invisible window and shown in one go, so the monitor never flickers or shows half a page. A panel
   whose draw raises gets an error page instead (navigation keeps working) and one log line per minute, not one per redraw.
 ]]
@@ -13,7 +13,7 @@ local once_log = require("src.shared.once_log")
 
 local ui_core = {}
 
-ui_core.PAGE_ORDER = { "status", "overview", "gleisbild", "trains", "stations", "depots", "fahrplan", "cargo", "diag", "ota" }
+ui_core.PAGE_ORDER = { "status", "alerts", "overview", "gleisbild", "trains", "stations", "depots", "fahrplan", "cargo", "diag", "ota" }
 
 function ui_core.new(monitor, panels, opts)
   local options = opts or {}
