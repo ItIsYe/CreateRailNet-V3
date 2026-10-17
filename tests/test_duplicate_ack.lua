@@ -50,7 +50,7 @@ return {
   test_node_stays_silent_for_duplicates_it_never_processed = function()
     local log = {}
     local node = node_with(function() return true end, log)
-    node.net.dedup["m-3"] = 0
+    node.net.dedup["M/m-3"] = 0
     node.handle_message({ v = 1, id = "m-3", src = "M", dst = "N1", type = "cmd", payload = {} })
     assert(#log == 0)
   end,

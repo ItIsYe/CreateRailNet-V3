@@ -1,12 +1,20 @@
 --[[
 Purpose: Reliable messaging with ack/retry/dedup and heartbeat helpers.
 Public API: new(modem, channel, node_id, logger, time_mod).
+Message ids are "<node>.<boot nonce>.<n>": every computer counts from 1 after a boot, so bare numbers collide between nodes and
+between two boots of one node. Duplicates are recognised by sender and id.
 ]]
 
-local util = require("src.shared.util")
 local time = require("src.shared.time")
 
 local net = {}
+
+-- differs between boots of the same node: real milliseconds plus a random part (several nets in one test process too)
+local function boot_nonce()
+  local epoch = os.epoch and os.epoch("utc") or ((os.time and os.time() or 0) * 1000)
+  local jitter = math.random and math.random(0, 65535) or 0
+  return string.format("%x%04x", epoch % 4294967296, jitter)
+end
 
 local function now_ms(time_mod)
   return (time_mod and time_mod.now_ms or time.now_ms)()
@@ -25,6 +33,12 @@ function net.new(modem, channel, node_id, logger, time_mod)
     retry_max = 5000,
     max_retries = 5
   }
+  local id_prefix = tostring(node_id) .. "." .. boot_nonce()
+  local sequence = 0
+  local function next_id()
+    sequence = sequence + 1
+    return id_prefix .. "." .. sequence
+  end
 
   local function send_raw(msg)
     if msg.dst == "broadcast" then
@@ -34,7 +48,7 @@ function net.new(modem, channel, node_id, logger, time_mod)
   end
 
   function self.send(msg_type, dst, payload)
-    local msg = { v = 1, type = msg_type, id = util.gen_id("msg"), src = self.node_id, dst = dst, ts = now_ms(time_mod), payload = payload or {} }
+    local msg = { v = 1, type = msg_type, id = next_id(), src = self.node_id, dst = dst, ts = now_ms(time_mod), payload = payload or {} }
     local ok, err = send_raw(msg)
     if ok == false then return nil, err end
     return msg
@@ -55,8 +69,9 @@ function net.new(modem, channel, node_id, logger, time_mod)
       return "invalid"
     end
     if msg.dst ~= self.node_id and msg.dst ~= "broadcast" then return "not_for_me" end
-    if self.dedup[msg.id] then return "duplicate" end
-    self.dedup[msg.id] = now_ms(time_mod)
+    local key = msg.src .. "/" .. msg.id
+    if self.dedup[key] then return "duplicate" end
+    self.dedup[key] = now_ms(time_mod)
     if msg.type == "ack" and msg.payload and msg.payload.ack_id then
       self.pending[msg.payload.ack_id] = nil
       return "ack"

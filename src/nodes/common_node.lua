@@ -59,6 +59,8 @@ function common_node.new(opts)
   local OUTCOME_TTL_MS = 30000
   local OUTCOME_PRUNE_AT = 64
 
+  local function outcome_key(msg) return tostring(msg.src) .. "/" .. tostring(msg.id) end
+
   local function remember_outcome(msg, ok, err)
     local now = time.now_ms()
     if outcome_count >= OUTCOME_PRUNE_AT then
@@ -67,8 +69,9 @@ function common_node.new(opts)
         if now - entry.at > OUTCOME_TTL_MS then outcomes[id] = nil else outcome_count = outcome_count + 1 end
       end
     end
-    if not outcomes[msg.id] then outcome_count = outcome_count + 1 end
-    outcomes[msg.id] = { ok = ok ~= false, err = err, at = now }
+    local key = outcome_key(msg)
+    if not outcomes[key] then outcome_count = outcome_count + 1 end
+    outcomes[key] = { ok = ok ~= false, err = err, at = now }
   end
 
   local function answer(msg, ok, err)
@@ -82,7 +85,7 @@ function common_node.new(opts)
   function node.handle_message(msg)
     local status = node.net.receive(msg)
     if status == "duplicate" and msg.type == "cmd" then
-      local previous = outcomes[msg.id]
+      local previous = outcomes[outcome_key(msg)]
       if previous then answer(msg, previous.ok, previous.err) end
       return status
     end

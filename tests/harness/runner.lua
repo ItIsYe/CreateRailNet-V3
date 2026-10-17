@@ -51,6 +51,7 @@ local tests = {
   "tests/test_dispatcher_regressions.lua",
   "tests/test_duplicate_ack.lua",
   "tests/test_net_chaos.lua",
+  "tests/test_net_ids.lua",
   "tests/test_timer_loss.lua",
   "tests/test_trains_panel_touch.lua",
   "tests/test_recovery_safe_mode.lua",

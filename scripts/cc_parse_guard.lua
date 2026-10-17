@@ -75,7 +75,7 @@ for _, path in ipairs(files) do
     if chunk then
       local code = strip(body)
       for _, pattern in ipairs(BANNED) do
-        if code:find(pattern) then fail(path, "uses " .. pattern:gsub("%%", "") .. " which CC:Tweaked's Lua 5.1 lacks") end
+        if code:find(pattern) then fail(path, "uses " .. pattern:gsub("%%", "") .. " which plain Lua 5.1 (the offline test interpreter) lacks") end
       end
     end
 
