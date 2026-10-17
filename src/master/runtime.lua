@@ -30,6 +30,7 @@ function master_runtime.new(context)
     config = context.config,
     audit_log = context.audit_log,
     maintenance = context.maintenance,
+    ota = context.ota,
     state_store = context.state_store or master_state_store.new((context.config and context.config.state_file) or nil),
     auto_restore_state = context.auto_restore_state ~= false,
     auto_save_state = context.auto_save_state ~= false,
@@ -227,8 +228,22 @@ function master_runtime.new(context)
     end
   end
 
+  local function handle_ota_need(msg)
+    if runtime.ota then runtime.ota.on_need(msg) end
+    runtime.network.ack_for(msg)
+  end
+
+  local function handle_ota_confirmed(msg)
+    local payload = msg.payload or {}
+    if runtime.ota then runtime.ota.on_confirmed(msg) end
+    audit("ota_confirmed", { node_id = msg.src, version = payload.version })
+    runtime.network.ack_for(msg)
+    runtime.ui.mark_dirty()
+  end
+
   local function handle_ota_result(msg)
     local payload = msg.payload or {}
+    if runtime.ota then runtime.ota.on_result(msg) end
     if payload.success then
       audit("ota_success", { node_id = payload.node_id, files = payload.files, version = payload.version })
       if runtime.logger then runtime.logger.info("OTA update succeeded", { node_id = payload.node_id, version = payload.version }) end
@@ -268,6 +283,8 @@ function master_runtime.new(context)
     manual_control           = handle_panel_event,
     -- OTA update results
     ota_result               = handle_ota_result,
+    ota_need                 = handle_ota_need,
+    ota_confirmed            = handle_ota_confirmed,
   }
 
   handlers.event = function(msg)
@@ -289,7 +306,9 @@ function master_runtime.new(context)
     local now = time.now_s()
     local any_timeout = false
     for node_id, node_state in pairs(runtime.registry.all()) do
-      if now - node_state.last_seen > runtime.heartbeat_timeout_s then
+      -- a node that is receiving, swapping or rebooting for an update is silent on purpose
+      local updating = runtime.ota and runtime.ota.is_updating and runtime.ota.is_updating(node_id)
+      if not updating and now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id)
         local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
         if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
@@ -310,6 +329,8 @@ function master_runtime.new(context)
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
     end
     runtime.ticker.start()
+    -- the code of an update that just landed got this far: keep it (an unconfirmed first boot is rolled back)
+    pcall(function() require("src.shared.ota_recovery").confirm() end)
     runtime.ui.draw()
   end
 
@@ -322,6 +343,8 @@ function master_runtime.new(context)
     end
     runtime.ui.mark_dirty()
   end)
+
+  if runtime.ota and runtime.ota.tick then runtime.ticker.every("ota", 1, runtime.ota.tick) end
 
   runtime.ticker.every("ui", 0.2, function()
     local ok, err = pcall(runtime.ui.draw)

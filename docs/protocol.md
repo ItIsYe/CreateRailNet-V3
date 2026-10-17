@@ -47,7 +47,12 @@ Cancels the retry entry for that message.
 
 After 5 failed retries, `on_drop` fires and the node is marked potentially down.
 
-Deduplication uses `msg.id` with a 30s TTL to discard replayed messages.
+Message ids are `<node>.<boot nonce>.<n>`. Every computer counts from 1 after a boot, so bare numbers collide between nodes
+and between two boots of one node. Deduplication keys on `src/id` with a 30s TTL.
+
+A duplicate means the sender never saw our answer (the ack got lost). The receiver answers again without redoing the work:
+a node repeats the ack, or the err for a command that failed (it remembers the outcome of recent commands for 30s); the master
+acks duplicate `event` and `register` messages again. Duplicate heartbeats and acks get no answer.
 
 ## Event Types (node → master)
 
@@ -70,14 +75,16 @@ Deduplication uses `msg.id` with a 30s TTL to discard replayed messages.
 
 ## OTA Update Protocol
 
-Master → node: `cmd` with `cmd="ota_update"`, payload:
-```
-{ files = [{path, content}, ...], version = "string", file_count = N }
-```
+See `docs/OTA.md` for the full procedure. All commands are reliable `cmd` messages from the master or the OTA tool
+(`OTA-TOOL`); nodes accept them only from `master_id` and `config.ota_sources`.
 
-Node writes files atomically, reboots, then sends:
-
-Node → master: `event` with `type="ota_result"`:
-```
-{ node_id, success = true|false, files = N, version = "string", errors = [...] }
-```
+| Message | Direction | Payload |
+|---|---|---|
+| `ota_offer` | to node | `{ update_id, version, files = [{path, size, adler}] }` |
+| `ota_need` (event) | from node | `{ update_id, need = [paths], reason? }` only files that differ |
+| `ota_chunk` | to node | `{ update_id, path, index, total, data }` |
+| `ota_commit` | to node | `{ update_id }` quiesce, swap, reboot |
+| `ota_abort` | to node | `{ update_id }` |
+| `ota_result` (event) | from node | `{ update_id, node_id, success, version, files, errors, up_to_date }` |
+| `ota_confirmed` (event) | from node | `{ node_id, version }` after the first good boot of the new code |
+| `ota_update` | to node | older single-message form `{ files = [{path, content, adler?}], version }`, same safe path |

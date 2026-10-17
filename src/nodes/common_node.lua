@@ -13,6 +13,16 @@ local ticker = require("src.shared.ticker")
 
 local common_node = {}
 
+local function read_version()
+  if fs and fs.exists and fs.exists("crn_version.txt") then
+    local fh = fs.open("crn_version.txt", "r")
+    if fh then local text = fh.readAll(); fh.close(); return text end
+  end
+  return "unknown"
+end
+
+local OTA_COMMANDS = { ota_offer = "offer", ota_chunk = "chunk", ota_commit = "commit", ota_abort = "abort", ota_update = "apply" }
+
 function common_node.new(opts)
   local node = {
     id = opts.id,
@@ -49,7 +59,19 @@ function common_node.new(opts)
   -- Lazy-init updater so it only exists when needed
   local node_updater = nil
   local function get_updater()
-    if not node_updater then node_updater = updater.new(node.net, node.id, node.logger) end
+    if not node_updater then
+      local sources = { node.config.master_id }
+      for _, id in ipairs(node.config.ota_sources or { "OTA-TOOL" }) do sources[#sources + 1] = id end
+      local ota = opts.ota or {}
+      node_updater = updater.new(node.net, node.id, node.logger, {
+        fs = ota.fs, reboot = ota.reboot, sleep = ota.sleep, sources = sources,
+        -- roles put their outputs into a known state before the files are swapped (signals: RED)
+        quiesce = function()
+          if node.handlers.on_quiesce then return node.handlers.on_quiesce() end
+          return true
+        end
+      })
+    end
     return node_updater
   end
 
@@ -95,20 +117,18 @@ function common_node.new(opts)
 
     local payload = msg.payload or {}
 
-    -- OTA update: apply new files and reboot
-    if payload.cmd == "ota_update" then
+    -- OTA: offer / chunk / commit / abort, or the single-message update of older senders
+    local ota_step = OTA_COMMANDS[payload.cmd]
+    if ota_step then
       remember_outcome(msg, true)
       node.net.ack_for(msg)
-      if node.logger then node.logger.info("OTA update received", { files = payload.file_count, version = payload.version }) end
-      -- Apply runs in pcall so a write failure doesn't crash the node
-      local ok, errors = pcall(get_updater().apply, payload)
-      if not ok then
-        node.net.send("event", msg.src, {
-          type = "ota_result",
-          node_id = node.id,
-          success = false,
-          errors = { tostring(errors) }
-        })
+      if payload.cmd ~= "ota_chunk" and node.logger then node.logger.info("OTA command received", { cmd = payload.cmd, version = payload.version, update_id = payload.update_id }) end
+      -- runs in pcall so a write failure doesn't crash the node
+      local ran, ok, err = pcall(function() return get_updater()[ota_step](payload, msg.src) end)
+      if not ran then
+        node.net.send("event", msg.src, { type = "ota_result", node_id = node.id, update_id = payload.update_id, success = false, errors = { tostring(ok) } })
+      elseif ok == false then
+        node.net.send("err", msg.src, { ref_id = msg.id, error = tostring(err) })
       end
       return status
     end
@@ -152,6 +172,12 @@ function common_node.new(opts)
     node.register()
     node.heartbeat()
     node.ticker.start()
+    -- the code of an update that just landed got this far: keep it (an unconfirmed first boot is rolled back)
+    pcall(function()
+      if get_updater().confirm_boot() then
+        node.net.send_reliable("event", node.config.master_id, { type = "ota_confirmed", node_id = node.id, version = read_version() })
+      end
+    end)
   end
 
   function node.run()
