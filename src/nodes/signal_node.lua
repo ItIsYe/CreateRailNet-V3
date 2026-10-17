@@ -23,7 +23,12 @@ function signal_node.new_runtime(args_or_context)
     config = context.config,
     modem = context.modem,
     logger = context.logger,
+    clock = context.clock,
+    start_timer = context.start_timer,
+    tick_grace = context.tick_grace,
     handlers = {
+      -- before an update swaps files and reboots, the signal goes to RED
+      on_quiesce = function() return adapter.setAspect(context.id, "RED") end,
       on_cmd = function(payload)
         if not payload or not payload.aspect then return false, "missing payload.aspect" end
         return adapter.setAspect(context.id, payload.aspect)

@@ -1,16 +1,15 @@
 --[[
-Purpose: Standalone OTA update push tool.
-Run this on the master computer (or a separate computer with the source files)
-to push new code to all nodes in the network.
-
+Purpose: Standalone OTA update push tool: offers the runtime files to nodes, sends only what differs, commits and waits.
 Usage:
-  lua ota_push.lua                          -- push to all registered nodes
-  lua ota_push.lua --node TRAIN-1           -- push to specific node
-  lua ota_push.lua --version v2.0           -- tag with version string
-  lua ota_push.lua --config network.json    -- use specific config
-
-The master must be running for nodes to receive and apply the update.
-Each node will apply files atomically and reboot automatically.
+  lua ota_push.lua                          -- find all nodes on the channel (broadcast offer) and update them
+  lua ota_push.lua --node TRAIN-1           -- update one node
+  lua ota_push.lua --version v2.0           -- tag with a version string
+  lua ota_push.lua --config network.json    -- use a specific config
+  lua ota_push.lua --wait 600               -- give up after this many seconds (default 300)
+Notes: run it on a computer that has the source files and a modem on the network channel. Every node verifies the files
+  (size and Adler-32), asks only for what differs, swaps them with a backup and reboots. A node whose new code does not
+  start rolls itself back on the next boot. The nodes' sender list is the master id plus config.ota_sources
+  (default: OTA-TOOL, the id this tool uses).
 ]]
 
 local shared_args = require("src.shared.args")
@@ -19,77 +18,61 @@ local log = require("src.shared.log")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
 local ota_manager = require("src.master.ota_manager")
+local ticker = require("src.shared.ticker")
 local time = require("src.shared.time")
 
-local parsed = shared_args.parse({...}, { config = {}, node = {}, version = {} })
+local parsed = shared_args.parse({...}, { config = {}, node = {}, version = {}, wait = {} })
 local cfg = config.load(parsed.config or "configs/templates/network.full.example.json")
 local logger = log.new("INFO", 200)
 local modem = cc_modem.new({ channel = cfg.channel })
-local ok, err = modem:open(cfg.channel)
-if not ok then error("modem open failed: " .. tostring(err)) end
+local opened, open_err = modem:open(cfg.channel)
+if not opened then error("modem open failed: " .. tostring(open_err)) end
 
 local network = net.new(modem, cfg.channel, "OTA-TOOL", logger)
-local ota = ota_manager.new(network, nil, logger)
+local manager = ota_manager.new(network, nil, logger)
 
 local version = parsed.version or ("ota-" .. tostring(time.now_s()))
 local nodes = parsed.node and { parsed.node } or nil
 
 print("CreateRailNet OTA Push")
 print("Version: " .. version)
-print("Targets: " .. (nodes and table.concat(nodes, ", ") or "all nodes (broadcast)"))
-print("")
+print("Targets: " .. (nodes and table.concat(nodes, ", ") or "every node that answers on the channel"))
 
--- If targeting specific nodes, push directly
--- Otherwise broadcast to all (nodes=nil pushes to each in registry which we don't have here,
--- so we fall back to a broadcast update_announce that nodes pick up)
-if nodes then
-  local results = ota.push_runtime({ nodes = nodes, version = version })
-  for node_id, r in pairs(results) do
-    print(node_id .. ": " .. (r.ok and "SENT" or ("FAILED: " .. tostring(r.error))))
-  end
-else
-  -- Broadcast: nodes listening will accept ota_update for "broadcast" dst
-  local dirs = {
-    "src/shared/", "src/domain/", "src/adapter/",
-    "src/master/", "src/nodes/", "scripts/"
-  }
-  local file_entries = {}
-  local function read_file(path)
-    if fs and fs.open then
-      local fh = fs.open(path, "r")
-      if fh then local c = fh.readAll(); fh.close(); return c end
-    elseif io and io.open then
-      local fh = io.open(path, "r")
-      if fh then local c = fh:read("*a"); fh:close(); return c end
-    end
-  end
-  local function scan(dir)
-    if not fs or not fs.exists or not fs.exists(dir) then return end
-    for _, name in ipairs(fs.list and fs.list(dir) or {}) do
-      local full = dir .. name
-      if fs.isDir and fs.isDir(full) then scan(full .. "/")
-      elseif name:match("%.lua$") then
-        local content = read_file(full)
-        if content then table.insert(file_entries, { path = full, content = content }) end
-      end
-    end
-  end
-  for _, d in ipairs(dirs) do scan(d) end
-
-  print("Collected " .. #file_entries .. " files")
-  network.send("cmd", "broadcast", {
-    cmd = "ota_update",
-    type = "ota_update",
-    files = file_entries,
-    version = version,
-    file_count = #file_entries
-  })
-  print("Broadcast OTA sent. Nodes will reboot automatically.")
+local results, start_err = manager.push_runtime({ nodes = nodes, version = version, discover = nodes == nil })
+if start_err then error("OTA not started: " .. tostring(start_err)) end
+for node_id, r in pairs(results) do
+  if not r.ok then print(node_id .. ": FAILED " .. tostring(r.error)) end
 end
 
--- Tick briefly to flush pending reliable messages
-for _ = 1, 20 do
-  network.tick()
-  if os.sleep then os.sleep(0.1) end
+local function print_status()
+  for _, s in ipairs(manager.status()) do
+    print(string.format("%-14s %-11s %d/%d %s", s.node_id, s.state, s.acked or s.sent, s.total, s.error and ("(" .. s.error .. ")") or ""))
+  end
 end
-print("Done.")
+
+local loop = ticker.new({})
+loop.every("net", 0.5, network.tick)
+loop.every("ota", 0.5, manager.tick)
+loop.every("status", 3, print_status)
+loop.start()
+
+local deadline = time.now_ms() + (tonumber(parsed.wait) or 300) * 1000
+while not manager.finished(true) and time.now_ms() < deadline do
+  local event = { os.pullEvent() }
+  loop.handle_event(event)
+  if event[1] == "modem_message" then
+    local msg = event[5]
+    if network.receive(msg) == "ok" and msg.type == "event" and type(msg.payload) == "table" then
+      local kind = msg.payload.type
+      if kind == "ota_need" then manager.on_need(msg)
+      elseif kind == "ota_result" then manager.on_result(msg)
+      elseif kind == "ota_confirmed" then manager.on_confirmed(msg) end
+      network.ack_for(msg)
+    end
+  end
+end
+
+print_status()
+local failed = 0
+for _, s in ipairs(manager.status()) do if s.state == "FAILED" then failed = failed + 1 end end
+print(failed == 0 and "Done." or (failed .. " node(s) failed."))

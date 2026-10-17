@@ -11,6 +11,7 @@ local hardware_config = require("src.adapter.hardware_config")
 local create_sensors = require("src.adapter.create_sensors")
 local cc_modem = require("src.adapter.cc_modem")
 local common_node = require("src.nodes.common_node")
+local once_log = require("src.shared.once_log")
 local bootstrap = require("src.nodes.bootstrap")
 
 local station_node = {}
@@ -67,7 +68,7 @@ function station_node.new_runtime(args_or_context)
   local sensor_adapter = create_sensors.new(context.peripherals, { hardware = context.hardware })
   local state = { node_id = context.id, station_id = station_id, display_name = display_name, station_type = station_type, state = "ONLINE", platforms = station_node.build_platform_map(station_cfg) }
 
-  local node = common_node.new({ id = context.id, role = context.role, config = context.config, modem = context.modem, logger = context.logger, handlers = { on_cmd = function(payload)
+  local node = common_node.new({ id = context.id, role = context.role, config = context.config, modem = context.modem, logger = context.logger, clock = context.clock, start_timer = context.start_timer, tick_grace = context.tick_grace, handlers = { on_cmd = function(payload)
     local cmd = payload and payload.cmd
     local platform = payload and payload.platform_id and state.platforms[payload.platform_id]
     if cmd == "reserve_platform" and platform then platform.state = "RESERVED"; platform.train_id = payload.train_id; platform.train_name = payload.train_name
@@ -93,6 +94,7 @@ function station_node.new_runtime(args_or_context)
     for _, platform in pairs(state.platforms or {}) do node.net.send("event", context.config.master_id, platform_payload(state, platform)) end
   end
 
+  node.station_state = state  -- read-only view for diagnostics and tests
   node.register = function() return send_full_status("register") end
   node.heartbeat = function() return node.net.heartbeat(context.config.master_id, station_status_payload("heartbeat")) end
 
@@ -102,10 +104,20 @@ function station_node.new_runtime(args_or_context)
     return platform.train_name or platform.train_id
   end
 
+  -- a sensor that stays broken is reported when it breaks and every 30 s, not twice a second
+  local fault_once = once_log.new(context.logger, { repeat_ms = 30000 })
+
   local function check_platforms()
     for _, platform in pairs(state.platforms) do
       if platform.sensor_id then
         local ok, occupied = sensor_adapter.readOccupied(platform.sensor_id)
+        if ok and platform.state == PLATFORM_FAULT then
+          -- the sensor is back: the platform returns to what it was before, then the normal checks below run
+          platform.state = platform.state_before_fault or PLATFORM_EMPTY
+          platform.state_before_fault = nil
+          fault_once.ok("platform:" .. platform.id, "platform sensor " .. tostring(platform.sensor_id) .. " answers again")
+          send_platform(platform)
+        end
         if ok then
           if occupied ~= platform.last_occupied then
             platform.last_occupied = occupied
@@ -124,20 +136,21 @@ function station_node.new_runtime(args_or_context)
             send_platform(platform)
           end
         else
+          if platform.state ~= PLATFORM_FAULT then platform.state_before_fault = platform.state end
           platform.state = PLATFORM_FAULT
-          node.net.send("event", context.config.master_id, { type = "station_fault", station_id = station_id, platform_id = platform.id, error = occupied })
+          if fault_once.first("platform:" .. platform.id) then
+            node.net.send("event", context.config.master_id, { type = "station_fault", station_id = station_id, platform_id = platform.id, error = occupied })
+          end
         end
       end
     end
   end
 
+  node.ticker.every("platforms", 0.5, function() check_platforms(); station_node.render_status(monitor, state) end)
+
   local old_start = node.start
   node.start = function()
-    old_start(); station_node.render_status(monitor, state); node.station_timer = os.startTimer(0.5); send_full_status("start")
-  end
-
-  node.handlers.on_event = function(event)
-    if event[1] == "timer" and event[2] == node.station_timer then check_platforms(); station_node.render_status(monitor, state); node.station_timer = os.startTimer(0.5) end
+    old_start(); station_node.render_status(monitor, state); send_full_status("start")
   end
 
   return node

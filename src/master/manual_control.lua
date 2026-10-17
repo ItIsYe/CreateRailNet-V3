@@ -27,10 +27,14 @@ function manual_control.new(context)
     train_registry = context.train_registry,
     route_integration = context.route_integration,
     maintenance = context.maintenance,
-    audit_log = context.audit_log,
-    ota = context.ota,
-    cargo = context.cargo
+    audit_log = context.audit_log
   }
+  -- ota, cargo and alerts are looked up when an action runs: the app builds this helper before those services exist, and
+  -- reading them at construction left "ota manager unavailable" and "cargo system unavailable" on every call
+  setmetatable(self, { __index = function(_, key)
+    if key == "ota" or key == "cargo" or key == "alerts" or key == "trace" then return context[key] end
+    return nil
+  end })
 
   local function audit(kind, data)
     if self.audit_log then self.audit_log.record(kind, data) end
@@ -106,6 +110,33 @@ function manual_control.new(context)
       send_cmd(self.network, train_node_id(cmd.train_id), "emergency_stop", { train_id = cmd.train_id, reason = cmd.reason or "manual emergency stop" })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "FAULT", error = cmd.reason or "manual emergency stop" }) end
       return true
+    elseif cmd.action == "trace_dump" then
+      if not self.trace then return false, "trace recorder unavailable" end
+      local path, err = self.trace.dump_slot("traces/trace_", 5)
+      audit("trace_dumped", { src = src, path = path, error = err })
+      if not path then return false, err end
+      return true, path
+    elseif cmd.action == "ack_alert" then
+      if not self.alerts then return false, "alerts unavailable" end
+      if cmd.all then
+        local count = self.alerts.ack_all(src)
+        audit("alert_acknowledged", { src = src, all = true, count = count })
+        return true
+      end
+      local ok = self.alerts.ack(cmd.key, src)
+      audit("alert_acknowledged", { src = src, key = cmd.key, ok = ok })
+      if not ok then return false, "no such alert: " .. tostring(cmd.key) end
+      return true
+    elseif cmd.action == "clear_fault" then
+      if not self.dispatcher or not self.dispatcher.clear_fault then return false, "fault repair unavailable" end
+      local ok, err = self.dispatcher.clear_fault(cmd.block_id)
+      audit("fault_cleared", { src = src, block_id = cmd.block_id, ok = ok, error = err })
+      return ok, err
+    elseif cmd.action == "release_train" then
+      if not self.dispatcher or not self.dispatcher.release_route then return false, "release unavailable" end
+      local ok, err = self.dispatcher.release_route(cmd.train_id, cmd.route_id)
+      audit("train_released", { src = src, train_id = cmd.train_id, ok = ok, error = err })
+      return ok, err
     elseif cmd.action == "set_signal" then
       if not self.dispatcher or not self.dispatcher.set_signal then return false, "signal control unavailable" end
       return self.dispatcher.set_signal(cmd.signal_id, cmd.aspect or "RED")
@@ -152,13 +183,14 @@ function manual_control.new(context)
     elseif cmd.action == "ota_push" then
       if not self.ota then return false, "ota manager unavailable" end
       local targets = cmd.node_id and { cmd.node_id } or nil
-      local results = self.ota.push_runtime({ nodes = targets, version = cmd.version })
+      local results, start_err = self.ota.push_runtime({ nodes = targets, version = cmd.version })
+      if start_err then return false, "OTA not started: " .. tostring(start_err) end
       local ok_count, fail_count = 0, 0
       for _, r in pairs(results or {}) do
         if r.ok then ok_count = ok_count + 1 else fail_count = fail_count + 1 end
       end
-      if self.logger then self.logger.info("OTA push triggered", { ok = ok_count, targets = targets }) end
-      return true, "OTA push sent to " .. ok_count .. " nodes"
+      if self.logger then self.logger.info("OTA push triggered", { ok = ok_count, failed = fail_count, targets = targets }) end
+      return true, "OTA started for " .. ok_count .. " nodes"
     end
     return false, "unknown manual action: " .. tostring(cmd.action)
   end

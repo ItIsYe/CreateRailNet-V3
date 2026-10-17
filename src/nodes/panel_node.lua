@@ -44,6 +44,9 @@ function panel_node.new_runtime(args_or_context)
     config = context.config,
     modem = context.modem,
     logger = context.logger,
+    clock = context.clock,
+    start_timer = context.start_timer,
+    tick_grace = context.tick_grace,
     handlers = {
       on_cmd = function(payload)
         local cmd = payload and payload.cmd
@@ -79,20 +82,20 @@ function panel_node.new_runtime(args_or_context)
     return true
   end
 
+  node.ticker.every("refresh", panel_cfg.refresh_seconds or 2, function()
+    request_snapshot()
+    panel_node.render_status(monitor, state_model.snapshot())
+  end)
+
   local old_start = node.start
   node.start = function()
     old_start()
     panel_node.render_status(monitor, state_model.snapshot())
     request_snapshot()
-    node.panel_timer = os.startTimer(panel_cfg.refresh_seconds or 2)
   end
 
   node.handlers.on_event = function(event)
-    if event[1] == "timer" and event[2] == node.panel_timer then
-      request_snapshot()
-      panel_node.render_status(monitor, state_model.snapshot())
-      node.panel_timer = os.startTimer(panel_cfg.refresh_seconds or 2)
-    elseif event[1] == "monitor_touch" then
+    if event[1] == "monitor_touch" then
       local x = event[3]
       local y = event[4]
       local snapshot = state_model.snapshot()

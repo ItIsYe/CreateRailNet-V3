@@ -1,0 +1,61 @@
+# Over-the-air updates
+
+How new code reaches the nodes, what is checked on the way, and what happens when something goes wrong.
+
+## Operator procedure
+
+1. Run `lua scripts/ota_push.lua [--node ID] [--version TEXT] [--wait SECONDS]` on a computer that has the source files and a modem
+   on the network channel. Without `--node` it broadcasts an offer and updates every node that answers. The master panel
+   (`manual_control` action `ota_push`) does the same for registered nodes.
+2. Watch the status lines: `QUEUED, OFFERED, SENDING, COMMITTING, DONE, CONFIRMED`, or `FAILED` / `UNCONFIRMED`.
+3. `CONFIRMED` means the node swapped its files, rebooted and its new code reached the main loop.
+
+A node answers the sender with `ota_result` right before it reboots and with `ota_confirmed` (to the master) after the first good
+boot. `DONE` therefore means "swapped, reboot pending", not "running".
+
+## What a node does
+
+| Step | Check |
+|---|---|
+| offer | sender is the master or in `config.ota_sources` (default `OTA-TOOL`); every path is under `src/`, `scripts/` or `configs/templates/`, ends in `.lua` or `.json`, has no `..`; sizes and Adler-32 are plausible; no earlier update is waiting for confirmation |
+| need | only files whose size or Adler-32 differ are requested, so a rollout moves what changed |
+| chunk | pieces may arrive in any order and twice; the finished file must match size and Adler-32 or it is dropped and requested again; staged as `<path>.ota_new` |
+| commit | all requested files staged, then `handlers.on_quiesce` (signal nodes set their signal to RED; failing quiesce aborts the update before any live file is touched) |
+| swap | journal `ota_journal.txt` first; per file: backup `<path>.ota_bak`, delete, move; `crn_version.txt` is swapped in the same transaction; journal then switches to `trial` |
+| reboot | `startup.lua` runs `src/shared/ota_recovery.lua` before anything else is loaded |
+
+`startup.lua` is never replaced remotely: it holds the role, id and config of each computer.
+
+## Recovery
+
+`ota_recovery.recover` runs at every start and decides from the journal:
+
+- `applying`: the computer died during the swap. Every file is restored from its backup (a backup is only trusted when size and
+  Adler-32 match the journal), files the update added are removed.
+- `trial`, first boot: the new code runs; the journal remembers that this boot happened.
+- `trial`, second boot without confirmation: the new code never reached its main loop (crash on start, power loss, chunk unload).
+  The previous version is restored.
+- Interrupted staging (`ota_stage.txt`): staged files are removed.
+
+The new code confirms in `common_node.start` and in the master runtime start (`ota_recovery.confirm`), which deletes backups and
+journal. A computer that restarts within seconds of an update for an unrelated reason is rolled back to the previous version; run the
+update again.
+
+`tests/test_updater.lua` kills the computer at every single filesystem operation of a commit and checks that the files are all old or
+all new afterwards.
+
+## Scaling
+
+The sender offers a manifest (about 60 bytes per file) and sends only what differs. Per node at most `window` (4) chunks of
+`chunk_size` (8192 bytes) are in flight, and only `max_parallel` (4) nodes are served at the same time; the rest wait in `QUEUED`.
+A node that does not answer the offer fails alone after `offer_retries` x `offer_timeout_ms`, a stalled transfer after
+`stall_timeout_ms`; the others continue. While a node transfers, swaps or reboots (and for `reboot_grace_ms` afterwards) the master
+does not run its heartbeat timeout on it, so an update does not turn the blocks around that node into FAULT blocks.
+
+## Limits and open points
+
+- Adler-32 catches damaged or truncated transfers and writes. It is not a signature: anyone who can send on the channel under an
+  accepted sender id can update nodes. Keep `ota_sources` short.
+- What a Create signal shows while its computer reboots is not verified in game. The quiesce step puts the signal to RED before the
+  swap; whether that survives the reboot depends on Create.
+- The master computer itself is not updated by this mechanism; copy its files and restart it.

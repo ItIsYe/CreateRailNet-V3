@@ -1,6 +1,6 @@
 --[[
 Purpose: Core block dispatcher for the master node.
-Public API: new(config, adapters), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
+Public API: new(config, adapters), clear_fault(block_id), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
 ]]
 
 local util = require("src.shared.util")
@@ -20,6 +20,14 @@ local function copy_table(src)
   local dst = {}
   for k, v in pairs(src or {}) do if type(v) == "table" then dst[k] = copy_table(v) else dst[k] = v end end
   return dst
+end
+
+-- pairs() order differs between runs and Lua versions; sorted keys keep recovery and hand-over deterministic
+local function sorted_keys(t)
+  local keys = {}
+  for key in pairs(t or {}) do keys[#keys + 1] = key end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  return keys
 end
 
 local function sort_pair(a, b)
@@ -103,9 +111,30 @@ function dispatcher.new(config, adapters)
     for _, group in ipairs(route_conflict_groups(route)) do self.active_conflicts[group] = { owner = train.owner, train_id = train.id, route_id = train.route, direction = train.direction } end
   end
 
+  -- Same-direction trains share one opp: group. When its holder finishes, another active train that still
+  -- needs the group takes it over instead of the group disappearing under it.
+  local function other_holder(group, leaving)
+    for _, owner in ipairs(sorted_keys(self.active_routes)) do
+      local other = self.active_routes[owner]
+      if other ~= leaving and (other.state == TRAIN_STATES.RESERVED or other.state == TRAIN_STATES.RUNNING) then
+        for _, held in ipairs(other.conflict_groups or {}) do if held == group then return other end end
+      end
+    end
+    return nil
+  end
+
   local function release_conflicts(train)
     if not train then return end
-    for group, active in pairs(self.active_conflicts) do if active.owner == train.owner then self.active_conflicts[group] = nil end end
+    for group, active in pairs(self.active_conflicts) do
+      if active.owner == train.owner then
+        local heir = string.sub(group, 1, 4) == "opp:" and other_holder(group, train) or nil
+        if heir then
+          self.active_conflicts[group] = { owner = heir.owner, train_id = heir.id, route_id = heir.route, direction = heir.direction }
+        else
+          self.active_conflicts[group] = nil
+        end
+      end
+    end
   end
 
   local function blocked_by_blocks(route)
@@ -119,7 +148,8 @@ function dispatcher.new(config, adapters)
     for _, block_id in ipairs(route.blocks or {}) do
       local block = self.blocks[block_id]
       if not block then return nil, "block not found: " .. tostring(block_id), nil end
-      if not block_domain.is_free(block) and block.reserved_by ~= train_id then return nil, "block not free: " .. tostring(block_id), blocked_by_blocks(route) end
+      -- a FAULT block never counts as ours, even when it still carries the train's name
+      if block.state == STATES.FAULT or (not block_domain.is_free(block) and block.reserved_by ~= train_id) then return nil, "block not free: " .. tostring(block_id), blocked_by_blocks(route) end
       table.insert(touched, block)
     end
     return touched
@@ -146,10 +176,14 @@ function dispatcher.new(config, adapters)
 
   local function update_route_signals(train)
     if not train or not train.route_blocks then return true end
-    for _, block in ipairs(train.route_blocks) do set_block_red(block) end
+    -- RED only on blocks that are free or ours: a block already given to another train keeps that train's aspect
+    for _, block in ipairs(train.route_blocks) do
+      local holder = block.reserved_by or block.occupied_by
+      if holder == nil or holder == train.id then set_block_red(block) end
+    end
     local current_index = train.route_index or 1
     local next_block = train.route_blocks[current_index]
-    if next_block and next_block.state == STATES.RESERVED and next_block.reserved_by == train.id then
+    if train.state == TRAIN_STATES.RESERVED and next_block and next_block.state == STATES.RESERVED and next_block.reserved_by == train.id then
       local lookahead = train.route_blocks[current_index + 1]
       local aspect = "GREEN"
       if lookahead and lookahead.state ~= STATES.FREE and lookahead.reserved_by ~= train.id then aspect = "YELLOW" end
@@ -165,7 +199,18 @@ function dispatcher.new(config, adapters)
     return blocks
   end
 
+  -- Blocks the train still holds when it is done: sensor events for them were missed. FAULT blocks stay FAULT.
+  local function sweep_held_blocks(train)
+    for _, block in ipairs(train.route_blocks or {}) do
+      if block.state ~= STATES.FAULT and (block.reserved_by == train.id or block.occupied_by == train.id) then
+        block_domain.release(block)
+        set_block_red(block)
+      end
+    end
+  end
+
   local function finish_train(train)
+    sweep_held_blocks(train)
     train.state = TRAIN_STATES.ARRIVED
     train.current_block = nil
     train.route_index = #(train.route_blocks or {}) + 1
@@ -178,9 +223,25 @@ function dispatcher.new(config, adapters)
     self.deadlocks[item.train_id] = { train_id = item.train_id, route_id = item.route_id, reason = err, attempts = item.attempts or 0, blocked_by = item.blocked_by, conflict_group = item.conflict_group }
   end
 
-  function self.reserve_route(train_id, route_id)
+  -- opts.queued: the request comes from the queue, so it is older than whatever the train holds now and never replaces it
+  function self.reserve_route(train_id, route_id, opts)
     local route, route_err = get_route(train_id, route_id)
     if not route then return false, route_err end
+    local existing = self.trains[train_id]
+    if existing and existing.state == TRAIN_STATES.FAULT then
+      -- the train is back and asks for a new route: blocks, switch locks and conflict groups of the old one are released
+      -- (FAULT blocks stay)
+      self.release_route(train_id, existing.route)
+    end
+    if existing and (existing.state == TRAIN_STATES.RESERVED or existing.state == TRAIN_STATES.RUNNING) then
+      if existing.route == route_id then return true end
+      if existing.state == TRAIN_STATES.RESERVED and (existing.route_index or 1) == 1 and not (opts and opts.queued) then
+        -- the train never entered its first block: the new request replaces the old route instead of leaking it
+        self.release_route(train_id, existing.route)
+      else
+        return false, "train busy: active route " .. tostring(existing.route), { train_id }
+      end
+    end
     local ok_conflict, conflict_err, conflict_blockers, conflict_group = conflict_reason(route, train_id)
     if not ok_conflict then return false, conflict_err, conflict_blockers, conflict_group end
     local route_blocks, collect_err, blockers = collect_route_blocks(route, train_id)
@@ -214,11 +275,21 @@ function dispatcher.new(config, adapters)
     local ok, err, blockers, conflict_group = self.reserve_route(train_id, route_id)
     if ok then return true, "reserved" end
     local route = self.routes[route_id]
-    local queued = self.queue.push({ train_id = train_id, route_id = route_id, from = route and route.from, to = route and route.to, direction = route and route_direction(route), conflict_group = conflict_group, priority = options.priority or (route and route.priority) or 0, reason = err, blocked_by = blockers })
-    self.trains[train_id] = self.trains[train_id] or { id = train_id }
-    self.trains[train_id].state = TRAIN_STATES.QUEUED
-    self.trains[train_id].route = route_id
-    self.trains[train_id].direction = route and route_direction(route) or nil
+    local queued = self.queue.find(train_id, route_id)
+    if queued then
+      queued.reason = err; queued.blocked_by = blockers; queued.conflict_group = conflict_group or queued.conflict_group
+    else
+      queued = self.queue.push({ train_id = train_id, route_id = route_id, from = route and route.from, to = route and route.to, direction = route and route_direction(route), conflict_group = conflict_group, priority = options.priority or (route and route.priority) or 0, reason = err, blocked_by = blockers })
+    end
+    local record = self.trains[train_id]
+    -- a train that is on its way keeps its record; only the request waits
+    if not (record and (record.state == TRAIN_STATES.RESERVED or record.state == TRAIN_STATES.RUNNING)) then
+      record = record or { id = train_id }
+      self.trains[train_id] = record
+      record.state = TRAIN_STATES.QUEUED
+      record.route = route_id
+      record.direction = route and route_direction(route) or nil
+    end
     return false, "queued", queued
   end
 
@@ -228,7 +299,7 @@ function dispatcher.new(config, adapters)
     for _ = 1, max do
       local item = self.queue.pop()
       if not item then break end
-      local ok, err, blockers, conflict_group = self.reserve_route(item.train_id, item.route_id)
+      local ok, err, blockers, conflict_group = self.reserve_route(item.train_id, item.route_id, { queued = true })
       table.insert(processed, { train_id = item.train_id, route_id = item.route_id, ok = ok, error = err, blocked_by = blockers, attempts = item.attempts, conflict_group = conflict_group })
       if not ok then
         item.reason = err; item.blocked_by = blockers; item.conflict_group = conflict_group or item.conflict_group; item.attempts = (item.attempts or 0) + 1
@@ -274,7 +345,15 @@ function dispatcher.new(config, adapters)
         block_domain.occupy(block, occupying_train)
         -- Notify interlocking
         if train and train.route then self.interlocking.enter_route(train.route) end
-        if train then train.state = TRAIN_STATES.RUNNING; train.current_block = block_id; for i, route_block in ipairs(train.route_blocks or {}) do if route_block.id == block_id then train.route_index = i end end; update_route_signals(train) end
+        if train then
+          -- the furthest block the train has entered counts, a late event for an earlier block does not move it back
+          local index = nil
+          for i, route_block in ipairs(train.route_blocks or {}) do if route_block.id == block_id then index = i end end
+          train.state = TRAIN_STATES.RUNNING
+          if index and index >= (train.route_index or 1) then train.route_index = index; train.current_block = block_id
+          elseif not train.current_block then train.current_block = block_id end
+          update_route_signals(train)
+        end
         return true
       end
       mark_fault(block); return false, "unexpected enter on block " .. block_id
@@ -292,7 +371,13 @@ function dispatcher.new(config, adapters)
         block_domain.release(block); set_block_red(block)
         -- Partial dissolution (Teilauflösung)
         if train and train.route then self.interlocking.section_free(train.route, block_id) end
-        if train then local next_index = (train.route_index or 1) + 1; train.route_index = next_index; train.current_block = nil; if next_index > #(train.route_blocks or {}) then finish_train(train) else train.state = TRAIN_STATES.RESERVED; update_route_signals(train) end end
+        if train and train.current_block ~= nil and train.current_block ~= block_id then
+          -- a long train leaves an earlier block while it is still in the next one
+          update_route_signals(train)
+        elseif train then
+          local next_index = (train.route_index or 1) + 1; train.route_index = next_index; train.current_block = nil
+          if next_index > #(train.route_blocks or {}) then finish_train(train) else train.state = TRAIN_STATES.RESERVED; update_route_signals(train) end
+        end
         self.process_queue(1)
         return true
       end
@@ -318,9 +403,13 @@ function dispatcher.new(config, adapters)
     for _, train in pairs(self.trains) do
       if train_references_node(train, node_id) then
         train.state = TRAIN_STATES.FAULT
-        release_conflicts(train)
-        self.active_routes[train.owner] = nil
-        self.switch_locks.release_by_route(train.owner)
+        self.queue.remove_train(train.id)
+        -- the blocks stay reserved (the train may still stand on them) but show RED
+        for _, block in ipairs(train.route_blocks or {}) do
+          if block.reserved_by == train.id or block.occupied_by == train.id then set_block_red(block) end
+        end
+        -- Conflict groups, switch locks and the active route stay: the train may still be running (chunk unloaded,
+        -- computer off). A sensor event brings it back to RUNNING, a new request of the train releases them.
       end
     end
   end
@@ -347,12 +436,39 @@ function dispatcher.new(config, adapters)
   function self.release_route(train_id, route_id)
     local train = self.trains[train_id]
     if not train then return false, "train not found" end
-    if train.route_blocks then release_blocks(train.route_blocks) end
-    self.switch_locks.release_by_route(train.owner)
-    release_conflicts(train)
-    self.active_routes[train.owner] = nil
+    -- only blocks this train still holds: the ones it passed may already belong to the next train, FAULT ones need a repair
+    sweep_held_blocks(train)
+    if train.owner then
+      self.switch_locks.release_by_route(train.owner)
+      release_conflicts(train)
+      self.active_routes[train.owner] = nil
+    end
     self.trains[train_id] = nil
+    -- a request of this train that still waits in the queue keeps the train visible as QUEUED
+    for _, item in ipairs(self.queue.list()) do
+      if item.train_id == train_id then
+        self.trains[train_id] = { id = train_id, state = TRAIN_STATES.QUEUED, route = item.route_id, direction = item.direction }
+        break
+      end
+    end
     -- Do not call process_queue here; let the caller (route_integration) decide
+    return true
+  end
+
+  -- Operator repair: a FAULT block (sensor garbage, node timeout, signal failure) becomes FREE again. A block that still
+  -- belongs to a train on its way is refused: release that train first.
+  function self.clear_fault(block_id)
+    local block = self.blocks[block_id]
+    if not block then return false, "block not found" end
+    if block.state ~= STATES.FAULT then return false, "block is not in FAULT" end
+    local owner = block.reserved_by or block.occupied_by
+    local train = owner and self.trains[owner]
+    if train and (train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING) then
+      return false, "block belongs to train " .. tostring(owner) .. " on its way; release the train first"
+    end
+    block_domain.release(block)
+    local ok, err = set_block_red(block)
+    if not ok then return false, "signal hardware failure: " .. tostring(err) end
     return true
   end
 
@@ -388,7 +504,8 @@ function dispatcher.new(config, adapters)
     local snap = snapshot or {}
     for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; block.occupied_by = saved.occupied_by; set_block_red(block) end end
     self.trains = {}; self.active_routes = {}; self.active_conflicts = {}
-    for train_id, saved in pairs(snap.trains or {}) do
+    for _, train_id in ipairs(sorted_keys(snap.trains)) do
+      local saved = snap.trains[train_id]
       local route_id = saved.route
       local owner = route_owner(train_id, route_id)
       local route = self.routes[route_id]

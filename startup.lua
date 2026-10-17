@@ -18,6 +18,13 @@ local role_entrypoints = {
   panel = "src.nodes.panel_node"
 }
 
+-- Undo a half-done or unconfirmed over-the-air update before anything else is loaded.
+local ok_recovery, recovery = pcall(require, "src.shared.ota_recovery")
+if ok_recovery then
+  local ran, action, detail = pcall(recovery.recover)
+  if ran and action ~= "none" then print("OTA recovery: " .. tostring(action) .. " " .. tostring(detail or "")) end
+end
+
 local entrypoint = role_entrypoints[CRN_ROLE]
 if not entrypoint then error("Unknown CRN_ROLE: " .. tostring(CRN_ROLE)) end
 
