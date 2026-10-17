@@ -106,6 +106,16 @@ function manual_control.new(context)
       send_cmd(self.network, train_node_id(cmd.train_id), "emergency_stop", { train_id = cmd.train_id, reason = cmd.reason or "manual emergency stop" })
       if self.train_registry then self.train_registry.update_status(cmd.train_id, { state = "FAULT", error = cmd.reason or "manual emergency stop" }) end
       return true
+    elseif cmd.action == "clear_fault" then
+      if not self.dispatcher or not self.dispatcher.clear_fault then return false, "fault repair unavailable" end
+      local ok, err = self.dispatcher.clear_fault(cmd.block_id)
+      audit("fault_cleared", { src = src, block_id = cmd.block_id, ok = ok, error = err })
+      return ok, err
+    elseif cmd.action == "release_train" then
+      if not self.dispatcher or not self.dispatcher.release_route then return false, "release unavailable" end
+      local ok, err = self.dispatcher.release_route(cmd.train_id, cmd.route_id)
+      audit("train_released", { src = src, train_id = cmd.train_id, ok = ok, error = err })
+      return ok, err
     elseif cmd.action == "set_signal" then
       if not self.dispatcher or not self.dispatcher.set_signal then return false, "signal control unavailable" end
       return self.dispatcher.set_signal(cmd.signal_id, cmd.aspect or "RED")

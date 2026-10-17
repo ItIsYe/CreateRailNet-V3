@@ -284,5 +284,37 @@ return {
     assert(d.on_sensor_event_by_sensor("SEN-2", "leave", 4000))
     assert(d.get_trains().T1.state == dispatcher.TRAIN_STATES.ARRIVED)
     assert(d.get_block("B1").state == dispatcher.STATES.FREE, "the late block is released with the arrival")
+  end,
+
+  -- there was no way to repair a FAULT block short of editing the state file; every node timeout left some behind
+  test_operator_can_clear_a_fault_block_nobody_is_using = function()
+    local d, aspects = world()
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 1000) == false)
+    assert(d.get_block("B1").state == dispatcher.STATES.FAULT)
+    assert(d.reserve_route("T1", "R-1") == false, "a FAULT block cannot be reserved")
+    assert(d.clear_fault("B1"))
+    assert(d.get_block("B1").state == dispatcher.STATES.FREE and aspects.SE1 == "RED")
+    assert(d.clear_fault("B1") == false, "only FAULT blocks can be cleared")
+    assert(d.clear_fault("nope") == false)
+  end,
+
+  test_clear_fault_refuses_a_block_of_a_train_that_is_on_its_way = function()
+    local d = world()
+    assert(d.reserve_route("T1", "R-12"))
+    d.get_block("B2").state = dispatcher.STATES.FAULT
+    local ok, err = d.clear_fault("B2")
+    assert(ok == false and tostring(err):find("T1"))
+    assert(d.release_route("T1", "R-12"))
+    assert(d.get_block("B2").state == dispatcher.STATES.FAULT, "releasing the train leaves the fault for the operator")
+    assert(d.clear_fault("B2"))
+  end,
+
+  test_clear_fault_frees_a_block_still_held_by_a_timed_out_train = function()
+    local d = world()
+    assert(d.reserve_route("T1", "R-1"))
+    d.get_block("B1").state = dispatcher.STATES.FAULT
+    d.timeout_node("T1")
+    assert(d.clear_fault("B1"))
+    assert(d.get_block("B1").reserved_by == nil and d.get_block("B1").state == dispatcher.STATES.FREE)
   end
 }

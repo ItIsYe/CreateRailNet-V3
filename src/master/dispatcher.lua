@@ -1,6 +1,6 @@
 --[[
 Purpose: Core block dispatcher for the master node.
-Public API: new(config, adapters), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
+Public API: new(config, adapters), clear_fault(block_id), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
 ]]
 
 local util = require("src.shared.util")
@@ -452,6 +452,23 @@ function dispatcher.new(config, adapters)
       end
     end
     -- Do not call process_queue here; let the caller (route_integration) decide
+    return true
+  end
+
+  -- Operator repair: a FAULT block (sensor garbage, node timeout, signal failure) becomes FREE again. A block that still
+  -- belongs to a train on its way is refused: release that train first.
+  function self.clear_fault(block_id)
+    local block = self.blocks[block_id]
+    if not block then return false, "block not found" end
+    if block.state ~= STATES.FAULT then return false, "block is not in FAULT" end
+    local owner = block.reserved_by or block.occupied_by
+    local train = owner and self.trains[owner]
+    if train and (train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING) then
+      return false, "block belongs to train " .. tostring(owner) .. " on its way; release the train first"
+    end
+    block_domain.release(block)
+    local ok, err = set_block_red(block)
+    if not ok then return false, "signal hardware failure: " .. tostring(err) end
     return true
   end
 
