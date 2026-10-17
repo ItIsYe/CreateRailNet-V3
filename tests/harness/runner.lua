@@ -52,6 +52,8 @@ local tests = {
   "tests/test_manual_repair.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",
+  "tests/test_log_collector.lua",
+  "tests/test_logs_panel.lua",
   "tests/test_once_log.lua",
   "tests/test_sensor_fault_rate.lua",
   "tests/test_status_model.lua",

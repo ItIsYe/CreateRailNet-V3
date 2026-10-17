@@ -21,6 +21,8 @@ local ui_core = require("src.master.ui.ui_core")
 local status_panel = require("src.master.ui.panels.status")
 local alerts_panel = require("src.master.ui.panels.alerts")
 local alerts_module = require("src.domain.alerts")
+local logs_panel = require("src.master.ui.panels.logs")
+local log_collector = require("src.domain.log_collector")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local trains_panel = require("src.master.ui.panels.trains")
@@ -81,6 +83,7 @@ function app.new(args)
   -- filled in below; the status page reads them through functions because it is built before them
   local context, instance
   local alerts = alerts_module.new()
+  local logs = log_collector.new()
   local ui = ui_core.new(monitor, {
     alerts    = alerts_panel.new(alerts, nil),
     status    = status_panel.new({
@@ -99,6 +102,7 @@ function app.new(args)
     fahrplan  = service_plans_panel.new(service_plan_registry, train_registry),
     cargo     = cargo_panel.new(nil, nil),
     diag      = diagnostics_panel.new(logger, disp),
+    logs      = logs_panel.new(logs),
     ota       = ota_status_panel.new(reg, audits)
   }, { logger = logger })
   -- Wire manual_control into interactive panels once context is built (below)
@@ -118,7 +122,8 @@ function app.new(args)
     ui = ui,
     audit_log = audits,
     maintenance = maintenance,
-    alerts = alerts
+    alerts = alerts,
+    logs = logs
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)

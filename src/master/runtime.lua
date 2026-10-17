@@ -35,6 +35,7 @@ function master_runtime.new(context)
     maintenance = context.maintenance,
     ota = context.ota,
     alerts = context.alerts,
+    logs = context.logs,
     state_store = context.state_store or master_state_store.new((context.config and context.config.state_file) or nil),
     auto_restore_state = context.auto_restore_state ~= false,
     auto_save_state = context.auto_save_state ~= false,
@@ -243,6 +244,11 @@ function master_runtime.new(context)
     end
   end
 
+  -- forwarded warnings and errors of the nodes; best-effort messages, so no ack
+  local function handle_log_batch(msg)
+    if runtime.logs then runtime.logs.ingest(msg.src, msg.payload) end
+  end
+
   local function handle_ota_need(msg)
     if runtime.ota then runtime.ota.on_need(msg) end
     runtime.network.ack_for(msg, true)
@@ -299,6 +305,7 @@ function master_runtime.new(context)
     -- OTA update results
     ota_result               = handle_ota_result,
     ota_need                 = handle_ota_need,
+    log_batch                = handle_log_batch,
     ota_confirmed            = handle_ota_confirmed,
   }
 

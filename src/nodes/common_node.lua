@@ -11,6 +11,7 @@ local time = require("src.shared.time")
 local updater = require("src.shared.updater")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
+local log_forwarder = require("src.shared.log_forwarder")
 
 local common_node = {}
 
@@ -48,6 +49,15 @@ function common_node.new(opts)
   })
   -- node.heartbeat is looked up on every tick because roles replace it after construction
   node.ticker.every("heartbeat", node.heartbeat_ms / 1000, function() node.heartbeat() end)
+
+  -- warnings and errors go to the master's network log in batches (config.log_forward = false switches it off,
+  -- config.log_sink names another receiver)
+  if node.config.log_forward ~= false then
+    node.log_forwarder = log_forwarder.attach(node.logger, function(payload)
+      node.net.send("event", node.config.log_sink or node.config.master_id, payload)
+    end)
+    if node.log_forwarder then node.ticker.every("logs", 5, function() node.log_forwarder.flush() end) end
+  end
 
   function node.register()
     return node.net.send_reliable("register", node.config.master_id, { role = node.role })
