@@ -18,6 +18,12 @@ local route_integration = require("src.master.route_integration")
 local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
+local status_panel = require("src.master.ui.panels.status")
+local alerts_panel = require("src.master.ui.panels.alerts")
+local alerts_module = require("src.domain.alerts")
+local logs_panel = require("src.master.ui.panels.logs")
+local log_collector = require("src.domain.log_collector")
+local trace_recorder = require("src.domain.trace_recorder")
 local overview_panel = require("src.master.ui.panels.overview")
 local diagnostics_panel = require("src.master.ui.panels.diagnostics")
 local trains_panel = require("src.master.ui.panels.trains")
@@ -35,6 +41,7 @@ local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
 local ota_manager = require("src.master.ota_manager")
 local cargo_module = require("src.domain.cargo")
+local startup_guard = require("src.shared.startup_guard")
 
 local app = {}
 
@@ -46,6 +53,7 @@ function app.new(args)
   local parsed = args or {}
   local cfg = config.load(parsed.config or "configs/templates/network.example.json")
   local logger = log.new("INFO", 200)
+  startup_guard.ensure({ logger = logger, enabled = cfg.startup_autoupgrade ~= false })
   local reg = registry.new()
   local train_registry = trains.new(cfg)
   local station_registry = stations.new(cfg)
@@ -68,6 +76,10 @@ function app.new(args)
     switches = create_switches.new(peri, { hardware = hw })
   })
 
+  -- the last dispatcher calls are kept for replay offline (traces/*.json, scripts/replay_trace.lua)
+  local trace = trace_recorder.new({ capacity = cfg.trace_capacity or 500 })
+  trace.attach(disp)
+
   local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger)
   -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
   network.on_drop = function(msg)
@@ -75,7 +87,20 @@ function app.new(args)
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
   local monitor = peri.wrap("monitor") or fallback_monitor()
+  -- filled in below; the status page reads them through functions because it is built before them
+  local context, instance
+  local alerts = alerts_module.new()
+  local logs = log_collector.new()
   local ui = ui_core.new(monitor, {
+    alerts    = alerts_panel.new(alerts, nil),
+    status    = status_panel.new({
+      alerts = alerts,
+      registry = reg,
+      dispatcher = disp,
+      maintenance = maintenance,
+      ota = function() return context and context.ota end,
+      recovery = function() return instance and instance.runtime and instance.runtime.recovery end
+    }),
     overview  = overview_panel.new(disp, reg, nil),
     gleisbild = gleisbild_panel.new(disp, reg, nil),
     trains    = trains_panel.new(train_registry, nil),
@@ -84,12 +109,13 @@ function app.new(args)
     fahrplan  = service_plans_panel.new(service_plan_registry, train_registry),
     cargo     = cargo_panel.new(nil, nil),
     diag      = diagnostics_panel.new(logger, disp),
+    logs      = logs_panel.new(logs),
     ota       = ota_status_panel.new(reg, audits)
-  })
+  }, { logger = logger })
   -- Wire manual_control into interactive panels once context is built (below)
-  ui.set_panel("overview")
+  ui.set_panel("status")
 
-  local context = {
+  context = {
     config = cfg,
     logger = logger,
     registry = reg,
@@ -102,7 +128,10 @@ function app.new(args)
     network = network,
     ui = ui,
     audit_log = audits,
-    maintenance = maintenance
+    maintenance = maintenance,
+    alerts = alerts,
+    logs = logs,
+    trace = trace
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
@@ -111,6 +140,7 @@ function app.new(args)
 
   -- Rewire interactive panels with manual_control and full context
   local mc = context.manual_control
+  if ui.panels.alerts then ui.panels.alerts = alerts_panel.new(alerts, mc) end
   if ui.panels.overview then ui.panels.overview = overview_panel.new(disp, reg, mc) end
   if ui.panels.gleisbild then ui.panels.gleisbild = gleisbild_panel.new(disp, reg, disp.interlocking) end
   if ui.panels.trains then ui.panels.trains = trains_panel.new(train_registry, mc) end
@@ -120,9 +150,18 @@ function app.new(args)
   -- Rebuild page order after rewiring
   if ui.rebuild_order then ui.rebuild_order() end
 
-  local instance = { context = context }
+  instance = { context = context }
   instance.runtime = runtime_factory.new(context)
-  function instance.run() instance.runtime.run() end
+  function instance.run()
+    local ok_run, run_err = pcall(instance.runtime.run)
+    -- the master stops (Ctrl+T or a crash): every signal to RED, trains stop in front of them instead of running unobserved
+    if cfg.signal_red_on_stop ~= false then
+      local ok_red, failed = pcall(disp.shutdown_red)
+      if not ok_red then logger.warn("signals to RED on stop failed", { error = tostring(failed) })
+      elseif failed > 0 then logger.warn("signals to RED on stop: some did not answer", { failed = failed }) end
+    end
+    if not ok_run then error(run_err, 0) end
+  end
   return instance
 end
 

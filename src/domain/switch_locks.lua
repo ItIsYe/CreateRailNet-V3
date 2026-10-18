@@ -1,6 +1,6 @@
 --[[
 Purpose: Lock table for route-owned switch positions.
-Public API: new() -> locks with can_lock, lock_many, release_by_route, list.
+Public API: new() -> locks with can_lock, lock_many, release_by_route, clear, list.
 ]]
 
 local switch_locks = {}
@@ -31,6 +31,10 @@ function switch_locks.new()
     for id, lock in pairs(locks) do
       if lock.owner == owner then locks[id] = nil end
     end
+  end
+
+  function self.clear()
+    for id in pairs(locks) do locks[id] = nil end
   end
 
   function self.list()

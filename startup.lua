@@ -18,6 +18,25 @@ local role_entrypoints = {
   panel = "src.nodes.panel_node"
 }
 
+-- Undo a half-done or unconfirmed over-the-air update before anything else is loaded.
+local ok_recovery, recovery = pcall(require, "src.shared.ota_recovery")
+if ok_recovery then
+  local ran, action, detail = pcall(recovery.recover)
+  if ran and action ~= "none" then print("OTA recovery: " .. tostring(action) .. " " .. tostring(detail or "")) end
+end
+
+-- An interrupted installation is finished before the role starts.
+if fs.exists("crn_install_journal.lua") or fs.exists("crn_install_journal.lua.prev") then
+  print("Installation unvollstaendig.")
+  if fs.exists("installer") and shell then
+    print("Setze sie fort: installer --resume")
+    shell.run("installer", "--resume")
+  else
+    print("Bitte den Installer erneut ausfuehren (wget run <url>/installer).")
+  end
+  return
+end
+
 local entrypoint = role_entrypoints[CRN_ROLE]
 if not entrypoint then error("Unknown CRN_ROLE: " .. tostring(CRN_ROLE)) end
 

@@ -54,14 +54,10 @@ local function build_entry(stop, opts)
   local destination = create_train_schedule.resolve_destination(stop, opts)
   if not destination or destination == "" then return nil, "missing Create destination/station name" end
   local dwell = dwell_seconds(stop)
-  local conditions
-  if dwell > 0 then
-    -- Only add delay condition when dwell > 0; a 0-second delay is undefined in Create
-    conditions = { { build_delay_condition(dwell) } }
-  else
-    -- No dwell: depart immediately (empty conditions list)
-    conditions = {}
-  end
+  -- create:destination requires at least one condition (Create CC:Tweaked schedule schema).
+  -- 0 is a valid create:delay value (range 0-120), so always attach a delay condition
+  -- instead of leaving conditions empty when there is no dwell time.
+  local conditions = { { build_delay_condition(dwell) } }
   return {
     instruction = {
       id = "create:destination",

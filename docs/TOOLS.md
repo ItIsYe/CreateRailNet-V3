@@ -62,6 +62,20 @@ local dbg = require("src.tools.debug_events")
 dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 ```
 
+## Scripts
+
+| Script | Purpose |
+|---|---|
+| `installer` | one-line installer: `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer` (`docs/INSTALL.md`) |
+| `scripts/manifest_sync.lua --write\|--check` | regenerates / checks `install/manifest.lua`, the installer's file list (after changing any installed file) |
+| `scripts/setup.lua [--role R]` | per computer: role, id, peripherals; writes `startup.lua` and the minimal config |
+| `scripts/check_configs.lua` | validates every config under `configs/` |
+| `scripts/ota_push.lua [--node ID] [--legacy]` | pushes the runtime to nodes (`docs/OTA.md`) |
+| `scripts/upgrade_startup.lua` | gives this computer's `startup.lua` the OTA recovery (nodes do it by themselves at start) |
+| `scripts/replay_trace.lua trace.json config.json [--strict]` | replays a recorded dispatcher trace offline (`docs/OPERATIONS.md`) |
+| `scripts/run_tests.lua` | the whole offline suite |
+| `scripts/check_syntax.lua`, `cc_parse_guard.lua`, `check_test_registry.lua` | the guards CI runs |
+
 ## Maintenance mode
 
 Maintenance mode is controlled through manual panel actions:

@@ -1,8 +1,16 @@
 # CreateRailNet-V3 Ingame Setup
 
-## First-Time Setup (Recommended)
+## Installation
 
-On each new CC:Tweaked computer, run the interactive setup wizard:
+Der empfohlene Weg ist der Installer (`docs/INSTALL.md`): ein Befehl lädt die Dateien der Rolle von GitHub, prüft sie und startet den Assistenten.
+
+```
+wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer
+```
+
+## First-Time Setup (the wizard)
+
+The installer starts the wizard for you. If the files are on the computer already (copied by hand), run the interactive setup wizard yourself:
 
 ```lua
 shell.run("scripts/setup.lua")
@@ -19,6 +27,9 @@ The wizard will:
 After setup, the computer will auto-start on every reboot using the written `startup.lua`.
 
 To reconfigure a computer, delete `startup.lua` and run `scripts/setup.lua` again.
+
+Computers that were set up with an older version keep working: they add the missing OTA recovery to their `startup.lua` by themselves, and the
+new files reach them with `scripts/ota_push.lua --legacy` (`docs/OTA.md`). After the first setup of a world, work through `docs/INGAME_TESTS.md` once.
 
 
 ## Ziel

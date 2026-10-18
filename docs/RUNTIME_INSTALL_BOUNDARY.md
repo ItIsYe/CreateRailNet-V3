@@ -48,4 +48,5 @@ The test file below ensures the runtime manifest continues to exclude simulation
 tests/test_runtime_manifest.lua
 ```
 
-If future installer work is added, it must use `configs/install/runtime_manifest.json` as the source of truth for runtime packages.
+The installer (`docs/INSTALL.md`) uses `configs/install/runtime_manifest.json` as the source of truth for runtime packages; the file list it installs is generated
+from it by `scripts/manifest_sync.lua`.

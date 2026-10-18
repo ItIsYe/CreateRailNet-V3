@@ -7,7 +7,7 @@ Signals default to RED when the master cannot confirm safety. This is by design.
 Causes and fixes:
 - **Node not registered**: The signal_node may not have connected. Check the modem channel and that `master_id` in config matches the master's actual node ID.
 - **Block in FAULT**: Any FAULT block on a route forces all signals on that route red. Clear the fault by resolving the sensor state and re-registering the node.
-- **Master in RECOVERY mode**: After a restart, the master enters recovery mode and holds all signals red until an operator confirms recovery from the panel or via `confirm_recovery` manual action.
+- **Master in RECOVERY mode**: After a restart, the master enters recovery mode: new route requests, departures and manual actions are refused until an operator confirms recovery from the panel or via the `confirm_recovery` manual action. Free blocks are RED; a train that already held a reservation gets its signal back.
 - **Maintenance mode active**: All departure signals are held red in maintenance mode.
 
 ## Block stuck in FAULT
@@ -17,10 +17,14 @@ A block enters FAULT when:
 - A node times out while a block is reserved or occupied
 - The signal hardware fails to respond (`setForcedRed` returns error)
 
+A fault caused by a **node timeout** clears itself 15 s after the node is back, once its detectors report the track free (`docs/OPERATIONS.md`).
+If it does not, one of the conditions is missing: the node is not up (status page), the block has no sensor, a detector reports occupied, or the
+block faulted for another reason (garbage event, signal hardware).
+
 Fix:
 1. Check the sensor node is running and sending heartbeats
 2. On the panel, navigate to Diagnostics to see the specific error
-3. Use `manual_control` → `clear_fault` with the block_id to release (if implemented), or restart the affected sensor_node
+3. Use `manual_control` → `clear_fault` with the block_id once you have looked at the track (a block that belongs to a train on its way is refused: `release_train` first)
 4. The master will re-evaluate on the next sensor event
 
 ## Train stuck in QUEUED
@@ -43,12 +47,25 @@ Default timeout is 6 seconds. Node heartbeats fire every 2 seconds.
 - **Wrong channel**: Node and master must use the same `channel` in config.
 - **Server lag**: At low TPS, heartbeat intervals stretch. Consider increasing `heartbeat_timeout_s` in config (e.g. to 15 for laggy servers).
 
+## A signal shows something else than the master wants
+
+The master sends signals again at start, a few per second afterwards (`signal_refresh_per_s`) and when a signal node comes back, so a wrong
+signal corrects itself within one round (blocks / 2 per second). If it does not: check the log page for "signals did not answer" (the
+peripheral name in the hardware config does not match, or the computer is off) and the audit log for `node_timeout` of the signal node.
+
+## Installer problems
+
+See the table in `docs/INSTALL.md` ("Wenn etwas schiefgeht"). The short version: `HTTP ist nicht verfuegbar` means HTTP is off in the ComputerCraft config;
+`Der Speicher dieses Computers reicht nicht` means nothing was changed and the computer needs more space; `Installation unvollstaendig.` at boot means an
+interrupted installation, which `startup.lua` resumes by itself (`installer --resume`).
+
 ## OTA update not applying
 
 - Verify the master is running and nodes are registered before pushing
 - Check Diagnostics for `ota_failed` audit entries
 - The node must have write access to its disk (CC:Tweaked default: yes)
-- After OTA, nodes reboot. If the node comes back on the old version, the `crn_version.txt` write may have failed — check disk space
+- After OTA, nodes reboot. If the node comes back on the old version, the new code did not reach its main loop and the node rolled itself back (`docs/OTA.md`), or the disk was full — check the log page
+- A node from before the verified update does not answer the normal push: use `ota_push.lua --legacy --node ID` once
 
 ## Panel shows stale data
 

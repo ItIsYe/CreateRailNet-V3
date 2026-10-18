@@ -1,24 +1,76 @@
 # Architecture
 
 ## Roles
-- **MASTER**: central registry, dispatcher, UI, diagnostics.
-- **SIGNAL**: controls signal aspects via adapter.
-- **SENSOR**: reports block occupancy transitions.
-- **SWITCH**: sets turnout positions.
-- **STATION/DEPOT/PANEL**: stubs for future expansion.
+- **MASTER**: registry, dispatcher (blocks, routes, interlocking), UI, alerts, log collector, OTA manager, state store.
+- **SIGNAL**: sets a signal; starts with RED.
+- **SENSOR**: reports enter/leave of a detector and its current level in the heartbeat.
+- **SWITCH**: sets a turnout.
+- **STATION / DEPOT / TRAIN / PANEL**: station and depot state, the on-train computer, the operator panel.
 
-## Event-Driven Design
-- All nodes use a shared `eventbus` to publish/subscribe.
-- Polling is minimized. Sensors should publish enter/leave events.
+## Event loop
 
-## Block System
-- Blocks can be `FREE`, `RESERVED`, `OCCUPIED`, or `FAULT`.
-- A block is `RESERVED` during an active route and `OCCUPIED` after enter.
+Every computer runs one loop that waits for events. CC:Tweaked drops events (timers included) once 256 are queued, so nothing waits for
+exactly one timer: `src/shared/ticker.lua` owns all periodic jobs (heartbeat, timeouts, UI, OTA, alerts, auto-clear, signal refresh) and, on
+every event, compares the job deadlines with the clock and fires jobs whose timer never arrived. A job that fails is logged and re-armed.
+`sleep_guard` does the same for long sleeps. Nothing blocks the loop: network retries, OTA transfers and UI redraws are all driven by the
+ticker in small steps.
 
-## Fail-Safe Rules
-- **If the master cannot verify state, or if nodes are missing, signals are forced to RED.**
-- Node timeouts mark referenced blocks as `FAULT`.
+## Dispatcher (`src/master/dispatcher.lua`)
+
+A train asks for a **route**: an ordered list of **blocks**. A request succeeds only if all of this holds, otherwise it is queued with a reason:
+
+1. **Conflict groups** are free (`block:<id>` per block, `opp:` against the opposite direction on the same corridor, explicit groups).
+2. **Blocks** are free (or already reserved for this train).
+3. **Switch locks**: every switch of the route can be locked in its position; the switches are set.
+4. **Interlocking** (`src/domain/interlocking.lua`) sets the Fahrstrasse: checks blocks and conflicts once more, locks flank switches,
+   keeps the overlap block. It goes `SET -> OCCUPIED -> DISSOLVING -> VACANT` while the train moves.
+
+Only then are the blocks `RESERVED`. A GREEN or YELLOW aspect is given by one function that asks the interlocking: a live route must
+cover the signal and the block behind it must still be ahead of the train. Everything else is RED.
+
+Sensor events move the train: `enter` -> block `OCCUPIED`, `leave` -> block `FREE`, the next block's signal opens. A train that is done
+releases locks, groups and the route. Blocks go `FAULT` on garbage events, signal hardware failures and node timeouts; a block that
+faulted by timeout clears itself again when the evidence is there (`docs/OPERATIONS.md`), every other fault waits for the operator.
+
+A node timeout keeps the train's claim (it may still be running) but turns its signals RED; a sensor event or a new request of the train
+resolves it. `snapshot()` / `restore()` rebuild blocks, trains, queue, switch locks and interlocking routes after a master restart; the
+master then waits in recovery mode until an operator confirms.
+
+`pairs()` order differs between runs and Lua versions; wherever order could change behaviour the code sorts first.
+
+## Fail-safe rules
+
+- Anything uncertain is RED: unknown node, FAULT block, recovery, maintenance.
+- The master sends signals again instead of trusting what they show: everything at start, a few blocks per second in a rolling refresh,
+  all signals of a node that comes back; RED everywhere when the master stops.
+- Commands only from the master (and `cmd_sources`); sensor events only from the sensor itself; manual control only from panels;
+  updates only from the master and `ota_sources`.
+- Files are written with a temporary file, read back, a `.prev` copy and rollback (`safe_write`); over-the-air updates are transactions
+  with a journal and an automatic return to the old version (`docs/OTA.md`).
+
+## Network
+
+`src/shared/net.lua`: one channel, reliable messages with retry and backoff, deduplication per `src/id`, fail-closed validation, protocol
+major `v` and additive revision `pv` (`docs/protocol.md`). Retries are throttled and ordered so a network with hundreds of nodes does not
+flood itself.
 
 ## UI
-- Master UI uses dirty redraws only, no full redraw loops.
-- Panels include overview and diagnostics.
+
+Pages are drawn into an off-screen buffer and shown at once (no flicker), the page order is fixed (status, alerts, overview, gleisbild,
+trains, stations, depots, fahrplan, cargo, diag, logs, ota), a failing page shows an error page, and the whole network is summarised in
+one lamp on the status page. Alerts are one line per cause and are acknowledged by touch. Everything is bounded and costs one pass over
+the nodes and blocks, so the same UI serves a small and a large network.
+
+## Installation
+
+`installer` is a thin bootstrap (like the reactor project's): it fetches `install/*.lua` and three shared modules from one ref, compares the files of the role
+(`install/manifest.lua`: size and Adler-32, generated from the `require` closure of the role's entry points) with the disk, checks the space, and replaces
+only what differs, with a journal that makes an interrupted run resume at the next boot (`startup.lua` guard). Seed files (config templates,
+`scripts/start_*.lua`) are never replaced. Updates later go through OTA (`docs/OTA.md`). Details: `docs/INSTALL.md`.
+
+## Testing outside the game
+
+`lua scripts/run_tests.lua` runs the whole suite with Lua 5.1, 5.4 and LuaJIT in CI. Besides unit tests it has seeded random walks over
+generated topologies (legal and chaotic call sequences, snapshot round trips, lossy links, crash injection in the filesystem) that check the
+safety invariants after every step, and a trace recorder / replayer that reproduces what happened in the game
+(`docs/OPERATIONS.md`). What cannot be tested offline is collected in `docs/INGAME_TESTS.md`.

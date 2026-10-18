@@ -23,6 +23,9 @@ function switch_node.new_runtime(args_or_context)
     config = context.config,
     modem = context.modem,
     logger = context.logger,
+    clock = context.clock,
+    start_timer = context.start_timer,
+    tick_grace = context.tick_grace,
     handlers = {
       on_cmd = function(payload)
         if not payload or not payload.position then return false, "missing payload.position" end
