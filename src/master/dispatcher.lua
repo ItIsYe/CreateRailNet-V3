@@ -1,6 +1,6 @@
 --[[
 Purpose: Core block dispatcher for the master node.
-Public API: new(config, adapters), clear_fault(block_id), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
+Public API: new(config, adapters), clear_fault(block_id), auto_clear_faults(ctx), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
 ]]
 
 local util = require("src.shared.util")
@@ -89,12 +89,18 @@ function dispatcher.new(config, adapters)
     local ok, err = signal_logic.set_block_red(block, signal_adapter())
     if not ok and block then
       -- Signal hardware failure: mark block FAULT so no train enters
+      if block.state ~= STATES.FAULT then block.fault_cause = { kind = "signal" } end
       block_domain.fault(block)
       if self.logger then self.logger.warn("set_block_red hardware failure", { block = block.id, error = err }) end
     end
     return ok, err
   end
-  local function mark_fault(block) block_domain.fault(block); set_block_red(block) end
+  -- The first cause sticks: a later event on a block that is FAULT already does not change who may clear it
+  local function mark_fault(block, cause)
+    if block.state ~= STATES.FAULT then block.fault_cause = { kind = cause or "event" } end
+    block_domain.fault(block)
+    set_block_red(block)
+  end
   local function route_owner(train_id, route_id) return tostring(train_id) .. ":" .. tostring(route_id) end
   local function get_route(_, route_id) local route = self.routes[route_id]; if not route then return nil, "route not found" end; return route end
 
@@ -428,7 +434,16 @@ function dispatcher.new(config, adapters)
   function self.timeout_node(node_id)
     -- Fault all blocks that reference the timed-out node
     for _, block in pairs(self.blocks) do
-      if topology.references_node(block, node_id) then mark_fault(block) end
+      if topology.references_node(block, node_id) then
+        mark_fault(block, "node_timeout")
+        local cause = block.fault_cause
+        -- a block that was FAULT for another reason keeps that reason; a timeout cause collects every node that failed
+        if cause and cause.kind == "node_timeout" then
+          cause.nodes = cause.nodes or {}
+          cause.nodes[node_id] = true
+          cause.recovered_at = nil
+        end
+      end
     end
     -- Release train entries and conflict locks for trains that owned those blocks
     for _, train in pairs(self.trains) do
@@ -504,6 +519,81 @@ function dispatcher.new(config, adapters)
     return true
   end
 
+  -- Blocks that went FAULT because a node timed out clear themselves once the track is shown to be free:
+  --   * every node of the cause is up again and has stayed up for ctx.stable_s (default 15 s),
+  --   * every sensor of the block reported "free" after that moment and not longer than ctx.max_age_s (default 10 s) ago,
+  --   * the block has at least one sensor and no train on its way (RESERVED/RUNNING) holds it.
+  -- A timed-out train (FAULT) that holds the block is released together with it, but only if the same is true for every
+  -- block of its route: FAULT ones by node timeout, the others with a free sensor. Anything else (garbage events, signal
+  -- hardware, no sensor) stays FAULT for the operator.
+  -- ctx: { now, node_up(node_id) -> bool, sensor_level(sensor_id) -> occupied, at | nil, stable_s, max_age_s }
+  -- Returns the list of { block, train } that were cleared.
+  function self.auto_clear_faults(ctx)
+    local cleared = {}
+    local stable = ctx.stable_s or 15
+    local max_age = ctx.max_age_s or 10
+
+    local function sensors_free(block, since)
+      if #(block.sensors or {}) == 0 then return false end
+      for _, sensor_id in ipairs(block.sensors) do
+        local occupied, at = ctx.sensor_level(sensor_id)
+        if occupied ~= false or at == nil or at < since or ctx.now - at > max_age then return false end
+      end
+      return true
+    end
+
+    local ready = {}
+    for _, block_id in ipairs(sorted_keys(self.blocks)) do
+      local block = self.blocks[block_id]
+      local cause = block.state == STATES.FAULT and block.fault_cause or nil
+      if cause and cause.kind == "node_timeout" then
+        local all_up = true
+        for _, node_id in ipairs(sorted_keys(cause.nodes)) do if not ctx.node_up(node_id) then all_up = false end end
+        if not all_up then
+          cause.recovered_at = nil
+        else
+          cause.recovered_at = cause.recovered_at or ctx.now
+          if ctx.now - cause.recovered_at >= stable and sensors_free(block, cause.recovered_at) then ready[block_id] = true end
+        end
+      end
+    end
+
+    local released = {}
+    for _, block_id in ipairs(sorted_keys(ready)) do
+      local block = self.blocks[block_id]
+      local owner = block.reserved_by or block.occupied_by
+      local train = owner and self.trains[owner]
+      local go = true
+      if train and (train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING) then
+        go = false
+      elseif train and train.state == TRAIN_STATES.FAULT and train.owner and self.active_routes[train.owner] == train then
+        if released[owner] == nil then
+          local verified = true
+          for _, route_block in ipairs(train.route_blocks or {}) do
+            if route_block.reserved_by == owner or route_block.occupied_by == owner then
+              if route_block.state == STATES.FAULT then
+                if not ready[route_block.id] then verified = false end
+              elseif not sensors_free(route_block, 0) then
+                verified = false
+              end
+            end
+          end
+          released[owner] = verified
+          if verified then self.release_route(owner, train.route) end
+        end
+        go = released[owner]
+      end
+      if go then
+        -- FAULT blocks keep the name of their last holder; nobody holds them now
+        block.reserved_by = nil
+        block.occupied_by = nil
+        local ok = self.clear_fault(block_id)
+        if ok then cleared[#cleared + 1] = { block = block_id, train = train and owner or nil } end
+      end
+    end
+    return cleared
+  end
+
   function self.get_overview()
     local summary = {}
     for id, block in pairs(self.blocks) do
@@ -528,7 +618,11 @@ function dispatcher.new(config, adapters)
 
   function self.snapshot()
     local blocks = {}
-    for id, block in pairs(self.blocks) do blocks[id] = { id = id, state = block.state, reserved_by = block.reserved_by, occupied_by = block.occupied_by } end
+    for id, block in pairs(self.blocks) do
+      local cause = block.fault_cause
+      blocks[id] = { id = id, state = block.state, reserved_by = block.reserved_by, occupied_by = block.occupied_by,
+        fault_cause = cause and { kind = cause.kind, nodes = cause.nodes and sorted_keys(cause.nodes) or nil } or nil }
+    end
     return { version = 2, blocks = blocks, trains = self.get_trains(), queue = self.get_queue(), switch_locks = self.get_switch_locks(), active_conflicts = self.get_conflicts(), deadlocks = copy_table(self.deadlocks) }
   end
 
@@ -564,7 +658,13 @@ function dispatcher.new(config, adapters)
     -- locks and interlocking routes are rebuilt from the trains below
     self.interlocking.reset()
     self.switch_locks.clear()
-    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; block.occupied_by = saved.occupied_by; block.overlap_for = nil; set_block_red(block) end end
+    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; block.occupied_by = saved.occupied_by; block.overlap_for = nil; block.fault_cause = nil
+      if saved.fault_cause and block.state == STATES.FAULT then
+        local nodes
+        if saved.fault_cause.nodes then nodes = {}; for _, node_id in ipairs(saved.fault_cause.nodes) do nodes[node_id] = true end end
+        block.fault_cause = { kind = saved.fault_cause.kind, nodes = nodes }
+      end
+      set_block_red(block) end end
     self.trains = {}; self.active_routes = {}; self.active_conflicts = {}
     for _, train_id in ipairs(sorted_keys(snap.trains)) do
       local saved = snap.trains[train_id]

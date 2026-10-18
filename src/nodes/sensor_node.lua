@@ -1,6 +1,7 @@
 --[[
 Purpose: Sensor node entrypoint and runtime factory.
 Public API: new_runtime(args_or_context), build_check_fn(node, adapter, sensor_id, master_id).
+Notes: node.occupied_level (bool, nil while the read fails) is what the heartbeat reports.
 ]]
 
 local config = require("src.shared.config")
@@ -20,8 +21,10 @@ function sensor_node.build_check_fn(node, adapter, sensor_id, master_id)
   return function()
     local ok, occupied = adapter.readOccupied(sensor_id)
     if not ok then
+      node.occupied_level = nil  -- the heartbeat says nothing rather than something stale
       return false, occupied
     end
+    node.occupied_level = occupied == true
     if occupied ~= last_state then
       local action = occupied and "enter" or "leave"
       node.net.send_reliable("event", master_id, { type = "sensor", sensor_id = sensor_id, action = action })
@@ -66,6 +69,10 @@ function sensor_node.new_runtime(args_or_context)
   local check = sensor_node.build_check_fn(node, adapter, context.id, context.config.master_id)
 
   node.ticker.every("sensor", 0.2, check)
+  -- the heartbeat carries what the detector shows now; after an outage the master clears blocks with it
+  node.heartbeat = function()
+    return node.net.heartbeat(node.config.master_id, { role = node.role, occupied = node.occupied_level })
+  end
 
   return node
 end

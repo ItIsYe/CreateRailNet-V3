@@ -42,7 +42,8 @@ function master_runtime.new(context)
     auto_save_state = context.auto_save_state ~= false,
     recovery = { restored = false, saved = false, required = false, confirmed = true, last_error = nil, last_save_reason = nil },
     pull_event = context.pull_event or os.pullEvent,
-    heartbeat_timeout_s = context.heartbeat_timeout_s or 6
+    heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
+    sensor_levels = {}  -- sensor_id -> { occupied, at }: what the detector shows right now, from heartbeats and events
   }
   local ui_once = once_log.new(context.logger)
   local event_once = once_log.new(context.logger)
@@ -165,6 +166,10 @@ function master_runtime.new(context)
   handlers.heartbeat = function(msg)
     local known = runtime.registry.all and runtime.registry.all()[msg.src]
     local announced_role = msg.payload and msg.payload.role
+    -- a sensor tells whether its detector is occupied (not while its read fails); this clears blocks after an outage
+    if announced_role == "sensor" and type(msg.payload.occupied) == "boolean" then
+      runtime.sensor_levels[msg.src] = { occupied = msg.payload.occupied, at = time.now_s() }
+    end
     if not known and announced_role and runtime.registry.register then
       -- after a master restart the nodes keep heartbeating but never register again: adopt them
       runtime.registry.register(msg.src, announced_role, nil)
@@ -180,6 +185,10 @@ function master_runtime.new(context)
   end
 
   local function handle_sensor_event(msg)
+    local action = msg.payload and msg.payload.action
+    if action == "enter" or action == "leave" then
+      runtime.sensor_levels[msg.payload.sensor_id] = { occupied = action == "enter", at = time.now_s() }
+    end
     if maintenance_enabled() then return reject_maintenance(msg, "sensor") end
     audit("sensor", { src = msg.src, sensor_id = msg.payload.sensor_id, action = msg.payload.action })
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
@@ -353,7 +362,8 @@ function master_runtime.new(context)
     for node_id, node_state in pairs(runtime.registry.all()) do
       -- a node that is receiving, swapping or rebooting for an update is silent on purpose
       local updating = runtime.ota and runtime.ota.is_updating and runtime.ota.is_updating(node_id)
-      if not updating and now - node_state.last_seen > runtime.heartbeat_timeout_s then
+      -- once per outage: a node that is down already was dealt with (timeout_node, audit, state save)
+      if not updating and tostring(node_state.status):upper() ~= "DOWN" and now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id)
         local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
         if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
@@ -379,7 +389,36 @@ function master_runtime.new(context)
     runtime.ui.draw()
   end
 
-  runtime.ticker.every("timeouts", 1, check_timeouts)
+  runtime.check_timeouts = check_timeouts
+  runtime.ticker.every("timeouts", 1, function() runtime.check_timeouts() end)
+
+  -- Blocks that faulted because a node went silent are cleared again once the node is back and the detectors show the
+  -- track free (config auto_clear_faults = false switches this off). See Dispatcher.auto_clear_faults for the rules.
+  function runtime.auto_clear_faults()
+    local cfg = runtime.config or {}
+    if cfg.auto_clear_faults == false or not runtime.dispatcher.auto_clear_faults then return {} end
+    if maintenance_enabled() or recovery_locked() then return {} end
+    local now = time.now_s()
+    local cleared = runtime.dispatcher.auto_clear_faults({
+      now = now, stable_s = cfg.auto_clear_stable_s, max_age_s = cfg.auto_clear_max_age_s,
+      node_up = function(node_id)
+        local node = runtime.registry.all()[node_id]
+        return node ~= nil and tostring(node.status):upper() == "UP" and now - node.last_seen <= runtime.heartbeat_timeout_s
+      end,
+      sensor_level = function(sensor_id)
+        local level = runtime.sensor_levels[sensor_id]
+        if not level then return nil, nil end
+        return level.occupied, level.at
+      end
+    })
+    for _, item in ipairs(cleared) do audit("fault_auto_cleared", item) end
+    if #cleared > 0 then
+      if runtime.route_integration then runtime.route_integration.process_queue() end
+      runtime.ui.mark_dirty(); save_after("auto_clear")
+    end
+    return cleared
+  end
+  runtime.ticker.every("auto_clear", 2, function() runtime.auto_clear_faults() end)
 
   runtime.ticker.every("dwell", 1, function()
     if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then

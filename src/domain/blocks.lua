@@ -50,6 +50,7 @@ function blocks.release(block)
   block.state = blocks.STATES.FREE
   block.reserved_by = nil
   block.occupied_by = nil
+  block.fault_cause = nil
 end
 
 function blocks.fault(block)

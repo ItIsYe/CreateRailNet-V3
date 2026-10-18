@@ -325,7 +325,15 @@ function world_mod.step_chaos(world)
     local node = rng.pick({ sensor, "SE" .. rng.int(1, 4), "SW-" .. rng.int(1, 3), "T1", "T2", "nobody" })
     note("timeout_node " .. node)
     d.timeout_node(node)
-  elseif roll <= 86 then
+  elseif roll <= 83 then
+    -- every node answers and every detector shows free: whatever timed out may clear (and release its train)
+    note("auto_clear")
+    d.auto_clear_faults({
+      now = world.clock / 1000, stable_s = 0, max_age_s = 1e9,
+      node_up = function() return true end,
+      sensor_level = function() return false, world.clock / 1000 end
+    })
+  elseif roll <= 88 then
     note("snapshot/restore")
     d.restore(d.snapshot())
   else
