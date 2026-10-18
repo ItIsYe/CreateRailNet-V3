@@ -9,6 +9,7 @@ local log = require("src.shared.log")
 local peripherals = require("src.adapter.peripherals")
 local hardware_config = require("src.adapter.hardware_config")
 local cc_modem = require("src.adapter.cc_modem")
+local startup_guard = require("src.shared.startup_guard")
 
 local bootstrap = {}
 
@@ -20,6 +21,8 @@ function bootstrap.create_context(argv, role)
 
   local cfg = config.load(parsed.config or "configs/templates/network.example.json")
   local logger = log.new("INFO", 200)
+  -- a startup.lua from before the OTA recovery gets it now (config startup_autoupgrade = false leaves it alone)
+  startup_guard.ensure({ logger = logger, enabled = cfg.startup_autoupgrade ~= false })
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.new({ channel = cfg.channel })

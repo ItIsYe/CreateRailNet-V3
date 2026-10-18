@@ -2,11 +2,23 @@
 Purpose: Text of the startup.lua that scripts/setup.lua writes on a node, so the generated file and the repository's own
   startup.lua cannot drift apart (the generated one once lacked the OTA recovery).
 Public API: render(opts) -> text      opts: role, id, config (path)
+  upgrade(text) -> text, "upgraded" | "current"   or nil, reason; adds the OTA recovery to an older startup.lua
 Notes: role, id and config are written with %q, so a quote in an id cannot break the file. startup.lua first undoes a half-done or
   unconfirmed over-the-air update (src/shared/ota_recovery.lua), then starts the role.
 ]]
 
 local startup_template = {}
+
+-- The block that undoes a half-done or unconfirmed over-the-air update; render() writes it, upgrade() inserts it.
+local RECOVERY_LINES = {
+  "-- Undo a half-done or unconfirmed over-the-air update before anything else is loaded.",
+  'local ok_recovery, recovery = pcall(require, "src.shared.ota_recovery")',
+  "if ok_recovery then",
+  "  local ran, action, detail = pcall(recovery.recover)",
+  '  if ran and action ~= "none" then print("OTA recovery: " .. tostring(action) .. " " .. tostring(detail or "")) end',
+  "end",
+  "",
+}
 
 local ROLES = { "master", "signal", "sensor", "switch", "train", "station", "depot", "panel" }
 
@@ -41,13 +53,6 @@ function startup_template.render(opts)
     '  panel   = "src.nodes.panel_node",',
     "}",
     "",
-    "-- Undo a half-done or unconfirmed over-the-air update before anything else is loaded.",
-    'local ok_recovery, recovery = pcall(require, "src.shared.ota_recovery")',
-    "if ok_recovery then",
-    "  local ran, action, detail = pcall(recovery.recover)",
-    '  if ran and action ~= "none" then print("OTA recovery: " .. tostring(action) .. " " .. tostring(detail or "")) end',
-    "end",
-    "",
     "local entrypoint = role_entrypoints[CRN_ROLE]",
     'if not entrypoint then error("Unknown CRN_ROLE: " .. tostring(CRN_ROLE)) end',
     "",
@@ -70,7 +75,31 @@ function startup_template.render(opts)
     '  shell.run("run", entrypoint, "--id", CRN_ID, "--config", CRN_CONFIG)',
     "end",
   }
-  return table.concat(lines, "\n") .. "\n"
+  local out = {}
+  for _, line in ipairs(lines) do
+    if line == "local entrypoint = role_entrypoints[CRN_ROLE]" then
+      for _, recovery_line in ipairs(RECOVERY_LINES) do out[#out + 1] = recovery_line end
+    end
+    out[#out + 1] = line
+  end
+  return table.concat(out, "\n") .. "\n"
+end
+
+-- A startup.lua written before the OTA recovery existed (setup.lua of the first versions, the repository's own file) gets
+-- the block in front of the line that picks the entry point. Returns text, "upgraded" | "current", or nil, reason when
+-- the layout is not recognised (a hand-written startup.lua is left alone) or the result would not load.
+function startup_template.upgrade(text)
+  if type(text) ~= "string" then return nil, "no startup.lua text" end
+  if text:find("src.shared.ota_recovery", 1, true) then return text, "current" end
+  local anchor = "local entrypoint = role_entrypoints[CRN_ROLE]"
+  local first = text:find(anchor, 1, true)
+  if not first then return nil, "layout not recognised (no '" .. anchor .. "' line)" end
+  if text:find(anchor, first + 1, true) then return nil, "layout not recognised (entry point line twice)" end
+  local upgraded = text:sub(1, first - 1) .. table.concat(RECOVERY_LINES, "\n") .. "\n" .. text:sub(first)
+  local compile = loadstring or load
+  local chunk, err = compile(upgraded, "startup.lua")
+  if not chunk then return nil, "upgrade would not load: " .. tostring(err) end
+  return upgraded, "upgraded"
 end
 
 startup_template.ROLES = ROLES

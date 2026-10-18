@@ -191,6 +191,7 @@ function master_runtime.new(context)
       if known.role == "signal" and runtime.dispatcher.resend_signals then note_signal_result(runtime.dispatcher.resend_signals(msg.src), "reconnect " .. tostring(msg.src)) end
     end
     runtime.registry.heartbeat(msg.src)
+    if runtime.ota and runtime.ota.on_heartbeat then runtime.ota.on_heartbeat(msg) end
     if msg.payload and msg.payload.role == "train" and runtime.train_registry then runtime.train_registry.register(msg.payload.train_id or msg.src, msg.src, msg.payload)
     elseif msg.payload and msg.payload.role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload)
     elseif msg.payload and msg.payload.role == "depot" and runtime.depot_registry then apply_depot_snapshot(msg.payload.depot_id or msg.src, msg.payload) end

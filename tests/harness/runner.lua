@@ -52,6 +52,7 @@ local tests = {
   "tests/test_interlocking_integration.lua",
   "tests/test_fault_autoclear.lua",
   "tests/test_signal_safeguard.lua",
+  "tests/test_legacy_distribution.lua",
   "tests/test_manual_repair.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",

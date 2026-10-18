@@ -41,6 +41,7 @@ local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
 local ota_manager = require("src.master.ota_manager")
 local cargo_module = require("src.domain.cargo")
+local startup_guard = require("src.shared.startup_guard")
 
 local app = {}
 
@@ -52,6 +53,7 @@ function app.new(args)
   local parsed = args or {}
   local cfg = config.load(parsed.config or "configs/templates/network.example.json")
   local logger = log.new("INFO", 200)
+  startup_guard.ensure({ logger = logger, enabled = cfg.startup_autoupgrade ~= false })
   local reg = registry.new()
   local train_registry = trains.new(cfg)
   local station_registry = stations.new(cfg)

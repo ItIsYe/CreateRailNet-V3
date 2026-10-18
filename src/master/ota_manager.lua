@@ -8,6 +8,9 @@ Public API:
   manager.start(files, { nodes, version, discover }) -> update | nil, err      files = { {path, content} }
   manager.push_runtime(opts) -> results, err    reads the runtime files from disk; results[node_id] = { ok, error }
   manager.push(files, opts) / manager.push_to(node_id, files, version)       same as start, older call style
+  manager.push_legacy(opts) -> results, err    for nodes that still run the code from before the verified OTA: one single-message
+                                               update with the files a node needs to boot (opts.nodes is required)
+  manager.on_heartbeat(msg)                    a legacy node that answers with protocol revision 2 has booted the new code
   manager.on_need(msg) / on_result(msg) / on_confirmed(msg)                   events sent by nodes
   manager.on_drop(msg)                                                        a reliable message ran out of retries
   manager.tick()                                                              drives offers, windows, commits, timeouts
@@ -26,6 +29,12 @@ local updater = require("src.shared.updater")
 local ota_manager = {}
 
 local RUNTIME_DIRS = { "src/shared/", "src/domain/", "src/adapter/", "src/master/", "src/nodes/", "scripts/" }
+
+-- What a node loads at start: the role entry points (startup.lua picks one) and the recovery startup.lua runs first.
+local NODE_ENTRYPOINTS = {
+  "src.nodes.signal_node", "src.nodes.sensor_node", "src.nodes.switch_node", "src.nodes.train_node",
+  "src.nodes.station_node", "src.nodes.depot_node", "src.nodes.panel_node", "src.shared.ota_recovery"
+}
 
 local ACTIVE = { OFFERED = true, SENDING = true, COMMITTING = true }
 local TERMINAL = { CONFIRMED = true, FAILED = true, UNCONFIRMED = true }
@@ -63,6 +72,26 @@ local function list_runtime_files()
   end
   table.sort(files)
   return files
+end
+
+-- The files a node needs to boot the new code: every module the node entry points require, found by reading the source
+-- (require("x") and pcall(require, "x")). Smaller than the whole runtime, so the old single-message update of a node that
+-- has no verified OTA yet fits next to the files it replaces. read(path) -> body | nil
+function ota_manager.node_closure(read_body)
+  local seen, paths = {}, {}
+  local function visit(module)
+    if seen[module] then return end
+    seen[module] = true
+    local path = module:gsub("%.", "/") .. ".lua"
+    local body = read_body(path)
+    if not body then return end
+    paths[#paths + 1] = path
+    for dep in body:gmatch('require%s*%(%s*"([%w_%.]+)"') do visit(dep) end
+    for dep in body:gmatch('require%s*,%s*"([%w_%.]+)"') do visit(dep) end
+  end
+  for _, module in ipairs(NODE_ENTRYPOINTS) do visit(module) end
+  table.sort(paths)
+  return paths
 end
 
 function ota_manager.new(network, registry, logger, opts)
@@ -162,6 +191,26 @@ function ota_manager.new(network, registry, logger, opts)
     end
   end
 
+  -- the old way: everything in one message, applied by the old node without a chance to roll back
+  local function send_legacy(update, session, now)
+    if not update.legacy_files then
+      update.legacy_files = {}
+      for _, item in ipairs(update.manifest) do
+        update.legacy_files[#update.legacy_files + 1] = { path = item.path, content = update.files[item.path].content, adler = item.adler }
+      end
+    end
+    session.total = #update.legacy_files
+    local msg = send_cmd(session.node_id, "ota_update", { update_id = update.id, version = update.version, files = update.legacy_files, file_count = #update.legacy_files })
+    if msg then
+      session.state = "COMMITTING"
+      session.commit_at = now
+      session.progress_at = now
+      session.legacy = true
+    else
+      fail(session, "update could not be sent")
+    end
+  end
+
   function self.start(files, start_opts)
     local o = start_opts or {}
     if self.update then
@@ -186,7 +235,8 @@ function ota_manager.new(network, registry, logger, opts)
 
     sequence = sequence + 1
     local version = tostring(o.version or ("ota-" .. tostring(time.now_s())))
-    local update = { id = string.format("%s-%d-%d", version, now_ms(), sequence), version = version, files = map, manifest = manifest, sessions = {}, order = {}, discover = o.discover == true }
+    if o.legacy and (o.discover or not o.nodes) then return nil, "a legacy update needs the list of nodes" end
+    local update = { id = string.format("%s-%d-%d", version, now_ms(), sequence), version = version, files = map, manifest = manifest, sessions = {}, order = {}, discover = o.discover == true, legacy = o.legacy == true }
     self.update = update
 
     local targets = o.nodes
@@ -265,6 +315,18 @@ function ota_manager.new(network, registry, logger, opts)
     return true
   end
 
+  -- a node that took the old single-message update never confirms itself: it counts once it answers with the new protocol
+  function self.on_heartbeat(msg)
+    local update = self.update
+    local session = update and msg and update.sessions[msg.src]
+    if session and session.legacy and session.state == "DONE" and (msg.pv or 1) >= 2 then
+      session.state = "CONFIRMED"
+      session.confirmed_at = now_ms()
+      return true
+    end
+    return false
+  end
+
   function self.on_drop(msg)
     local update = self.update
     if not update or not msg or not msg.dst then return end
@@ -290,7 +352,7 @@ function ota_manager.new(network, registry, logger, opts)
     for _, id in ipairs(update.order) do
       local session = update.sessions[id]
       if session.state == "QUEUED" and active < max_parallel then
-        offer(update, session, now)
+        if update.legacy then send_legacy(update, session, now) else offer(update, session, now) end
         if ACTIVE[session.state] then active = active + 1 end
       end
     end
@@ -360,6 +422,20 @@ function ota_manager.new(network, registry, logger, opts)
     end
     if #read_errors > 0 then log("warn", "OTA read errors", { errors = read_errors }) end
     return self.push(entries, o)
+  end
+
+  function self.push_legacy(push_opts)
+    local o = push_opts or {}
+    local paths = o.files or ota_manager.node_closure(function(path) return (read(path)) end)
+    local entries = {}
+    for _, path in ipairs(paths) do
+      local content = read(path)
+      if content then entries[#entries + 1] = { path = path, content = content } end
+    end
+    local legacy_opts = {}
+    for k, v in pairs(o) do legacy_opts[k] = v end
+    legacy_opts.legacy = true
+    return self.push(entries, legacy_opts)
   end
 
   function self.push(files, push_opts)
