@@ -23,8 +23,8 @@ local function walk(seed, world)
   end
 end
 
-local function run_seed(seed)
-  local world = world_mod.new(seed)
+local function run_seed(seed, opts)
+  local world = world_mod.new(seed, opts)
   local ok, err = pcall(walk, seed, world)
   world_mod.close(world)
   if not ok then error(err, 0) end
@@ -33,6 +33,11 @@ end
 return {
   test_random_walks_keep_dispatcher_invariants = function()
     for seed = 1, SEEDS do run_seed(seed) end
+  end,
+
+  -- same walks on topologies whose routes carry flank protection and overlap blocks
+  test_random_walks_with_flank_and_overlap_keep_invariants = function()
+    for seed = 1, SEEDS do run_seed(seed + 500, { stellwerk = true }) end
   end,
 
   test_prng_is_deterministic_and_in_range = function()

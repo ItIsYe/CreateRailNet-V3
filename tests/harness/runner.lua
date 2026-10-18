@@ -49,6 +49,7 @@ local tests = {
   "tests/test_dispatcher_property.lua",
   "tests/test_dispatcher_chaos.lua",
   "tests/test_dispatcher_regressions.lua",
+  "tests/test_interlocking_integration.lua",
   "tests/test_manual_repair.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",

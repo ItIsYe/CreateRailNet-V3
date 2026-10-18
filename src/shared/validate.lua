@@ -165,12 +165,24 @@ function validate.validate_config(cfg)
     end
   end
 
-  -- Validate interlocking routes (if defined)
+  -- Validate interlocking routes (if defined). An entry with the id of a dispatcher route only adds fields to it
+  -- (flank_protection, overlap_block); any other entry stands for itself.
+  local dispatcher_route_ids = {}
+  for _, route in ipairs(cfg.routes or {}) do if route.id then dispatcher_route_ids[route.id] = route end end
   for i, il_route in ipairs(cfg.interlocking_routes or {}) do
     local path = "interlocking_routes[" .. i .. "]"
     if not nonempty(il_route.id) then add(errors, path .. ".id", "must be non-empty string") end
-    if not nonempty(il_route.entry_signal) then add(errors, path .. ".entry_signal", "must define entry_signal for interlocking route") end
-    if not (il_route.blocks and #il_route.blocks > 0) then add(errors, path .. ".blocks", "must define at least one block") end
+    local base = dispatcher_route_ids[il_route.id]
+    if not base then
+      if not nonempty(il_route.entry_signal) then add(errors, path .. ".entry_signal", "must define entry_signal for interlocking route") end
+      if not (il_route.blocks and #il_route.blocks > 0) then add(errors, path .. ".blocks", "must define at least one block") end
+    end
+    local route_blocks = {}
+    for _, block_id in ipairs(il_route.blocks or (base and base.blocks) or {}) do route_blocks[block_id] = true end
+    if il_route.overlap_block ~= nil then
+      if not block_ids[il_route.overlap_block] then add(errors, path .. ".overlap_block", "references unknown block \"" .. tostring(il_route.overlap_block) .. "\"")
+      elseif route_blocks[il_route.overlap_block] then add(errors, path .. ".overlap_block", "must not be a block of the route itself") end
+    end
     -- Check flank protection references valid switches
     for j, fp in ipairs(il_route.flank_protection or {}) do
       if not nonempty(fp.switch_id) then add(errors, path .. ".flank_protection[" .. j .. "].switch_id", "must define switch_id") end

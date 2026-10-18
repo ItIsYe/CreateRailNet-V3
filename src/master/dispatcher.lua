@@ -72,6 +72,19 @@ function dispatcher.new(config, adapters)
   local function switch_adapter() return self.adapters.switches end
   local function set_switch(switch_id, position) if not switch_adapter() then return true end; return switch_adapter().setPosition(switch_id, position) end
   local function set_signal(signal_id, aspect) if not signal_id then return true end; return signal_logic.set_aspect(signal_id, aspect, signal_adapter()) end
+  -- Every aspect other than RED needs the interlocking: a live route that still has the block ahead of its train.
+  -- Without it the signal is forced to RED.
+  local function set_proceed_aspect(signal_id, aspect)
+    if not signal_id then return true end
+    if aspect ~= "RED" then
+      local allowed, why = self.interlocking.is_signal_green_allowed(signal_id)
+      if not allowed then
+        set_signal(signal_id, "RED")
+        return false, "interlocking refuses " .. tostring(aspect) .. " on " .. tostring(signal_id) .. ": " .. tostring(why)
+      end
+    end
+    return set_signal(signal_id, aspect)
+  end
   local function set_block_red(block)
     local ok, err = signal_logic.set_block_red(block, signal_adapter())
     if not ok and block then
@@ -187,7 +200,7 @@ function dispatcher.new(config, adapters)
       local lookahead = train.route_blocks[current_index + 1]
       local aspect = "GREEN"
       if lookahead and lookahead.state ~= STATES.FREE and lookahead.reserved_by ~= train.id then aspect = "YELLOW" end
-      return set_signal(next_block.entry_signal, aspect)
+      return set_proceed_aspect(next_block.entry_signal, aspect)
     end
     return true
   end
@@ -215,6 +228,7 @@ function dispatcher.new(config, adapters)
     train.current_block = nil
     train.route_index = #(train.route_blocks or {}) + 1
     self.switch_locks.release_by_route(train.owner)
+    self.interlocking.cancel_route(train.route, train.owner)
     release_conflicts(train)
     self.active_routes[train.owner] = nil
   end
@@ -252,6 +266,23 @@ function dispatcher.new(config, adapters)
     if not ok_lock then return false, lock_err end
     local ok_switch, switch_err = apply_switches(switch_requirements)
     if not ok_switch then self.switch_locks.release_by_route(owner); for _, block in ipairs(route_blocks) do set_block_red(block) end; return false, switch_err end
+    -- Interlocking (Fahrstraße stellen): checks the blocks and the route's conflicts once more, locks flank switches and
+    -- keeps the overlap block. Without it no signal leaves RED.
+    local function undo_interlocking() self.interlocking.cancel_route(route_id, owner); self.switch_locks.release_by_route(owner) end
+    local ok_il, il_err = self.interlocking.set_route(route_id, { owner = owner, train_id = train_id })
+    if not ok_il then
+      undo_interlocking()
+      for _, block in ipairs(route_blocks) do set_block_red(block) end
+      return false, "interlocking: " .. tostring(il_err)
+    end
+    local ok_flank, flank_err = apply_switches(self.interlocking.flank_switches(route_id))
+    if not ok_flank then
+      undo_interlocking()
+      for _, block in ipairs(route_blocks) do set_block_red(block) end
+      return false, flank_err
+    end
+    local route_def = self.interlocking.get_route(route_id)
+    if route_def and route_def.overlap_block then set_block_red(self.blocks[route_def.overlap_block]) end
     reserve_blocks(route_blocks, train_id)
     local train = { id = train_id, route = route_id, owner = owner, state = TRAIN_STATES.RESERVED, route_blocks = route_blocks, route_index = 1, current_block = nil, destination = route.to, from = route.from, priority = route.priority or 0, direction = route_direction(route), conflict_groups = route_conflict_groups(route) }
     self.trains[train_id] = train
@@ -259,14 +290,7 @@ function dispatcher.new(config, adapters)
     lock_conflicts(route, train)
     self.deadlocks[train_id] = nil
     local ok_signal, signal_err = update_route_signals(train)
-    if not ok_signal then release_blocks(route_blocks); self.switch_locks.release_by_route(owner); release_conflicts(train); self.trains[train_id] = nil; self.active_routes[owner] = nil; return false, "signal set failed: " .. tostring(signal_err) end
-    -- Set interlocking route (Fahrstraße stellen)
-    -- Note: interlocking uses its own lock — may partially overlap with switch_locks
-    -- Failure is logged but not fatal (dispatcher-level safety still applies)
-    local ok_il, il_err = self.interlocking.set_route(route_id)
-    if not ok_il and self.logger then
-      self.logger.warn("interlocking set_route failed", { route=route_id, error=il_err })
-    end
+    if not ok_signal then release_blocks(route_blocks); undo_interlocking(); release_conflicts(train); self.trains[train_id] = nil; self.active_routes[owner] = nil; return false, "signal set failed: " .. tostring(signal_err) end
     return true
   end
 
@@ -339,12 +363,19 @@ function dispatcher.new(config, adapters)
       guard.record_enter(block_id, ts)
       guard.detect_direction(block_id, sensor_id)
 
+      if block.overlap_for and block.state == STATES.RESERVED then
+        -- the train ran past its exit signal into the overlap (Durchrutschweg): that is a safety event, not progress
+        block.overlap_for = nil
+        mark_fault(block)
+        if self.logger then self.logger.warn("overlap block entered", { block = block_id }) end
+        return false, "overlap block entered: " .. block_id
+      end
       if block.state == STATES.RESERVED then
         local train = train_for_block(block)
         local occupying_train = (train and train.id) or block.reserved_by
         block_domain.occupy(block, occupying_train)
         -- Notify interlocking
-        if train and train.route then self.interlocking.enter_route(train.route) end
+        if train and train.route then self.interlocking.enter_route(train.route, train.owner) end
         if train then
           -- the furthest block the train has entered counts, a late event for an earlier block does not move it back
           local index = nil
@@ -370,7 +401,7 @@ function dispatcher.new(config, adapters)
         local train = train_for_block(block)
         block_domain.release(block); set_block_red(block)
         -- Partial dissolution (Teilauflösung)
-        if train and train.route then self.interlocking.section_free(train.route, block_id) end
+        if train and train.route then self.interlocking.section_free(train.route, block_id, train.owner) end
         if train and train.current_block ~= nil and train.current_block ~= block_id then
           -- a long train leaves an earlier block while it is still in the next one
           update_route_signals(train)
@@ -440,6 +471,7 @@ function dispatcher.new(config, adapters)
     sweep_held_blocks(train)
     if train.owner then
       self.switch_locks.release_by_route(train.owner)
+      self.interlocking.cancel_route(train.route, train.owner)
       release_conflicts(train)
       self.active_routes[train.owner] = nil
     end
@@ -488,7 +520,7 @@ function dispatcher.new(config, adapters)
   end
   function self.get_interlocking() return self.interlocking.list() end
   function self.get_block(id) return self.blocks[id] end
-  function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority, direction = train.direction, conflict_groups = copy_table(train.conflict_groups) } end; return out end
+  function self.get_trains() local out = {}; for id, train in pairs(self.trains) do out[id] = { id = train.id, route = train.route, state = train.state, holds_route = train.owner ~= nil and self.active_routes[train.owner] == train, route_index = train.route_index, current_block = train.current_block, destination = train.destination, priority = train.priority, direction = train.direction, conflict_groups = copy_table(train.conflict_groups) } end; return out end
   function self.get_queue() return self.queue.list() end
   function self.get_switch_locks() return self.switch_locks.list() end
   function self.get_conflicts() return copy_table(self.active_conflicts) end
@@ -500,9 +532,39 @@ function dispatcher.new(config, adapters)
     return { version = 2, blocks = blocks, trains = self.get_trains(), queue = self.get_queue(), switch_locks = self.get_switch_locks(), active_conflicts = self.get_conflicts(), deadlocks = copy_table(self.deadlocks) }
   end
 
+  -- Switch locks and interlocking route of a train that is on its way (or timed out and still holds everything)
+  local function rebuild_train_locks(train)
+    local route_blocks = train.route_blocks or {}
+    local ok, err = self.switch_locks.lock_many(collect_switch_requirements(route_blocks), train.owner)
+    local cleared, any_cleared = {}, false
+    for i = 1, (train.route_index or 1) - 1 do
+      local block = route_blocks[i]
+      if block and block.reserved_by ~= train.id and block.occupied_by ~= train.id then cleared[block.id] = true; any_cleared = true end
+    end
+    local status = interlocking_module.ROUTE_STATES.SET
+    if any_cleared then status = interlocking_module.ROUTE_STATES.DISSOLVING
+    elseif train.state == TRAIN_STATES.RUNNING or train.current_block ~= nil then status = interlocking_module.ROUTE_STATES.OCCUPIED end
+    if ok then
+      ok, err = self.interlocking.restore_route(train.route, { owner = train.owner, train_id = train.id, status = status, cleared = cleared })
+    end
+    if not ok then
+      -- the saved state contradicts itself: nothing of this route may be driven
+      self.switch_locks.release_by_route(train.owner)
+      self.interlocking.cancel_route(train.route, train.owner)
+      for _, block in ipairs(route_blocks) do
+        if block.reserved_by == train.id or block.occupied_by == train.id then mark_fault(block) end
+      end
+      train.state = TRAIN_STATES.FAULT
+      if self.logger then self.logger.warn("restore: route state inconsistent", { train = train.id, route = train.route, error = err }) end
+    end
+  end
+
   function self.restore(snapshot)
     local snap = snapshot or {}
-    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; block.occupied_by = saved.occupied_by; set_block_red(block) end end
+    -- locks and interlocking routes are rebuilt from the trains below
+    self.interlocking.reset()
+    self.switch_locks.clear()
+    for id, saved in pairs(snap.blocks or {}) do local block = self.blocks[id]; if block then block.state = saved.state or STATES.FAULT; block.reserved_by = saved.reserved_by; block.occupied_by = saved.occupied_by; block.overlap_for = nil; set_block_red(block) end end
     self.trains = {}; self.active_routes = {}; self.active_conflicts = {}
     for _, train_id in ipairs(sorted_keys(snap.trains)) do
       local saved = snap.trains[train_id]
@@ -511,7 +573,18 @@ function dispatcher.new(config, adapters)
       local route = self.routes[route_id]
       local train = { id = train_id, route = route_id, owner = owner, state = saved.state or TRAIN_STATES.WAITING, route_blocks = rebuild_route_blocks(route_id), route_index = saved.route_index or 1, current_block = saved.current_block, destination = saved.destination, priority = saved.priority or 0, direction = saved.direction or (route and route_direction(route)), conflict_groups = saved.conflict_groups or (route and route_conflict_groups(route)) or {} }
       self.trains[train_id] = train
-      if train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING then self.active_routes[owner] = train; if route then lock_conflicts(route, train) end end
+      local holds = train.state == TRAIN_STATES.RESERVED or train.state == TRAIN_STATES.RUNNING
+      if holds then self.active_routes[owner] = train; if route then lock_conflicts(route, train) end end
+      -- a timed-out train keeps its route only if it had one; one that had arrived or was only queued has nothing to protect
+      -- (snapshots from before holds_route existed: judged by the blocks it still carries)
+      local holds_route = holds
+      if not holds and train.state == TRAIN_STATES.FAULT then
+        if saved.holds_route ~= nil then holds_route = saved.holds_route
+        else
+          for _, block in ipairs(train.route_blocks) do if block.reserved_by == train_id or block.occupied_by == train_id then holds_route = true end end
+        end
+      end
+      if route and holds_route then self.active_routes[owner] = train; rebuild_train_locks(train) end
       update_route_signals(train)
     end
     for group, active in pairs(snap.active_conflicts or {}) do if not self.active_conflicts[group] then self.active_conflicts[group] = copy_table(active) end end

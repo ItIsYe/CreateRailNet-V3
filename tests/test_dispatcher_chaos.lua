@@ -21,8 +21,8 @@ local function walk(seed, world)
   end
 end
 
-local function run_seed(seed)
-  local world = world_mod.new(seed, { chaos = true })
+local function run_seed(seed, stellwerk)
+  local world = world_mod.new(seed, { chaos = true, stellwerk = stellwerk })
   local ok, err = pcall(walk, seed, world)
   world_mod.close(world)
   if not ok then error(err, 0) end
@@ -31,5 +31,9 @@ end
 return {
   test_chaos_sequences_never_raise_and_keep_safety_invariants = function()
     for seed = FIRST_SEED + 1, FIRST_SEED + SEEDS do run_seed(seed) end
+  end,
+
+  test_chaos_with_flank_and_overlap_keeps_safety_invariants = function()
+    for seed = FIRST_SEED + 501, FIRST_SEED + 500 + SEEDS do run_seed(seed, true) end
   end
 }

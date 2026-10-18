@@ -79,6 +79,7 @@ function gleisbild.new(dispatcher, registry, interlocking_ref)
     for id, rs in pairs(il_routes) do
       if rs.status ~= "VACANT" then table.insert(il_list, {id=id, rs=rs}) end
     end
+    table.sort(il_list, function(a, b) return tostring(a.id) < tostring(b.id) end)  -- pairs() order would make the line flicker
     if #il_list > 0 then
       u.fill_line(3, C.black, w)
       u.write_at(1, 3, "Fahrstrassen: ", C.cyan)

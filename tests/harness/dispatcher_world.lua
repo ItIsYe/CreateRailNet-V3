@@ -1,6 +1,6 @@
 --[[
 Purpose: Shared fixture for dispatcher property and chaos tests: seeded topology generator, step functions and invariants.
-Public API: new(seed, opts) -> world, from_config(cfg, opts) -> world, close(world), step_legal(world), step_chaos(world), violation(world, opts) -> string | nil,
+Public API: new(seed, opts) -> world (opts.stellwerk: routes get flank protection and overlap blocks), from_config(cfg, opts) -> world, close(world), step_legal(world), step_chaos(world), violation(world, opts) -> string | nil,
   recent(world, count) -> the last operations as text.
 Notes: new() replaces os.clock with the world's synthetic clock (the sensor guard measures event age with it) so runs are
   deterministic; close() puts the real one back.
@@ -16,7 +16,7 @@ local TRAIN_IDS = { "T1", "T2", "T3", "T4" }
 
 local world_mod = {}
 
-local function build_config(rng)
+local function build_config(rng, stellwerk)
   local nblocks = rng.int(4, 8)
   local blocks = {}
   for i = 1, nblocks do
@@ -38,12 +38,28 @@ local function build_config(rng)
     while to == from do to = rng.pick(stations) end
     routes[r] = { id = "R" .. r, from = from, to = to, blocks = chosen, priority = rng.int(0, 10) }
   end
-  return { sensor_guard_min_occupy_ms = 0, blocks = blocks, routes = routes }
+  local interlocking_routes
+  if stellwerk then
+    -- flank switches and overlap blocks; drawn after everything else so the plain topologies stay the same per seed
+    interlocking_routes = {}
+    for _, route in ipairs(routes) do
+      local entry = { id = route.id }
+      if rng.chance(0.4) then entry.flank_protection = { { switch_id = "SW-F" .. rng.int(1, 2), position = rng.pick({ "STRAIGHT", "DIVERGING" }) } } end
+      if rng.chance(0.25) then
+        local in_route, candidates = {}, {}
+        for _, id in ipairs(route.blocks) do in_route[id] = true end
+        for i = 1, nblocks do if not in_route["B" .. i] then candidates[#candidates + 1] = "B" .. i end end
+        if #candidates > 0 then entry.overlap_block = rng.pick(candidates) end
+      end
+      if entry.flank_protection or entry.overlap_block then interlocking_routes[#interlocking_routes + 1] = entry end
+    end
+  end
+  return { sensor_guard_min_occupy_ms = 0, blocks = blocks, routes = routes, interlocking_routes = interlocking_routes }
 end
 
 function world_mod.new(seed, opts)
   local rng = prng.new(seed)
-  local cfg = build_config(rng)
+  local cfg = build_config(rng, opts and opts.stellwerk)
   local aspects = {}
   local adapters = {
     signals = { setAspect = function(id, aspect) aspects[id] = aspect; return true end },
@@ -112,9 +128,13 @@ function world_mod.violation(world, opts)
       -- a timed-out train (FAULT) keeps its blocks on purpose: it may still be standing on them
       local holds_legally = active(t) or (chaos and t and t.state == TRAIN_STATES.FAULT)
       if not holds_legally then return "block " .. b.id .. " owned by " .. tostring(owner) .. " who has no active route" end
-      if not route_has_block(world, t.route, b.id) then return "block " .. b.id .. " owned by " .. owner .. " outside its route " .. tostring(t.route) end
+      if not route_has_block(world, t.route, b.id) and b.overlap_for ~= t.route then return "block " .. b.id .. " owned by " .. owner .. " outside its route " .. tostring(t.route) end
     end
 
+    if b.overlap_for and b.state == STATES.RESERVED then
+      local t = trains[b.reserved_by]
+      if not (t and t.holds_route and t.route == b.overlap_for) then return "overlap block " .. b.id .. " reserved for route " .. b.overlap_for .. " without a train that holds it" end
+    end
     local entry = world.aspects[b.entry_signal]
     if b.state == STATES.FAULT and (entry == "GREEN" or entry == "YELLOW") then
       return "FAULT block " .. b.id .. " shows " .. entry .. " on " .. b.entry_signal
@@ -151,7 +171,7 @@ function world_mod.violation(world, opts)
   for switch_id, lock in pairs(locks) do
     local found = false
     for id, t in pairs(trains) do
-      if holds_locks(t) and lock.owner == id .. ":" .. t.route then found = true end
+      if holds_locks(t) and (lock.owner == id .. ":" .. t.route or lock.owner == id .. ":" .. t.route .. ":flank") then found = true end
     end
     if not found then return "switch lock " .. switch_id .. " leaked to " .. tostring(lock.owner) end
   end
@@ -164,6 +184,44 @@ function world_mod.violation(world, opts)
       for _, group in ipairs(t.conflict_groups or {}) do
         if not d.get_conflicts()[group] then return "train " .. id .. " is active but conflict group " .. group .. " is not held" end
       end
+    end
+  end
+
+  -- interlocking: a live route belongs to exactly one train that holds locks, and every train that holds blocks has one
+  local il = d.get_interlocking()
+  for route_id, status in pairs(il) do
+    if status.status ~= "VACANT" then
+      local found = false
+      for id, t in pairs(trains) do
+        if t.holds_route and status.owner == id .. ":" .. t.route and t.route == route_id then found = true end
+      end
+      if not found then return "interlocking route " .. route_id .. " (" .. status.status .. ") leaked to " .. tostring(status.owner) end
+      local route = world.routes[route_id]
+      for _, block_id in ipairs(route.blocks) do
+        local b = d.get_block(block_id)
+        if b.state == STATES.FREE and not status.cleared[block_id] then
+          return "interlocking route " .. route_id .. " still counts block " .. block_id .. " as ahead but it is free"
+        end
+      end
+    end
+  end
+  for id, t in pairs(trains) do
+    local overlap = t.holds_route and il[t.route] and il[t.route].overlap
+    if overlap then
+      local ov = d.get_block(overlap)
+      if not (ov.state == STATES.FAULT or (ov.state == STATES.RESERVED and ov.overlap_for == t.route and ov.reserved_by == id)) then
+        return "train " .. id .. " lost its overlap block " .. overlap .. " (" .. ov.state .. ")"
+      end
+    end
+    if (active(t) or t.holds_route) and not (il[t.route] and il[t.route].owner == id .. ":" .. t.route) then
+      return "train " .. id .. " (" .. t.state .. ") has no interlocking route " .. tostring(t.route)
+    end
+    if active(t) and not t.holds_route then return "active train " .. id .. " does not hold its route" end
+  end
+  for _, block_def in ipairs(world.cfg.blocks) do
+    local aspect = world.aspects[block_def.entry_signal]
+    if (aspect == "GREEN" or aspect == "YELLOW") and not d.interlocking.is_signal_green_allowed(block_def.entry_signal) then
+      return "signal " .. block_def.entry_signal .. " shows " .. aspect .. " without the interlocking's permission"
     end
   end
 
