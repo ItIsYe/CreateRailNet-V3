@@ -1,5 +1,5 @@
 --[[
-Purpose: Fail when a tests/test_*.lua file is not listed in the test runner, or a listed file is gone.
+Purpose: Fail when a tests/test_*.lua file is not listed in the test runner, is listed twice, or a listed file is gone.
 Usage: lua scripts/check_test_registry.lua (needs io.popen; prints SKIP and succeeds inside CC:Tweaked)
 Notes: The runner executes an explicit list. A test file missing from it silently never runs.
 ]]
@@ -17,9 +17,14 @@ local function read_all(path)
   return body
 end
 
+local duplicates = {}
+
 local function listed(body)
   local set = {}
-  for path in body:gmatch('"(tests/test_[%w_]+%.lua)"') do set[path] = true end
+  for path in body:gmatch('"(tests/test_[%w_]+%.lua)"') do
+    if set[path] then duplicates[#duplicates + 1] = path end
+    set[path] = true
+  end
   return set
 end
 
@@ -41,6 +46,8 @@ for name, set in pairs(sources) do
     if not on_disk[path] then failed = failed + 1; print("FAIL " .. name .. " lists missing file " .. path) end
   end
 end
+
+for _, path in ipairs(duplicates) do failed = failed + 1; print("FAIL " .. path .. " is listed twice (its tests would run twice)") end
 
 local count = 0
 for _ in pairs(on_disk) do count = count + 1 end

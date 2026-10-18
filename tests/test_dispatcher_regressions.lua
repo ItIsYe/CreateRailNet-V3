@@ -7,6 +7,11 @@ pcall(dofile, "tests/harness/cc_bootstrap.lua")
 
 local dispatcher = require("src.master.dispatcher")
 
+-- The sensor guard rejects events older than 10 s of machine time, so test timestamps count from now.
+local function ts(offset_ms)
+  return math.floor(os.clock() * 1000) + offset_ms
+end
+
 local function cfg()
   return {
     sensor_guard_min_occupy_ms = 0,
@@ -52,8 +57,8 @@ return {
   test_release_route_keeps_blocks_that_now_belong_to_another_train = function()
     local d = world()
     assert(d.reserve_route("T1", "R-1"))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(3000)))
     assert(d.reserve_route("T2", "R-1"))
     assert(d.release_route("T1", "R-1"))
     local block = d.get_block("B1")
@@ -78,12 +83,12 @@ return {
     })
     assert(d.reserve_route("T1", "R-AC-1"))
     assert(d.reserve_route("T2", "R-AC-2"))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", ts(3000)))
     local ok, status = d.request_route("T3", "R-CA")
     assert(ok == false and status == "queued", "T1 is still running A->C, C->A must wait")
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 5000))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 7000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(5000)))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(7000)))
     assert(d.get_trains().T3.state == dispatcher.TRAIN_STATES.RESERVED, "after the last A->C train is done the queue admits T3")
   end,
 
@@ -109,15 +114,15 @@ return {
   test_running_train_keeps_its_route_and_the_second_request_waits = function()
     local d = world()
     assert(d.reserve_route("T1", "R-12"))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 1000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(1000)))
     local ok, status = d.request_route("T1", "R-2")
     assert(ok == false and status == "queued")
     local t1 = d.get_trains().T1
     assert(t1.state == dispatcher.TRAIN_STATES.RUNNING and t1.route == "R-12", "the running record must not be overwritten")
     assert(d.get_block("B1").state == dispatcher.STATES.OCCUPIED and d.get_block("B1").occupied_by == "T1")
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 3000))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", 4000))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", 6000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(3000)))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", ts(4000)))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", ts(6000)))
     assert(d.get_trains().T1.route == "R-2" and d.get_trains().T1.state == dispatcher.TRAIN_STATES.RESERVED, "the waiting request is granted after the first route")
   end,
 
@@ -133,8 +138,8 @@ return {
   test_arrival_releases_blocks_whose_sensor_events_were_missed = function()
     local d = world()
     assert(d.reserve_route("T1", "R-12"))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", ts(3000)))
     assert(d.get_trains().T1.state == dispatcher.TRAIN_STATES.ARRIVED)
     assert(d.get_block("B1").state == dispatcher.STATES.FREE, "B1 was never reported but the train is gone")
   end,
@@ -148,8 +153,8 @@ return {
     d.timeout_node("T2")
     assert(#d.get_queue() == 0, "an offline train must not receive a route")
     assert(d.get_trains().T2.state == dispatcher.TRAIN_STATES.FAULT)
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(3000)))
     assert(d.get_block("B1").state == dispatcher.STATES.FREE, "B1 must not be reserved for the dead train")
   end,
 
@@ -208,7 +213,7 @@ return {
   test_faulted_block_is_not_reserved_again_by_the_train_that_held_it = function()
     local d = world()
     assert(d.reserve_route("T1", "R-12"))
-    local ok = d.on_sensor_event_by_sensor("SEN-2", "leave", 1000)
+    local ok = d.on_sensor_event_by_sensor("SEN-2", "leave", ts(1000))
     assert(ok == false, "leave on a block nobody occupies is a sensor fault")
     assert(d.get_block("B2").state == dispatcher.STATES.FAULT)
     local granted = d.request_route("T1", "R-2")
@@ -223,8 +228,8 @@ return {
     local queued = d.request_route("T1", "R-1")
     assert(queued == false)
     assert(d.reserve_route("T1", "R-2"), "T1 asks again and gets another route right away")
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(3000)))
     local t1 = d.get_trains().T1
     assert(t1.route == "R-2" and t1.state == dispatcher.TRAIN_STATES.RESERVED, "T1 keeps R-2, got " .. tostring(t1.route) .. "/" .. tostring(t1.state))
     assert(d.get_block("B2").reserved_by == "T1" and d.get_block("B1").state == dispatcher.STATES.FREE)
@@ -240,10 +245,10 @@ return {
     d.timeout_node("T1")
     local ok, status = d.request_route("T3", "R-CA")
     assert(ok == false and status == "queued", "T1 may still be on the corridor, C->A has to wait")
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 1000), "the sensor sees T1 again")
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(1000)), "the sensor sees T1 again")
     assert(d.get_trains().T1.state == dispatcher.TRAIN_STATES.RUNNING)
     assert(d.get_conflicts()["opp:A<->C"], "and the corridor is still claimed")
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(3000)))
     assert(d.get_trains().T3.state == dispatcher.TRAIN_STATES.RESERVED, "once T1 is through, T3 gets the corridor")
   end,
 
@@ -262,13 +267,13 @@ return {
   test_leaving_an_earlier_block_does_not_advance_a_train_that_is_still_in_the_next_one = function()
     local d = world()
     assert(d.reserve_route("T1", "R-12"))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", 2000))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 3000))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", ts(2000)))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(3000)))
     local t1 = d.get_trains().T1
     assert(t1.state == dispatcher.TRAIN_STATES.RUNNING and t1.current_block == "B2", "T1 is still in B2, got " .. tostring(t1.state))
     assert(d.get_block("B2").occupied_by == "T1")
-    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", 5000))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", ts(5000)))
     assert(d.get_trains().T1.state == dispatcher.TRAIN_STATES.ARRIVED)
     assert(d.get_block("B1").state == dispatcher.STATES.FREE and d.get_block("B2").state == dispatcher.STATES.FREE)
   end,
@@ -277,11 +282,11 @@ return {
   test_out_of_order_enter_events_do_not_move_the_train_backwards = function()
     local d = world()
     assert(d.reserve_route("T1", "R-12"))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", 1000))
-    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", 2000))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "enter", ts(1000)))
+    assert(d.on_sensor_event_by_sensor("SEN-1", "enter", ts(2000)))
     local t1 = d.get_trains().T1
     assert(t1.current_block == "B2" and t1.route_index == 2, "the furthest block wins, got " .. tostring(t1.current_block))
-    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", 4000))
+    assert(d.on_sensor_event_by_sensor("SEN-2", "leave", ts(4000)))
     assert(d.get_trains().T1.state == dispatcher.TRAIN_STATES.ARRIVED)
     assert(d.get_block("B1").state == dispatcher.STATES.FREE, "the late block is released with the arrival")
   end,
@@ -289,7 +294,7 @@ return {
   -- there was no way to repair a FAULT block short of editing the state file; every node timeout left some behind
   test_operator_can_clear_a_fault_block_nobody_is_using = function()
     local d, aspects = world()
-    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", 1000) == false)
+    assert(d.on_sensor_event_by_sensor("SEN-1", "leave", ts(1000)) == false)
     assert(d.get_block("B1").state == dispatcher.STATES.FAULT)
     assert(d.reserve_route("T1", "R-1") == false, "a FAULT block cannot be reserved")
     assert(d.clear_fault("B1"))

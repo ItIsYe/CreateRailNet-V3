@@ -22,7 +22,7 @@ end
 return {
   test_clear_fault_action_repairs_the_block_and_is_audited = function()
     local d, mc, audits = setup()
-    d.on_sensor_event_by_sensor("SEN-1", "leave", 1000)
+    d.on_sensor_event_by_sensor("SEN-1", "leave")
     assert(d.get_block("B1").state == dispatcher.STATES.FAULT)
     assert(mc.handle({ action = "clear_fault", block_id = "B1" }, "PANEL-1"))
     assert(d.get_block("B1").state == dispatcher.STATES.FREE)
