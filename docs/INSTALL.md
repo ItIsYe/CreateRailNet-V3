@@ -26,8 +26,8 @@ wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<zweig>/installer
 installer --ref <zweig>
 ```
 
-Der Installer fragt die Rolle (Menü), lädt, prüft, schreibt, und übergibt an den Assistenten, der Node-ID, Kanal und Peripherie abfragt, `startup.lua`
-schreibt und neu startet.
+Der Installer fragt die Rolle (Menü), lädt, prüft, schreibt, und übergibt an den Einrichtungs-Assistenten: Netzplan, Name, Hardware, eine Zusammenfassung zum
+Bestätigen, dann `startup.lua` und Neustart. Was der Assistent fragt und schreibt: `docs/INGAME_SETUP.md`.
 
 ## Optionen
 
@@ -51,7 +51,7 @@ schreibt und neu startet.
    Zu jedem Zeitpunkt ist die alte oder die neue Fassung vollständig da.
 7. Dateien der vorigen Installation, die der neue Stand nicht mehr braucht, entfernen (Liste in `crn_install.lua`).
 8. `crn_version.txt` (`<ref>-<id>`) und `crn_install.lua` schreiben, Journal löschen = fertig.
-9. Neuer Computer: Assistent (`scripts/setup.lua --role <rolle>`). Vorhandene Installation: `startup.lua` bekommt, falls nötig, die
+9. Neuer Computer: Assistent (`scripts/setup.lua --role <rolle>`, die Rollenfrage entfällt). Vorhandene Installation: `startup.lua` bekommt, falls nötig, die
    Wiederherstellung (alte Fassung als `startup.lua.prev`), danach Neustart.
 
 Stürzt der Computer ab oder bricht das Netz weg, bleibt das Journal liegen. Beim nächsten Start setzt `startup.lua` die Installation fort
@@ -78,9 +78,10 @@ Assistent oder du selbst angelegt hast, `startup.lua` (außer dem Einfügen der 
 
 ## Konfiguration verteilen
 
-Der Installer legt die Vorlagen an, damit ein Computer sofort starten kann. Die Konfiguration deiner Welt entsteht auf dem Master
-(Vorlage bearbeiten, `lua scripts/check_configs.lua`) und erreicht die Nodes per OTA (`scripts/ota_push.lua`, nur unter `configs/templates/`)
-oder indem du die Datei kopierst. Der Assistent bietet „OTA vom Master" als Quelle an.
+Der Installer legt die Vorlagen an (`configs/templates/`), damit der Assistent sie als Beispiele anbieten kann. Der Netzplan deiner Welt liegt als
+`configs/network.json` auf dem Master: der Assistent kopiert dort ein Beispiel hin oder legt einen leeren Plan an, du baust ihn aus und prüfst ihn mit
+`scripts/setup.lua --check`. Die anderen Computer brauchen nur einen **Kurzplan** (ihren eigenen Eintrag und den Master), den der Assistent selbst anlegt;
+den Eintrag für den Master zeigt er am Ende. Das Verteilen größerer Pläne per OTA (`scripts/ota_push.lua`) gilt weiter für Dateien unter `configs/templates/`.
 
 ## Aktualisieren, reparieren, Rolle wechseln
 

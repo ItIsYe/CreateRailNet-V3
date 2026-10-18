@@ -4,7 +4,7 @@ Die Tests in `tests/` laufen ohne Minecraft. Sie beweisen die Logik (Reservierun
 Create und CC:Tweaked in der echten Welt verhalten. Diese Liste ist dafür da: einmal in einer **Testwelt oder auf einem abgesperrten Stück
 Strecke** durchgehen, die Ergebnisse in die letzte Spalte schreiben. Wo etwas anders kommt als erwartet, steht in der Zeile, was das bedeutet.
 
-Vorbereitung: Backup der Welt, ein kleines Netz (Master, 2 Signale, 2 Sensoren, 1 Weiche, 1 Zug, 1 Panel-Monitor), `lua scripts/check_configs.lua`
+Vorbereitung: Backup der Welt, ein kleines Netz (Master, 2 Signale, 2 Sensoren, 1 Weiche, 1 Zug, 1 Panel-Monitor), `scripts/setup.lua --check`
 ohne Fehler, `docs/INGAME_SETUP.md` durchgearbeitet.
 
 ## 0. Installer (`docs/INSTALL.md`)
@@ -23,6 +23,24 @@ genauso arbeiten, zeigt nur der Versuch. Auf einem **frischen** Computer, dann a
 | 0g | eigene Konfiguration (`configs/templates/network.full.example.json`) ändern, `installer` erneut | Datei bleibt unverändert; eine gelöschte `scripts/start_*.lua` kommt zurück | Datei überschrieben: melden (Seed-Liste im Manifest) | |
 | 0h | `installer --role signal` auf einem Sensor-Computer | alte Sensor-Dateien weg, Assistent richtet die Signal-Rolle ein | | |
 | 0i | direkt nach einem Push auf den Zweig installieren | evtl. „… checksum of …" und Wiederholung mit Wartezeit (CDN-Cache), dann Erfolg | dauerhaft Prüfsummenfehler: `lua scripts/manifest_sync.lua --check` im Repository | |
+
+### 0.1 Einrichtungs-Assistent (`docs/INGAME_SETUP.md`)
+
+Der Assistent ist offline mit einem simulierten Computer getestet (jede Rolle, alle Plan-Wege, zurück, Hilfe, Abbruch, Bildschirm 51 x 19, nur ASCII).
+Wie die Seiten auf einem **echten** Terminal aussehen, zeigt nur der Versuch. Auf einem frischen Computer je Rolle, dazu einmal auf einem
+Computer ohne Modem und einmal auf einem Pocket-/Mini-Terminal, falls ihr eins benutzt:
+
+| # | Versuch | Erwartet | Wenn anders | Ergebnis |
+|---|---|---|---|---|
+| 0j | `scripts/setup.lua` auf dem Master: Beispiel kopieren, alles mit Enter | jede Seite passt ohne Scrollen auf den Bildschirm, keine Sonderzeichen/Kästchen, Kopfzeile zeigt den Schritt | Seite läuft über oder Zeichen kaputt: Bildschirmgröße (`term.getSize()`) und Seite notieren | |
+| 0k | `?` auf jeder Frage, danach Enter | Hilfe auf eigener Seite, danach dieselbe Frage wieder, nichts doppelt | Frage fehlt oder erscheint zweimal: Frage notieren | |
+| 0l | `<` mehrfach, auch auf der ersten Frage | geht Schritt für Schritt zurück, Antworten bleiben als Vorschlag, auf der ersten Frage kommt „Einrichtung abbrechen?" | | |
+| 0m | Signal-Computer mit Create-Signal: Kurzplan | Gerät wird erkannt (Name aus der Liste), Zusammenfassung nennt „Create_Signal_0 (gefunden)", Abschlussseite zeigt die Zeile für den Netzplan des Masters | Gerät nicht erkannt: Typ mit `peripheral.getType` notieren (Erkennung in `src/setup/hardware.lua`) | |
+| 0n | dieselbe Zeile in `nodes` des Masters eintragen, `scripts/setup.lua --check` | „in Ordnung" | Fehlerliste: Pfad und Text notieren | |
+| 0o | Computer ohne Modem | deutliche Warnung, Weitermachen möglich, Zusammenfassung nennt „Modem FEHLT" | | |
+| 0p | Assistent bis zur Zusammenfassung, dann `A` | „Abgebrochen. Es wurde nichts geaendert.", kein `startup.lua`, keine `configs/network.json` | Datei angelegt: melden | |
+| 0q | Strg+T mitten in einer Frage | Shell, nichts geschrieben | | |
+| 0r | Assistent auf einem schon eingerichteten Computer | fragt zuerst „Neu einrichten?"; Nein ändert nichts | | |
 
 ## 1. Was macht ein Create-Signal, wenn sein Computer ausfällt? (offene Frage Nr. 1)
 

@@ -59,6 +59,17 @@ See the table in `docs/INSTALL.md` ("Wenn etwas schiefgeht"). The short version:
 `Der Speicher dieses Computers reicht nicht` means nothing was changed and the computer needs more space; `Installation unvollstaendig.` at boot means an
 interrupted installation, which `startup.lua` resumes by itself (`installer --resume`).
 
+## Setup wizard
+
+- **"Kein Modem an diesem Computer"**: the wizard warns and lets you go on. Without a modem the computer cannot reach the master; place one directly against the computer and start the wizard again, or
+  just attach it later.
+- **"Der Netzplan erwartet das Geraet ... nicht angeschlossen"**: the plan names a device (`peripheral`, `create_station`) the computer does not see.
+  The name in the plan must match what `peripherals` lists, or the device is not connected yet.
+- **The master does not start, naming a config error**: `scripts/setup.lua --check` lists every problem of `configs/network.json` with its path.
+- **Wrong id or role**: run `scripts/setup.lua` again; an installed computer asks first whether to set up again, and offers its old answers.
+- **A page is cut off or shows odd characters**: the wizard assumes a 51 x 19 terminal and plain ASCII. A smaller terminal wraps lines but needs more
+  pages; report the size (`term.getSize()`) if a page does not fit.
+
 ## OTA update not applying
 
 - Verify the master is running and nodes are registered before pushing

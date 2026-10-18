@@ -1,6 +1,6 @@
 --[[
 Purpose: In-memory filesystem with CC:Tweaked semantics (fs.move onto an existing file fails) and crash injection.
-Public API: new() -> fs with open/exists/delete/move/makeDir/getFreeSpace plus files, ops, crash_at, fail, capacity, snapshot(), set(path, body).
+Public API: new() -> fs with open/exists/isDir/list/delete/move/makeDir/getFreeSpace plus files, ops, crash_at, fail, capacity, snapshot(), set(path, body).
 Notes: crash_at = n raises "crash" instead of performing the n-th mutating operation (a write that crashes leaves half
   the content behind). With sticky_crash every later mutating operation raises too, even where code catches the error, until
   the test sets crashed = false (the reboot). fail.move_for = path makes the next fs.move to that destination silently do nothing (one shot).
@@ -22,7 +22,30 @@ function memfs.new()
     end
   end
 
-  f.exists = function(path) return f.files[path] ~= nil end
+  -- a directory exists as soon as a file lies below it, like in CC:Tweaked
+  local function is_dir(path)
+    local prefix = path .. "/"
+    for name in pairs(f.files) do
+      if name:sub(1, #prefix) == prefix then return true end
+    end
+    return false
+  end
+  f.isDir = is_dir
+  f.exists = function(path) return f.files[path] ~= nil or is_dir(path) end
+
+  -- names directly below a directory (files and sub directories), like fs.list
+  f.list = function(dir)
+    local prefix = dir .. "/"
+    local seen, names = {}, {}
+    for name in pairs(f.files) do
+      if name:sub(1, #prefix) == prefix then
+        local first = name:sub(#prefix + 1):match("^[^/]+")
+        if first and not seen[first] then seen[first] = true; names[#names + 1] = first end
+      end
+    end
+    table.sort(names)
+    return names
+  end
 
   f.open = function(path, mode)
     if mode == "r" then

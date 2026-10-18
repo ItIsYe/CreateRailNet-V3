@@ -1,0 +1,1018 @@
+--[[
+Purpose: The first-time setup of a computer: role, network plan, name, hardware, summary, then startup.lua (and the plan when needed).
+Public API: run(opts) -> result { ok, aborted, role, id, config, written, rebooted, error }
+  opts: args (argv list, "--role <role>" skips the role question), env { print, write, read, term, colors, fs, peripheral, os }
+  check(path, env) -> { ok, path }          prints whether a network plan is valid (scripts/setup.lua --check [file])
+  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path }
+Flow: Rolle > Netzplan > Name > Hardware > Pruefen. One question per page, every page fits 51 x 19, the header shows where you are. A step that
+  has nothing to ask is left out (an example plan already says everything about this computer). "?" explains the question, "<" goes back.
+  Nothing is written before the summary is confirmed.
+Files: configs/network.json is the plan of this computer. Master: kept, copied from an example, or empty. Other computers: kept, a short plan
+  (this computer and the master, valid on its own), or an example/own file used in place. startup.lua is rendered by src/shared/startup_template.lua.
+Notes: ASCII only (CC:Tweaked draws bytes, not UTF-8); all text German. Written files go through src/shared/safe_write.lua (read back, old copy as .prev).
+]]
+
+local terminal = require("src.setup.terminal")
+local hardware = require("src.setup.hardware")
+local netplan = require("src.setup.netplan")
+local startup_template = require("src.shared.startup_template")
+local safe_write = require("src.shared.safe_write")
+
+local wizard = {}
+
+wizard.ROLES = {
+  { key = "master",  label = "Master",  text = "Zentrale Steuerung (nur einer)" },
+  { key = "signal",  label = "Signal",  text = "steuert ein Signal" },
+  { key = "sensor",  label = "Melder",  text = "meldet Zuege (Train Observer)" },
+  { key = "switch",  label = "Weiche",  text = "stellt eine Weiche (Redstone)" },
+  { key = "station", label = "Bahnhof", text = "gehoert zu einem Create-Bahnhof" },
+  { key = "depot",   label = "Depot",   text = "Abstellbereich / Depot" },
+  { key = "train",   label = "Zug",     text = "Bordcomputer im Zug" },
+  { key = "panel",   label = "Monitor", text = "Bedien-Monitor (Panel)" },
+}
+
+local BACK = {}
+local ABORT = {}
+
+local STEP_NAMES = { role = "Rolle", plan = "Netzplan", identity = "Name", hardware = "Hardware", summary = "Pruefen" }
+
+local function role_info(key)
+  for _, role in ipairs(wizard.ROLES) do if role.key == key then return role end end
+  return nil
+end
+
+local function role_label(key)
+  local info = role_info(key)
+  return info and info.label or tostring(key)
+end
+
+local function side_word(key)
+  for _, side in ipairs(hardware.SIDES) do if side.key == key then return side.label end end
+  return tostring(key)
+end
+
+-- ── the disk ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+local function make_files(fs_api)
+  local files = {}
+  function files.exists(path) return fs_api.exists(path) end
+  function files.read(path)
+    if not fs_api.exists(path) then return nil end
+    local fh = fs_api.open(path, "r")
+    if not fh then return nil end
+    local body = fh.readAll()
+    fh.close()
+    return body
+  end
+  function files.write(path, body) return safe_write.write(path, body, { fs = fs_api }) end
+  function files.list(dir)
+    if not (fs_api.list and fs_api.exists(dir)) then return {} end
+    local ok, names = pcall(fs_api.list, dir)
+    if not ok or type(names) ~= "table" then return {} end
+    table.sort(names)
+    return names
+  end
+  return files
+end
+
+function wizard.parse_args(argv)
+  local args = {}
+  local i = 1
+  while argv and i <= #argv do
+    if argv[i] == "--role" then
+      args.role = argv[i + 1]
+      i = i + 2
+    elseif argv[i] == "--check" then
+      args.check = true
+      local path = argv[i + 1]
+      if path and path:sub(1, 2) ~= "--" then args.check_path = path; i = i + 2 else i = i + 1 end
+    else
+      i = i + 1
+    end
+  end
+  return args
+end
+
+-- scripts/setup.lua --check [file]: is this network plan valid? (the master refuses to start with an invalid one)
+function wizard.check(path, env)
+  local t = terminal.new(env)
+  local files = make_files(env.fs)
+  path = path or netplan.PATH
+  local text = files.read(path)
+  if not text then
+    t.say(path .. ": Diese Datei gibt es nicht.", "err")
+    return { ok = false, path = path }
+  end
+  local cfg, errors, fatal = netplan.parse(text)
+  if not cfg then
+    t.say(path .. ": " .. tostring(fatal), "err")
+    return { ok = false, path = path }
+  end
+  if errors then
+    t.say(path .. ": " .. #errors .. " Fehler:", "err")
+    for i = 1, math.min(10, #errors) do t.say("- " .. errors[i]) end
+    if #errors > 10 then t.say("... und " .. (#errors - 10) .. " weitere.", "dim") end
+    return { ok = false, path = path, errors = errors }
+  end
+  t.say(path .. ": in Ordnung (" .. netplan.text(netplan.summary(cfg)) .. ").", "ok")
+  return { ok = true, path = path }
+end
+
+local STATION_TYPES = {
+  { value = "passenger", label = "Personenverkehr" }, { value = "freight", label = "Fracht" }, { value = "mixed", label = "gemischt" },
+}
+local DEPOT_TYPES = {
+  { value = "storage", label = "Abstellen", desc = "Zuege stehen dauerhaft" },
+  { value = "staging", label = "Bereitstellen", desc = "Zuege warten auf ihren Einsatz" },
+  { value = "mixed", label = "gemischt" },
+}
+
+-- ── the wizard ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+function wizard.run(opts)
+  local env = opts.env
+  local args = wizard.parse_args(opts.args)
+  if args.check then return wizard.check(args.check_path, env) end
+  local t = terminal.new(env)
+  local files = make_files(env.fs)
+  local result = { written = {}, rebooted = false }
+
+  local ctx = {
+    role = nil, plan = nil, channel = nil, master_id = nil, node_id = nil, fields = {}, plan_entry = nil,
+    peripherals = hardware.scan(env.peripheral),
+  }
+  if args.role and role_info(args.role) then ctx.preset_role = args.role; ctx.role = args.role end
+
+  -- which steps are part of this run (the header shows exactly these)
+  local applies
+  local function trail()
+    local names = {}
+    for _, key in ipairs({ "role", "plan", "identity", "hardware", "summary" }) do
+      if key == "summary" or applies[key]() then names[#names + 1] = STEP_NAMES[key] end
+    end
+    return names
+  end
+  local function page(key, sub)
+    local title = STEP_NAMES[key] .. (sub and (" - " .. sub) or "")
+    t.page(title, trail(), STEP_NAMES[key])
+  end
+
+  -- ── input helpers: the question is printed once, a wrong answer adds a line and asks again ──────────────────────
+
+  local function read_line(prompt)
+    local line = t.ask(prompt)
+    if line == nil then error(ABORT, 0) end
+    return line
+  end
+
+  -- a help screen of its own; the page with the question comes back afterwards
+  local function show_help(text)
+    local done = t.aside("Hilfe")
+    t.say(text)
+    t.blank()
+    t.say("Weiter mit Enter.", "dim")
+    read_line("> ")
+    done()
+    t.restore()
+  end
+
+  local function ask_text(question, o)
+    t.say(question)
+    if o.hint then t.say(o.hint, "dim") end
+    while true do
+      -- a long suggestion would push the prompt off the screen: Enter still takes all of it
+      local shown = o.default and (#o.default > 24 and (o.default:sub(1, 21) .. "...") or o.default)
+      local line = read_line((shown and ("[" .. shown .. "] ") or "") .. "> ")
+      if line == "?" then
+        show_help(o.help or "Zu dieser Frage gibt es keine weitere Hilfe.")
+      elseif line == "<" then
+        return BACK
+      else
+        if line == "" and o.default then line = o.default end
+        if line == "" then
+          t.say("Bitte etwas eingeben (? zeigt Hilfe).", "err")
+        else
+          local ok, err = true, nil
+          if o.check then ok, err = o.check(line) end
+          if ok then return line end
+          t.say(err or "Das geht so nicht.", "err")
+        end
+      end
+    end
+  end
+
+  -- items: { label, desc, value }; o.default = index, o.help, o.compact (no description lines)
+  local function ask_choice(question, items, o)
+    o = o or {}
+    t.say(question)
+    for i, item in ipairs(items) do
+      t.say(string.format("%d) %s", i, item.label))
+      if item.desc and not o.compact then t.say("     " .. item.desc, "dim") end
+    end
+    while true do
+      local line = read_line((o.default and ("[" .. o.default .. "] ") or "") .. "> ")
+      if line == "?" then
+        show_help(o.help or "Waehle mit der Nummer.")
+      elseif line == "<" then
+        return BACK
+      else
+        if line == "" and o.default then line = tostring(o.default) end
+        local n = tonumber(line)
+        if n and n >= 1 and n <= #items and n % 1 == 0 then return items[n].value, n end
+        t.say("Bitte eine Zahl von 1 bis " .. #items .. " eingeben.", "err")
+      end
+    end
+  end
+
+  local function ask_yes(question, default_yes, help)
+    t.say(question)
+    while true do
+      local line = read_line(default_yes and "[J/n] > " or "[j/N] > "):lower()
+      if line == "?" then
+        show_help(help or "j = ja, n = nein.")
+      elseif line == "<" then
+        return BACK
+      elseif line == "" then
+        return default_yes
+      elseif line == "j" or line == "ja" or line == "y" or line == "yes" then
+        return true
+      elseif line == "n" or line == "nein" or line == "no" then
+        return false
+      else
+        t.say("Bitte j oder n eingeben.", "err")
+      end
+    end
+  end
+
+  local function pause(text)
+    t.say(text or "Weiter mit Enter.", "dim")
+    local line = read_line("> ")
+    if line == "<" then return BACK end
+    return "ok"
+  end
+
+  -- a list of small questions; "<" at the first one leaves the list. Coming back from the step after this one lands on the last question.
+  local function run_sub(list, from_back)
+    local i = from_back and #list or 1
+    if i < 1 then i = 1 end
+    while i <= #list do
+      local r = list[i]()
+      if r == BACK then
+        if i == 1 then return BACK end
+        i = i - 1
+      else
+        i = i + 1
+      end
+    end
+    return "next"
+  end
+
+  -- ── describing things ───────────────────────────────────────────────────────────────────────────────────────────
+
+  -- the name of the device a plan entry talks to (an entry without one uses its own id, like the adapters do)
+  local function peripheral_name(entry)
+    if entry.role == "train" then return entry.create_station or entry.schedule_station end
+    if entry.adapter == "redstone" then return nil end
+    return entry.peripheral or entry.target or entry.id
+  end
+
+  local function describe_entry(entry)
+    if entry.role == "signal" or entry.role == "sensor" then
+      if entry.adapter == "redstone" then return "Redstone, " .. side_word(entry.side) end
+      return "Create-Geraet " .. tostring(peripheral_name(entry))
+    elseif entry.role == "switch" then
+      return "Redstone, " .. side_word(entry.side) .. ", aktiv " .. tostring(entry.active_position or "DIVERGING")
+    elseif entry.role == "station" then
+      return "Bahnhof '" .. tostring(entry.create_station_name or entry.display_name or entry.id) .. "'"
+    elseif entry.role == "train" then
+      return "Zug '" .. tostring(entry.display_name or entry.id) .. "'"
+    end
+    return tostring(entry.display_name or role_label(entry.role))
+  end
+
+  local function found_text(name)
+    return name .. (hardware.find(ctx.peripherals, name) and " (gefunden)" or " (NICHT gefunden)")
+  end
+
+  local function modem_ok() return #hardware.of_class(ctx.peripherals, "modem") > 0 end
+
+  -- ── welcome ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function welcome()
+    t.page("Einrichtung")
+    t.say("Dieser Assistent richtet DIESEN Computer fuer CreateRailNet ein: Aufgabe waehlen, Netz und Hardware pruefen, dann startup.lua schreiben. Bis zur Zusammenfassung wird nichts veraendert.")
+    t.blank()
+    t.say("Bedienung:")
+    t.say("  Enter  Vorschlag in [ ] uebernehmen")
+    t.say("  ?      Hilfe zur Frage")
+    t.say("  <      einen Schritt zurueck")
+    local text = files.read("startup.lua")
+    local existing = text and startup_template.parse(text) or nil
+    ctx.existing = existing
+    if ctx.preset_role then
+      t.blank()
+      t.say("Rolle: " .. role_label(ctx.preset_role) .. " (vom Installer gewaehlt)", "ok")
+    end
+    if existing and not ctx.preset_role then
+      t.blank()
+      t.say("Dieser Computer ist schon eingerichtet:", "err")
+      t.say("  " .. role_label(existing.role) .. " " .. existing.id .. ", Netzplan " .. existing.config)
+      local again = ask_yes("Neu einrichten?", false, "Nein beendet den Assistenten, nichts wird geaendert. Ja fragt alles neu ab; deine Antworten von damals sind teils als Vorschlag da.")
+      if again ~= true then return false end
+      ctx.role = role_info(existing.role) and existing.role or nil
+      ctx.node_id = existing.id
+      return true
+    end
+    t.blank()
+    return pause("Weiter mit Enter.") == "ok"
+  end
+
+  -- ── Rolle ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function step_role()
+    page("role")
+    local items, default = {}, nil
+    for i, role in ipairs(wizard.ROLES) do
+      items[i] = { value = role.key, label = role.label .. " - " .. role.text }
+      if role.key == ctx.role then default = i end
+    end
+    local value = ask_choice("Welche Aufgabe hat dieser Computer?", items, {
+      default = default, compact = true,
+      help = "Jeder Computer hat genau eine Aufgabe. Es gibt einen Master; alle anderen melden sich bei ihm. Signal, Melder und Weiche sitzen an der Strecke, Bahnhof und Depot bei den Gleisen, der Zug-Computer im Zug.",
+    })
+    if value == BACK then return BACK end
+    ctx.role = value
+    return "next"
+  end
+
+  -- ── Netzplan ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function read_plan(path)
+    local text = files.read(path)
+    if not text then return nil end
+    local cfg, errors, fatal = netplan.parse(text)
+    return cfg, errors, fatal, text
+  end
+
+  local function choose_example(question)
+    local list = netplan.examples(files)
+    if #list == 0 then return nil end
+    local items, default, help = {}, 1, { "Fertige Netzplaene zum Ausprobieren, danach anpassbar:" }
+    for i, example in ipairs(list) do
+      local short = example.name:gsub("^network%.", ""):gsub("%.example%.json$", "")
+      if short == "" or example.name == "network.example.json" then short = "example"; default = i end
+      items[i] = { value = example, label = string.format("%-13s%s", short, example.note or netplan.short_text(example.summary)) }
+      help[#help + 1] = short .. ": " .. netplan.short_text(example.summary)
+    end
+    return ask_choice(question, items, { default = default, compact = true, help = table.concat(help, "\n") })
+  end
+
+  local function confirm_overwrite()
+    if not files.exists(netplan.PATH) then return true end
+    page("plan", "Ueberschreiben")
+    local cfg = read_plan(netplan.PATH)
+    local what = cfg and netplan.short_text(netplan.summary(cfg)) or "Datei"
+    local yes = ask_yes(netplan.PATH .. " gibt es schon (" .. what .. "). Ueberschreiben?", false,
+      "Die alte Datei bleibt als network.json.prev erhalten. Mit Nein kommst du zurueck zur Auswahl.")
+    return yes == true
+  end
+
+  local function ask_network(from_back)
+    local function channel()
+      page("plan", "Kanal")
+      local value = ask_text("Funkkanal des Netzes", {
+        default = tostring(ctx.channel or netplan.DEFAULT_CHANNEL),
+        hint = "Alle Computer dieses Netzes brauchen dieselbe Zahl.",
+        help = "Der Kanal ist eine Zahl von 1 bis 65535. Computer mit verschiedenen Kanaelen hoeren einander nicht. Ein zweites, getrenntes Netz bekommt eine andere Zahl.",
+        check = function(text)
+          local n = tonumber(text)
+          if n and n >= 1 and n <= 65535 and n % 1 == 0 then return true end
+          return false, "Eine ganze Zahl von 1 bis 65535."
+        end,
+      })
+      if value == BACK then return BACK end
+      ctx.channel = tonumber(value)
+    end
+    local function master()
+      if ctx.role == "master" then return "ok" end
+      page("plan", "Master")
+      local value = ask_text("ID des Masters", {
+        default = ctx.master_id or netplan.DEFAULT_MASTER,
+        hint = "So heisst der Master im Netzplan.",
+        help = "Die ID steht beim Master in der Zeile 'master_id' des Netzplans und ist die ID, die er bei seiner Einrichtung bekommen hat.",
+        check = netplan.valid_id,
+      })
+      if value == BACK then return BACK end
+      ctx.master_id = value
+    end
+    return run_sub({ channel, master }, from_back)
+  end
+
+  -- the plan for a menu choice; nil = back to the menu (a sub question was left with "<" or a confirmation was declined)
+  local function build_plan(choice, keep, keep_errors)
+    if choice == "keep" then
+      return { mode = "keep", path = netplan.PATH, cfg = keep, errors = keep_errors }
+    elseif choice == "copy" or choice == "use_example" then
+      page("plan", "Beispiel")
+      local example = choose_example(choice == "copy" and "Welches Beispiel kopieren?" or "Welches Beispiel verwenden?")
+      if example == BACK then return nil end
+      local cfg, errors, _, text = read_plan(example.path)
+      if choice == "use_example" then return { mode = "use", path = example.path, cfg = cfg, errors = errors } end
+      if not confirm_overwrite() then return nil end
+      return { mode = "copy", path = netplan.PATH, cfg = cfg, errors = errors, source = example.path, source_text = text }
+    elseif choice == "empty" or choice == "short" then
+      if not confirm_overwrite() then return nil end
+      return { mode = choice, path = netplan.PATH }
+    end
+    -- own file
+    page("plan", "Datei")
+    local path = ask_text("Pfad der Datei", {
+      default = ctx.plan and ctx.plan.mode == "use" and ctx.plan.path or nil,
+      hint = "zum Beispiel configs/mein_netz.json",
+      help = "Die Datei muss ein gueltiger Netzplan sein (JSON). Der Assistent liest sie nur, er aendert sie nicht.",
+      check = function(value)
+        if not files.exists(value) then return false, "Diese Datei gibt es nicht." end
+        local cfg, errors = netplan.parse(files.read(value) or "")
+        if not cfg then return false, "Keine gueltige JSON-Datei." end
+        if errors then return false, "Netzplan fehlerhaft: " .. tostring(errors[1]) end
+        return true
+      end,
+    })
+    if path == BACK then return nil end
+    return { mode = "use", path = path, cfg = netplan.parse(files.read(path)) }
+  end
+
+  -- a plan with errors only gets in when the player insists
+  local function accept_plan(plan)
+    if not (plan.cfg and plan.errors) then return true end
+    page("plan", "Fehler")
+    t.say("Dieser Netzplan hat Fehler:", "err")
+    for i = 1, math.min(3, #plan.errors) do t.say("- " .. plan.errors[i]) end
+    if #plan.errors > 3 then t.say("... und " .. (#plan.errors - 3) .. " weitere.", "dim") end
+    t.blank()
+    t.say("Ein Computer mit diesem Netzplan startet nicht. Du kannst ihn nach der Einrichtung reparieren (scripts/setup.lua --check).", "dim")
+    return ask_yes("Trotzdem diesen Netzplan nehmen?", false) == true
+  end
+
+  local function step_plan(from_back)
+    local is_master = ctx.role == "master"
+    -- coming back from the name: a plan that was created here asks its last question again, not the whole menu
+    if from_back and ctx.plan and not ctx.plan.cfg then
+      if ask_network(true) ~= BACK then return "next" end
+    end
+    while true do
+      page("plan")
+      if is_master then
+        t.say("Der Netzplan beschreibt dein ganzes Netz: Computer, Bloecke, Routen. Es ist eine JSON-Datei, du baust sie nach und nach aus.", "dim")
+      else
+        t.say("Der Netzplan liegt komplett beim Master. Dieser Computer braucht nur seinen eigenen Eintrag.", "dim")
+      end
+      t.blank()
+      local keep, keep_errors = read_plan(netplan.PATH)
+      local items, default = {}, nil
+      if keep then
+        items[#items + 1] = { value = "keep", label = "Vorhandenen Netzplan behalten",
+          desc = netplan.short_text(netplan.summary(keep)) .. (keep_errors and " - FEHLERHAFT" or "") }
+        if not keep_errors then default = #items end
+      end
+      local has_examples = #netplan.examples(files) > 0
+      if is_master then
+        if has_examples then items[#items + 1] = { value = "copy", label = "Beispiel als Startpunkt kopieren", desc = "als " .. netplan.PATH .. ", zum Ausbauen" } end
+        items[#items + 1] = { value = "empty", label = "Leeren Netzplan anlegen", desc = "nur der Master, den Rest traegst du ein" }
+      else
+        items[#items + 1] = { value = "short", label = "Kurzplan anlegen (empfohlen)", desc = "nur dieser Computer und der Master" }
+        if has_examples then items[#items + 1] = { value = "use_example", label = "Beispiel-Netzplan verwenden", desc = "zum Ausprobieren, wird nur gelesen" } end
+      end
+      items[#items + 1] = { value = "custom", label = "Eigene Datei angeben", desc = "Pfad zu einem fertigen Netzplan" }
+      if not default then
+        for i, item in ipairs(items) do
+          if (is_master and (item.value == "copy" or item.value == "empty")) or (not is_master and item.value == "short") then default = i; break end
+        end
+      end
+      local choice = ask_choice("Woher kommt der Netzplan?", items, {
+        default = default,
+        help = "Behalten: die vorhandene Datei bleibt. Kopieren/Anlegen: configs/network.json wird neu geschrieben (die alte Datei bleibt als .prev). Kurzplan: eine kleine gueltige Datei nur fuer diesen Computer. Beispiel verwenden: eine mitgelieferte Datei wird direkt gelesen. Eigene Datei: du gibst den Pfad an.",
+      })
+      if choice == BACK then return BACK end
+
+      local plan = build_plan(choice, keep, keep_errors)
+      if plan and accept_plan(plan) then
+        ctx.plan = plan
+        if plan.cfg then
+          ctx.channel, ctx.master_id = plan.cfg.channel, plan.cfg.master_id
+          return "next"
+        end
+        if ask_network(false) ~= BACK then return "next" end
+      end
+    end
+  end
+
+  -- ── Name ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function step_identity()
+    page("identity")
+    local plan = ctx.plan
+    local label = role_label(ctx.role)
+
+    if ctx.role == "master" then
+      local value = ask_text("ID des Masters", {
+        default = ctx.node_id or netplan.DEFAULT_MASTER,
+        hint = "So wird dieser Computer im Netz genannt.",
+        help = "Die ID erscheint im Netzplan als master_id. Erlaubt sind Buchstaben, Ziffern und _ - . (keine Leerzeichen). Alle anderen Computer tragen sie als Master-ID ein.",
+        check = netplan.valid_id,
+      })
+      if value == BACK then return BACK end
+      ctx.node_id, ctx.master_id = value, value
+      return "next"
+    end
+
+    local function id_check(value)
+      local ok, err = netplan.valid_id(value)
+      if not ok then return false, err end
+      if value == ctx.master_id then return false, "Das ist die ID des Masters." end
+      if plan.cfg then
+        local other = netplan.find_node(plan.cfg, value)
+        if other and other.role ~= ctx.role then return false, "Die ID gehoert im Netzplan zu " .. role_label(other.role) .. "." end
+        if not other and plan.mode == "use" then return false, "Diese ID steht nicht im Netzplan (die Datei wird nur gelesen)." end
+      end
+      return true
+    end
+    local help = "Die ID muss im Netzplan des Masters stehen und hier genauso geschrieben sein. Erlaubt sind Buchstaben, Ziffern und _ - . (keine Leerzeichen)."
+
+    local nodes = plan.cfg and netplan.nodes_of_role(plan.cfg, ctx.role) or {}
+    if #nodes > 0 then
+      local items, default = {}, 1
+      for i, node in ipairs(nodes) do
+        items[i] = { value = node.id, label = node.id, desc = describe_entry(node) }
+        if node.id == ctx.node_id then default = i end
+      end
+      if plan.mode ~= "use" then items[#items + 1] = { value = false, label = "Andere ID eingeben" } end
+      local value = ask_choice("Welcher Eintrag im Netzplan ist dieser " .. label .. "?", items, { default = default, help = help })
+      if value == BACK then return BACK end
+      if value then ctx.node_id = value; return "next" end
+    elseif plan.mode == "use" then
+      t.say("Im Netzplan " .. plan.path .. " gibt es keinen Eintrag mit der Rolle " .. label .. ".", "err")
+      t.say("Waehle einen anderen Netzplan oder eine andere Rolle.", "dim")
+      t.blank()
+      pause("Zurueck mit Enter.")
+      return BACK
+    end
+    local value = ask_text("ID dieses Computers (" .. label .. ")", {
+      default = ctx.node_id or netplan.suggest_id(ctx.role, plan.cfg),
+      hint = plan.cfg and "Sie wird in den Netzplan eingetragen." or "Die ID, unter der sich der Computer beim Master meldet.",
+      help = help,
+      check = id_check,
+    })
+    if value == BACK then return BACK end
+    ctx.node_id = value
+    return "next"
+  end
+
+  -- ── Hardware ────────────────────────────────────────────────────────────────────────────────────────────────────
+  -- each function below returns a list of small questions; a computer whose plan entry already says everything has none
+
+  local function side_question(question, hint, default_key)
+    return function()
+      page("hardware", role_label(ctx.role))
+      local items, default = {}, 1
+      for i, side in ipairs(hardware.SIDES) do
+        items[i] = { value = side.key, label = side.label .. " (" .. side.key .. ")" }
+        if side.key == (ctx.fields.side or default_key) then default = i end
+      end
+      if hint then t.say(hint, "dim") end
+      local value = ask_choice(question, items, { default = default, compact = true,
+        help = "Gemeint ist die Seite des Computers, nicht die des Signals. Vorne ist die Seite, an der der Computer zu dir schaut; links und rechts siehst du von dort aus." })
+      if value == BACK then return BACK end
+      ctx.fields.side = value
+    end
+  end
+
+  local function device_question(class, label, default_name, field)
+    field = field or "peripheral"
+    return function()
+      while true do
+        page("hardware", role_label(ctx.role))
+        local found = hardware.of_class(ctx.peripherals, class)
+        if #found == 0 then
+          t.say("Kein " .. label .. " an diesem Computer gefunden.", "err")
+          t.say("Baue es direkt oder ueber Kabel/Modem an, dann r eingeben.", "dim")
+          local name = ask_text("Name des Geraets (r = erneut suchen)", {
+            default = ctx.fields[field] or default_name,
+            help = "Der Name, unter dem das Geraet im Netzwerk des Computers erscheint (zum Beispiel " .. default_name .. "). Mit 'peripherals' im Computer siehst du alle.",
+          })
+          if name == BACK then return BACK end
+          if name:lower() ~= "r" then ctx.fields[field] = name; return "ok" end
+          ctx.peripherals = hardware.scan(env.peripheral)
+        else
+          local items, default = {}, 1
+          for i, info in ipairs(found) do
+            items[i] = { value = info.name, label = info.name .. " (" .. info.type .. ")" }
+            if info.name == ctx.fields[field] then default = i end
+          end
+          items[#items + 1] = { value = false, label = "Anderer Name / erneut suchen" }
+          local value = ask_choice(#found .. " " .. label .. " gefunden. Welches gehoert zu diesem Computer?", items, { default = default, compact = true,
+            help = "Hier stehen alle passenden Geraete, die am Computer haengen. Gehoert deins nicht dazu, waehle den letzten Eintrag." })
+          if value == BACK then return BACK end
+          if value then ctx.fields[field] = value; return "ok" end
+          ctx.peripherals = hardware.scan(env.peripheral)
+          page("hardware", role_label(ctx.role))
+          local name = ask_text("Name des Geraets (Enter = erneut suchen)", { default = "r", help = "Name wie in der Liste, oder r um neu zu suchen." })
+          if name == BACK then return BACK end
+          if name:lower() ~= "r" then ctx.fields[field] = name; return "ok" end
+        end
+      end
+    end
+  end
+
+  local function connection_questions(kind)
+    local class = kind == "signal" and "create_signal" or "train_observer"
+    local label = kind == "signal" and "Create-Signal" or "Train Observer"
+    local default_name = kind == "signal" and "Create_Signal_0" or "Create_TrainObserver_0"
+    local function how()
+      page("hardware", role_label(ctx.role))
+      local found = #hardware.of_class(ctx.peripherals, class)
+      t.say(found > 0 and (label .. " erkannt (" .. found .. ").") or ("Kein " .. label .. " erkannt."), found > 0 and "ok" or "dim")
+      local value = ask_choice(kind == "signal" and "Wie steuert dieser Computer das Signal?" or "Wie meldet dieser Computer die Zuege?", {
+        { value = "peripheral", label = label .. " am Computer", desc = "direkt oder ueber Kabel/Modem angeschlossen" },
+        { value = "redstone", label = "Redstone", desc = kind == "signal" and "Redstone-Signal an einer Seite" or "Redstone-Signal kommt an einer Seite an" },
+      }, { default = (ctx.fields.adapter == "redstone" or (found == 0 and ctx.fields.adapter ~= "peripheral")) and 2 or 1,
+        help = "Das Create-Geraet ist die genaue Variante: der Computer spricht es direkt an. Redstone geht immer, wenn das Geraet nicht am Computer haengt." })
+      if value == BACK then return BACK end
+      ctx.fields.adapter = value
+    end
+    local function detail()
+      if ctx.fields.adapter == "redstone" then
+        return side_question(kind == "signal" and "An welcher Seite liegt der Ausgang?" or "An welcher Seite kommt das Signal an?")()
+      end
+      return device_question(class, label, default_name)()
+    end
+    return { how, detail }
+  end
+
+  local function display_question(question, help)
+    return function()
+      page("hardware", role_label(ctx.role))
+      local value = ask_text(question, { default = ctx.fields.display_name or ctx.node_id, help = help })
+      if value == BACK then return BACK end
+      ctx.fields.display_name = value
+    end
+  end
+
+  local function details_questions()
+    local role, f = ctx.role, ctx.fields
+    if role == "station" then
+      return {
+        function()
+          page("hardware", role_label(role))
+          local items, default = {}, 1
+          for i, kind in ipairs(STATION_TYPES) do items[i] = { value = kind.value, label = kind.label }; if kind.value == f.station_type then default = i end end
+          local value = ask_choice("Welche Art Bahnhof ist das?", items, { default = default, compact = true, help = "Personenverkehr, Fracht oder beides. Routen und Fahrplaene richten sich danach." })
+          if value == BACK then return BACK end
+          f.station_type = value
+        end,
+        display_question("Anzeigename des Bahnhofs", "Der Name, der auf den Monitoren angezeigt wird."),
+        function()
+          page("hardware", role_label(role))
+          local value = ask_text("Name des Bahnhofs in Create", { default = f.create_station_name or f.display_name or ctx.node_id,
+            hint = "Genau so, wie er im Create-Bahnhof steht.",
+            help = "Create schickt Zuege zu Bahnhoefen ueber deren Namen. Gross-/Kleinschreibung und Leerzeichen muessen exakt stimmen." })
+          if value == BACK then return BACK end
+          f.create_station_name = value
+        end,
+      }
+    elseif role == "depot" then
+      return {
+        function()
+          page("hardware", role_label(role))
+          local items, default = {}, 3
+          for i, kind in ipairs(DEPOT_TYPES) do items[i] = { value = kind.value, label = kind.label, desc = kind.desc }; if kind.value == f.depot_type then default = i end end
+          local value = ask_choice("Welche Art Depot ist das?", items, { default = default, help = "Abstellen: Zuege stehen dauerhaft. Bereitstellen: sie warten auf ihren Einsatz. Gemischt: beides." })
+          if value == BACK then return BACK end
+          f.depot_type = value
+        end,
+        display_question("Anzeigename des Depots", "Der Name, der auf den Monitoren angezeigt wird."),
+      }
+    elseif role == "train" then
+      return {
+        device_question("create_station", "Create-Bahnhof am Zug", "Create_Station_0", "create_station"),
+        display_question("Anzeigename des Zuges", "Der Name, der auf den Monitoren angezeigt wird."),
+      }
+    elseif role == "panel" then
+      return { display_question("Anzeigename des Monitors", "Der Name, der oben auf dem Monitor steht.") }
+    end
+    return {}
+  end
+
+  local function modem_question()
+    page("hardware", role_label(ctx.role))
+    t.say("Dieser Computer hat kein Modem.", "err")
+    t.say("Ohne Modem kann er nicht mit dem Netz sprechen. Setze ein Modem direkt an den Computer und starte den Assistenten neu - oder mach weiter und baue es spaeter an.", "dim")
+    local go = ask_yes("Trotzdem weitermachen?", true)
+    if go == BACK then return BACK end
+    if go ~= true then error(ABORT, 0) end
+    return "ok"
+  end
+
+  local function missing_device_question()
+    local entry = ctx.plan_entry
+    local name = entry and peripheral_name(entry) or nil
+    if entry and (entry.role ~= "signal" and entry.role ~= "sensor" and entry.role ~= "train") then name = nil end
+    if not name or hardware.find(ctx.peripherals, name) then return nil end
+    return function()
+      page("hardware", role_label(ctx.role))
+      t.say("Der Netzplan erwartet das Geraet " .. name .. " (Eintrag " .. ctx.node_id .. "), aber es ist nicht angeschlossen.", "err")
+      t.say("Baue es an oder pruefe den Namen im Netzplan.", "dim")
+      local go = ask_yes("Trotzdem weitermachen?", true)
+      if go == BACK then return BACK end
+      if go ~= true then error(ABORT, 0) end
+      return "ok"
+    end
+  end
+
+  local function hardware_questions()
+    local list = {}
+    -- before the plan and the name are known the step is announced for every role but the master, who has no devices to ask for
+    if not ctx.node_id or not ctx.plan then
+      if ctx.role == "master" and modem_ok() then return {} end
+      return { function() return "ok" end }
+    end
+    ctx.plan_entry = ctx.plan.cfg and netplan.find_node(ctx.plan.cfg, ctx.node_id) or nil
+    if ctx.plan_entry and ctx.plan_entry.role ~= ctx.role then ctx.plan_entry = nil end
+    if not modem_ok() then list[#list + 1] = modem_question end
+    if ctx.plan_entry then
+      local missing = missing_device_question()
+      if missing then list[#list + 1] = missing end
+    elseif ctx.role == "signal" or ctx.role == "sensor" then
+      for _, q in ipairs(connection_questions(ctx.role)) do list[#list + 1] = q end
+    elseif ctx.role == "switch" then
+      list[#list + 1] = side_question("An welcher Seite gibt der Computer das Weichen-Signal aus?", "Vanilla-Create-Weichen werden mit Redstone gestellt.", "left")
+      list[#list + 1] = function()
+        page("hardware", role_label(ctx.role))
+        local value = ask_choice("Bei Redstone-Signal steht die Weiche auf ...", {
+          { value = "DIVERGING", label = "Abzweig (DIVERGING)" }, { value = "STRAIGHT", label = "geradeaus (STRAIGHT)" },
+        }, { default = ctx.fields.active_position == "STRAIGHT" and 2 or 1, compact = true,
+          help = "Wenn der Computer Redstone ausgibt, schaltet die Weiche in diese Stellung. Im Zweifel Abzweig und im Spiel pruefen." })
+        if value == BACK then return BACK end
+        ctx.fields.active_position = value
+      end
+      list[#list + 1] = function()
+        page("hardware", role_label(ctx.role))
+        local value = ask_yes("Redstone-Signal umkehren?", ctx.fields.invert == true, "Ja, wenn die Weiche im Spiel genau falsch herum steht. Das ist die einfachste Korrektur.")
+        if value == BACK then return BACK end
+        ctx.fields.invert = value
+      end
+    else
+      for _, q in ipairs(details_questions()) do list[#list + 1] = q end
+    end
+    return list
+  end
+
+  local function step_hardware(from_back) return run_sub(hardware_questions(), from_back) end
+
+  -- ── Pruefen ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function final_entry()
+    if ctx.plan_entry then return ctx.plan_entry end
+    if ctx.role == "panel" and not ctx.fields.monitor then
+      local monitors = hardware.of_class(ctx.peripherals, "monitor")
+      if monitors[1] then ctx.fields.monitor = monitors[1].name end
+    end
+    return netplan.build_entry(ctx.role, ctx.node_id, ctx.fields)
+  end
+
+  local function plan_action()
+    local plan = ctx.plan
+    local entry_missing = not ctx.plan_entry and ctx.role ~= "master"
+    if plan.mode == "copy" then
+      return "neu aus " .. plan.source:gsub("^.*/", "") .. (entry_missing and (" + " .. ctx.node_id) or ""), true
+    elseif plan.mode == "empty" then return "neu angelegt (nur der Master)", true
+    elseif plan.mode == "short" then return "neu angelegt (Kurzplan)", true
+    elseif plan.mode == "keep" then
+      if entry_missing then return "bleibt, Eintrag " .. ctx.node_id .. " kommt dazu", true end
+      return "bleibt unveraendert", false
+    end
+    return "wird nur gelesen", false
+  end
+
+  local function summary_rows(entry)
+    local rows = {}
+    local role = ctx.role
+    if role == "signal" or role == "sensor" then
+      rows[#rows + 1] = { "Anschluss", entry.adapter == "redstone" and ("Redstone, " .. side_word(entry.side)) or found_text(tostring(peripheral_name(entry))) }
+    elseif role == "switch" then
+      rows[#rows + 1] = { "Anschluss", "Redstone, " .. side_word(entry.side) .. (entry.invert and ", umgekehrt" or "") }
+      rows[#rows + 1] = { "Stellung", "bei Signal: " .. tostring(entry.active_position) }
+    elseif role == "station" then
+      rows[#rows + 1] = { "Bahnhof", tostring(entry.create_station_name) .. " (" .. tostring(entry.station_type) .. ")" }
+    elseif role == "depot" then
+      rows[#rows + 1] = { "Depot", tostring(entry.display_name) .. " (" .. tostring(entry.depot_type) .. ")" }
+    elseif role == "train" then
+      if peripheral_name(entry) then rows[#rows + 1] = { "Anschluss", found_text(tostring(peripheral_name(entry))) } end
+      rows[#rows + 1] = { "Zug", tostring(entry.display_name) }
+    end
+    if role == "master" or role == "panel" then
+      local monitors = hardware.of_class(ctx.peripherals, "monitor")
+      rows[#rows + 1] = { "Monitor", #monitors > 0 and (monitors[1].name .. " (gefunden)") or "keiner (spaeter anbauen)" }
+    end
+    if not modem_ok() then rows[#rows + 1] = { "Modem", "FEHLT (spaeter anbauen)" } end
+    return rows
+  end
+
+  local function steps_list()
+    return {
+      { key = "role", run = step_role }, { key = "plan", run = step_plan },
+      { key = "identity", run = step_identity }, { key = "hardware", run = step_hardware },
+    }
+  end
+
+  local function summary(steps)
+    page("summary")
+    local plan = ctx.plan
+    local action, writes_plan = plan_action()
+    local entry = final_entry()
+    t.say(string.format("  %-10s%s", "Rolle", role_label(ctx.role)))
+    t.say(string.format("  %-10s%s", "ID", ctx.node_id))
+    t.say(string.format("  %-10sKanal %s, Master %s", "Netz", tostring(ctx.channel), tostring(ctx.master_id)))
+    t.say(string.format("  %-10s%s", "Netzplan", plan.path))
+    t.say(string.format("  %-10s%s", "", action), "dim")
+    for _, row in ipairs(summary_rows(entry)) do t.say(string.format("  %-10s%s", row[1], row[2])) end
+    t.blank()
+    t.say("Geschrieben wird: startup.lua" .. (writes_plan and (" und " .. plan.path) or "") .. ". Alte Dateien bleiben als .prev erhalten.", "dim")
+    t.blank()
+    t.say("[J] schreiben   [N] aendern   [A] abbrechen")
+    while true do
+      local line = read_line("> "):lower()
+      if line == "" or line == "j" or line == "ja" then return "write" end
+      if line == "a" or line == "abbrechen" then return "cancel" end
+      if line == "?" then
+        show_help("J schreibt startup.lua (und den Netzplan, wenn oben steht, dass er neu entsteht). N laesst dich einen Schritt noch einmal machen. A beendet, ohne etwas zu aendern.")
+      elseif line == "<" then
+        for index = #steps, 1, -1 do if applies[steps[index].key]() then return index end end
+        return "again"
+      elseif line == "n" or line == "nein" or line == "aendern" then
+        page("summary", "aendern")
+        local items = {}
+        for index, step in ipairs(steps) do
+          if applies[step.key]() then items[#items + 1] = { value = index, label = STEP_NAMES[step.key] } end
+        end
+        local choice = ask_choice("Welchen Schritt aendern?", items, { default = #items > 0 and 1 or nil, compact = true })
+        if choice == BACK then return "again" end
+        return choice
+      else
+        t.say("J = schreiben, N = aendern, A = abbrechen.", "err")
+      end
+    end
+  end
+
+  -- ── writing ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function write_all()
+    local plan = ctx.plan
+    local entry = final_entry()
+    local _, writes_plan = plan_action()
+
+    if writes_plan then
+      local cfg
+      if plan.mode == "empty" or plan.mode == "short" then
+        cfg = netplan.short_plan(ctx.role, entry, ctx.channel, ctx.master_id)
+      else
+        cfg = plan.cfg
+        if not ctx.plan_entry and ctx.role ~= "master" then cfg = netplan.add_node(cfg, entry) end
+      end
+      -- an example that is copied as it is keeps its own formatting; anything that was changed is written in the stable format
+      local body
+      if plan.mode == "copy" and ctx.plan_entry then body = plan.source_text else body = netplan.encode(cfg) end
+      local parsed, errors = netplan.parse(body)
+      if not parsed or errors then
+        return false, "Der erzeugte Netzplan ist nicht gueltig: " .. tostring(errors and errors[1] or "unbekannter Fehler")
+      end
+      local ok, err = files.write(plan.path, body)
+      if not ok then return false, "Netzplan konnte nicht geschrieben werden: " .. tostring(err) end
+      result.written[#result.written + 1] = plan.path
+    end
+
+    local startup, startup_err = startup_template.render({ role = ctx.role, id = ctx.node_id, config = plan.path })
+    if not startup then return false, tostring(startup_err) end
+    local ok, err = files.write("startup.lua", startup)
+    if not ok then return false, "startup.lua konnte nicht geschrieben werden: " .. tostring(err) end
+    local back = startup_template.parse(files.read("startup.lua") or "")
+    if not (back and back.role == ctx.role and back.id == ctx.node_id and back.config == plan.path) then
+      return false, "startup.lua wurde geschrieben, stimmt aber nicht mit den Eingaben ueberein."
+    end
+    result.written[#result.written + 1] = "startup.lua"
+    result.config = plan.path
+    return true
+  end
+
+  local MASTER_NEXT_STEPS = {
+    "Naechste Schritte:",
+    "1. Netzplan ausbauen: Computer, Bloecke und Routen",
+    "   in " .. netplan.PATH .. " eintragen.",
+    "2. Pruefen: scripts/setup.lua --check",
+    "3. Neu starten, dann die anderen Computer",
+    "   einrichten (Befehl in docs/INSTALL.md).",
+  }
+
+  local function finish()
+    t.page("Fertig")
+    t.say("Eingerichtet: " .. role_label(ctx.role) .. " " .. ctx.node_id, "ok")
+    for _, path in ipairs(result.written) do t.say("  geschrieben: " .. path) end
+    t.blank()
+    if ctx.role == "master" then
+      for _, line in ipairs(MASTER_NEXT_STEPS) do t.say(line) end
+    elseif ctx.plan.mode == "use" or ctx.plan_entry then
+      t.say("Der Eintrag " .. ctx.node_id .. " steht im Netzplan. Der Master braucht denselben Eintrag, falls er noch fehlt.", "dim")
+    else
+      t.say("Trage diese Zeile im Netzplan des Masters unter \"nodes\" ein:")
+      for _, line in ipairs(netplan.entry_lines(final_entry(), t.width() - 2)) do t.say(line) end
+    end
+    t.blank()
+    local reboot = ask_yes("Jetzt neu starten?", true, "Beim Neustart startet der Computer in seiner Rolle. Mit Nein startest du spaeter mit 'reboot'.")
+    if reboot == true and env.os and env.os.reboot then
+      result.rebooted = true
+      t.say("Neustart ...", "dim")
+      env.os.reboot()
+    else
+      t.say("Spaeter neu starten mit: reboot", "dim")
+    end
+  end
+
+  -- ── the run ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  local function main()
+    if not welcome() then result.aborted = true; return end
+    local steps = steps_list()
+
+    local function step_applies(index) return applies[steps[index].key]() end
+    local function neighbour(index, direction)
+      index = index + direction
+      while index >= 1 and index <= #steps and not step_applies(index) do index = index + direction end
+      return index
+    end
+
+    local i = neighbour(0, 1)
+    local coming_back = false
+    while true do
+      while i <= #steps do
+        local r = steps[i].run(coming_back)
+        coming_back = false
+        if r == BACK then
+          local previous = neighbour(i, -1)
+          if previous < 1 then
+            page(steps[i].key)
+            if ask_yes("Einrichtung abbrechen?", false) == true then result.aborted = true; return end
+          else
+            i = previous
+            coming_back = true
+          end
+        else
+          i = neighbour(i, 1)
+        end
+      end
+      local decision = summary(steps)
+      if decision == "cancel" then result.aborted = true; return end
+      if decision == "write" then
+        local ok, err = write_all()
+        if ok then break end
+        t.page("Fehler")
+        t.say(err, "err")
+        t.blank()
+        t.say("Die alten Dateien sind unveraendert oder als .prev gesichert.", "dim")
+        result.error = err
+        pause("Zurueck zur Zusammenfassung mit Enter.")
+        i = #steps + 1
+      elseif decision == "again" then
+        i = #steps + 1
+      else
+        i = decision
+      end
+    end
+    -- the files are written: from here on the setup is done, whatever happens to the question about the restart
+    result.ok = true
+    result.role, result.id = ctx.role, ctx.node_id
+    finish()
+  end
+
+  applies = {
+    role = function() return not ctx.preset_role end,
+    plan = function() return true end,
+    -- a master whose plan names it needs no question: its id comes from the plan
+    identity = function()
+      if ctx.role == "master" and ctx.plan and ctx.plan.cfg then
+        ctx.node_id, ctx.master_id = ctx.plan.cfg.master_id, ctx.plan.cfg.master_id
+        return false
+      end
+      return true
+    end,
+    hardware = function() return #hardware_questions() > 0 end,
+  }
+
+  local ok, err = pcall(main)
+  if not ok then
+    if err == ABORT then result.aborted = not result.ok
+    else result.error = tostring(err); error(err, 0) end
+  end
+  return result
+end
+
+return wizard

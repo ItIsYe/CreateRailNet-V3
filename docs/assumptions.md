@@ -7,7 +7,7 @@
 - `os.clock()` is used only for relative timing (net retry, dwell intervals) where TPS-dependence is acceptable.
 - `os.time()` is NOT used for timeouts — it returns in-game time (0..24 float) in CC:Tweaked.
 - At most 256 events are queued per computer; beyond that CC:Tweaked drops events, timers included. All periodic work therefore runs in the ticker, which notices a missing timer.
-- A computer has a disk quota (1 MB by default). `setup.lua` checks the free space; an update stages every file next to the live one first, so a full disk makes the update fail before any live file is touched.
+- A computer has a disk quota (1 MB by default). The installer checks the free space before it touches anything; an update stages every file next to the live one first, so a full disk makes the update fail before any live file is touched.
 
 ## Network
 

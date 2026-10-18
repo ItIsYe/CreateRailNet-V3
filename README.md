@@ -16,11 +16,13 @@ On each CC:Tweaked computer (HTTP enabled):
 ```
 wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer
 ```
-The installer asks for the role, downloads and verifies exactly the files that role needs, then starts the setup wizard (id, peripherals; it writes
-`startup.lua`). Running it again updates or repairs. Details, options and error messages: `docs/INSTALL.md`.
+The installer asks for the role, downloads and verifies exactly the files that role needs, then starts the setup wizard: one question per page, a header
+that shows the step (role, network plan, name, hardware, check), `?` for help, `<` to go back, and nothing is written before you confirm the summary.
+Running the installer again updates or repairs. Wizard: `docs/INGAME_SETUP.md`. Installer details, options and error messages: `docs/INSTALL.md`.
 
 ### 2) Configuration
-- Start from `configs/templates/network.example.json` (`network.full.example.json` for everything).
+- The wizard puts the network plan of the master at `configs/network.json` (a copy of an example or an empty plan); other computers get a short plan of
+  their own. Start from `configs/templates/network.example.json` (`network.full.example.json` for everything) and extend it.
 - Validate before connecting hardware:
   ```sh
   lua scripts/check_configs.lua

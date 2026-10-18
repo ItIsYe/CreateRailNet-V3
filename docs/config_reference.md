@@ -3,6 +3,28 @@
 All topology is declared in JSON, nothing is hard-coded. `lua scripts/check_configs.lua` (and the master at start) validate a file;
 `validate.validate_config` names the path of every problem, for example `auto_clear_stable_s: must be a number >= 0`.
 
+## Where the plan lives
+
+Every computer has its own network plan, `configs/network.json` by default (the path stands in its `startup.lua`). The setup wizard creates it
+(`docs/INGAME_SETUP.md`): on the master as a copy of an example or an empty plan that you extend, on every other computer as a **short plan**, which is
+valid on its own and holds only this computer and the master:
+
+```
+{
+  "v": 1,
+  "channel": 777,
+  "master_id": "MASTER-1",
+  "nodes": [
+    {"id": "MASTER-1", "role": "master"},
+    {"id": "SIG-1", "role": "signal", "adapter": "peripheral", "peripheral": "Create_Signal_0"}
+  ],
+  "blocks": [],
+  "routes": []
+}
+```
+
+The master needs an entry in `nodes` for every computer, with the same fields. `scripts/setup.lua --check [file]` validates a plan on the computer.
+
 ## Top-Level
 
 | Key | Type | Default | Meaning |

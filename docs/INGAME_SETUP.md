@@ -8,28 +8,80 @@ Der empfohlene Weg ist der Installer (`docs/INSTALL.md`): ein Befehl lädt die D
 wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer
 ```
 
-## First-Time Setup (the wizard)
+## Erste Einrichtung (der Assistent)
 
-The installer starts the wizard for you. If the files are on the computer already (copied by hand), run the interactive setup wizard yourself:
+Der Installer startet den Assistenten selbst. Liegen die Dateien schon auf dem Computer (von Hand kopiert), startest du ihn so:
 
 ```lua
 shell.run("scripts/setup.lua")
 ```
 
-The wizard will:
-1. Ask for the **role** (master/train/sensor/signal/switch/station/depot/panel)
-2. Ask for the **Node ID** (must match the id in your network config)
-3. **Scan attached peripherals** and suggest the right peripheral names
-4. Guide through role-specific settings (redstone side for switches, station name for trains, etc.)
-5. **Write `startup.lua`** automatically — no manual editing required
-6. Optionally **reboot** into the configured role immediately
+(`scripts/setup.lua --role <rolle>` überspringt die Rollenfrage.) Der Assistent richtet **diesen einen Computer** ein. Er stellt pro Seite eine Frage,
+die Kopfzeile zeigt, wo du bist (`Rolle  [Netzplan]  Name  Hardware  Pruefen`), und bis zur Zusammenfassung wird **nichts geschrieben**.
 
-After setup, the computer will auto-start on every reboot using the written `startup.lua`.
+| Taste | Wirkung |
+|---|---|
+| Enter | den Vorschlag in `[ ]` übernehmen |
+| `?` | Hilfe zur aktuellen Frage (eigene Seite, danach geht es an derselben Stelle weiter) |
+| `<` | einen Schritt zurück; auf der ersten Frage: fragt, ob die Einrichtung abgebrochen werden soll |
+| Strg+T | bricht ab; vor dem Schreiben (Schritt „Prüfen") bleibt alles unverändert |
 
-To reconfigure a computer, delete `startup.lua` and run `scripts/setup.lua` again.
+### Die Schritte
 
-Computers that were set up with an older version keep working: they add the missing OTA recovery to their `startup.lua` by themselves, and the
-new files reach them with `scripts/ota_push.lua --legacy` (`docs/OTA.md`). After the first setup of a world, work through `docs/INGAME_TESTS.md` once.
+1. **Rolle**: Master, Signal, Melder, Weiche, Bahnhof, Depot, Zug oder Monitor. Vom Installer vorgegeben, wenn er den Assistenten startet.
+2. **Netzplan**: der Netzplan ist die Datei, die dein ganzes Netz beschreibt (Computer, Blöcke, Routen). Jeder Computer hat seine eigene Kopie unter
+   `configs/network.json`.
+   - *Master*: vorhandenen Plan behalten, **ein Beispiel als Startpunkt kopieren**, einen **leeren Plan** anlegen (nur der Master) oder eine eigene Datei angeben.
+     Den Plan baust du danach aus (`docs/config_reference.md`) und prüfst ihn mit `scripts/setup.lua --check`.
+   - *Alle anderen*: einen **Kurzplan** anlegen (empfohlen; nur dieser Computer und der Master, gültig für sich allein), ein Beispiel direkt verwenden
+     (wird nur gelesen) oder eine eigene Datei angeben. Kanal und Master-ID werden nur beim Kurzplan gefragt.
+3. **Name**: die ID des Computers. Steht im Netzplan schon ein Eintrag mit dieser Rolle, wählst du ihn aus einer Liste; sonst schlägt der Assistent die
+   nächste freie ID vor (`SIG-1`, `SIG-2`, ...). Der Master nimmt die ID aus dem Plan.
+4. **Hardware**: nur was nötig ist. Der Assistent sucht die angeschlossenen Geräte selbst (Modem, Create-Signal, Train Observer, Create-Bahnhof, Monitor)
+   und lässt dich das richtige auswählen. Steht im Netzplan schon alles zu diesem Computer, entfällt der Schritt; fehlt nur das Gerät, weist er darauf hin.
+   - Kein Modem: eine deutliche Warnung (der Computer kann nicht mit dem Netz sprechen), du darfst trotzdem weitermachen und das Modem später anbauen.
+   - Weiche: Seite des Redstone-Ausgangs, Stellung bei Signal, Signal umkehren.
+   - Signal und Melder: Create-Gerät am Computer oder Redstone an einer Seite.
+5. **Prüfen**: eine Seite mit allem, was gleich geschrieben wird (Rolle, ID, Kanal, Master, Netzplan, Anschluss) und der Angabe, welche Dateien
+   neu entstehen. `J` schreibt, `N` lässt einen Schritt noch einmal machen, `A` bricht ab.
+
+Danach bekommst du eine **Abschlussseite**: beim Master die nächsten Schritte, bei allen anderen die Zeile für `nodes` im Netzplan des Masters
+(zum Abschreiben), dann die Frage nach dem Neustart.
+
+### Was geschrieben wird
+
+| Datei | Wann | Hinweis |
+|---|---|---|
+| `startup.lua` | immer | Rolle, ID, Netzplan-Pfad; mit Wiederherstellung (`docs/OTA.md`); alte Fassung bleibt als `startup.lua.prev` |
+| `configs/network.json` | Master: Beispiel kopiert / leer angelegt. Andere: Kurzplan. Nicht bei „behalten" oder „verwenden" | alte Datei bleibt als `network.json.prev`; vorher fragt der Assistent, ob er überschreiben darf |
+
+Alles wird über eine temporäre Datei geschrieben, zurückgelesen und geprüft (`src/shared/safe_write.lua`). Ein erzeugter Netzplan muss die Prüfung des Masters
+bestehen (`validate_config`), sonst wird nichts geschrieben. Ein vorhandener Netzplan mit Fehlern wird gezeigt und nur auf
+ausdrücklichen Wunsch übernommen.
+
+### Ein Netz in der Praxis
+
+1. **Master** zuerst: Beispiel kopieren (oder leer anlegen), danach `configs/network.json` ausbauen: Blöcke, Routen, Computer eintragen, mit
+   `scripts/setup.lua --check` prüfen.
+2. **Jeder andere Computer**: Installer, Rolle, Kurzplan (gleicher Kanal und Master-ID wie beim Master), Name, Hardware. Am Ende zeigt der Assistent die
+   Zeile für den Netzplan des Masters. Steht der Computer dort schon (Beispiel-Plan), wählst du ihn in Schritt 3 aus der Liste und trägst nichts nach.
+3. Jeder Computer gehört in `nodes` des Masters: Blöcke und Routen verweisen auf diese IDs.
+
+### Netzplan prüfen
+
+```
+scripts/setup.lua --check              prüft configs/network.json
+scripts/setup.lua --check <datei>      prüft eine andere Datei
+```
+
+Das ändert nichts. Es meldet „in Ordnung (5 Computer, 1 Block, 1 Route)" oder nennt jeden Fehler mit seinem Pfad im Plan (zum Beispiel
+`nodes[2].role: ...`). Der Master startet mit einem fehlerhaften Plan nicht. `lua scripts/check_configs.lua` ist dagegen ein Entwicklungsskript für die
+Beispiele im Repository und liegt nicht auf den Spiel-Computern.
+
+Neu einrichten: den Assistenten noch einmal starten. Auf einem bereits eingerichteten Computer fragt er zuerst, ob er neu einrichten soll
+(Nein ändert nichts); die alten Antworten sind teils als Vorschlag da. Computer, die mit einer älteren Version eingerichtet wurden, laufen weiter: sie fügen
+die fehlende OTA-Wiederherstellung ihrer `startup.lua` selbst hinzu, und die neuen Dateien erreichen sie mit `scripts/ota_push.lua --legacy`
+(`docs/OTA.md`). Nach der ersten Einrichtung einer Welt einmal `docs/INGAME_TESTS.md` durcharbeiten.
 
 
 ## Ziel
