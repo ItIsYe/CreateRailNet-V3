@@ -20,6 +20,9 @@ After setup, the computer will auto-start on every reboot using the written `sta
 
 To reconfigure a computer, delete `startup.lua` and run `scripts/setup.lua` again.
 
+Computers that were set up with an older version keep working: they add the missing OTA recovery to their `startup.lua` by themselves, and the
+new files reach them with `scripts/ota_push.lua --legacy` (`docs/OTA.md`). After the first setup of a world, work through `docs/INGAME_TESTS.md` once.
+
 
 ## Ziel
 

@@ -35,6 +35,15 @@ function validate.validate_config(cfg)
   if type(cfg.routes) ~= "table" then add(errors, "routes", "must be an array") end
   if type(cfg.nodes) ~= "table" then add(errors, "nodes", "must be an array") end
 
+  -- optional tuning keys (docs/config_reference.md): a wrong type would silently fall back to the default, so say so
+  for _, key in ipairs({ "heartbeat_timeout_s", "auto_clear_stable_s", "auto_clear_max_age_s", "signal_refresh_per_s", "trace_capacity", "sensor_guard_min_occupy_ms" }) do
+    local value = cfg[key]
+    if value ~= nil and (type(value) ~= "number" or value < 0) then add(errors, key, "must be a number >= 0") end
+  end
+  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward" }) do
+    if cfg[key] ~= nil and type(cfg[key]) ~= "boolean" then add(errors, key, "must be true or false") end
+  end
+
   local node_ids, block_ids, route_ids, node_roles = {}, {}, {}, {}
   local train_ids, service_plan_ids = {}, {}
   local station_ids, depot_ids = {}, {}

@@ -42,7 +42,7 @@ function master_runtime.new(context)
     auto_save_state = context.auto_save_state ~= false,
     recovery = { restored = false, saved = false, required = false, confirmed = true, last_error = nil, last_save_reason = nil },
     pull_event = context.pull_event or os.pullEvent,
-    heartbeat_timeout_s = context.heartbeat_timeout_s or 6,
+    heartbeat_timeout_s = context.heartbeat_timeout_s or (type((context.config or {}).heartbeat_timeout_s) == "number" and context.config.heartbeat_timeout_s > 0 and context.config.heartbeat_timeout_s) or 6,
     sensor_levels = {}  -- sensor_id -> { occupied, at }: what the detector shows right now, from heartbeats and events
   }
   local ui_once = once_log.new(context.logger)

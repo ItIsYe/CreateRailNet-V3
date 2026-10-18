@@ -13,6 +13,35 @@ How new code reaches the nodes, what is checked on the way, and what happens whe
 A node answers the sender with `ota_result` right before it reboots and with `ota_confirmed` (to the master) after the first good
 boot. `DONE` therefore means "swapped, reboot pending", not "running".
 
+## Nodes that run the old code (first distribution)
+
+Nodes set up before the verified update cannot talk the new protocol (offer / need / chunk / commit) and have no rollback. They understand one
+thing: a single `ota_update` message with all files. `lua scripts/ota_push.lua --legacy [--node ID]` sends exactly that, one message per node
+(every non-master node of the config without `--node`), limited to the files a node needs to boot (found by following the `require`s of the role
+entry points, about a third of the runtime, so the old node has room for the temporary copies it writes). The node answers `ota_result`,
+reboots into the new code, and counts as `CONFIRMED` when its heartbeat shows protocol revision 2 (seen by the master; the tool itself stops at `DONE`).
+
+**Do one node first** (`--legacy --node X`), watch it come back, then do the rest: the old updater cannot roll back, a node whose new code
+does not start has to be repaired by hand. From then on `ota_push.lua` without `--legacy` is enough (it sends the rest of the files and later
+changes). The master computer is updated by copying its files and restarting it.
+
+## startup.lua of older nodes
+
+Updates never replace `startup.lua` (it holds role, id and config), so a node set up by an older `setup.lua` has no OTA recovery. Every node
+and the master therefore check their own `startup.lua` at start: if it is the layout `setup.lua` writes (or the old repository file) and the
+recovery block is missing, it is inserted in front of the line that picks the entry point, the old file is kept as `startup.lua.prev`, and the
+change is active from the next boot. A `startup.lua` that does not look like that is left alone and the log says so; add the block by hand:
+
+```lua
+local ok_recovery, recovery = pcall(require, "src.shared.ota_recovery")
+if ok_recovery then
+  local ran, action, detail = pcall(recovery.recover)
+  if ran and action ~= "none" then print("OTA recovery: " .. tostring(action) .. " " .. tostring(detail or "")) end
+end
+```
+
+`lua scripts/upgrade_startup.lua` does the same by hand and prints what happened; `startup_autoupgrade = false` switches the automatic check off.
+
 ## What a node does
 
 | Step | Check |
@@ -24,7 +53,7 @@ boot. `DONE` therefore means "swapped, reboot pending", not "running".
 | swap | journal `ota_journal.txt` first; per file: backup `<path>.ota_bak`, delete, move; `crn_version.txt` is swapped in the same transaction; journal then switches to `trial` |
 | reboot | `startup.lua` runs `src/shared/ota_recovery.lua` before anything else is loaded |
 
-`startup.lua` is never replaced remotely: it holds the role, id and config of each computer.
+`startup.lua` is never replaced remotely: it holds the role, id and config of each computer (see above for how older ones get the recovery).
 
 ## Recovery
 

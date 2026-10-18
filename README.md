@@ -1,18 +1,25 @@
 # CreateRailNet-V3
 
-CreateRailNet-V3 is a realistic, event-driven railway control system for Minecraft 1.21.x (ATM10) with Create + CC:Tweaked. It is greenfield, Lua 5.1 compatible, and designed for robustness and testing outside of Minecraft.
+CreateRailNet-V3 is a realistic, event-driven railway control system for Minecraft 1.21.x (ATM10) with Create + CC:Tweaked. It is written
+for Lua 5.1 (also runs on 5.4 and LuaJIT) and designed for robustness: everything that can be tested outside the game is, with seeded random
+walks over generated networks, lossy links and crash injection.
+
+What it does: block reservation with conflict groups, switch locks and an interlocking (Fahrstrassen, flank protection, overlap); queueing of
+conflicting trains; signals that are sent again instead of trusted; node timeouts that fault blocks and clear them again when the evidence is
+there; recovery after a master restart; verified over-the-air updates with automatic rollback; a status page with one lamp for the whole
+network, alerts, central log and a trace you can replay offline. Network size is not fixed: lists, logs, queues and retries are bounded.
 
 ## Quick Start
 
 ### 1) Install
-- Copy the repository to your CC:Tweaked computer.
+- Copy the repository to your CC:Tweaked computers, then run `scripts/setup.lua` on each one (role, id, peripherals; it writes `startup.lua`).
 - Ensure Lua 5.1 compatibility (default for CC:Tweaked).
 
 ### 2) Configuration
-- Start from `configs/templates/network.example.json`.
-- Validate with the harness:
+- Start from `configs/templates/network.example.json` (`network.full.example.json` for everything).
+- Validate before connecting hardware:
   ```sh
-  lua tests/harness/runner.lua
+  lua scripts/check_configs.lua
   ```
 
 ### 3) Run Master
@@ -27,20 +34,43 @@ lua src/nodes/signal_node.lua --config configs/templates/network.example.json --
 lua src/nodes/switch_node.lua --config configs/templates/network.example.json --id SW-1
 ```
 
+### 5) Update
+- New code reaches the nodes with `lua scripts/ota_push.lua` (`docs/OTA.md`). Nodes that were set up with an older version get there with
+  `lua scripts/ota_push.lua --legacy`; the master is updated by copying its files.
+
+## Tests (outside the game)
+```sh
+lua scripts/run_tests.lua      # whole suite; CI runs it on lua5.1, lua5.4 and luajit
+lua scripts/check_syntax.lua && lua scripts/cc_parse_guard.lua && lua scripts/check_test_registry.lua
+```
+What cannot be tested offline is listed in `docs/INGAME_TESTS.md` — please run that checklist once in your world.
+
 ## ATM10
 - See `docs/atm10_setup.md` for ATM10 setup and peripheral inspection.
 - Peripheral methods vary by modpack/addons; always inspect ingame.
 
 ## Troubleshooting
 - If any node is down or unknown, signals will default to **RED** (fail-safe).
-- See `docs/troubleshooting.md` for detailed diagnostics.
+- See `docs/troubleshooting.md` and `docs/OPERATIONS.md` for diagnostics and repair actions.
+
+## Documentation
+| Topic | File |
+|---|---|
+| design and fail-safe rules | `docs/architecture.md`, `docs/assumptions.md`, `docs/DISPATCHER_SAFETY.md` |
+| configuration | `docs/config_reference.md`, `docs/CONFIG_VALIDATION.md` |
+| operating the master, repairs, traces | `docs/OPERATIONS.md` |
+| updates and rollback | `docs/OTA.md` |
+| messages | `docs/protocol.md` |
+| in-game setup and tests | `docs/INGAME_SETUP.md`, `docs/INGAME_TESTS.md` |
 
 ## Project Layout
-- `src/shared/`: core libraries (log, config, net, event bus)
-- `src/master/`: master dispatcher + UI
+- `src/shared/`: core libraries (log, config, net, ticker, safe writes, updater)
+- `src/domain/`: blocks, interlocking, switch locks, alerts, status model, trace recorder
+- `src/master/`: master dispatcher, runtime, UI, OTA manager
 - `src/nodes/`: node role implementations
 - `src/adapter/`: peripherals and Create adapters
-- `tests/`: harness + deterministic tests
+- `scripts/`: setup, OTA push, trace replay, checks
+- `tests/`: harness + deterministic and seeded random tests
 - `docs/`: architecture, protocol, configuration reference
 
 ## License

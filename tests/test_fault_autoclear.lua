@@ -10,6 +10,7 @@ local dispatcher = require("src.master.dispatcher")
 local runtime_factory = require("src.master.runtime")
 local registry_factory = require("src.shared.registry")
 local sensor_node = require("src.nodes.sensor_node")
+local validate = require("src.shared.validate")
 
 local STATES = dispatcher.STATES
 local TRAIN_STATES = dispatcher.TRAIN_STATES
@@ -340,6 +341,33 @@ return {
     end)
     os.epoch = real_epoch
     assert(ok, err)
+  end,
+
+  test_heartbeat_timeout_comes_from_the_config = function()
+    local function build(config)
+      return runtime_factory.new({
+        config = config, registry = registry_factory.new(), dispatcher = { get_overview = function() return {} end, timeout_node = function() end },
+        network = { receive = function() return "ok" end, ack_for = function() end, send = function() end, tick = function() end },
+        ui = { mark_dirty = function() end, draw = function() end, handle_touch = function() end },
+        auto_restore_state = false, auto_save_state = false
+      })
+    end
+    assert(build({ nodes = {} }).heartbeat_timeout_s == 6)
+    assert(build({ nodes = {}, heartbeat_timeout_s = 15 }).heartbeat_timeout_s == 15, "documented key must work")
+    assert(build({ nodes = {}, heartbeat_timeout_s = -3 }).heartbeat_timeout_s == 6)
+    assert(build({ nodes = {}, heartbeat_timeout_s = "fast" }).heartbeat_timeout_s == 6)
+  end,
+
+  test_validation_names_wrong_tuning_keys = function()
+    local _, errors = validate.validate_config({
+      heartbeat_timeout_s = "fast", auto_clear_stable_s = -1, signal_refresh_per_s = 2,
+      auto_clear_faults = "yes", signal_red_on_stop = true
+    })
+    local text = table.concat(errors, "\n")
+    assert(text:find("heartbeat_timeout_s: must be a number", 1, true), text)
+    assert(text:find("auto_clear_stable_s: must be a number", 1, true))
+    assert(text:find("auto_clear_faults: must be true or false", 1, true))
+    assert(not text:find("signal_refresh_per_s", 1, true) and not text:find("signal_red_on_stop", 1, true))
   end,
 
   test_master_option_turns_the_feature_off = function()

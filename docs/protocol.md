@@ -24,7 +24,8 @@ Payload includes `role` and full node state (platforms, tracks, etc.).
 Master replies with ack. Reliable delivery.
 
 **heartbeat** — periodic liveness signal (every 2s by default).
-Master updates `last_seen`. Fire-and-forget.
+Master updates `last_seen`. Fire-and-forget. Payload: `role`; a sensor adds `occupied` (boolean, what its detector shows now, absent while the
+read fails) which the master uses to clear blocks after an outage (`docs/OPERATIONS.md`).
 
 **cmd** — master sends a command to a node.
 Always reliable (`send_reliable`). Node replies with ack or err.
@@ -106,4 +107,4 @@ See `docs/OTA.md` for the full procedure. All commands are reliable `cmd` messag
 | `ota_abort` | to node | `{ update_id }` |
 | `ota_result` (event) | from node | `{ update_id, node_id, success, version, files, errors, up_to_date }` |
 | `ota_confirmed` (event) | from node | `{ node_id, version }` after the first good boot of the new code |
-| `ota_update` | to node | older single-message form `{ files = [{path, content, adler?}], version }`, same safe path |
+| `ota_update` | to node | single-message form `{ files = [{path, content, adler?}], version, update_id? }`. New nodes apply it through the same safe path; nodes from before the verified update understand only this (`ota_push.lua --legacy`) and answer `ota_result` without `update_id`, to `broadcast` |
