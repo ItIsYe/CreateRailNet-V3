@@ -53,6 +53,12 @@ The master sends signals again at start, a few per second afterwards (`signal_re
 signal corrects itself within one round (blocks / 2 per second). If it does not: check the log page for "signals did not answer" (the
 peripheral name in the hardware config does not match, or the computer is off) and the audit log for `node_timeout` of the signal node.
 
+## Installer problems
+
+See the table in `docs/INSTALL.md` ("Wenn etwas schiefgeht"). The short version: `HTTP ist nicht verfuegbar` means HTTP is off in the ComputerCraft config;
+`Der Speicher dieses Computers reicht nicht` means nothing was changed and the computer needs more space; `Installation unvollstaendig.` at boot means an
+interrupted installation, which `startup.lua` resumes by itself (`installer --resume`).
+
 ## OTA update not applying
 
 - Verify the master is running and nodes are registered before pushing

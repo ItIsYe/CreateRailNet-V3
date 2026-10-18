@@ -1,7 +1,7 @@
 --[[
 Purpose: Repository-wide CC:Tweaked compatibility guard that finds its files itself instead of using a list.
 Usage: lua5.1 scripts/cc_parse_guard.lua (also runs on luajit/lua5.4; needs io.popen, skipped inside CC:Tweaked)
-Checks per .lua file under src, scripts, tests and startup.lua:
+Checks per .lua file under src, scripts, install, tests, and for startup.lua and the extensionless installer script:
   1. it parses with the running interpreter (run it with lua5.1 or luajit to get the CC dialect and its limits)
   2. src and scripts files start with a "Purpose:" header comment (AGENTS.md)
   3. no library calls that do not exist in CC:Tweaked's Lua 5.1 (utf8, bit32, string.pack, table.move, ...)
@@ -17,10 +17,11 @@ local BANNED = { "utf8%.", "bit32%.", "string%.pack", "string%.unpack", "table%.
 
 local function list_files()
   local files = {}
-  local pipe = io.popen("find src scripts tests -name '*.lua' | sort")
+  local pipe = io.popen("find src scripts install tests -name '*.lua' | sort")
   for line in pipe:lines() do files[#files + 1] = line end
   pipe:close()
   files[#files + 1] = "startup.lua"
+  files[#files + 1] = "installer"
   return files
 end
 
@@ -67,8 +68,8 @@ for _, path in ipairs(files) do
     local chunk, err = loadfile(path)
     if not chunk then fail(path, "parse error: " .. tostring(err)) end
 
-    local enforced = path:match("^src/") or path:match("^scripts/") or path == "startup.lua"
-    if (path:match("^src/") or path:match("^scripts/")) and not body:sub(1, 600):find("Purpose", 1, true) then
+    local enforced = path:match("^src/") or path:match("^scripts/") or path:match("^install/") or path == "startup.lua" or path == "installer"
+    if (path:match("^src/") or path:match("^scripts/") or path:match("^install/") or path == "installer") and not body:sub(1, 900):find("Purpose", 1, true) then
       fail(path, "missing Purpose header comment")
     end
 

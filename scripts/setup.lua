@@ -4,8 +4,12 @@ Runs interactively on a fresh CC:Tweaked computer.
 Guides the user through role/ID selection, scans attached peripherals,
 writes startup.lua and a minimal config, then reboots.
 
-Usage: shell.run("scripts/setup.lua")
+Usage: shell.run("scripts/setup.lua")            asks for everything
+       shell.run("scripts/setup.lua", "--role", "sensor")   role chosen already (the installer does this)
 --]]
+
+-- CC:Tweaked resolves relative require paths against the directory of the running program (scripts/); the modules live in /src.
+package.path = "/?.lua;/?/init.lua;" .. (package.path or "")
 
 -- ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -238,6 +242,14 @@ print_header("Node Role")
 println("What is the role of THIS computer?")
 println("")
 
+local preset_role = nil
+do
+  local argv = { ... }
+  for i = 1, #argv do
+    if argv[i] == "--role" then preset_role = argv[i + 1] end
+  end
+end
+
 local roles = {
   "master    — Central controller (one per network)",
   "train     — Onboard computer in a train",
@@ -250,8 +262,15 @@ local roles = {
 }
 local role_keys = { "master","train","sensor","signal","switch","station","depot","panel" }
 
-local idx = ask_choice("Role", roles, 1)
-local role = role_keys[idx]
+local role = nil
+if preset_role then
+  for _, key in ipairs(role_keys) do if key == preset_role then role = key end end
+  if role then println("Role: " .. role .. " (chosen by the installer)") else println("Unknown role '" .. tostring(preset_role) .. "', please choose.") end
+end
+if not role then
+  local idx = ask_choice("Role", roles, 1)
+  role = role_keys[idx]
+end
 
 -- ─── Step 5: Node ID ─────────────────────────────────────────────────────────
 

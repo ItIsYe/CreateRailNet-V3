@@ -16,6 +16,9 @@ Notes: run it on a computer that has the source files and a modem on the network
   with the new code, then run it for the rest. See docs/OTA.md.
 ]]
 
+-- CC:Tweaked resolves relative require paths against the directory of the running program (scripts/); the modules live in /src.
+package.path = "/?.lua;/?/init.lua;" .. (package.path or "")
+
 local shared_args = require("src.shared.args")
 local config = require("src.shared.config")
 local log = require("src.shared.log")

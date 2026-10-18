@@ -46,3 +46,7 @@ jobs:
       # the runner executes an explicit list; a test file missing from it would silently never run
       - name: Test registry
         run: lua5.4 scripts/check_test_registry.lua
+
+      # install/manifest.lua is what the installer puts on computers (size and checksum of every file): it has to match the files
+      - name: Installer manifest
+        run: lua5.4 scripts/manifest_sync.lua --check

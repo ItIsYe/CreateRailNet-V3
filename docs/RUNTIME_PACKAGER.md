@@ -79,6 +79,8 @@ src/sim/scenario_runner.lua -> excluded
 tests/test_sim_basic_flow.lua -> excluded
 ```
 
-## Future installer rule
+## Installer rule
 
-Any future installer/downloader must use `configs/install/runtime_manifest.json` and must not copy `src/sim`, `tests`, `docs`, `.github`, or dev tools into normal ingame computers.
+The installer (`installer`, `docs/INSTALL.md`) uses `configs/install/runtime_manifest.json` as the authority: `scripts/manifest_sync.lua` refuses to
+list a file the manifest excludes, and `tests/test_installer_manifest.lua` checks every listed file against these rules. The installer itself
+(`installer`, `install/**`) is fetched by the computer and never installed.

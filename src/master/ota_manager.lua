@@ -25,6 +25,7 @@ Only files that differ are sent (the node compares size and Adler-32 from the of
 local time = require("src.shared.time")
 local checksum = require("src.shared.checksum")
 local updater = require("src.shared.updater")
+local require_scan = require("src.shared.require_scan")
 
 local ota_manager = {}
 
@@ -75,22 +76,10 @@ local function list_runtime_files()
 end
 
 -- The files a node needs to boot the new code: every module the node entry points require, found by reading the source
--- (require("x") and pcall(require, "x")). Smaller than the whole runtime, so the old single-message update of a node that
--- has no verified OTA yet fits next to the files it replaces. read(path) -> body | nil
+-- (src/shared/require_scan.lua). Smaller than the whole runtime, so the old single-message update of a node that has no
+-- verified OTA yet fits next to the files it replaces. read_body(path) -> body | nil
 function ota_manager.node_closure(read_body)
-  local seen, paths = {}, {}
-  local function visit(module)
-    if seen[module] then return end
-    seen[module] = true
-    local path = module:gsub("%.", "/") .. ".lua"
-    local body = read_body(path)
-    if not body then return end
-    paths[#paths + 1] = path
-    for dep in body:gmatch('require%s*%(%s*"([%w_%.]+)"') do visit(dep) end
-    for dep in body:gmatch('require%s*,%s*"([%w_%.]+)"') do visit(dep) end
-  end
-  for _, module in ipairs(NODE_ENTRYPOINTS) do visit(module) end
-  table.sort(paths)
+  local paths = require_scan.closure(NODE_ENTRYPOINTS, read_body)
   return paths
 end
 

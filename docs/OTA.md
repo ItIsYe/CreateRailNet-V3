@@ -15,6 +15,9 @@ boot. `DONE` therefore means "swapped, reboot pending", not "running".
 
 ## Nodes that run the old code (first distribution)
 
+Two ways. A computer with HTTP simply runs the installer (`docs/INSTALL.md`); it replaces what differs, adds the recovery to `startup.lua` and restarts.
+For nodes that have no HTTP or that you want to update from the master:
+
 Nodes set up before the verified update cannot talk the new protocol (offer / need / chunk / commit) and have no rollback. They understand one
 thing: a single `ota_update` message with all files. `lua scripts/ota_push.lua --legacy [--node ID]` sends exactly that, one message per node
 (every non-master node of the config without `--node`), limited to the files a node needs to boot (found by following the `require`s of the role
@@ -23,7 +26,7 @@ reboots into the new code, and counts as `CONFIRMED` when its heartbeat shows pr
 
 **Do one node first** (`--legacy --node X`), watch it come back, then do the rest: the old updater cannot roll back, a node whose new code
 does not start has to be repaired by hand. From then on `ota_push.lua` without `--legacy` is enough (it sends the rest of the files and later
-changes). The master computer is updated by copying its files and restarting it.
+changes). The master computer is updated by running `installer` on it (`docs/INSTALL.md`) and restarting.
 
 ## startup.lua of older nodes
 
@@ -87,4 +90,4 @@ does not run its heartbeat timeout on it, so an update does not turn the blocks 
   accepted sender id can update nodes. Keep `ota_sources` short.
 - What a Create signal shows while its computer reboots is not verified in game. The quiesce step puts the signal to RED before the
   swap; whether that survives the reboot depends on Create.
-- The master computer itself is not updated by this mechanism; copy its files and restart it.
+- The master computer itself is not updated by this mechanism; run `installer` on it and restart.

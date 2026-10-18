@@ -13,4 +13,5 @@ This repository is greenfield. Keep modules Lua 5.1 compatible, avoid globals, a
 - Change an old test expectation only with a reason in the commit message.
 - Anything that depends on `pairs()` order and changes behaviour (not only a log line) iterates over sorted keys.
 - A change to the dispatcher is checked by the seeded random walks (`tests/harness/dispatcher_world.lua`); add the invariant it must keep there, and run a wide hunt (many seeds, all three interpreters) before pushing.
+- After changing any file an installer puts on computers (`src/`, installed `scripts/`, config templates) run `lua scripts/manifest_sync.lua --write`; CI checks it.
 - A new config key goes into `docs/config_reference.md` and `validate.lua`; behaviour that only the game can show goes into `docs/INGAME_TESTS.md`.

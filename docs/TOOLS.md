@@ -66,7 +66,9 @@ dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 
 | Script | Purpose |
 |---|---|
-| `scripts/setup.lua` | per computer: role, id, peripherals; writes `startup.lua` and the minimal config |
+| `installer` | one-line installer: `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer` (`docs/INSTALL.md`) |
+| `scripts/manifest_sync.lua --write\|--check` | regenerates / checks `install/manifest.lua`, the installer's file list (after changing any installed file) |
+| `scripts/setup.lua [--role R]` | per computer: role, id, peripherals; writes `startup.lua` and the minimal config |
 | `scripts/check_configs.lua` | validates every config under `configs/` |
 | `scripts/ota_push.lua [--node ID] [--legacy]` | pushes the runtime to nodes (`docs/OTA.md`) |
 | `scripts/upgrade_startup.lua` | gives this computer's `startup.lua` the OTA recovery (nodes do it by themselves at start) |

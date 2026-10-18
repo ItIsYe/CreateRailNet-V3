@@ -4,6 +4,9 @@ Usage: lua scripts/upgrade_startup.lua   (nodes and the master do this by themse
 Notes: the old file stays as startup.lua.prev. A startup.lua that does not look like setup.lua's output is not changed.
 ]]
 
+-- CC:Tweaked resolves relative require paths against the directory of the running program (scripts/); the modules live in /src.
+package.path = "/?.lua;/?/init.lua;" .. (package.path or "")
+
 local startup_guard = require("src.shared.startup_guard")
 
 local status, detail = startup_guard.ensure({})

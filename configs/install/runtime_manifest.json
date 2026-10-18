@@ -13,6 +13,7 @@
     "scripts/start_station.lua",
     "scripts/start_depot.lua",
     "scripts/ota_push.lua",
+    "scripts/upgrade_startup.lua",
     "src/shared/**",
     "src/domain/**",
     "src/adapter/**",
@@ -31,11 +32,15 @@
     "scripts/check_syntax.lua",
     "scripts/check_configs.lua",
     "scripts/run_tests.lua",
-    "src/tools/**"
+    "src/tools/**",
+    "installer",
+    "install/**",
+    "scripts/manifest_sync.lua"
   ],
   "notes": [
     "src/sim is offline-only and must never be installed on ingame computers.",
     "tests and GitHub workflow files are offline-only.",
-    "src/tools contains development and diagnostic tools; install manually only when explicitly needed."
+    "src/tools contains development and diagnostic tools; install manually only when explicitly needed.",
+    "The installer (installer, install/**) is fetched from GitHub by the computer itself and is not installed; install/manifest.lua is generated from this file's include/exclude rules by scripts/manifest_sync.lua."
   ]
 }

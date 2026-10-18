@@ -7,6 +7,23 @@ Strecke** durchgehen, die Ergebnisse in die letzte Spalte schreiben. Wo etwas an
 Vorbereitung: Backup der Welt, ein kleines Netz (Master, 2 Signale, 2 Sensoren, 1 Weiche, 1 Zug, 1 Panel-Monitor), `lua scripts/check_configs.lua`
 ohne Fehler, `docs/INGAME_SETUP.md` durchgearbeitet.
 
+## 0. Installer (`docs/INSTALL.md`)
+
+Der Installer ist offline gegen ein simuliertes GitHub getestet (inklusive Absturz bei jeder Dateioperation). Ob HTTP, Dateisystem und `require` im Spiel
+genauso arbeiten, zeigt nur der Versuch. Auf einem **frischen** Computer, dann auf einem zweiten mit kleinem Speicher:
+
+| # | Versuch | Erwartet | Wenn anders | Ergebnis |
+|---|---|---|---|---|
+| 0a | `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<zweig>/installer --ref <zweig>` | Menü, Fortschritt, am Ende der Einrichtungs-Assistent | „HTTP ist nicht verfuegbar": `computercraft-server.toml` (http, Domain freigeben); anderer Fehler: Text notieren | |
+| 0b | im Assistenten weitermachen (alles mit Enter) | läuft ohne „module not found" / „startup_template.lua is missing" durch, schreibt `startup.lua`, startet neu in die Rolle | „module not found": `require` löst Pfade aus `/scripts` anders auf als vermutet → melden, Wortlaut notieren | |
+| 0c | `installer` (oder `installer --yes`) gleich noch einmal | lädt nur das Manifest, „Alle Dateien sind auf dem Stand …", Neustart in 2 s; dauert wenige Sekunden | lädt Dateien erneut: Größe/Prüfsumme weichen ab (Zeilenenden? `git config core.autocrlf`) → melden | |
+| 0d | `fs.getFreeSpace("/")` vor und nach einer Master- und einer Node-Installation (Lua-Prompt) | Master ca. 430 KB, Node ca. 130 KB belegt, Standardspeicher (1 MB) reicht | reicht nicht: Meldung nennt, wie viel fehlt; `computer_space_limit` erhöhen | |
+| 0e | Computer mit zu wenig Platz (`computer_space_limit` klein) | „Der Speicher dieses Computers reicht nicht …", Platte unverändert | Platte verändert: Abbruch-Zeitpunkt notieren | |
+| 0f | Strom aus / Chunk entladen während „Dateien werden geladen" | beim nächsten Start „Installation unvollstaendig." und `installer --resume` läuft von selbst bis zum Neustart | Computer bleibt in der Shell: `installer --resume --role <rolle>` | |
+| 0g | eigene Konfiguration (`configs/templates/network.full.example.json`) ändern, `installer` erneut | Datei bleibt unverändert; eine gelöschte `scripts/start_*.lua` kommt zurück | Datei überschrieben: melden (Seed-Liste im Manifest) | |
+| 0h | `installer --role signal` auf einem Sensor-Computer | alte Sensor-Dateien weg, Assistent richtet die Signal-Rolle ein | | |
+| 0i | direkt nach einem Push auf den Zweig installieren | evtl. „… checksum of …" und Wiederholung mit Wartezeit (CDN-Cache), dann Erfolg | dauerhaft Prüfsummenfehler: `lua scripts/manifest_sync.lua --check` im Repository | |
+
 ## 1. Was macht ein Create-Signal, wenn sein Computer ausfällt? (offene Frage Nr. 1)
 
 Das ist die wichtigste Frage: die Software setzt Signale neu (Start, rollend, Reconnect) und schaltet beim Stoppen des Masters alle auf ROT, aber sie

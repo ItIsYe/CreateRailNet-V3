@@ -61,6 +61,13 @@ trains, stations, depots, fahrplan, cargo, diag, logs, ota), a failing page show
 one lamp on the status page. Alerts are one line per cause and are acknowledged by touch. Everything is bounded and costs one pass over
 the nodes and blocks, so the same UI serves a small and a large network.
 
+## Installation
+
+`installer` is a thin bootstrap (like the reactor project's): it fetches `install/*.lua` and three shared modules from one ref, compares the files of the role
+(`install/manifest.lua`: size and Adler-32, generated from the `require` closure of the role's entry points) with the disk, checks the space, and replaces
+only what differs, with a journal that makes an interrupted run resume at the next boot (`startup.lua` guard). Seed files (config templates,
+`scripts/start_*.lua`) are never replaced. Updates later go through OTA (`docs/OTA.md`). Details: `docs/INSTALL.md`.
+
 ## Testing outside the game
 
 `lua scripts/run_tests.lua` runs the whole suite with Lua 5.1, 5.4 and LuaJIT in CI. Besides unit tests it has seeded random walks over

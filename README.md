@@ -12,8 +12,12 @@ network, alerts, central log and a trace you can replay offline. Network size is
 ## Quick Start
 
 ### 1) Install
-- Copy the repository to your CC:Tweaked computers, then run `scripts/setup.lua` on each one (role, id, peripherals; it writes `startup.lua`).
-- Ensure Lua 5.1 compatibility (default for CC:Tweaked).
+On each CC:Tweaked computer (HTTP enabled):
+```
+wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer
+```
+The installer asks for the role, downloads and verifies exactly the files that role needs, then starts the setup wizard (id, peripherals; it writes
+`startup.lua`). Running it again updates or repairs. Details, options and error messages: `docs/INSTALL.md`.
 
 ### 2) Configuration
 - Start from `configs/templates/network.example.json` (`network.full.example.json` for everything).
@@ -35,8 +39,8 @@ lua src/nodes/switch_node.lua --config configs/templates/network.example.json --
 ```
 
 ### 5) Update
-- New code reaches the nodes with `lua scripts/ota_push.lua` (`docs/OTA.md`). Nodes that were set up with an older version get there with
-  `lua scripts/ota_push.lua --legacy`; the master is updated by copying its files.
+- Nodes: `lua scripts/ota_push.lua` from the master (`docs/OTA.md`). Nodes that were set up with an older version get there with the installer
+  or `lua scripts/ota_push.lua --legacy`. The master: run `installer` on it again.
 
 ## Tests (outside the game)
 ```sh
@@ -61,6 +65,7 @@ What cannot be tested offline is listed in `docs/INGAME_TESTS.md` — please run
 | operating the master, repairs, traces | `docs/OPERATIONS.md` |
 | updates and rollback | `docs/OTA.md` |
 | messages | `docs/protocol.md` |
+| installation | `docs/INSTALL.md` |
 | in-game setup and tests | `docs/INGAME_SETUP.md`, `docs/INGAME_TESTS.md` |
 
 ## Project Layout
@@ -69,6 +74,7 @@ What cannot be tested offline is listed in `docs/INGAME_TESTS.md` — please run
 - `src/master/`: master dispatcher, runtime, UI, OTA manager
 - `src/nodes/`: node role implementations
 - `src/adapter/`: peripherals and Create adapters
+- `installer`, `install/`: the one-line installer and its modules, `install/manifest.lua` is generated (`scripts/manifest_sync.lua`)
 - `scripts/`: setup, OTA push, trace replay, checks
 - `tests/`: harness + deterministic and seeded random tests
 - `docs/`: architecture, protocol, configuration reference
