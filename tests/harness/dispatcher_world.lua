@@ -336,6 +336,10 @@ function world_mod.step_chaos(world)
   elseif roll <= 88 then
     note("snapshot/restore")
     d.restore(d.snapshot())
+  elseif roll <= 92 then
+    -- re-sent signals must agree with the invariants too (no GREEN where the dispatcher would show RED)
+    note("refresh_signals")
+    d.refresh_signals(rng.int(1, 5))
   else
     local block, action = "B" .. rng.int(1, #world.cfg.blocks + 1), rng.chance(0.5) and "enter" or "leave"
     note("stale " .. action .. " " .. block)

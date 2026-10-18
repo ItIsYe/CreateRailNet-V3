@@ -150,7 +150,16 @@ function app.new(args)
 
   instance = { context = context }
   instance.runtime = runtime_factory.new(context)
-  function instance.run() instance.runtime.run() end
+  function instance.run()
+    local ok_run, run_err = pcall(instance.runtime.run)
+    -- the master stops (Ctrl+T or a crash): every signal to RED, trains stop in front of them instead of running unobserved
+    if cfg.signal_red_on_stop ~= false then
+      local ok_red, failed = pcall(disp.shutdown_red)
+      if not ok_red then logger.warn("signals to RED on stop failed", { error = tostring(failed) })
+      elseif failed > 0 then logger.warn("signals to RED on stop: some did not answer", { failed = failed }) end
+    end
+    if not ok_run then error(run_err, 0) end
+  end
   return instance
 end
 

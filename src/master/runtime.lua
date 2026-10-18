@@ -46,6 +46,7 @@ function master_runtime.new(context)
     sensor_levels = {}  -- sensor_id -> { occupied, at }: what the detector shows right now, from heartbeats and events
   }
   local ui_once = once_log.new(context.logger)
+  local signal_once = once_log.new(context.logger)
   local event_once = once_log.new(context.logger)
   runtime.ticker = ticker.new({
     clock = context.clock,
@@ -59,6 +60,16 @@ function master_runtime.new(context)
   local handlers = {}
 
   local function audit(kind, data) if runtime.audit_log then runtime.audit_log.record(kind, data) end end
+  -- Signals are re-sent, not read back. Whatever failed is reported once per change, not on every pass.
+  local function note_signal_result(result, what)
+    if not result then return end
+    if result.failed > 0 then
+      signal_once.warn("signals", "signals did not answer", { what = what, failed = result.failed, blocks = table.concat(result.failed_blocks, ",") })
+    else
+      signal_once.ok("signals", "signals answer again")
+    end
+  end
+
   local function maintenance_enabled() if not runtime.maintenance then return false end; if runtime.maintenance.is_locked then return runtime.maintenance.is_locked() end; if runtime.maintenance.status then return runtime.maintenance.status().enabled == true end; return runtime.maintenance.enabled == true end
   local function recovery_locked() return runtime.recovery.required == true and runtime.recovery.confirmed ~= true end
 
@@ -159,7 +170,8 @@ function master_runtime.new(context)
       if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.send_service_plan(train_id) end
     elseif role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then apply_depot_snapshot(msg.payload.depot_id or msg.src, msg.payload or {})
-    elseif role == "panel" then send_panel_snapshot(msg.src) end
+    elseif role == "panel" then send_panel_snapshot(msg.src)
+    elseif role == "signal" and runtime.dispatcher.resend_signals then note_signal_result(runtime.dispatcher.resend_signals(msg.src), "register " .. tostring(msg.src)) end
     runtime.network.ack_for(msg, true); runtime.ui.mark_dirty(); save_after("register"); return true
   end
 
@@ -176,6 +188,7 @@ function master_runtime.new(context)
       audit("node_adopted", { node_id = msg.src, role = announced_role })
     elseif known and tostring(known.status):lower() == "down" then
       audit("node_reconnect", { node_id = msg.src, role = known.role })
+      if known.role == "signal" and runtime.dispatcher.resend_signals then note_signal_result(runtime.dispatcher.resend_signals(msg.src), "reconnect " .. tostring(msg.src)) end
     end
     runtime.registry.heartbeat(msg.src)
     if msg.payload and msg.payload.role == "train" and runtime.train_registry then runtime.train_registry.register(msg.payload.train_id or msg.src, msg.src, msg.payload)
@@ -383,6 +396,11 @@ function master_runtime.new(context)
     if not ok_restore and runtime.logger then
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
     end
+    -- whatever the signals showed before the master came up: RED everywhere, GREEN for the trains that wait
+    if runtime.dispatcher.refresh_signals and (runtime.config or {}).signal_refresh_per_s ~= 0 then
+      local ok_refresh, refreshed = pcall(runtime.dispatcher.refresh_signals)
+      if ok_refresh then note_signal_result(refreshed, "start") elseif runtime.logger then runtime.logger.warn("signal refresh error on start", { error = tostring(refreshed) }) end
+    end
     runtime.ticker.start()
     -- the code of an update that just landed got this far: keep it (an unconfirmed first boot is rolled back)
     pcall(function() require("src.shared.ota_recovery").confirm() end)
@@ -419,6 +437,18 @@ function master_runtime.new(context)
     return cleared
   end
   runtime.ticker.every("auto_clear", 2, function() runtime.auto_clear_faults() end)
+
+  -- Rolling signal refresh: a few blocks per second, so a signal that lost its state (node reboot, chunk reload, lost
+  -- command) is corrected within one round. config signal_refresh_per_s = 0 turns it off.
+  function runtime.refresh_signals()
+    local per_second = (runtime.config or {}).signal_refresh_per_s
+    if per_second == nil then per_second = 2 end
+    if per_second <= 0 or not runtime.dispatcher.refresh_signals then return nil end
+    local result = runtime.dispatcher.refresh_signals(per_second)
+    note_signal_result(result, "refresh")
+    return result
+  end
+  runtime.ticker.every("signals", 1, function() runtime.refresh_signals() end)
 
   runtime.ticker.every("dwell", 1, function()
     if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then

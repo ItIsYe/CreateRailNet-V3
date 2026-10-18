@@ -1,6 +1,6 @@
 --[[
 Purpose: Core block dispatcher for the master node.
-Public API: new(config, adapters), clear_fault(block_id), auto_clear_faults(ctx), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
+Public API: new(config, adapters), clear_fault(block_id), auto_clear_faults(ctx), refresh_signals(limit), resend_signals(node_id), shutdown_red(), reserve_route(train_id, route_id), request_route(train_id, route_id, opts), process_queue(), on_sensor_event(block_id, action), on_sensor_event_by_sensor(sensor_id, action), timeout_node(node_id), snapshot(), restore(snapshot).
 ]]
 
 local util = require("src.shared.util")
@@ -193,6 +193,19 @@ function dispatcher.new(config, adapters)
   local function reserve_blocks(route_blocks, train_id) for _, block in ipairs(route_blocks) do block_domain.reserve(block, train_id); set_block_red(block) end end
   local function release_blocks(route_blocks) for _, block in ipairs(route_blocks) do block_domain.release(block); set_block_red(block) end end
 
+  -- The block a waiting train enters next and the aspect its entry signal gets: GREEN, or YELLOW when the block after
+  -- it is not ours yet.
+  local function waiting_aspect(train)
+    if not train or not train.route_blocks or train.state ~= TRAIN_STATES.RESERVED then return nil end
+    local current_index = train.route_index or 1
+    local next_block = train.route_blocks[current_index]
+    if not (next_block and next_block.state == STATES.RESERVED and next_block.reserved_by == train.id) then return nil end
+    local lookahead = train.route_blocks[current_index + 1]
+    local aspect = "GREEN"
+    if lookahead and lookahead.state ~= STATES.FREE and lookahead.reserved_by ~= train.id then aspect = "YELLOW" end
+    return next_block, aspect
+  end
+
   local function update_route_signals(train)
     if not train or not train.route_blocks then return true end
     -- RED only on blocks that are free or ours: a block already given to another train keeps that train's aspect
@@ -200,14 +213,8 @@ function dispatcher.new(config, adapters)
       local holder = block.reserved_by or block.occupied_by
       if holder == nil or holder == train.id then set_block_red(block) end
     end
-    local current_index = train.route_index or 1
-    local next_block = train.route_blocks[current_index]
-    if train.state == TRAIN_STATES.RESERVED and next_block and next_block.state == STATES.RESERVED and next_block.reserved_by == train.id then
-      local lookahead = train.route_blocks[current_index + 1]
-      local aspect = "GREEN"
-      if lookahead and lookahead.state ~= STATES.FREE and lookahead.reserved_by ~= train.id then aspect = "YELLOW" end
-      return set_proceed_aspect(next_block.entry_signal, aspect)
-    end
+    local next_block, aspect = waiting_aspect(train)
+    if next_block then return set_proceed_aspect(next_block.entry_signal, aspect) end
     return true
   end
 
@@ -592,6 +599,72 @@ function dispatcher.new(config, adapters)
       end
     end
     return cleared
+  end
+
+  -- Signals are re-sent, never read back (vanilla Create cannot report them): what the dispatcher wants on a block's
+  -- signals right now is RED, except the entry signal of the next block of a waiting train. A failing send is counted,
+  -- it does not fault the block (reservations do that when they need a signal to be RED).
+  local signal_order = sorted_keys(self.blocks)
+  local signal_cursor = 0
+
+  local function refresh_block(block)
+    local aspect = "RED"
+    local owner = block.state == STATES.RESERVED and block.reserved_by or nil
+    if owner then
+      local next_block, wanted = waiting_aspect(self.trains[owner])
+      if next_block == block then aspect = wanted end
+    end
+    local ok1 = set_proceed_aspect(block.entry_signal, aspect)
+    local ok2 = set_signal(block.exit_signal, "RED")
+    return ok1 ~= false and ok2 ~= false
+  end
+
+  -- limit blocks per call, round robin; no limit = every block (master start)
+  function self.refresh_signals(limit)
+    local count = #signal_order
+    local result = { sent = 0, failed = 0, failed_blocks = {} }
+    for _ = 1, math.min(limit or count, count) do
+      signal_cursor = signal_cursor % count + 1
+      local block = self.blocks[signal_order[signal_cursor]]
+      result.sent = result.sent + 1
+      if not refresh_block(block) then
+        result.failed = result.failed + 1
+        result.failed_blocks[#result.failed_blocks + 1] = block.id
+      end
+    end
+    return result
+  end
+
+  -- A signal node came back (it may have rebooted into any state): everything it shows is sent again
+  function self.resend_signals(node_id)
+    local result = { sent = 0, failed = 0, failed_blocks = {} }
+    for _, block_id in ipairs(signal_order) do
+      local block = self.blocks[block_id]
+      if block.entry_signal == node_id or block.exit_signal == node_id then
+        result.sent = result.sent + 1
+        if not refresh_block(block) then
+          result.failed = result.failed + 1
+          result.failed_blocks[#result.failed_blocks + 1] = block_id
+        end
+      end
+    end
+    return result
+  end
+
+  -- The master stops: every signal to RED so trains stop in front of them instead of running unobserved. Block and
+  -- train state are not touched (a restart restores them and gives the waiting trains their GREEN back).
+  function self.shutdown_red()
+    local failed = 0
+    for _, block_id in ipairs(signal_order) do
+      local block = self.blocks[block_id]
+      for _, signal_id in ipairs({ block.entry_signal or false, block.exit_signal or false }) do
+        if signal_id then
+          local ok, result = pcall(set_signal, signal_id, "RED")
+          if not ok or result == false then failed = failed + 1 end
+        end
+      end
+    end
+    return failed
   end
 
   function self.get_overview()
