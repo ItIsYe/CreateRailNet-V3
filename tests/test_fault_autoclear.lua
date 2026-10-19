@@ -275,7 +275,7 @@ return {
       local reg = registry_factory.new()
       local d = dispatcher.new(cfg(), adapters())
       local rt = runtime_factory.new({
-        config = { nodes = {} }, registry = reg, dispatcher = d,
+        config = { nodes = { { id = "SEN-1", role = "sensor" }, { id = "SEN-2", role = "sensor" }, { id = "SEN-3", role = "sensor" }, { id = "SE1", role = "sensor" } } }, registry = reg, dispatcher = d,
         network = { receive = function() return "ok" end, ack_for = function() end, send = function() end, tick = function() end },
         ui = { mark_dirty = function() end, draw = function() end, handle_touch = function() end },
         audit_log = { record = function(kind, data) audits[#audits + 1] = { kind = kind, data = data } end },
@@ -319,7 +319,7 @@ return {
       local reg = registry_factory.new()
       local d = dispatcher.new(cfg(), adapters())
       local rt = runtime_factory.new({
-        config = { nodes = {}, auto_clear_stable_s = 0 }, registry = reg, dispatcher = d,
+        config = { nodes = { { id = "SEN-1", role = "sensor" }, { id = "SEN-2", role = "sensor" }, { id = "SEN-3", role = "sensor" }, { id = "SE1", role = "sensor" } }, auto_clear_stable_s = 0 }, registry = reg, dispatcher = d,
         network = { receive = function() return "ok" end, ack_for = function() end, send = function() end, tick = function() end },
         ui = { mark_dirty = function() end, draw = function() end, handle_touch = function() end },
         auto_restore_state = false, auto_save_state = false
@@ -390,7 +390,7 @@ return {
     local reg = registry_factory.new()
     local d = dispatcher.new(cfg(), adapters())
     local rt = runtime_factory.new({
-      config = { nodes = {} }, registry = reg, dispatcher = d,
+      config = { nodes = { { id = "SEN-1", role = "sensor" }, { id = "SEN-2", role = "sensor" }, { id = "SEN-3", role = "sensor" }, { id = "SE1", role = "sensor" } } }, registry = reg, dispatcher = d,
       network = { receive = function() return "ok" end, ack_for = function() end, send = function() end, tick = function() end },
       ui = { mark_dirty = function() end, draw = function() end, handle_touch = function() end },
       auto_restore_state = false, auto_save_state = false

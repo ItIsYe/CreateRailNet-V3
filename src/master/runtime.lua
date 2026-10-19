@@ -62,6 +62,24 @@ function master_runtime.new(context)
 
   local function audit(kind, data) if runtime.audit_log then runtime.audit_log.record(kind, data) end end
 
+  -- ── who belongs to the network: the plan decides, not what a computer says about itself ────────────────────────────────
+  -- A computer that is not in the plan (or whose id has another role there) may announce itself, nothing else: it is not registered, its
+  -- events are not handled. The operator's acceptance writes it into the plan (pair_decide), from then on it is a node.
+  local plan_roles, plan_size = {}, -1
+  local function plan_role_of(id)
+    local nodes = runtime.config and runtime.config.nodes
+    if type(nodes) ~= "table" or type(id) ~= "string" then return nil end
+    if #nodes ~= plan_size then
+      plan_roles, plan_size = {}, #nodes
+      for _, node in ipairs(nodes) do
+        if type(node) == "table" and type(node.id) == "string" and type(node.role) == "string" then plan_roles[node.id] = node.role end
+      end
+    end
+    return plan_roles[id]
+  end
+  runtime.plan_role = plan_role_of
+  local unplanned_once = once_log.new(context.logger)
+
   -- ── pairing: computers that are not in the plan wait for the operator ───────────────────────────────────────────────
   local pair_sent = {}   -- node id -> the last state told to that node (a node is told again only when it changes)
 
@@ -209,9 +227,20 @@ function master_runtime.new(context)
   local function apply_station_snapshot(station_id, payload) if not runtime.station_registry then return end; runtime.station_registry.register(station_id, payload.node_id or station_id, payload or {}); for platform_id, platform in pairs((payload and payload.platforms) or {}) do runtime.station_registry.update_platform(station_id, platform_id, platform) end end
   local function apply_depot_snapshot(depot_id, payload) if not runtime.depot_registry then return end; runtime.depot_registry.register(depot_id, payload.node_id or depot_id, payload or {}); for track_id, track in pairs((payload and payload.tracks) or {}) do runtime.depot_registry.update_track(depot_id, track_id, track) end end
 
+  -- A computer that the plan does not list with this role is a candidate, not a node: it is told where it stands and nothing else happens.
+  local function not_a_node(msg, role)
+    local planned = plan_role_of(msg.src)
+    if planned ~= nil and planned == role then return false end
+    note_candidate(msg.src, { role = role })
+    runtime.network.ack_for(msg, true)
+    runtime.ui.mark_dirty()
+    return true
+  end
+
   handlers.register = function(msg)
     local role = msg.payload and msg.payload.role
     audit("register", { src = msg.src, role = role })
+    if not_a_node(msg, role) then return true end
     local previous = runtime.registry.all and runtime.registry.all()[msg.src]
     runtime.registry.register(msg.src, role, nil)
     note_candidate(msg.src, { role = role }, false)
@@ -230,8 +259,16 @@ function master_runtime.new(context)
   handlers.heartbeat = function(msg)
     local known = runtime.registry.all and runtime.registry.all()[msg.src]
     local announced_role = msg.payload and msg.payload.role
+    -- a heartbeat does not make a computer a node: the plan lists it (with the role it announces) or it is only a candidate
+    local planned = plan_role_of(msg.src)
+    if planned == nil or (announced_role ~= nil and announced_role ~= planned) then
+      note_candidate(msg.src, { role = announced_role })
+      runtime.ui.mark_dirty()
+      return true
+    end
+    announced_role = announced_role or planned
     -- a sensor tells whether its detector is occupied (not while its read fails); this clears blocks after an outage
-    if announced_role == "sensor" and type(msg.payload.occupied) == "boolean" then
+    if announced_role == "sensor" and type(msg.payload) == "table" and type(msg.payload.occupied) == "boolean" then
       runtime.sensor_levels[msg.src] = { occupied = msg.payload.occupied, at = time.now_s() }
     end
     if not known and announced_role and runtime.registry.register then
@@ -399,26 +436,53 @@ function master_runtime.new(context)
     end,
   }
 
-  -- Who may send what: a sensor event must come from the sensor it names, manual control only from a panel node.
+  -- Who may send what. The plan decides who is a node and with which role; an event type that belongs to one role (a sensor event comes from a
+  -- sensor and names itself, manual control comes from a panel) is taken from that role only, every other event (log, update) from any node
+  -- of the plan. Only the announcements of pairing are open to every computer.
+  local OPEN_EVENTS = { pair_announce = true, pair_probe = true }
+  local EVENT_ROLE = {
+    sensor = "sensor",
+    train_status = "train", request_departure = "train", arrived = "train", schedule_applied = "train", train_fault = "train",
+    station_status = "station", station_ready_departure = "station", station_fault = "station", platform_status = "station",
+    train_arrived_station = "station", train_left_station = "station",
+    depot_status = "depot", depot_track_status = "depot", depot_train_ready = "depot", depot_request_dispatch = "depot",
+    depot_train_arrived = "depot", depot_train_left = "depot", depot_fault = "depot",
+    panel_request_snapshot = "panel", manual_control = "panel",
+  }
+
+  -- returns nil when the sender may send this event, else the reason and whether the sender is a computer of the plan at all
   local function event_sender_problem(msg, ptype)
+    if OPEN_EVENTS[ptype] then return nil end
     local payload = msg.payload or {}
+    local planned = plan_role_of(msg.src)
+    if not planned then return "sender is not in the plan", false end
+    local needed = EVENT_ROLE[ptype]
+    if needed and planned ~= needed then return ptype .. " from a " .. planned .. " node", true end
     if ptype == "sensor" and payload.sensor_id ~= msg.src then
-      return "sensor event for " .. tostring(payload.sensor_id) .. " sent by " .. tostring(msg.src)
+      return "sensor event for " .. tostring(payload.sensor_id) .. " sent by " .. tostring(msg.src), true
     end
     if ptype == "manual_control" then
       local sender = runtime.registry.all and runtime.registry.all()[msg.src]
-      if not sender or sender.role ~= "panel" then return "manual control from a node that is not a panel" end
+      if not sender or sender.role ~= "panel" then return "manual control from a node that is not a panel", true end
     end
     return nil
   end
 
   handlers.event = function(msg)
     local ptype = msg.payload and tostring(msg.payload.type) or ""
-    local problem = event_sender_problem(msg, ptype)
+    local problem, in_plan = event_sender_problem(msg, ptype)
     if problem then
-      audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
-      event_once.warn("event:" .. tostring(msg.src) .. ":" .. ptype, "event rejected", { src = msg.src, type = ptype, reason = problem })
-      if runtime.alerts then runtime.alerts.raise("event:" .. tostring(msg.src) .. ":" .. ptype, "YELLOW", "Ereignis abgelehnt: " .. problem, nil, { ttl_s = 120 }) end
+      if in_plan then
+        audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
+        event_once.warn("event:" .. tostring(msg.src) .. ":" .. ptype, "event rejected", { src = msg.src, type = ptype, reason = problem })
+        if runtime.alerts then runtime.alerts.raise("event:" .. tostring(msg.src) .. ":" .. ptype, "YELLOW", "Ereignis abgelehnt: " .. problem, nil, { ttl_s = 120 }) end
+      else
+        -- a computer the plan does not list: one line per minute for all of them together (strangers must not fill the log or the alerts)
+        if unplanned_once.first("unplanned") then
+          audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
+          if runtime.logger then runtime.logger.warn("events of computers that are not in the plan are ignored", { src = msg.src, type = ptype }) end
+        end
+      end
       -- acknowledged all the same: the sender must not retry what will never be accepted
       runtime.network.ack_for(msg, true)
       return true

@@ -191,7 +191,7 @@ return {
     local resent = {}
     local reg = registry_factory.new()
     local rt = runtime_factory.new({
-      config = { nodes = {} }, registry = reg,
+      config = { nodes = { { id = "SIG-1", role = "signal" }, { id = "SEN-1", role = "sensor" } } }, registry = reg,
       dispatcher = {
         get_overview = function() return {} end, timeout_node = function() end,
         resend_signals = function(id) resent[#resent + 1] = id; return { sent = 1, failed = 0, failed_blocks = {} } end

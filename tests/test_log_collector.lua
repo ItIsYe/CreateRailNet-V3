@@ -138,7 +138,7 @@ return {
     local runtime_factory = require("src.master.runtime")
     local collector = log_collector.new()
     local rt = runtime_factory.new({
-      config = { nodes = {} },
+      config = { nodes = { { id = "SIG-1", role = "signal" } } },
       registry = { all = function() return {} end, register = function() end, heartbeat = function() end },
       dispatcher = { get_overview = function() return {} end, timeout_node = function() end },
       network = { receive = function() return "ok" end, ack_for = function() end, send = function() end, tick = function() end },

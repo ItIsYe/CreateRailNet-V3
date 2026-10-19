@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "58710aed",
+  id = "29db0acc",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -62,7 +62,7 @@ return {
     ["src/master/ota_manager.lua"] = { 19866, 678918975 },
     ["src/master/pairing.lua"] = { 10832, 3589797177 },
     ["src/master/route_integration.lua"] = { 16654, 3845117673 },
-    ["src/master/runtime.lua"] = { 36885, 3252873889 },
+    ["src/master/runtime.lua"] = { 40732, 3610579500 },
     ["src/master/ui/panels/alerts.lua"] = { 3076, 2500248277 },
     ["src/master/ui/panels/cargo.lua"] = { 7195, 641561786 },
     ["src/master/ui/panels/depots.lua"] = { 7399, 756076209 },

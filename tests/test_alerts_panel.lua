@@ -112,7 +112,7 @@ return {
   test_rejected_events_raise_a_transient_alert = function()
     local alerts = alerts_module.new()
     local rt = runtime_factory.new({
-      config = { nodes = {} },
+      config = { nodes = { { id = "SEN-1", role = "sensor" } } },
       registry = { all = function() return {} end, register = function() end, heartbeat = function() end },
       dispatcher = { get_overview = function() return {} end, timeout_node = function() end },
       network = { receive = function() return "ok" end, ack_for = function() end, send = function() end, tick = function() end },

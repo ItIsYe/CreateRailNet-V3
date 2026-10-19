@@ -26,7 +26,10 @@ local function master(overrides)
   local audits, acks, sensor_calls, manual_calls = {}, 0, {}, {}
   local reg = registry_factory.new()
   local context = {
-    config = { nodes = {} }, registry = reg,
+    config = { nodes = {
+      { id = "M", role = "master" }, { id = "SEN-1", role = "sensor" }, { id = "SEN-2", role = "sensor" }, { id = "SIG-1", role = "signal" },
+      { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel" },
+    } }, registry = reg,
     dispatcher = {
       get_overview = function() return {} end, timeout_node = function() end,
       on_sensor_event_by_sensor = function(sensor, action) sensor_calls[#sensor_calls + 1] = sensor .. ":" .. action; return true end
