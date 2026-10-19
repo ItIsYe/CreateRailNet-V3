@@ -25,6 +25,10 @@ valid on its own and holds only this computer and the master:
 
 The master needs an entry in `nodes` for every computer, with the same fields. `scripts/setup.lua --check [file]` validates a plan on the computer.
 
+A computer that is not in the master's plan yet does not have to be typed in: it announces itself, waits on the master's page *Einrichtung* and is written
+into the plan file when the operator accepts it (`docs/INGAME_SETUP.md`). The master then writes the plan in the format of the setup wizard (stable key
+order, the old file stays as `<file>.prev`); a plan that is a bundled template (`configs/templates/...`) is never written to.
+
 ## Top-Level
 
 | Key | Type | Default | Meaning |
@@ -99,3 +103,13 @@ An entry whose id is no route stands for itself and needs `entry_signal` and `bl
 ```
 Roles: `master`, `signal`, `sensor`, `switch`, `station`, `depot`, `panel`, `train`. Hardware bindings (`adapter`, `peripheral`, `side`)
 are described in `docs/CREATE_HARDWARE_ADAPTERS.md`; station, depot, train and panel keys in the respective documents.
+
+The devices a computer talks and shows through are named in its own entry (the setup wizard writes them; both are optional):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `modem` | non-empty string | the modem to use, e.g. `modem_0` or `top`. Exactly this one is used: if it is missing the computer has no network (and says so) instead of picking another modem. Without the key the first modem found is used, which is a guess when there are several |
+| `monitor` | non-empty string | the monitor of a master or panel, e.g. `monitor_0` or `left`. Real monitors are never called just `monitor`; a missing named monitor falls back to the first monitor found (logged), and the old name `monitor` still works for plans written before |
+
+Both are checked by the validator (`<path>.modem: must be non-empty string`). A wrong shape in a plan (a number where a list is expected, a block entry that
+is not an object) is reported with its path; it does not raise an error.

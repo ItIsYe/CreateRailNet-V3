@@ -17,7 +17,7 @@ genauso arbeiten, zeigt nur der Versuch. Auf einem **frischen** Computer, dann a
 | 0a | `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<zweig>/installer --ref <zweig>` | Menü, Fortschritt, am Ende der Einrichtungs-Assistent | „HTTP ist nicht verfuegbar": `computercraft-server.toml` (http, Domain freigeben); anderer Fehler: Text notieren | |
 | 0b | im Assistenten weitermachen (alles mit Enter) | läuft ohne „module not found" / „startup_template.lua is missing" durch, schreibt `startup.lua`, startet neu in die Rolle | „module not found": `require` löst Pfade aus `/scripts` anders auf als vermutet → melden, Wortlaut notieren | |
 | 0c | `installer` (oder `installer --yes`) gleich noch einmal | lädt nur das Manifest, „Alle Dateien sind auf dem Stand …", Neustart in 2 s; dauert wenige Sekunden | lädt Dateien erneut: Größe/Prüfsumme weichen ab (Zeilenenden? `git config core.autocrlf`) → melden | |
-| 0d | `fs.getFreeSpace("/")` vor und nach einer Master- und einer Node-Installation (Lua-Prompt) | Master ca. 430 KB, Node ca. 130 KB belegt, Standardspeicher (1 MB) reicht | reicht nicht: Meldung nennt, wie viel fehlt; `computer_space_limit` erhöhen | |
+| 0d | `fs.getFreeSpace("/")` vor und nach einer Master- und einer Node-Installation (Lua-Prompt) | Master ca. 550 KB, Node ca. 235-245 KB belegt, Standardspeicher (1 MB) reicht | reicht nicht: Meldung nennt, wie viel fehlt; `computer_space_limit` erhöhen | |
 | 0e | Computer mit zu wenig Platz (`computer_space_limit` klein) | „Der Speicher dieses Computers reicht nicht …", Platte unverändert | Platte verändert: Abbruch-Zeitpunkt notieren | |
 | 0f | Strom aus / Chunk entladen während „Dateien werden geladen" | beim nächsten Start „Installation unvollstaendig." und `installer --resume` läuft von selbst bis zum Neustart | Computer bleibt in der Shell: `installer --resume --role <rolle>` | |
 | 0g | eigene Konfiguration (`configs/templates/network.full.example.json`) ändern, `installer` erneut | Datei bleibt unverändert; eine gelöschte `scripts/start_*.lua` kommt zurück | Datei überschrieben: melden (Seed-Liste im Manifest) | |
@@ -36,11 +36,32 @@ Computer ohne Modem und einmal auf einem Pocket-/Mini-Terminal, falls ihr eins b
 | 0k | `?` auf jeder Frage, danach Enter | Hilfe auf eigener Seite, danach dieselbe Frage wieder, nichts doppelt | Frage fehlt oder erscheint zweimal: Frage notieren | |
 | 0l | `<` mehrfach, auch auf der ersten Frage | geht Schritt für Schritt zurück, Antworten bleiben als Vorschlag, auf der ersten Frage kommt „Einrichtung abbrechen?" | | |
 | 0m | Signal-Computer mit Create-Signal: Kurzplan | Gerät wird erkannt (Name aus der Liste), Zusammenfassung nennt „Create_Signal_0 (gefunden)", Abschlussseite zeigt die Zeile für den Netzplan des Masters | Gerät nicht erkannt: Typ mit `peripheral.getType` notieren (Erkennung in `src/setup/hardware.lua`) | |
-| 0n | dieselbe Zeile in `nodes` des Masters eintragen, `scripts/setup.lua --check` | „in Ordnung" | Fehlerliste: Pfad und Text notieren | |
+| 0n | die Zeile von Hand in `nodes` des Masters eintragen (der Weg ohne Pairing), `scripts/setup.lua --check` | „in Ordnung" | Fehlerliste: Pfad und Text notieren | |
 | 0o | Computer ohne Modem | deutliche Warnung, Weitermachen möglich, Zusammenfassung nennt „Modem FEHLT" | | |
 | 0p | Assistent bis zur Zusammenfassung, dann `A` | „Abgebrochen. Es wurde nichts geaendert.", kein `startup.lua`, keine `configs/network.json` | Datei angelegt: melden | |
 | 0q | Strg+T mitten in einer Frage | Shell, nichts geschrieben | | |
 | 0r | Assistent auf einem schon eingerichteten Computer | fragt zuerst „Neu einrichten?"; Nein ändert nichts | | |
+
+### 0.2 Prüfung, Geräte-Bindung und Aufnahme am Master (`docs/INGAME_SETUP.md`)
+
+Doctor, Verbindungstest, Pairing und die Master-Seite „Einrichtung" sind offline gegen simulierte Computer und ein simuliertes Netz getestet (Zustände, Grenzen,
+böswillige Eingaben, Absturz beim Schreiben des Plans). Was nur das Spiel zeigt: wie echte Peripherie heißt, wie sich Modems verhalten und wie die Seite auf einem
+echten Monitor aussieht. Master mit Netzplan und mindestens zwei weitere Computer (einer davon noch nicht im Plan), alle mit Modem:
+
+| # | Versuch | Erwartet | Wenn anders | Ergebnis |
+|---|---|---|---|---|
+| 0s | `scripts/setup.lua --doctor` auf einem eingerichteten Computer | eine Zeile je Punkt (`[ OK ]`), Modem und Monitor mit dem Namen, den `peripherals` bzw. `peripheral.getNames()` im Spiel liefert | Name weicht ab oder Gerät fehlt in der Liste: Typ mit `peripheral.getType(name)` und Wortlaut notieren (Erkennung in `src/setup/hardware.lua`, `src/adapter/monitors.lua`) | |
+| 0t | Master mit Monitor an der Seite und einem zweiten Monitor am Kabel; Feld `monitor` im Eintrag auf den zweiten setzen, Master neu starten | Anzeige erscheint auf dem genannten Monitor; ein falscher Name zeigt auf dem ersten Monitor an und steht einmal im Log | Anzeige bleibt leer: Namen aus `peripheral.getNames()` und Log notieren | |
+| 0u | Computer mit zwei Modems (Funk und Kabel); Assistent wählt eines, danach das gewählte abbauen | Doctor: `Modem ... nicht gefunden`; der Computer funkt **nicht** über das andere Modem | er funkt über das andere: melden (`src/adapter/cc_modem.lua`) | |
+| 0v | neuer Computer (nicht im Plan), Assistent bis zum Verbindungstest, Master läuft | Doctor/Verbindungstest: `[WARN] Master kennt <id> noch nicht`; nach spätestens 20 s steht der Computer auf der Master-Seite *Einrichtung*, gelbe Meldung „Neuer Computer wartet" | nichts erscheint: gleicher Kanal? Master schon auf diesem Stand (Revision 3)? Wortlaut des Tests notieren | |
+| 0w | auf der Master-Seite die Zeile antippen, **[ANNEHMEN]** zweimal | beim ersten Tippen wird der Knopf zu `[SICHER?]` (gilt 8 s), beim zweiten „... ist im Netzplan eingetragen"; `configs/network.json` enthält den Eintrag, `configs/network.json.prev` die alte Fassung; der Computer loggt `pairing: known` | Eintrag fehlt oder Datei beschädigt: beide Dateien aufheben und melden | |
+| 0x | zweiten neuen Computer **[ABLEHNEN]** | verschwindet, meldet sich 10 Minuten lang nicht erneut auf der Seite | taucht sofort wieder auf: melden | |
+| 0y | Computer mit einer ID, die im Plan mit anderer Rolle steht | Zeile in Rot, **[ANNEHMEN]** wird verweigert mit Hinweis | | |
+| 0z | Master mit mitgelieferter Vorlage (`configs/templates/...`) als Plan, Computer annehmen | Ablehnung mit dem Hinweis, einen eigenen Plan anzulegen; nichts verändert | Datei verändert: melden | |
+| 0aa | Seite *Einrichtung* auf Monitoren verschiedener Größe (2x1, 3x2, 4x3), Liste mit mehr Computern als Zeilen | alle Zeilen und beide Knöpfe erreichbar, nichts läuft über den Rand, Wörter OK / OFFEN / FEHLER auch auf einem Schwarzweiß-Monitor lesbar | Layout kaputt: Größe und Foto/Beschreibung notieren | |
+| 0ab | Station-Computer mit Kurzplan: `--doctor` | Hinweis „Bahnhof ohne Bahnsteige" mit dem Weg (vollständigen Plan kopieren); nach dem Kopieren und „Eigene Datei angeben" verschwindet er | | |
+| 0ac | Installer auf einem echten Terminal und auf einem Pocket-Computer | der Fortschritt ist **eine** Zeile, die sich überschreibt; Zeilen umbrechen an Wortgrenzen; Fehler rot, Hinweise gelb | Zeilen springen oder doppeln sich: Terminalgröße und Verhalten notieren (`install/ui.lua`) | |
+| 0ad | `print(string.char(228, 246, 252, 223))` am Terminal und auf einem Monitor | zeigt ä ö ü ß, dann könnten Texte später Umlaute bekommen (derzeit steht alles in ASCII: ae oe ue ss) | andere Zeichen: ASCII beibehalten | |
 
 ## 1. Was macht ein Create-Signal, wenn sein Computer ausfällt? (offene Frage Nr. 1)
 

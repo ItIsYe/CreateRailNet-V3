@@ -26,8 +26,13 @@ wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<zweig>/installer
 installer --ref <zweig>
 ```
 
-Der Installer fragt die Rolle (Menü), lädt, prüft, schreibt, und übergibt an den Einrichtungs-Assistenten: Netzplan, Name, Hardware, eine Zusammenfassung zum
-Bestätigen, dann `startup.lua` und Neustart. Was der Assistent fragt und schreibt: `docs/INGAME_SETUP.md`.
+Der Installer fragt die Rolle (Menü mit den Rollen auf Deutsch: Master, Signal, Melder, Weiche, Bahnhof, Depot, Zug, Monitor), lädt, prüft, schreibt, und
+übergibt an den Einrichtungs-Assistenten: Netzplan, Name, Hardware, Prüfung, Verbindungstest, eine Zusammenfassung zum Bestätigen, dann `startup.lua` und
+Neustart. Was der Assistent fragt und schreibt: `docs/INGAME_SETUP.md`.
+
+Die Ausgabe richtet sich nach dem Bildschirm: Zeilen werden an Wortgrenzen umbrochen (51 Zeichen auf dem normalen Computer, breiter auf großen
+Monitoren), der Fortschritt ist **eine** Zeile, die sich selbst überschreibt (wo das nicht geht, etwa bei einer Umleitung, eine Zeile je 10 %), Fehler stehen
+rot, Hinweise gelb, wenn der Bildschirm Farben kann. Nur ASCII, damit auch jede Schrift sie zeigt.
 
 ## Optionen
 
@@ -64,13 +69,14 @@ Die Dateien einer Rolle sind der Abschluss der `require`-Abhängigkeiten ihres E
 `configs/install/runtime_manifest.json` bleibt die Instanz dafür, was den Rechner überhaupt erreichen darf: nichts aus `tests/`, `docs/`, `src/sim/`,
 `src/tools/`, `.github/` und keine Entwicklungsskripte.
 
-| Rolle | Dateien | Größe |
+| Rolle | Dateien (mit Vorlagen und `scripts/`) | Größe |
 |---|---|---|
-| master | ca. 75 + Vorlagen | ca. 430 KB |
-| signal, sensor, switch | ca. 28 | ca. 125 KB |
-| train, station, depot, panel | ca. 27-28 | ca. 130 KB |
+| master | ca. 93 | ca. 550 KB |
+| signal, sensor, switch | ca. 42 | ca. 235 KB |
+| train, station, depot, panel | ca. 41-43 | ca. 245 KB |
 
-Die genaue Liste steht in `install/manifest.lua` (erzeugt, nicht von Hand ändern).
+Die genaue Liste steht in `install/manifest.lua` (erzeugt, nicht von Hand ändern). Ein Computer braucht dafür freien Speicher in dieser Größe
+(`computer_space_limit` in `computercraft-server.toml`); der Installer prüft das vorher.
 
 **Eigene Dateien bleiben.** Konfigurationsvorlagen (`configs/templates/*.json`, dort liegt die Welt-Konfiguration) und `scripts/start_*.lua`
 sind „Seed"-Dateien: sie werden nur angelegt, wenn sie fehlen, und nie ersetzt oder gelöscht. Ebenso unberührt: `configs/network.json` und alles, was der
@@ -78,11 +84,19 @@ Assistent oder du selbst angelegt hast, `startup.lua` (außer dem Einfügen der 
 
 ## Konfiguration verteilen
 
-Der Installer legt die Vorlagen an (`configs/templates/`), damit der Assistent sie als Beispiele anbieten kann. Der Netzplan deiner Welt liegt als
-`configs/network.json` auf dem Master: der Assistent kopiert dort ein Beispiel hin oder legt einen leeren Plan an, du baust ihn aus und prüfst ihn mit
-`scripts/setup.lua --check`. Die anderen Computer brauchen nur einen **Kurzplan** (ihren eigenen Eintrag und den Master), den der Assistent selbst anlegt;
-den Eintrag für den Master zeigt er am Ende. Das Verteilen größerer Pläne per OTA (`scripts/ota_push.lua`) gilt weiter für Dateien unter `configs/templates/`.
+Der Installer legt die Vorlagen an (`configs/templates/`), damit der Assistent sie auf dem **Master** als Beispiele anbieten kann. Der Netzplan deiner Welt
+liegt als `configs/network.json` auf dem Master: der Assistent kopiert dort ein Beispiel hin oder legt einen leeren Plan an, du baust ihn aus und prüfst ihn
+mit `scripts/setup.lua --check`.
 
+Die anderen Computer bekommen einen **Kurzplan** (ihren eigenen Eintrag und den Master), den der Assistent selbst anlegt. Der Weg dahin ist der
+Verbindungstest: sobald der Computer läuft, meldet er sich beim Master und wartet dort auf der Seite *Einrichtung* auf **[ANNEHMEN]**; der Master
+schreibt den Eintrag dann selbst in seinen Netzplan (`docs/INGAME_SETUP.md`, „Neue Computer am Master aufnehmen"). Einen Eintrag von Hand dorthin zu
+tippen ist nicht mehr nötig, aber weiter möglich.
+
+**Grenze:** eine Konfiguration wird nicht an andere Computer **verteilt**. Ein Bahnhof- oder Depot-Computer, dessen Kurzplan nur ihn selbst und den Master kennt,
+kann seine Plattformen und Gleise nicht aus dem Plan lesen; für ihn muss der vollständige Netzplan auf dem Computer liegen (Datei vom Master kopieren,
+etwa per Diskette; `scripts/setup.lua --doctor` weist darauf hin). Signal, Melder, Weiche, Zug und Monitor kommen mit dem Kurzplan aus. Das Verteilen größerer
+Pläne per OTA (`scripts/ota_push.lua`) gilt weiter nur für Dateien unter `configs/templates/`.
 ## Aktualisieren, reparieren, Rolle wechseln
 
 - **Aktualisieren / reparieren**: `installer` (oder `installer --yes`) noch einmal ausführen. Fehlende, abgeschnittene oder veränderte Dateien werden
@@ -103,6 +117,7 @@ den Eintrag für den Master zeigt er am Ende. Das Verteilen größerer Pläne pe
 | `Installation abgebrochen bei <datei>` | Download oder Prüfung ist mehrfach gescheitert; `installer --resume` setzt fort |
 | `Installation unvollstaendig.` beim Start | das Journal einer abgebrochenen Installation liegt noch da; `startup.lua` führt `installer --resume` aus |
 | `Die Rolle dieses Computers ist unbekannt` | mit `--yes` ohne installierte Rolle: `--role <rolle>` angeben |
+| Der Assistent zeigt rote Prüfpunkte oder Hinweise | `scripts/setup.lua --doctor` zeigt, was fehlt (Modem, Monitor, Netzplan) und wie es behoben wird; `docs/troubleshooting.md`, „Setup wizard" |
 
 ## Für Entwickler
 

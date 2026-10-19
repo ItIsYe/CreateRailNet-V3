@@ -7,7 +7,7 @@ All messages are JSON tables transmitted over a shared modem channel:
 ```
 {
   v   = 1,                          -- protocol major version, must match
-  pv  = 2,                          -- protocol revision (additive changes only; older nodes send none = 1)
+  pv  = 3,                          -- protocol revision (additive changes only; older nodes send none = 1)
   type = "register|heartbeat|cmd|event|ack|err",
   id  = "<unique string>",          -- for dedup and ack matching
   src = "<node_id>",
@@ -56,7 +56,32 @@ during a rolling OTA old and new nodes talk to each other, so changes to the env
   registered node with role `panel`. Rejected events are audited (`event_rejected`) and still acknowledged so the sender stops
   retrying.
 - **Heartbeats** of nodes the master does not know (it restarted, nodes only register at their own start) register them
-  (`node_adopted`); a heartbeat or register of a node that was DOWN is audited as `node_reconnect`.
+  (`node_adopted`); a heartbeat or register of a node that was DOWN is audited as `node_reconnect`. A node that is **not in the plan**
+  still shows up in the registry as before, and it also becomes a pairing candidate (below). Blocks, routes and signals come from the plan
+  only, so it has no say in the network until the operator accepts it.
+
+## Pairing (revision 3)
+
+Revision 3 adds a way for a computer to say "I am this entry of the plan" and for the master to answer where it stands. Everything is
+additive: an older master ignores the new event, an older node never sends it, and the master sends `pair_state` only to peers that
+announced revision 3 or newer (`net.peer_revision`).
+
+| Message | Direction | Payload |
+|---|---|---|
+| `pair_announce` (event, reliable) | node -> master | `{ type, role, entry, setup }`: `entry` is the node's own entry of its plan (or none), `setup` is `{ state, fail, warn, version }` from its `crn_status.lua` record |
+| `pair_probe` (event, reliable) | setup wizard -> master | same payload; sent by `scripts/setup.lua` for the link test. It registers nothing: a master that knows the computer answers `known`, otherwise the computer waits as a candidate like after an announcement |
+| `pair_state` (cmd) | master -> node | `{ cmd = "pair_state", state, detail }`; sent when the state changes, answered with an ack |
+
+States: `known` (in the plan with this role), `pending` (waits for the operator), `conflict` (the id is in the plan with another role; `detail`
+is the planned role), `rejected` / `muted` (the operator said no; ignored for 10 minutes), `full` (64 candidates already wait), `invalid`
+(no sane id or role; no answer). A node starts announcing once the master has shown revision 3 (its first message carried `pv`); it announces every 20 s until the master answered,
+every 300 s while it waits for the operator and every 600 s once it is known, so a master that restarted learns about it again.
+
+Nothing is granted by announcing. What arrives is cut down before it is kept: a sane id, a role of ours, a small table of plain values
+whose `id` and `role` are those of the sender, at most 64 candidates, forgotten after an hour without a sign. Only
+`runtime.pair_decide("accept", id, operator)` (a deliberate two-touch on the master page *Einrichtung*) writes the entry into the plan file
+(`safe_write`, the old file stays as `.prev`, refused for a template plan or a plan that does not validate before and after). Both
+decisions are audited (`node_accepted`, `pair_rejected`, also `pair_candidate`, `pair_conflict`).
 
 ## Reliability
 
@@ -92,6 +117,8 @@ acks duplicate `event` and `register` messages again. Duplicate heartbeats and a
 | `depot_request_dispatch` | depot_node | ✅ |
 | `manual_control` | panel_node | ✅ |
 | `ota_result` | any node | ❌ best-effort |
+| `pair_announce` | any node | ✅ (revision 3) |
+| `pair_probe` | setup wizard | ✅ (revision 3) |
 
 ## OTA Update Protocol
 

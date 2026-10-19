@@ -18,6 +18,22 @@
 - Anyone who can transmit on the channel can send messages. The sender checks (master / `cmd_sources` / `ota_sources`) stop mistakes and
   stray computers, not an attacker; there is no cryptography.
 
+## Setup and pairing
+
+- **Announcing grants nothing.** A computer that is not in the plan can announce itself to the master (`pair_announce`). It waits as a candidate; only an operator's
+  deliberate two-touch on the master (**[ANNEHMEN]**) writes its entry into the plan. There is no time window in which acceptance happens by itself, because a window
+  would turn "someone in range" into "part of the network". Candidates are bounded (64), forgotten after an hour, and everything they send is cut down before it is kept.
+- **Setup never actuates hardware.** The wizard and the doctor only read (peripherals, files, the answer of the master); they never switch a signal or a turnout, so there is no
+  release gate in the dispatcher. The record `crn_status.lua` (KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN) is information for the operator, not a permission.
+- **Devices are bound by name.** A plan entry may name its `modem` and its `monitor`. A named modem that is missing is never replaced by another one (a computer
+  must not silently talk through a different network); a missing named monitor falls back to the first one (a display is not safety relevant). Real monitors are called
+  `monitor_<n>` or like their side, never `monitor`; the code looks them up by type when no name fits. **Not verified in the game** (read from the CC:Tweaked API): the exact
+  names a real computer reports, and the behaviour of wired versus wireless modems.
+- **No distribution of the plan.** Every computer reads its own plan file. Signal, sensor, switch, train and panel computers need only a short plan; a station or depot
+  computer needs its platforms/tracks in its own plan, so it needs the full plan copied (the doctor says so). Distributing plans is not built.
+- **On-screen text is ASCII.** The terminal shows bytes; umlauts would depend on the font and the CC version, so wizard, installer and master page write `ae oe ue ss`. Whether
+  a real terminal could show umlauts is a test in `docs/INGAME_TESTS.md`, not an assumption.
+
 ## Create Mod Hardware
 
 - Create track switches have **no CC:Tweaked peripheral** in vanilla Create. Must use `adapter="redstone"`.
