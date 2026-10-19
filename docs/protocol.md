@@ -76,6 +76,7 @@ announced revision 3 or newer (`net.peer_revision`).
 |---|---|---|
 | `pair_announce` (event, reliable) | node -> master | `{ type, role, entry, setup }`: `entry` is the node's own entry of its plan (or none), `setup` is `{ state, fail, warn, version }` from its `crn_status.lua` record |
 | `pair_probe` (event, reliable) | setup wizard -> master | same payload; sent by `scripts/setup.lua` for the link test. It registers nothing: a master that knows the computer answers `known`, otherwise the computer waits as a candidate like after an announcement |
+| `pair_probe` filler | setup wizard (`--linktest`) | `pair_probe` may carry `pad` (a string of filler, only its size matters; it is not kept) and `echo = n` (1 .. 4000): the answer then carries `pad` of n bytes. This measures which message size passes the link in both directions. A master that does not know `echo` answers without `pad` (the tool reports that). Additive within revision 4 |
 | `pair_state` (cmd) | master -> node | `{ cmd = "pair_state", state, detail, probe_id? }`; sent to a node when its state changes (unasked), answered with an ack. A `pair_probe` is a question and is answered **every time**, even with the same state as before; that answer carries `probe_id` (the id of the probe message), and the asking side ignores an answer that names another probe |
 
 States: `known` (in the plan with this role), `pending` (waits for the operator), `conflict` (the id is in the plan with another role; `detail`

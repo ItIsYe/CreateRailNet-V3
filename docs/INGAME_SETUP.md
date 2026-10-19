@@ -112,6 +112,8 @@ Prüfprotokoll). Der Master tut damit **nichts außer es anzuzeigen**: der Compu
 - Steht die ID schon mit anderer Rolle im Plan, ist die Zeile rot und kann nicht angenommen werden.
 - Ein wartender Computer ist **kein Node**: der Master registriert ihn nicht, ignoriert seine Ereignisse (auch Bedienbefehle von etwas, das sich „Panel" nennt) und schickt ihm nichts.
   Erst der Eintrag im Netzplan macht ihn dazu.
+- Nach dem Annehmen erscheint auf der Seite der Knopf **[MASTER NEU STARTEN]** (zwei Berührungen; die erste nennt, wie viele Blöcke gerade belegt sind; alle Signale gehen auf ROT, der Zustand wird gesichert,
+  dann startet der Master neu und wartet auf die Bestätigung des Wiederanlaufs). Verlangt der Plan `require_release`, steht darunter **[BETRIEB FREIGEBEN]** (`docs/OPERATIONS.md`).
 - Nach dem Annehmen steht der Eintrag im Plan und der Computer ist ein Node. **Bloecke und Routen, die ihn benutzen, gelten nach einem Neustart des Masters** (der Dispatcher wird beim
   Start aus dem Plan gebaut); die Meldung auf dem Monitor sagt das.
 - Der Computer erfährt das Ergebnis (`known` / `rejected`), schreibt es ins Log und fragt danach nur noch alle 10 Minuten.
@@ -126,11 +128,43 @@ scripts/setup.lua --check              prüft configs/network.json
 scripts/setup.lua --check <datei>      prüft eine andere Datei
 scripts/setup.lua --doctor             prüft diesen Computer und sagt, was zu tun ist (fragt auch den Master)
 scripts/setup.lua --fetch-plan         Bahnhof/Depot: holt den Netzplan vom Master (schreibt erst nach einem Ja)
+scripts/setup.lua --test               geführter Funktionstest: liest, schaltet nur nach einem Ja und stellt zurück
+scripts/setup.lua --linktest           Funkstrecke zum Master: Antworten, Laufzeit, größte Nachricht, die durchkommt
+scripts/setup.lua --export             schreibt crn_diag.txt für die Fehlersuche aus der Ferne
 ```
 
 `--check` ändert nichts. Es meldet „in Ordnung (5 Computer, 1 Block, 1 Route)" oder nennt jeden Fehler **auf Deutsch** mit seiner Stelle im Plan (zum Beispiel
 `nodes[2] (SIG-2).role: unbekannte Rolle "x"`). `--doctor` ändert nur das Prüfprotokoll `crn_status.lua`. Der Master startet mit einem fehlerhaften Plan nicht.
 `lua scripts/check_configs.lua` ist dagegen ein Entwicklungsskript für die Beispiele im Repository und liegt nicht auf den Spiel-Computern.
+
+### Funktionstest (`--test`)
+
+`--doctor` liest nur. Ob das, was im Plan steht, auch **tut**, was es soll, prüft `scripts/setup.lua --test` auf dem Computer selbst. Der Test zeigt zuerst, was er vorhat
+(`[liest]`, `[zeigt]`, `[SCHALTET]`), und fragt einmal, ob er starten soll. Dann:
+
+- **Gelesen** wird ohne Rückfrage: das Modem (Kanal lässt sich öffnen), der Master (antwortet er, kennt er die ID; angemeldet wird dabei niemand), der Melder (6 Sekunden lang,
+  mit demselben Aufruf wie im Betrieb), der Create-Bahnhof (Name wie im Plan).
+- **Gezeigt** wird auf dem Monitor eine Zeile „CreateRailNet Funktionstest"; du bestätigst, dass du sie siehst.
+- **Geschaltet** wird nur nach einem eigenen Ja für diese eine Aktion (Enter allein ist ein Nein): ein Signal wird 3 Sekunden freigegeben und danach wieder auf **ROT** gestellt, eine Weiche 3 Sekunden
+  auf Abzweig und danach auf geradeaus. Der sichere Zustand wird auch hergestellt, wenn der Schritt davor fehlschlug oder du mit Strg+T abbrichst; lässt er sich nicht herstellen, steht „ACHTUNG ... von Hand pruefen" da.
+  Es darf dabei kein Zug in der Nähe sein; ein Computer im Betrieb sollte vorher angehalten werden.
+
+Am Ende steht ein Ergebnis (bestanden / fehlgeschlagen / übersprungen). In `crn_status.lua` (und damit beim Master als „Hardwaretest") landet **bestanden** nur, wenn jeder Schritt gemacht wurde und
+bestanden hat; **fehlgeschlagen** wird immer festgehalten; fehlen Schritte (kein Ja), bleibt der Eintrag, wie er war. Der Test gibt nichts frei; ob der Betrieb läuft, entscheidet nur der Mensch am Master
+(`require_release`, `docs/OPERATIONS.md`).
+
+### Funkstrecke (`--linktest`)
+
+Fragt den Master zehnmal und sagt: wie viele Fragen beantwortet wurden, wie viele davon sofort (beim ersten Versuch), die Laufzeit, und danach in Stufen von 256 bis 4000 Byte, wie groß eine Nachricht
+sein darf, die **in beide Richtungen** durchkommt. Ein Teil des Netzplans (`--fetch-plan`) ist rund 3300 Byte groß; kommt das nicht durch, sagt der Test das, bevor der Plan-Abruf daran scheitert.
+Antwortet der Master nicht, ist nach drei Fragen Schluss. Der Master sieht gewöhnliche Anfragen dieses Computers (steht er nicht im Plan, erscheint er wie bei `--doctor` als wartender Computer); geschaltet
+oder geschrieben wird nichts. Auf dem Master selbst läuft der Test nicht.
+
+### Diagnosedatei (`--export`)
+
+Schreibt `crn_diag.txt` (höchstens 8000 Byte, nur ASCII): Version, Ergebnis der Prüfung mit den Hinweisen, der Eintrag dieses Computers im Netzplan, das Prüfprotokoll, die angeschlossenen Geräte mit den Namen,
+wie das Spiel sie nennt, die Dateien mit Größe und der freie Platz. Der Netzplan selbst steht nicht drin, Passwörter gibt es nicht. Sie liest nur und fragt niemanden. Zum Weitergeben:
+`pastebin put crn_diag.txt` (zeigt einen Code) oder die Datei aus dem Ordner des Computers kopieren. Das ist der erste Schritt, wenn sich jemand anderes einen Fehler ansehen soll.
 
 Neu einrichten: den Assistenten noch einmal starten. Auf einem bereits eingerichteten Computer fragt er zuerst, ob er neu einrichten soll
 (Nein ändert nichts); die alten Antworten sind teils als Vorschlag da. Computer, die mit einer älteren Version eingerichtet wurden, laufen weiter: sie fügen
@@ -149,7 +183,7 @@ shell.run("scripts/start_master.lua")   -- start_train, start_panel, start_signa
 
 ## Werkzeuge
 
-Auf dem Spiel-Computer sind `scripts/setup.lua --check`, `--doctor` und `peripherals` (CC:Tweaked) die Werkzeuge für Einrichtung und Fehlersuche. Die Programme in `src/tools/`
+Auf dem Spiel-Computer sind `scripts/setup.lua --check`, `--doctor`, `--test`, `--linktest`, `--export` und `peripherals` (CC:Tweaked) die Werkzeuge für Einrichtung und Fehlersuche. Die Programme in `src/tools/`
 (Config-Check, System-Check, Peripheral Inspector, Debug-Events und andere) sind **Entwicklerwerkzeuge**: der Installer legt sie nicht auf Spiel-Computern ab.
 Sie stehen in `docs/TOOLS.md`. Wer den Peripheral Inspector im Spiel braucht (etwa um die echten Methoden des Create-Bahnhofs zu sehen), kopiert die einzelne Datei
 `src/tools/peripheral_inspector.lua` an denselben Pfad auf den Computer (zum Beispiel mit `wget` von GitHub); er benötigt nur Module, die der Installer ohnehin mitbringt.

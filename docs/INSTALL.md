@@ -42,6 +42,10 @@ rot, Hinweise gelb, wenn der Bildschirm Farben kann. Nur ASCII, damit auch jede 
 | `--role <rolle>` | `master signal sensor switch station depot train panel`; ohne Angabe: die installierte Rolle (wird bestätigt) oder das Menü |
 | `--yes` | keine Fragen; behält die installierte Rolle (ein neuer Computer braucht dann `--role`) |
 | `--resume` | eine abgebrochene Installation zu Ende führen (`startup.lua` ruft das selbst auf) |
+| `--preview` | nur ansehen: wie viele Dateien neu / geändert / unverändert / entfernt würden, wie viele Bytes, ob der Speicher reicht. Ändert **nichts** (keine Datei, auch nicht die Kopie des Installers, kein Journal, kein Neustart, kein Assistent); geht nicht zusammen mit `--resume` |
+
+**Branch oder Tag?** `main` und jeder andere Branch ändern sich mit dem nächsten Push; zwei Computer, die zu verschiedenen Zeiten installieren, hätten dann verschiedene Stände. Der Installer warnt
+bei einem Branch als Ref (nicht bei einem Tag wie `v1.0.0` oder einer Commit-ID, und nicht beim Fortsetzen). Für ein ganzes Netz einen Tag nehmen: `docs/RELEASE.md`.
 
 ## Was passiert
 

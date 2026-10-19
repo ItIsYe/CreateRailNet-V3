@@ -42,6 +42,21 @@ A computer whose id stands in the plan with another role is shown red and cannot
   when it validates (so a plan you edited reaches the computer before the master has been restarted with it), in parts of 3000 bytes; each hand-out is audited as `plan_served`. Everybody else is refused
   with a small answer. The master needs the version of this release for it; an older master does not answer.
 
+## Restarting the master from the setup page
+
+After a computer was accepted, blocks and routes that use it apply after a restart of the master. The page *Einrichtung* then shows **[MASTER NEU STARTEN]**. The first touch says what will
+happen (how many blocks are busy, that every signal goes to RED first); the second touch does it, in the order of a master that stops: every signal to RED, the state of the dispatcher is saved
+(`master_restart` in the audit), then `os.reboot`. After the restart the master restores the state and waits in recovery mode until the operator confirms, like after any restart.
+A restart with trains on the way stops them at red signals; do it when the network is quiet. The button only exists on the master's own monitor and is not a remote command.
+
+## Releasing the operation (optional)
+
+With `require_release: true` in the plan, the master does not start any journey after a start until the operator releases the operation on the page *Einrichtung* (**[BETRIEB FREIGEBEN]**, two touches).
+Until then: a request to depart is held with the reason "Betrieb nicht freigegeben" (audit `release_blocked`), the status page shows `NICHT_FREIGEGEBEN` and a yellow alert says so. The release is
+accepted only when the wiring is as it should be: the recovery is confirmed, every signal / sensor / switch / station / depot computer of the plan is online, and no block is in FAULT; otherwise the button
+answers with what is missing. A panel of the plan can send the same release as `manual_control` with `action = "release_operation"` (like `confirm_recovery`; the same conditions apply, the panel's id is audited). A restart of the master takes the release back (`operation_released` in the audit shows who released and when). The default is `false`: a network that ran before keeps its behaviour.
+The page also counts the computers whose guided function test (`scripts/setup.lua --test`) passed ("Hardwaretest"); this is information, the release does not depend on it.
+
 ## Repairing a fault
 
 A block goes FAULT when a sensor sends garbage, a signal cannot be set, or a node times out. Faults from a **node timeout** clear themselves
@@ -108,6 +123,7 @@ safety invariant that breaks. `tests/test_trace_recorder.lua` records random run
 | `signal_red_on_stop` | `true` | every signal to RED when the master stops |
 | `heartbeat_timeout_s` | 6 | silence after which a node is DOWN |
 | `startup_autoupgrade` | `true` | nodes add the OTA recovery to an old `startup.lua` (`docs/OTA.md`) |
+| `require_release` | `false` | no journeys after a start until the operator releases the operation (see above) |
 
 The complete list is in `docs/config_reference.md`.
 

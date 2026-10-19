@@ -72,7 +72,9 @@ result of the doctor is kept in `crn_status.lua` (`src/shared/setup_status.lua`;
 A computer the master does not know announces itself (`pair_announce`, protocol revision 3). The master keeps it as a bounded candidate in `src/master/pairing.lua` and shows it
 on the page *setup* (`src/master/ui/panels/setup.lua`); only the operator's two-touch **[ANNEHMEN]** writes its entry into the plan file (`safe_write`, `.prev` kept).
 A station or depot computer gets its platforms / tracks by **fetching** the master's plan (`src/setup/plan_fetch.lua` asks, `src/master/plan_service.lua` answers in parts of 3000 bytes; the player confirms
-before the file is written). Nothing in this path switches hardware or releases anything: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
+before the file is written). On the computer itself three more tools: the **function test** (`src/setup/functest.lua`: steps that read, show or act; an action needs its own yes and ends in the safe state), the **link test**
+(`src/setup/linktest.lua`: questions and growing filler through `link.probe`) and the **diagnostic file** (`src/setup/export.lua`: at most 8000 bytes, ASCII). On the master, `src/master/restart.lua` is the
+controlled restart (signals RED, state saved, reboot) and `runtime.release_operation` the opt-in release (`require_release`). Nothing in this path releases anything by itself, and apart from the function test it switches no hardware: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
 
 ## Installation
 

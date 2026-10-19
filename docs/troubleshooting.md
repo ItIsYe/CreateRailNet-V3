@@ -85,6 +85,9 @@ interrupted installation, which `startup.lua` resumes by itself (`installer --re
   (the master runs, same channel, modem in range, and the master has the version with `plan_get` -- an older master is silent); "Der Master kann den Plan nicht liefern ... Fehler" (`scripts/setup.lua --check` at the master);
   "beschaedigt" / "hat sich geaendert" (it was fetched again up to two times; try once more when nobody edits the plan); "gehoert zu einem anderen Netz" (channel or master id differ: the computer is set up for another network);
   "noch keine Bahnsteige" (the entry in the master's plan has none yet). In every case nothing was written.
+- **Messages get lost, plan transfer fails, a node flaps between UP and DOWN**: `scripts/setup.lua --linktest` on that computer. "keine Antwort" = master off, other channel, modem out of range or not activated (a wired
+  modem needs a right click until the ring turns red); "einzelne Nachrichten gehen verloren" = the edge of the wireless range or an unloaded chunk; "grosse Nachrichten kommen nicht an" = `--fetch-plan` will fail, use a
+  wired modem or move closer. When someone else has to look: `scripts/setup.lua --export` writes `crn_diag.txt`.
 - **The computer does not show up on the master's page *Einrichtung***: the computer needs a modem on the same channel as the master, the master must run (a master from
   before revision 3 ignores the announcement; update it with the installer), and the link test of the wizard says which of these it is ("Master antwortet nicht" / "kennt die ID noch nicht").
   A rejected id is ignored for 10 minutes; a computer that stood on the page for an hour without a sign is forgotten and announces itself again.

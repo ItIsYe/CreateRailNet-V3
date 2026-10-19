@@ -27,6 +27,19 @@
   would turn "someone in range" into "part of the network". Candidates are bounded (64), forgotten after an hour, and everything they send is cut down before it is kept.
 - **Setup never actuates hardware.** The wizard and the doctor only read (peripherals, files, the answer of the master); they never switch a signal or a turnout, so there is no
   release gate in the dispatcher. The record `crn_status.lua` (KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN) is information for the operator, not a permission.
+- **The function test switches only after a yes.** `scripts/setup.lua --test` is the one place where setup moves a signal or a turnout, and only one action at a time after a deliberate yes (Enter is a no), with the safe state
+  (RED / straight) restored afterwards. It does not release anything: the release of the operation (`require_release`) is the operator's decision at the master. Its result is a claim of the computer about itself, like the doctor's.
+- **The link test uses ordinary probes.** `--linktest` asks the master the way the doctor does; a computer that is not in the plan appears as a waiting candidate. The filler a probe may ask for is capped at 4000 bytes per answer; anybody
+  on the channel can send a probe anyway (the channel is not encrypted), so this adds no new ability. "Answered at the first try" means an answer within 0.35 s, i.e. before the protocol's first retry (0.2 s) would have gone out.
+- **The diagnostic file is for sharing.** `crn_diag.txt` holds no plan (only the computer's own entry and a summary) and no secrets, because the system has none; check it anyway before posting it in public.
+- **Peripherals are checked against their arguments offline.** `tests/harness/strict_cc.lua` fakes the monitor, window, modem, redstone and peripheral APIs the way CC:Tweaked answers (a fraction as a cursor position, a text that is
+  no string, a colour that is no power of two, a channel that is no number raise there and are recorded). The real master application and every node role run on them (`tests/test_master_app.lua`, `tests/test_node_apps.lua`);
+  this found a real defect: the modem adapter was written with dots where the adapter's own methods are called with a colon, so it could neither open a channel nor send in the game (fixed, `tests/test_cc_modem.lua`). What
+  the fakes cannot know is how the real thing behaves beyond its documented arguments (names, ranges, timing).
+- **Monitor sizes.** The pages are laid out for 51 x 19 characters (a 5 x 3 block monitor at text scale 1; a 3 x 2 block monitor at scale 0.5 gives about 58 x 24). Smaller monitors (down to 15 x 10) are drawn without wrong calls
+  and without raising, but text and buttons get cut; the size of a monitor of n x m blocks at scale 1 is about (11n - 4) x (7m - 2) characters. How readable the pages are on a real monitor is a matter for `docs/INGAME_TESTS.md`.
+- **A ref is fixed or it moves.** The installer calls a version tag (`v1.2.0`) or a commit id (7 to 40 hex digits) fixed and every other name a branch; a branch whose name looks like a commit id is taken as fixed. This is a heuristic on the
+  name, not a look at GitHub.
 - **Devices are bound by name.** A plan entry may name its `modem` and its `monitor`. A named modem that is missing is never replaced by another one (a computer
   must not silently talk through a different network); a missing named monitor falls back to the first one (a display is not safety relevant). Real monitors are called
   `monitor_<n>` or like their side, never `monitor`; the code looks them up by type when no name fits. **Not verified in the game** (read from the CC:Tweaked API): the exact

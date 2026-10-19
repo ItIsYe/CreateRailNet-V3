@@ -21,6 +21,8 @@ that shows the step (role, network plan, name, hardware, check), `?` for help, `
 The wizard binds the modem and the monitor by name, runs the doctor (`scripts/setup.lua --doctor`) and tests the link to the master; a computer the master
 does not know yet waits on the master's page *Einrichtung* until you accept it there.
 A station or depot computer fetches its platforms / tracks from the master's plan (`scripts/setup.lua --fetch-plan`, checked before it is written).
+`scripts/setup.lua --test` (guided function test: switches only after a yes), `--linktest` (how good is the link to the master) and `--export` (a diagnostic file to send in) check a computer later.
+`installer --preview` shows what an installation would change without changing anything; `docs/RELEASE.md` describes how a version gets a tag.
 Running the installer again updates or repairs. Wizard: `docs/INGAME_SETUP.md`. Installer details, options and error messages: `docs/INSTALL.md`.
 
 ### 2) Configuration
