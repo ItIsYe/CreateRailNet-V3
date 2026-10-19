@@ -67,7 +67,7 @@ return {
     assert(named.modem and named.modem.name == "modem_b")
     local missing = cc_modem.new({ peripheral_api = api, modem_name = "modem_z", channel = 777 })
     assert(missing.modem == nil, "a named modem that is gone must not be swapped for another network")
-    local ok, err = missing.open(777)
+    local ok, err = missing:open(777)
     assert(ok == false and err == "modem unavailable")
     local unnamed = cc_modem.new({ peripheral_api = api, channel = 777 })
     assert(unnamed.modem and unnamed.modem.name == "modem_a", "without a name: the first one, as before")

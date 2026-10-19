@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "dff33176",
+  id = "ea463196",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -22,7 +22,7 @@ return {
     ["scripts/start_switch.lua"] = { 515, 1449569512 },
     ["scripts/start_train.lua"] = { 532, 3165630909 },
     ["scripts/upgrade_startup.lua"] = { 1178, 3158022240 },
-    ["src/adapter/cc_modem.lua"] = { 2580, 2223726202 },
+    ["src/adapter/cc_modem.lua"] = { 2862, 4147757778 },
     ["src/adapter/create_sensors.lua"] = { 2067, 890160297 },
     ["src/adapter/create_signals.lua"] = { 3203, 3713088194 },
     ["src/adapter/create_switches.lua"] = { 2175, 3870487096 },
