@@ -42,11 +42,11 @@ function stage.new(env)
     local available = free + (reclaimable_bytes or 0)
     local needed = (planned_bytes or 0) + stage.SPACE_HEADROOM_BYTES
     if available >= needed then return true end
+    local function kb(bytes) return math.ceil(bytes / 1000) end
     return false, string.format(
-      "Der Speicher dieses Computers reicht nicht: benoetigt etwa %d Bytes, verfuegbar %d (%d frei + %d aus Dateien, die ersetzt werden). "
-        .. "Es fehlen %d Bytes. Nichts wurde veraendert. In serverconfig/computercraft-server.toml 'computer_space_limit' erhoehen "
-        .. "oder einen Computer mit mehr Platz nehmen.",
-      needed, available, free, reclaimable_bytes or 0, needed - available)
+      "Der Speicher dieses Computers reicht nicht: gebraucht %d KB, frei %d KB (es fehlen %d KB). Nichts wurde veraendert. "
+        .. "Abhilfe: 'computer_space_limit' in der Serverkonfiguration erhoehen oder einen Computer mit mehr Platz nehmen.",
+      kb(needed), kb(available), kb(needed - available))
   end
 
   function self.read(path)

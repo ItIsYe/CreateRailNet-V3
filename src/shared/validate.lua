@@ -25,8 +25,7 @@ local function mark_unique(errors, seen, value, path, label)
   return true
 end
 
-function validate.validate_config(cfg)
-  local errors = {}
+local function validate_inner(cfg, errors)
   if type(cfg) ~= "table" then add(errors, "config", "must be an object"); return false, errors end
   if cfg.v ~= 1 then add(errors, "v", "must be 1") end
   if type(cfg.channel) ~= "number" or cfg.channel <= 0 or cfg.channel % 1 ~= 0 then add(errors, "channel", "must be integer > 0") end
@@ -53,6 +52,9 @@ function validate.validate_config(cfg)
     local path = "nodes[" .. i .. "]"
     if mark_unique(errors, node_ids, node.id, path .. ".id", "node id") and roles[node.role] then node_roles[node.id] = node.role end
     if not roles[node.role] then add(errors, path .. ".role", "invalid role \"" .. tostring(node.role) .. "\"") end
+    -- the devices this computer uses: the modem it talks through, the monitor it shows on
+    if node.modem ~= nil and not nonempty(node.modem) then add(errors, path .. ".modem", "must be non-empty string") end
+    if node.monitor ~= nil and not nonempty(node.monitor) then add(errors, path .. ".monitor", "must be non-empty string") end
 
     if node.role == "train" then
       local train_id = node_train_id(node)
@@ -251,6 +253,42 @@ function validate.validate_config(cfg)
     end
   end
 
+  return #errors == 0, errors
+end
+
+-- The lists of a plan are edited by hand: a "blocks": 1 or an entry that is not an object must give a message, not a Lua error.
+-- Entries that are not objects are reported and replaced by an empty one (the positions in the messages stay right); whatever else
+-- goes wrong inside is reported as one more message.
+local LISTS = { "blocks", "routes", "nodes", "service_plans", "interlocking_routes" }
+
+function validate.validate_config(cfg)
+  local errors = {}
+  if type(cfg) ~= "table" then add(errors, "config", "must be an object"); return false, errors end
+  local work = {}
+  for key, value in pairs(cfg) do work[key] = value end
+  for _, key in ipairs(LISTS) do
+    local list = cfg[key]
+    if list ~= nil and type(list) ~= "table" then
+      add(errors, key, "must be an array")
+      work[key] = {}
+    elseif type(list) == "table" then
+      local copy = {}
+      for i, item in ipairs(list) do
+        if type(item) == "table" then
+          copy[i] = item
+        else
+          add(errors, key .. "[" .. i .. "]", "must be an object")
+          copy[i] = {}
+        end
+      end
+      work[key] = copy
+    end
+  end
+  local ok, valid = pcall(validate_inner, work, errors)
+  if not ok then
+    add(errors, "config", "unexpected structure (" .. tostring(valid):gsub("^.-:%d+: ", "") .. ")")
+    return false, errors
+  end
   return #errors == 0, errors
 end
 

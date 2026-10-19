@@ -241,7 +241,7 @@ return {
     local ok, err = world.run({}, { "3" })
     assert(ok, tostring(err))
     assert(world.shell_runs[1] == "scripts/setup.lua --role sensor", "3 is the sensor")
-    assert(world.output():find("MASTER", 1, true) and world.output():find("PANEL", 1, true))
+    assert(world.output():find("Master", 1, true) and world.output():find("Monitor", 1, true), "the menu uses the words of the wizard")
 
     local second = installer_world.new()
     local failed = second.run({}, { "x" })
@@ -421,7 +421,7 @@ return {
     end
 
     -- the installer starts it with the role: every question has a suggestion, so Enter all the way
-    local fs, output, rebooted = run_script({ "--role", "signal" }, { "", "", "", "", "", "", "", "", "" })
+    local fs, output, rebooted = run_script({ "--role", "signal" }, { "", "", "", "", "", "", "", "j" })
     local parsed = startup_template.parse(fs.files["startup.lua"] or "")
     assert(parsed and parsed.role == "signal" and parsed.id == "SIG-1" and parsed.config == netplan.PATH, output)
     assert(not output:find("Welche Aufgabe", 1, true), "no role menu when the installer chose the role")

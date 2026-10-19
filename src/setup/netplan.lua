@@ -4,15 +4,18 @@ Purpose: The network plan (one JSON file that describes computers, blocks and ro
 Public API:
   PATH -> "configs/network.json"        DEFAULT_CHANNEL -> 777        DEFAULT_MASTER -> "MASTER-1"
   parse(text) -> cfg, errors | nil, nil, err    errors: list of validation messages or nil when the plan is valid
+  explain(message, cfg) -> text                 one validation message in German ("channel: ganze Zahl groesser 0 noetig"); with the plan
+                                                the position gets the id: "nodes[2] (SIG-2).role: ..."
+  MONITOR_ROLES -> set of roles that show something on a monitor
   summary(cfg) -> { computers, blocks, routes, channel, master_id }       text(summary) -> "17 Computer, 3 Bloecke, 3 Routen"
   short_text(summary) -> "17 Computer, 3 Bloecke"
   examples(files) -> list of { path, name, summary, note }               files.list(dir), files.read(path)
   nodes_of_role(cfg, role) -> list of entries      find_node(cfg, id) -> entry | nil
   suggest_id(role, cfg) -> "SIG-2"                 valid_id(id) -> true | false, message
   build_entry(role, id, fields) -> entry           fields: adapter, peripheral, side, invert, active_position, display_name,
-                                                   station_type, create_station_name, depot_type, create_station, monitor
+                                                   station_type, create_station_name, depot_type, create_station, monitor, modem
   short_plan(role, entry, channel, master_id) -> cfg      this computer and the master, valid on its own
-  add_node(cfg, entry) -> cfg (copy)
+  add_node(cfg, entry) -> cfg (copy)             set_fields(cfg, id, fields) -> cfg (copy)   fields {modem, monitor} of one entry
   encode(cfg) -> text (stable key order, one line per computer)       inline(entry) -> one line of JSON
   entry_lines(entry, width) -> the entry as short lines for a screen
 Notes: pure functions; reading and writing files is the caller's business (files object), so the wizard can run against a made-up disk.
@@ -40,13 +43,15 @@ local EXAMPLE_NOTES = {
   ["network.panel.example.json"] = "mit Bedien-Monitor",
 }
 
+netplan.MONITOR_ROLES = { master = true, panel = true, station = true, depot = true, train = true }
+
 local ID_PREFIX = { master = "MASTER", signal = "SIG", sensor = "SEN", switch = "SW", station = "ST", depot = "DEPOT", train = "TRAIN", panel = "PANEL" }
 
 -- readable files: the keys people look for come first, the rest alphabetically
 local KEY_ORDER = {
   "v", "channel", "master_id", "nodes", "blocks", "routes", "service_plans",
   "id", "role", "display_name", "adapter", "peripheral", "side", "invert", "active_position",
-  "station_type", "create_station_name", "depot_type", "create_station", "schedule_station", "monitor",
+  "station_type", "create_station_name", "depot_type", "create_station", "schedule_station", "modem", "monitor",
 }
 local KEY_RANK = {}
 for i, key in ipairs(KEY_ORDER) do KEY_RANK[key] = i end
@@ -120,6 +125,77 @@ function netplan.entry_lines(entry, width)
   end
   lines[#lines + 1] = line
   return lines
+end
+
+-- ── the messages of the validator, in German ─────────────────────────────────────────────────────────────────────────
+local KIND_WORD = { signal = "Signal", sensor = "Melder", switch = "Weichen", train = "Zug" }
+
+local EXPLAIN = {
+  { "^must be non%-empty string$", "Text fehlt oder ist leer" },
+  { '^duplicate .- "(.*)"$', function(value) return 'doppelt vergeben: "' .. value .. '"' end },
+  { "^must be an object$", "muss ein Objekt {} sein" },
+  { "^unexpected structure %(", "der Aufbau stimmt nicht: eine Liste oder ein Eintrag hat die falsche Form" },
+  { "^must be 1$", "muss 1 sein" },
+  { "^must be integer > 0$", "ganze Zahl groesser 0 noetig" },
+  { "^must be an array$", "muss eine Liste [] sein" },
+  { "^must be a number >= 0$", "Zahl ab 0 noetig" },
+  { "^must be number >= 0$", "Zahl ab 0 noetig" },
+  { "^must be number$", "Zahl noetig" },
+  { "^must be true or false$", "nur true oder false" },
+  { '^invalid role "(.-)"$', function(role) return 'unbekannte Rolle "' .. role .. '"' end },
+  { "^must be passenger, freight, or mixed$", "nur passenger, freight oder mixed" },
+  { "^must be passenger, freight, mixed, or depot$", "nur passenger, freight, mixed oder depot" },
+  { "^must be storage, staging, or mixed$", "nur storage, staging oder mixed" },
+  { "^must be storage, staging, mixed, passenger, or freight$", "nur storage, staging, mixed, passenger oder freight" },
+  { "^should define exact Create destination name for schedules$", "der Name des Bahnhofs in Create fehlt (create_station_name)" },
+  { "^switch nodes require adapter=", 'Weichen brauchen adapter "redstone" (Vanilla-Create hat keine Weichen-Peripherie)' },
+  { "^must reference node with role master$", "muss auf einen Eintrag mit der Rolle master zeigen" },
+  { '^references unknown (%a+) node "(.-)"$', function(kind, value)
+      if value == "nil" then return "Feld fehlt" end
+      return "verweist auf einen " .. (KIND_WORD[kind] or kind) .. '-Eintrag, den es nicht gibt: "' .. value .. '"'
+    end },
+  { '^references unknown block "(.-)"$', function(value) return 'verweist auf einen Block, den es nicht gibt: "' .. value .. '"' end },
+  { '^references unknown route "(.-)"$', function(value) return 'verweist auf eine Route, die es nicht gibt: "' .. value .. '"' end },
+  { '^references unknown train "(.-)"$', function(value) return 'verweist auf einen Zug, den es nicht gibt: "' .. value .. '"' end },
+  { '^references unknown service plan "(.-)"$', function(value) return 'verweist auf einen Fahrplan, den es nicht gibt: "' .. value .. '"' end },
+  { '^references unknown station/depot "(.-)"', function(value) return 'verweist auf einen Bahnhof oder ein Depot, das es nicht gibt: "' .. value .. '"' end },
+  { "^must contain at least one block$", "mindestens ein Block noetig" },
+  { "^must contain at least one stop$", "mindestens ein Halt noetig" },
+  { "^must provide route_id or from/to$", "route_id oder from/to noetig" },
+  { "^must define at least one block$", "mindestens ein Block noetig" },
+  { "^must define entry_signal for interlocking route$", "entry_signal fehlt" },
+  { "^must not be a block of the route itself$", "darf nicht zur Route selbst gehoeren" },
+  { "^sensor (.-) already used by block (.+)$", function(sensor, block) return "Melder " .. sensor .. " gehoert schon zu Block " .. block end },
+}
+
+local unpack_fn = table.unpack or unpack
+
+function netplan.explain(message, cfg)
+  local text = tostring(message)
+  local path, rest = text:match("^(.-): (.*)$")
+  if not path then return text end
+  local shown = rest
+  for _, rule in ipairs(EXPLAIN) do
+    local found = { rest:find(rule[1]) }
+    if found[1] then
+      local replacement = rule[2]
+      if type(replacement) == "function" then
+        shown = replacement(unpack_fn(found, 3))
+      else
+        shown = replacement
+      end
+      break
+    end
+  end
+  -- the position with the id of the entry: nodes[2] -> nodes[2] (SIG-2)
+  if cfg then
+    path = path:gsub("^(%a+)%[(%d+)%]", function(list, index)
+      local item = type(cfg[list]) == "table" and cfg[list][tonumber(index)]
+      if type(item) == "table" and type(item.id) == "string" then return list .. "[" .. index .. "] (" .. item.id .. ")" end
+      return list .. "[" .. index .. "]"
+    end)
+  end
+  return path .. ": " .. shown
 end
 
 function netplan.parse(text)
@@ -216,8 +292,10 @@ function netplan.build_entry(role, id, f)
     end
   elseif role == "panel" then
     entry.display_name = f.display_name or id
-    if f.monitor and f.monitor ~= "" then entry.monitor = f.monitor end
   end
+  -- the devices this computer uses, written only when they were chosen (one modem / one monitor are found by themselves)
+  if f.modem and f.modem ~= "" then entry.modem = f.modem end
+  if f.monitor and f.monitor ~= "" and netplan.MONITOR_ROLES[role] then entry.monitor = f.monitor end
   return entry
 end
 
@@ -227,6 +305,24 @@ function netplan.short_plan(role, entry, channel, master_id)
   nodes[1] = master
   if role ~= "master" then nodes[2] = entry end
   return { v = 1, channel = channel, master_id = master.id, nodes = nodes, blocks = {}, routes = {} }
+end
+
+-- the entry with this id gets the given fields (nil values are left as they are); the rest of the plan is shared with the original
+function netplan.set_fields(cfg, id, fields)
+  local copy = {}
+  for key, value in pairs(cfg) do copy[key] = value end
+  copy.nodes = {}
+  for _, node in ipairs(cfg.nodes or {}) do
+    if node.id == id then
+      local changed = {}
+      for key, value in pairs(node) do changed[key] = value end
+      for key, value in pairs(fields or {}) do if value ~= nil then changed[key] = value end end
+      copy.nodes[#copy.nodes + 1] = changed
+    else
+      copy.nodes[#copy.nodes + 1] = node
+    end
+  end
+  return copy
 end
 
 function netplan.add_node(cfg, entry)

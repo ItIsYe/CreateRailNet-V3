@@ -32,6 +32,7 @@ wizard.ROLES = {
 }
 
 local BACK = {}
+local SKIP = {}
 local ABORT = {}
 
 local STEP_NAMES = { role = "Rolle", plan = "Netzplan", identity = "Name", hardware = "Hardware", summary = "Pruefen" }
@@ -110,7 +111,7 @@ function wizard.check(path, env)
   end
   if errors then
     t.say(path .. ": " .. #errors .. " Fehler:", "err")
-    for i = 1, math.min(10, #errors) do t.say("- " .. errors[i]) end
+    for i = 1, math.min(10, #errors) do t.say("- " .. netplan.explain(errors[i], cfg)) end
     if #errors > 10 then t.say("... und " .. (#errors - 10) .. " weitere.", "dim") end
     return { ok = false, path = path, errors = errors }
   end
@@ -126,6 +127,15 @@ local DEPOT_TYPES = {
   { value = "staging", label = "Bereitstellen", desc = "Zuege warten auf ihren Einsatz" },
   { value = "mixed", label = "gemischt" },
 }
+local POSITIONS = {
+  { value = "DIVERGING", label = "Abzweig" }, { value = "STRAIGHT", label = "geradeaus" },
+}
+
+-- the German word for a value the plan stores in English (the questions and the summary use the same words)
+local function label_of(list, value)
+  for _, item in ipairs(list) do if item.value == value then return item.label end end
+  return tostring(value)
+end
 
 -- ── the wizard ────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -134,11 +144,12 @@ function wizard.run(opts)
   local args = wizard.parse_args(opts.args)
   if args.check then return wizard.check(args.check_path, env) end
   local t = terminal.new(env)
+  t.set_hint("Enter ok  ? Hilfe  < zurueck")
   local files = make_files(env.fs)
   local result = { written = {}, rebooted = false }
 
   local ctx = {
-    role = nil, plan = nil, channel = nil, master_id = nil, node_id = nil, fields = {}, plan_entry = nil,
+    role = nil, plan = nil, channel = nil, master_id = nil, node_id = nil, fields = {}, plan_entry = nil, single = {},
     peripherals = hardware.scan(env.peripheral),
   }
   if args.role and role_info(args.role) then ctx.preset_role = args.role; ctx.role = args.role end
@@ -252,18 +263,25 @@ function wizard.run(opts)
   end
 
   -- a list of small questions; "<" at the first one leaves the list. Coming back from the step after this one lands on the last question.
+  -- A question that has nothing to ask (one device found, nothing to choose) returns SKIP: going forward it is passed, going back too.
   local function run_sub(list, from_back)
+    local direction = from_back and -1 or 1
     local i = from_back and #list or 1
     if i < 1 then i = 1 end
-    while i <= #list do
+    while i >= 1 and i <= #list do
       local r = list[i]()
       if r == BACK then
         if i == 1 then return BACK end
+        direction = -1
         i = i - 1
+      elseif r == SKIP then
+        i = i + direction
       else
+        direction = 1
         i = i + 1
       end
     end
+    if i < 1 then return BACK end
     return "next"
   end
 
@@ -296,35 +314,24 @@ function wizard.run(opts)
 
   local function modem_ok() return #hardware.of_class(ctx.peripherals, "modem") > 0 end
 
-  -- ── welcome ─────────────────────────────────────────────────────────────────────────────────────────────────────
+  -- ── a computer that is set up already ───────────────────────────────────────────────────────────────────────────────
 
+  -- a new computer starts with the first question; one that is set up asks first whether to do it again
   local function welcome()
-    t.page("Einrichtung")
-    t.say("Dieser Assistent richtet DIESEN Computer fuer CreateRailNet ein: Aufgabe waehlen, Netz und Hardware pruefen, dann startup.lua schreiben. Bis zur Zusammenfassung wird nichts veraendert.")
-    t.blank()
-    t.say("Bedienung:")
-    t.say("  Enter  Vorschlag in [ ] uebernehmen")
-    t.say("  ?      Hilfe zur Frage")
-    t.say("  <      einen Schritt zurueck")
     local text = files.read("startup.lua")
     local existing = text and startup_template.parse(text) or nil
     ctx.existing = existing
-    if ctx.preset_role then
-      t.blank()
-      t.say("Rolle: " .. role_label(ctx.preset_role) .. " (vom Installer gewaehlt)", "ok")
-    end
     if existing and not ctx.preset_role then
-      t.blank()
+      t.page("Einrichtung")
       t.say("Dieser Computer ist schon eingerichtet:", "err")
       t.say("  " .. role_label(existing.role) .. " " .. existing.id .. ", Netzplan " .. existing.config)
+      t.blank()
       local again = ask_yes("Neu einrichten?", false, "Nein beendet den Assistenten, nichts wird geaendert. Ja fragt alles neu ab; deine Antworten von damals sind teils als Vorschlag da.")
       if again ~= true then return false end
       ctx.role = role_info(existing.role) and existing.role or nil
       ctx.node_id = existing.id
-      return true
     end
-    t.blank()
-    return pause("Weiter mit Enter.") == "ok"
+    return true
   end
 
   -- ── Rolle ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -412,12 +419,11 @@ function wizard.run(opts)
   local function build_plan(choice, keep, keep_errors)
     if choice == "keep" then
       return { mode = "keep", path = netplan.PATH, cfg = keep, errors = keep_errors }
-    elseif choice == "copy" or choice == "use_example" then
+    elseif choice == "copy" then
       page("plan", "Beispiel")
-      local example = choose_example(choice == "copy" and "Welches Beispiel kopieren?" or "Welches Beispiel verwenden?")
+      local example = choose_example("Welches Beispiel kopieren?")
       if example == BACK then return nil end
       local cfg, errors, _, text = read_plan(example.path)
-      if choice == "use_example" then return { mode = "use", path = example.path, cfg = cfg, errors = errors } end
       if not confirm_overwrite() then return nil end
       return { mode = "copy", path = netplan.PATH, cfg = cfg, errors = errors, source = example.path, source_text = text }
     elseif choice == "empty" or choice == "short" then
@@ -447,10 +453,11 @@ function wizard.run(opts)
     if not (plan.cfg and plan.errors) then return true end
     page("plan", "Fehler")
     t.say("Dieser Netzplan hat Fehler:", "err")
-    for i = 1, math.min(3, #plan.errors) do t.say("- " .. plan.errors[i]) end
+    for i = 1, math.min(3, #plan.errors) do t.say("- " .. netplan.explain(plan.errors[i], plan.cfg)) end
     if #plan.errors > 3 then t.say("... und " .. (#plan.errors - 3) .. " weitere.", "dim") end
     t.blank()
-    t.say("Ein Computer mit diesem Netzplan startet nicht. Du kannst ihn nach der Einrichtung reparieren (scripts/setup.lua --check).", "dim")
+    t.say("Ein Computer mit diesem Netzplan startet nicht. Alle Fehler zeigt, auch spaeter:", "dim")
+    t.say("  scripts/setup.lua --check", "dim")
     return ask_yes("Trotzdem diesen Netzplan nehmen?", false) == true
   end
 
@@ -481,7 +488,6 @@ function wizard.run(opts)
         items[#items + 1] = { value = "empty", label = "Leeren Netzplan anlegen", desc = "nur der Master, den Rest traegst du ein" }
       else
         items[#items + 1] = { value = "short", label = "Kurzplan anlegen (empfohlen)", desc = "nur dieser Computer und der Master" }
-        if has_examples then items[#items + 1] = { value = "use_example", label = "Beispiel-Netzplan verwenden", desc = "zum Ausprobieren, wird nur gelesen" } end
       end
       items[#items + 1] = { value = "custom", label = "Eigene Datei angeben", desc = "Pfad zu einem fertigen Netzplan" }
       if not default then
@@ -491,7 +497,7 @@ function wizard.run(opts)
       end
       local choice = ask_choice("Woher kommt der Netzplan?", items, {
         default = default,
-        help = "Behalten: die vorhandene Datei bleibt. Kopieren/Anlegen: configs/network.json wird neu geschrieben (die alte Datei bleibt als .prev). Kurzplan: eine kleine gueltige Datei nur fuer diesen Computer. Beispiel verwenden: eine mitgelieferte Datei wird direkt gelesen. Eigene Datei: du gibst den Pfad an.",
+        help = "Behalten: die vorhandene Datei bleibt. Kopieren/Anlegen: configs/network.json wird neu geschrieben (die alte Datei bleibt als .prev). Kurzplan: eine kleine gueltige Datei nur fuer diesen Computer; das ganze Netz steht beim Master. Eigene Datei: du gibst den Pfad an und sie wird nur gelesen.",
       })
       if choice == BACK then return BACK end
 
@@ -587,9 +593,32 @@ function wizard.run(opts)
     end
   end
 
+  -- exactly one device of the kind is attached: one page asks "this one?" instead of a list with a single line
+  local function confirm_single(class, label, field, sets_adapter)
+    return function()
+      local found = hardware.of_class(ctx.peripherals, class)
+      ctx.single[field] = false
+      if #found ~= 1 then return SKIP end
+      page("hardware", role_label(ctx.role))
+      t.say(label .. " erkannt: " .. found[1].name .. " (" .. found[1].type .. ")", "ok")
+      local yes = ask_yes("Dieses Geraet fuer diesen Computer verwenden?", true,
+        "Es haengt genau ein passendes Geraet am Computer. Mit Nein kannst du ein anderes Geraet (oder bei Signal und Melder Redstone) angeben.")
+      if yes == BACK then return BACK end
+      if yes then
+        ctx.single[field] = true
+        ctx.fields[field] = found[1].name
+        if sets_adapter then ctx.fields.adapter = "peripheral" end
+      elseif sets_adapter then
+        ctx.fields.adapter = nil
+      end
+      return "ok"
+    end
+  end
+
   local function device_question(class, label, default_name, field)
     field = field or "peripheral"
     return function()
+      if ctx.single[field] then return SKIP end
       while true do
         page("hardware", role_label(ctx.role))
         local found = hardware.of_class(ctx.peripherals, class)
@@ -629,6 +658,7 @@ function wizard.run(opts)
     local label = kind == "signal" and "Create-Signal" or "Train Observer"
     local default_name = kind == "signal" and "Create_Signal_0" or "Create_TrainObserver_0"
     local function how()
+      if ctx.single.peripheral then return SKIP end
       page("hardware", role_label(ctx.role))
       local found = #hardware.of_class(ctx.peripherals, class)
       t.say(found > 0 and (label .. " erkannt (" .. found .. ").") or ("Kein " .. label .. " erkannt."), found > 0 and "ok" or "dim")
@@ -641,12 +671,13 @@ function wizard.run(opts)
       ctx.fields.adapter = value
     end
     local function detail()
+      if ctx.single.peripheral then return SKIP end
       if ctx.fields.adapter == "redstone" then
         return side_question(kind == "signal" and "An welcher Seite liegt der Ausgang?" or "An welcher Seite kommt das Signal an?")()
       end
       return device_question(class, label, default_name)()
     end
-    return { how, detail }
+    return { confirm_single(class, label, "peripheral", true), how, detail }
   end
 
   local function display_question(question, help)
@@ -694,6 +725,7 @@ function wizard.run(opts)
       }
     elseif role == "train" then
       return {
+        confirm_single("create_station", "Create-Bahnhof am Zug", "create_station"),
         device_question("create_station", "Create-Bahnhof am Zug", "Create_Station_0", "create_station"),
         display_question("Anzeigename des Zuges", "Der Name, der auf den Monitoren angezeigt wird."),
       }
@@ -703,14 +735,58 @@ function wizard.run(opts)
     return {}
   end
 
+  -- without a modem the computer cannot reach the network: the way on has to be chosen deliberately (Enter stops here)
   local function modem_question()
     page("hardware", role_label(ctx.role))
     t.say("Dieser Computer hat kein Modem.", "err")
     t.say("Ohne Modem kann er nicht mit dem Netz sprechen. Setze ein Modem direkt an den Computer und starte den Assistenten neu - oder mach weiter und baue es spaeter an.", "dim")
-    local go = ask_yes("Trotzdem weitermachen?", true)
+    local go = ask_yes("Trotzdem ohne Modem weitermachen?", false, "Nein beendet den Assistenten, nichts wird geaendert: Modem anbauen, dann noch einmal starten. Ja schreibt die Einrichtung trotzdem; der Computer meldet sich erst, wenn das Modem da ist.")
     if go == BACK then return BACK end
     if go ~= true then error(ABORT, 0) end
     return "ok"
+  end
+
+  -- several modems: which one carries the radio network is written into the plan (with one, it is found by itself)
+  local function modem_choice_question()
+    return function()
+      local modems = hardware.of_class(ctx.peripherals, "modem")
+      page("hardware", role_label(ctx.role))
+      local items, default = {}, 1
+      for i, info in ipairs(modems) do
+        items[i] = { value = info.name, label = info.name .. " (" .. info.type .. ")" }
+        if info.name == ctx.fields.modem then default = i end
+      end
+      t.say("Dieser Computer hat " .. #modems .. " Modems.", "dim")
+      local value = ask_choice("Ueber welches Modem laeuft das Funknetz?", items, { default = default, compact = true,
+        help = "Gewaehlt wird ein bestimmtes Modem und im Netzplan festgehalten. Sonst nimmt der Computer irgendeines davon, und das kann nach einem Umbau ein anderes sein. Ein Kabel-Modem fuer Geraete ist nicht das fuer das Funknetz." })
+      if value == BACK then return BACK end
+      ctx.fields.modem = value
+    end
+  end
+
+  -- several monitors: which one shows this computer's page
+  local function monitor_choice_question()
+    return function()
+      local monitors = hardware.of_class(ctx.peripherals, "monitor")
+      page("hardware", role_label(ctx.role))
+      local items, default = {}, 1
+      for i, info in ipairs(monitors) do
+        items[i] = { value = info.name, label = info.name }
+        if info.name == ctx.fields.monitor then default = i end
+      end
+      t.say("An diesem Computer haengen " .. #monitors .. " Monitore.", "dim")
+      local value = ask_choice("Auf welchem Monitor erscheint die Anzeige?", items, { default = default, compact = true,
+        help = "Der gewaehlte Monitor wird im Netzplan festgehalten. Sonst nimmt der Computer den ersten, den er findet." })
+      if value == BACK then return BACK end
+      ctx.fields.monitor = value
+    end
+  end
+
+  -- devices can be written into the plan when this run writes the entry (a new plan, a new entry, the master of a copied example)
+  local function can_bind()
+    if not ctx.plan then return false end
+    if not ctx.plan_entry then return true end
+    return ctx.role == "master" and ctx.plan.mode == "copy"
   end
 
   local function missing_device_question()
@@ -732,13 +808,17 @@ function wizard.run(opts)
   local function hardware_questions()
     local list = {}
     -- before the plan and the name are known the step is announced for every role but the master, who has no devices to ask for
+    local modems = #hardware.of_class(ctx.peripherals, "modem")
+    local monitors = #hardware.of_class(ctx.peripherals, "monitor")
     if not ctx.node_id or not ctx.plan then
-      if ctx.role == "master" and modem_ok() then return {} end
+      if ctx.role == "master" and modems == 1 and monitors < 2 then return {} end
       return { function() return "ok" end }
     end
     ctx.plan_entry = ctx.plan.cfg and netplan.find_node(ctx.plan.cfg, ctx.node_id) or nil
     if ctx.plan_entry and ctx.plan_entry.role ~= ctx.role then ctx.plan_entry = nil end
-    if not modem_ok() then list[#list + 1] = modem_question end
+    if modems == 0 then list[#list + 1] = modem_question
+    elseif modems >= 2 and can_bind() then list[#list + 1] = modem_choice_question() end
+    if netplan.MONITOR_ROLES[ctx.role] and monitors >= 2 and can_bind() then list[#list + 1] = monitor_choice_question() end
     if ctx.plan_entry then
       local missing = missing_device_question()
       if missing then list[#list + 1] = missing end
@@ -794,6 +874,24 @@ function wizard.run(opts)
     return "wird nur gelesen", false
   end
 
+  -- the devices an entry ends up using: named in the plan, chosen here, or found by themselves
+  local function device_rows(entry, rows)
+    local modems = hardware.of_class(ctx.peripherals, "modem")
+    local bound = entry.modem or ctx.fields.modem
+    if #modems == 0 then rows[#rows + 1] = { "Modem", "FEHLT (spaeter anbauen)" }
+    elseif bound then rows[#rows + 1] = { "Modem", bound .. (hardware.find(ctx.peripherals, bound) and " (festgelegt)" or " (festgelegt, NICHT gefunden)") }
+    elseif #modems == 1 then rows[#rows + 1] = { "Modem", modems[1].name .. " (automatisch)" }
+    else rows[#rows + 1] = { "Modem", "NICHT festgelegt (" .. #modems .. " vorhanden)" } end
+    if netplan.MONITOR_ROLES[ctx.role] then
+      local monitors = hardware.of_class(ctx.peripherals, "monitor")
+      local chosen = entry.monitor or ctx.fields.monitor
+      if chosen then rows[#rows + 1] = { "Monitor", chosen .. (hardware.find(ctx.peripherals, chosen) and " (festgelegt)" or " (NICHT gefunden)") }
+      elseif #monitors == 1 then rows[#rows + 1] = { "Monitor", monitors[1].name .. " (automatisch)" }
+      elseif #monitors == 0 then rows[#rows + 1] = { "Monitor", "keiner (spaeter anbauen)" }
+      else rows[#rows + 1] = { "Monitor", "NICHT festgelegt (" .. #monitors .. " vorhanden)" } end
+    end
+  end
+
   local function summary_rows(entry)
     local rows = {}
     local role = ctx.role
@@ -801,20 +899,16 @@ function wizard.run(opts)
       rows[#rows + 1] = { "Anschluss", entry.adapter == "redstone" and ("Redstone, " .. side_word(entry.side)) or found_text(tostring(peripheral_name(entry))) }
     elseif role == "switch" then
       rows[#rows + 1] = { "Anschluss", "Redstone, " .. side_word(entry.side) .. (entry.invert and ", umgekehrt" or "") }
-      rows[#rows + 1] = { "Stellung", "bei Signal: " .. tostring(entry.active_position) }
+      rows[#rows + 1] = { "Stellung", "bei Signal: " .. label_of(POSITIONS, entry.active_position) }
     elseif role == "station" then
-      rows[#rows + 1] = { "Bahnhof", tostring(entry.create_station_name) .. " (" .. tostring(entry.station_type) .. ")" }
+      rows[#rows + 1] = { "Bahnhof", tostring(entry.create_station_name) .. " (" .. label_of(STATION_TYPES, entry.station_type) .. ")" }
     elseif role == "depot" then
-      rows[#rows + 1] = { "Depot", tostring(entry.display_name) .. " (" .. tostring(entry.depot_type) .. ")" }
+      rows[#rows + 1] = { "Depot", tostring(entry.display_name) .. " (" .. label_of(DEPOT_TYPES, entry.depot_type) .. ")" }
     elseif role == "train" then
       if peripheral_name(entry) then rows[#rows + 1] = { "Anschluss", found_text(tostring(peripheral_name(entry))) } end
       rows[#rows + 1] = { "Zug", tostring(entry.display_name) }
     end
-    if role == "master" or role == "panel" then
-      local monitors = hardware.of_class(ctx.peripherals, "monitor")
-      rows[#rows + 1] = { "Monitor", #monitors > 0 and (monitors[1].name .. " (gefunden)") or "keiner (spaeter anbauen)" }
-    end
-    if not modem_ok() then rows[#rows + 1] = { "Modem", "FEHLT (spaeter anbauen)" } end
+    device_rows(entry, rows)
     return rows
   end
 
@@ -837,7 +931,7 @@ function wizard.run(opts)
     t.say(string.format("  %-10s%s", "", action), "dim")
     for _, row in ipairs(summary_rows(entry)) do t.say(string.format("  %-10s%s", row[1], row[2])) end
     t.blank()
-    t.say("Geschrieben wird: startup.lua" .. (writes_plan and (" und " .. plan.path) or "") .. ". Alte Dateien bleiben als .prev erhalten.", "dim")
+    t.say("Geschrieben: startup.lua" .. (writes_plan and (", " .. plan.path) or "") .. ". Alte Dateien bleiben als .prev.", "dim")
     t.blank()
     t.say("[J] schreiben   [N] aendern   [A] abbrechen")
     while true do
@@ -879,9 +973,15 @@ function wizard.run(opts)
         cfg = plan.cfg
         if not ctx.plan_entry and ctx.role ~= "master" then cfg = netplan.add_node(cfg, entry) end
       end
+      -- a copied example gets the modem / monitor that were chosen for its master entry
+      local devices_changed = false
+      if plan.mode == "copy" and ctx.plan_entry and (ctx.fields.modem or ctx.fields.monitor) then
+        cfg = netplan.set_fields(cfg, ctx.node_id, { modem = ctx.fields.modem, monitor = ctx.fields.monitor })
+        devices_changed = true
+      end
       -- an example that is copied as it is keeps its own formatting; anything that was changed is written in the stable format
       local body
-      if plan.mode == "copy" and ctx.plan_entry then body = plan.source_text else body = netplan.encode(cfg) end
+      if plan.mode == "copy" and ctx.plan_entry and not devices_changed then body = plan.source_text else body = netplan.encode(cfg) end
       local parsed, errors = netplan.parse(body)
       if not parsed or errors then
         return false, "Der erzeugte Netzplan ist nicht gueltig: " .. tostring(errors and errors[1] or "unbekannter Fehler")
@@ -918,6 +1018,8 @@ function wizard.run(opts)
     t.say("Eingerichtet: " .. role_label(ctx.role) .. " " .. ctx.node_id, "ok")
     for _, path in ipairs(result.written) do t.say("  geschrieben: " .. path) end
     t.blank()
+    -- a node has a line to carry over to the master: the restart must not be the thing that wipes it off the screen
+    local keep_screen = false
     if ctx.role == "master" then
       for _, line in ipairs(MASTER_NEXT_STEPS) do t.say(line) end
     elseif ctx.plan.mode == "use" or ctx.plan_entry then
@@ -925,9 +1027,13 @@ function wizard.run(opts)
     else
       t.say("Trage diese Zeile im Netzplan des Masters unter \"nodes\" ein:")
       for _, line in ipairs(netplan.entry_lines(final_entry(), t.width() - 2)) do t.say(line) end
+      t.say("Sie steht auch in " .. ctx.plan.path .. " dieses Computers.", "dim")
+      keep_screen = true
     end
     t.blank()
-    local reboot = ask_yes("Jetzt neu starten?", true, "Beim Neustart startet der Computer in seiner Rolle. Mit Nein startest du spaeter mit 'reboot'.")
+    local reboot = ask_yes("Jetzt neu starten?", not keep_screen,
+      keep_screen and "Beim Neustart verschwindet diese Seite. Notiere die Zeile oder starte spaeter mit 'reboot'. Mit Nein bleibt sie stehen."
+        or "Beim Neustart startet der Computer in seiner Rolle. Mit Nein startest du spaeter mit 'reboot'.")
     if reboot == true and env.os and env.os.reboot then
       result.rebooted = true
       t.say("Neustart ...", "dim")

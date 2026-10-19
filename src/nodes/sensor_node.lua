@@ -47,7 +47,7 @@ local function build_context(args_or_context)
     logger = log.new("INFO", 200),
     peripherals = peripherals.new(),
     hardware = hardware_config.new(cfg),
-    modem = cc_modem.new({ channel = cfg.channel })
+    modem = cc_modem.for_node(cfg, args_or_context.id)
   }
 end
 

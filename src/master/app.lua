@@ -34,6 +34,7 @@ local service_plans_panel = require("src.master.ui.panels.service_plans")
 local cargo_panel = require("src.master.ui.panels.cargo")
 local gleisbild_panel = require("src.master.ui.panels.gleisbild")
 local peripherals = require("src.adapter.peripherals")
+local monitors = require("src.adapter.monitors")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
 local create_switches = require("src.adapter.create_switches")
@@ -64,7 +65,7 @@ function app.new(args)
   local maintenance = maintenance_mode.new()
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
-  local modem = cc_modem.new({ channel = cfg.channel })
+  local modem = cc_modem.for_node(cfg, parsed.id or cfg.master_id)
   local ok, err = modem:open(cfg.channel)
   if ok == false then
     logger.error("master modem open failed", { error = err })
@@ -86,7 +87,9 @@ function app.new(args)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
-  local monitor = peri.wrap("monitor") or fallback_monitor()
+  local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor)
+  if monitor_note then logger.warn("master monitor", { note = monitor_note, using = monitor_found and "first monitor found" or "none (no display)" }) end
+  local monitor = monitor_found or fallback_monitor()
   -- filled in below; the status page reads them through functions because it is built before them
   local context, instance
   local alerts = alerts_module.new()

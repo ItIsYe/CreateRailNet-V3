@@ -4,7 +4,9 @@ Public API: new(env) -> terminal
   env: print(text), write(text), read() -> line | nil, term (optional CC term api), colors (optional CC colors api), width, height (optional overrides)
   terminal.width(), terminal.height()
   terminal.page(title, trail, current)     clears the screen; header "CreateRailNet  title", the trail of step names with the current one in
-                                           [ ] (names of steps that do not apply are simply not in the trail), and a rule
+                                           [ ] (names of steps that do not apply are simply not in the trail), and a rule that carries
+                                           the hint set with set_hint (the keys of the wizard)
+  terminal.set_hint(text)                  text at the right end of the rule of every following page (nil = none)
   terminal.say(text, kind)                 wrapped to the width; kind nil | "dim" | "ok" | "err" | "title"
   terminal.aside(title) -> done()          a page of its own (help); done() makes the page before it current again
   terminal.restore()                       draws the current page again as it was
@@ -74,6 +76,7 @@ function terminal.new(env)
   local KIND_COLOR = { title = "yellow", ok = "lime", err = "red", dim = "lightGray" }
 
   local current_page = nil
+  local rule_hint = nil
 
   local function emit(text, kind)
     local width = self.width() - 1
@@ -92,7 +95,7 @@ function terminal.new(env)
     env.print("")
   end
 
-  local function draw_header(title, trail, current)
+  local function draw_header(title, trail, current, hint)
     if term_api and term_api.clear and term_api.setCursorPos then
       pcall(term_api.clear)
       pcall(term_api.setCursorPos, 1, 1)
@@ -107,12 +110,21 @@ function terminal.new(env)
       if #line > self.width() - 1 then line = table.concat(names, " ") end
       emit(line, "dim")
     end
-    emit(string.rep("-", self.width() - 1), "dim")
+    local room = self.width() - 1
+    local rule
+    if hint and hint ~= "" and #hint + 6 <= room then
+      rule = string.rep("-", room - #hint - 1) .. " " .. hint
+    else
+      rule = string.rep("-", room)
+    end
+    emit(rule, "dim")
   end
 
-  function self.page(title, trail, current)
-    current_page = { title = title, trail = trail, current = current, lines = {} }
-    draw_header(title, trail, current)
+  function self.set_hint(text) rule_hint = text end
+
+  function self.page(title, trail, current, plain)
+    current_page = { title = title, trail = trail, current = current, lines = {}, plain = plain }
+    draw_header(title, trail, current, (not plain) and rule_hint or nil)
   end
 
   -- a page that does not become the one restore() brings back (help screens)
@@ -126,7 +138,7 @@ function terminal.new(env)
   -- draws the current page again as it was (after a help screen)
   function self.restore()
     if not current_page then return end
-    draw_header(current_page.title, current_page.trail, current_page.current)
+    draw_header(current_page.title, current_page.trail, current_page.current, (not current_page.plain) and rule_hint or nil)
     for _, line in ipairs(current_page.lines) do emit(line[1], line[2]) end
   end
 
