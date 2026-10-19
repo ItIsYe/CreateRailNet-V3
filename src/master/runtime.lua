@@ -34,6 +34,7 @@ function master_runtime.new(context)
     audit_log = context.audit_log,
     maintenance = context.maintenance,
     ota = context.ota,
+    pairing = context.pairing,
     alerts = context.alerts,
     logs = context.logs,
     trace = context.trace,
@@ -60,6 +61,53 @@ function master_runtime.new(context)
   local handlers = {}
 
   local function audit(kind, data) if runtime.audit_log then runtime.audit_log.record(kind, data) end end
+
+  -- ── pairing: computers that are not in the plan wait for the operator ───────────────────────────────────────────────
+  local pair_sent = {}   -- node id -> the last state told to that node (a node is told again only when it changes)
+
+  -- tell the node where it stands (only nodes that announced protocol revision 3 or newer understand it)
+  local function pair_reply(dst, state, detail)
+    local network = runtime.network
+    local revision = network.peer_revision and network.peer_revision(dst)
+    if not revision or revision < 3 then return end
+    if pair_sent[dst] == state then return end
+    pair_sent[dst] = state
+    local payload = { cmd = "pair_state", state = state, detail = detail }
+    if network.send_reliable then network.send_reliable("cmd", dst, payload) elseif network.send then network.send("cmd", dst, payload) end
+  end
+
+  -- an announcement (register, heartbeat of an unknown node, pair_announce, pair_probe); returns the state
+  local function note_candidate(src, payload, reply)
+    if not runtime.pairing then return nil end
+    local state, detail = runtime.pairing.announce(src, payload)
+    if state == "pending" or state == "conflict" then
+      if runtime.alerts then
+        local text = state == "pending" and ("Neuer Computer wartet: " .. tostring(src) .. " (" .. tostring(payload and payload.role) .. ")")
+          or ("Computer " .. tostring(src) .. " meldet die Rolle " .. tostring(payload and payload.role) .. ", im Plan steht " .. tostring(detail))
+        runtime.alerts.raise("pair:" .. tostring(src), "YELLOW", text, nil, { ttl_s = 3600 })
+      end
+    elseif state == "known" and runtime.alerts and runtime.alerts.clear then
+      runtime.alerts.clear("pair:" .. tostring(src))
+    end
+    if reply ~= false and state then pair_reply(src, state, detail) end
+    return state, detail
+  end
+
+  -- the operator decides about a waiting computer (master UI): "accept" writes its entry into the plan, "reject" ignores it for a while
+  function runtime.pair_decide(action, id, operator)
+    if not runtime.pairing then return false, "Pairing ist nicht verfuegbar." end
+    local ok, message
+    if action == "accept" then ok, message = runtime.pairing.accept(id, operator)
+    elseif action == "reject" then ok, message = runtime.pairing.reject(id, operator)
+    else return false, "Unbekannte Aktion: " .. tostring(action) end
+    if ok then
+      if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("pair:" .. tostring(id)) end
+      pair_sent[id] = nil
+      pair_reply(id, action == "accept" and "known" or "rejected")
+    end
+    runtime.ui.mark_dirty()
+    return ok, message
+  end
   -- Signals are re-sent, not read back. Whatever failed is reported once per change, not on every pass.
   local function note_signal_result(result, what)
     if not result then return end
@@ -163,6 +211,7 @@ function master_runtime.new(context)
     audit("register", { src = msg.src, role = role })
     local previous = runtime.registry.all and runtime.registry.all()[msg.src]
     runtime.registry.register(msg.src, role, nil)
+    note_candidate(msg.src, { role = role }, false)
     if previous and tostring(previous.status):lower() == "down" then audit("node_reconnect", { node_id = msg.src, role = role }) end
     if role == "train" and runtime.train_registry then
       local train_id = msg.payload.train_id or msg.src
@@ -186,6 +235,7 @@ function master_runtime.new(context)
       -- after a master restart the nodes keep heartbeating but never register again: adopt them
       runtime.registry.register(msg.src, announced_role, nil)
       audit("node_adopted", { node_id = msg.src, role = announced_role })
+      note_candidate(msg.src, { role = announced_role }, false)
     elseif known and tostring(known.status):lower() == "down" then
       audit("node_reconnect", { node_id = msg.src, role = known.role })
       if known.role == "signal" and runtime.dispatcher.resend_signals then note_signal_result(runtime.dispatcher.resend_signals(msg.src), "reconnect " .. tostring(msg.src)) end
@@ -331,6 +381,19 @@ function master_runtime.new(context)
     ota_need                 = handle_ota_need,
     log_batch                = handle_log_batch,
     ota_confirmed            = handle_ota_confirmed,
+    -- pairing: a node tells which entry of the plan it is, the setup wizard asks whether the master knows the computer
+    pair_announce            = function(msg)
+      local payload = msg.payload or {}
+      note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup })
+      runtime.network.ack_for(msg, true)
+      runtime.ui.mark_dirty()
+    end,
+    pair_probe               = function(msg)
+      local payload = msg.payload or {}
+      note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup })
+      runtime.network.ack_for(msg, true)
+      runtime.ui.mark_dirty()
+    end,
   }
 
   -- Who may send what: a sensor event must come from the sensor it names, manual control only from a panel node.

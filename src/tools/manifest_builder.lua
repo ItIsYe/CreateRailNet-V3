@@ -23,6 +23,8 @@ local VERSION = 1
 local COMMON_ENTRIES = { "src.shared.ota_recovery", "scripts/setup.lua", "scripts/upgrade_startup.lua" }
 
 local TEMPLATES = {
+  "configs/templates/network.example.json",
+  "configs/templates/network.redstone.example.json",
   "configs/templates/network.create.example.json",
   "configs/templates/network.full.example.json",
   "configs/templates/network.mixed.example.json",

@@ -5,7 +5,7 @@ everything below is bounded (lists, logs, traces) and costs one pass over the no
 
 ## Pages of the master monitor
 
-Left or right edge of the monitor: previous or next page. Order: **status**, **alerts**, overview, gleisbild, trains, stations, depots,
+Left or right edge of the monitor: previous or next page. Order: **status**, **alerts**, **setup** (titled EINRICHTUNG), overview, gleisbild, trains, stations, depots,
 fahrplan, cargo, diag, **logs**, ota.
 
 | Page | Shows |
@@ -13,9 +13,25 @@ fahrplan, cargo, diag, **logs**, ota.
 | status | one lamp for the whole network and why: RED = a signal/switch/sensor node is lost, a block is FAULT, the recovery waits for confirmation, an update failed; YELLOW = another node lost, deadlock, maintenance, update running, unacknowledged alerts. Counts per role and a paged problem list, faults before nodes that are merely offline. The words BETRIEB OK / WARNUNG / STOERUNG are shown next to the colour. |
 | alerts | one line per cause with a counter. Touch a row to acknowledge it, "ALLE QUITT." for all. A fault that cleared itself stays listed until it was acknowledged. |
 | logs | warnings and errors the nodes forwarded, newest first; the bottom row switches WARN+/ERROR and pages. |
+| setup | how far the setup is (four lines, each with a word as well as a colour: plan has blocks and routes, computers of the plan online, they reported a clean check, nobody waiting) and the computers that announced themselves and are not in the plan. See "Accepting new computers" below. |
 
 Frames are drawn off screen and shown at once, so the monitors do not flicker. A page whose drawing fails shows an error page, navigation keeps
 working, and the failure is logged once a minute.
+
+## Accepting new computers
+
+A computer that is not in the plan announces itself (protocol revision 3, `docs/protocol.md`) and waits on the page *setup* (EINRICHTUNG); the
+alert "Neuer Computer wartet: <id> (<rolle>)" (yellow) points at it. Touch its row, then **[ANNEHMEN]**: the first touch asks (the button reads `[SICHER?]` for 8 s), the second writes its
+entry into the plan file (`configs/network.json`; the old file stays as `.prev`) and tells the computer. **[ABLEHNEN]** ignores that id for 10 minutes.
+A computer whose id stands in the plan with another role is shown red and cannot be accepted; fix the id or the role first.
+
+- Announcing grants nothing. A waiting computer gets no commands, owns no blocks, and is forgotten after an hour of silence; at most 64 wait at once.
+- Accepting writes the entry only. Blocks, routes and signals still come from the plan, so a new signal node does nothing until the plan uses its id.
+- A master that runs on a bundled template (`configs/templates/...`) or on a plan that does not validate refuses to write and says why; create
+  an own plan with `scripts/setup.lua` first (`--check` names the errors).
+- A computer of the plan shows what it reported about its own setup (`crn_status.lua`: KONFIGURIERT / GEPRUEFT / Pruefung offen). This is information for the
+  operator, not a release: setup never switches a signal or a turnout, and the dispatcher does not wait for it.
+- Audit: `pair_candidate`, `pair_conflict`, `node_accepted`, `pair_rejected`.
 
 ## Repairing a fault
 

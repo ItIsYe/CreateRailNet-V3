@@ -108,7 +108,7 @@ for key, path in pairs(MODULES) do
 end
 
 local runtime = { fs = fs, shell = shell, sleep = os.sleep, reboot = os.reboot, yield = yield }
-local ui = loaded.ui.new({ print = print, write = write or io.write, read = read })
+local ui = loaded.ui.new({ print = print, write = write or io.write, read = read, term = term, colors = colors })
 local stage = loaded.stage.new({
   fs = fs, safe_write = loaded.safe_write, checksum = loaded.checksum, http = client, compile = compile, sleep = os.sleep, yield = yield,
 })
@@ -119,6 +119,7 @@ local ok, result = pcall(loaded.init, {
   checksum = loaded.checksum, safe_write = loaded.safe_write, startup_template = loaded.startup_template, env = runtime,
 })
 if not ok then
+  pcall(ui.progress_done)
   say("")
   say("[ERR ] " .. tostring(result))
   error("Installation nicht abgeschlossen.", 0)

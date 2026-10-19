@@ -121,5 +121,39 @@ return {
     local c = base()
     c.nodes[1].role = "oops"
     fails_with(c, "invalid role")
+  end,
+
+  -- a plan is edited by hand: wrong shapes give messages, never a Lua error
+  test_wrongly_shaped_lists_and_entries_are_reported_not_thrown = function()
+    local shapes = {
+      { key = "blocks", value = 1, expect = "blocks: must be an array" },
+      { key = "routes", value = "x", expect = "routes: must be an array" },
+      { key = "nodes", value = 3, expect = "nodes: must be an array" },
+      { key = "service_plans", value = 4, expect = "service_plans: must be an array" },
+      { key = "interlocking_routes", value = true, expect = "interlocking_routes: must be an array" },
+    }
+    for _, shape in ipairs(shapes) do
+      local cfg = base()
+      cfg[shape.key] = shape.value
+      local ok, called, errors = pcall(validate.validate_config, cfg)
+      assert(ok, shape.key .. " raised: " .. tostring(called))
+      assert(called == false, shape.key)
+      assert(table.concat(errors, "\n"):find(shape.expect, 1, true), shape.key .. ": " .. table.concat(errors, " | "))
+    end
+    local cfg = base()
+    cfg.blocks[2] = 5
+    cfg.nodes[3] = "x"
+    local ok, valid, errors = pcall(validate.validate_config, cfg)
+    assert(ok and valid == false)
+    local text = table.concat(errors, "\n")
+    assert(text:find("blocks[2]: must be an object", 1, true) and text:find("nodes[3]: must be an object", 1, true), text)
+  end,
+
+  test_a_deeper_wrong_shape_becomes_one_more_message = function()
+    local cfg = base()
+    cfg.blocks[1].switches = { 5 }
+    local ok, valid, errors = pcall(validate.validate_config, cfg)
+    assert(ok and valid == false, tostring(valid))
+    assert(table.concat(errors, "\n"):find("config: unexpected structure", 1, true))
   end
 }

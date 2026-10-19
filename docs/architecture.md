@@ -56,10 +56,21 @@ flood itself.
 
 ## UI
 
-Pages are drawn into an off-screen buffer and shown at once (no flicker), the page order is fixed (status, alerts, overview, gleisbild,
+Pages are drawn into an off-screen buffer and shown at once (no flicker), the page order is fixed (status, alerts, setup, overview, gleisbild,
 trains, stations, depots, fahrplan, cargo, diag, logs, ota), a failing page shows an error page, and the whole network is summarised in
 one lamp on the status page. Alerts are one line per cause and are acknowledged by touch. Everything is bounded and costs one pass over
 the nodes and blocks, so the same UI serves a small and a large network.
+
+## Setup, doctor and pairing
+
+`scripts/setup.lua` is the wizard of one computer (`src/setup/`): role, plan, id, devices (modem and monitor bound by name), then the **doctor**
+(`src/setup/doctor.lua`: one pass over installation, `startup.lua`, plan, entry, modem, devices of the role, monitor, space, answer of the master), a
+**link test** (`src/setup/link.lua`: the wizard sends `pair_probe` and waits a few seconds for `pair_state`) and a summary that is confirmed before anything is written. The
+result of the doctor is kept in `crn_status.lua` (`src/shared/setup_status.lua`; globals-free, checked field by field when read).
+
+A computer the master does not know announces itself (`pair_announce`, protocol revision 3). The master keeps it as a bounded candidate in `src/master/pairing.lua` and shows it
+on the page *setup* (`src/master/ui/panels/setup.lua`); only the operator's two-touch **[ANNEHMEN]** writes its entry into the plan file (`safe_write`, `.prev` kept).
+Nothing in this path switches hardware or releases anything: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
 
 ## Installation
 

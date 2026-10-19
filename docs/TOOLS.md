@@ -68,8 +68,10 @@ dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 |---|---|
 | `installer` | one-line installer: `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer` (`docs/INSTALL.md`) |
 | `scripts/manifest_sync.lua --write\|--check` | regenerates / checks `install/manifest.lua`, the installer's file list (after changing any installed file) |
-| `scripts/setup.lua [--role R]` | per computer: role, id, peripherals; writes `startup.lua` and the minimal config |
-| `scripts/check_configs.lua` | validates every config under `configs/` |
+| `scripts/setup.lua [--role R]` | the setup wizard of one computer: role, network plan (`configs/network.json`), id, hardware, summary; writes `startup.lua` (`docs/INGAME_SETUP.md`) |
+| `scripts/setup.lua --check [file]` | checks a network plan (default `configs/network.json`) on the computer and names every problem; changes nothing |
+| `scripts/setup.lua --doctor` | the doctor: installation, `startup.lua`, plan, entry, modem, devices of the role, monitor, free space, answer of the master; one line per point (`[ OK ]` / `[WARN]` / `[FEHL]`) and what to do about each. Writes only the record of its result, `crn_status.lua` (KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN); never switches a signal or a turnout |
+| `scripts/check_configs.lua` | development only: validates the maintained example plans under `configs/templates/` (not installed on computers) |
 | `scripts/ota_push.lua [--node ID] [--legacy]` | pushes the runtime to nodes (`docs/OTA.md`) |
 | `scripts/upgrade_startup.lua` | gives this computer's `startup.lua` the OTA recovery (nodes do it by themselves at start) |
 | `scripts/replay_trace.lua trace.json config.json [--strict]` | replays a recorded dispatcher trace offline (`docs/OPERATIONS.md`) |

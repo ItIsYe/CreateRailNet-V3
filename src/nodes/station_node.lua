@@ -7,6 +7,7 @@ local config = require("src.shared.config")
 local log = require("src.shared.log")
 local shared_args = require("src.shared.args")
 local peripherals = require("src.adapter.peripherals")
+local monitors = require("src.adapter.monitors")
 local hardware_config = require("src.adapter.hardware_config")
 local create_sensors = require("src.adapter.create_sensors")
 local cc_modem = require("src.adapter.cc_modem")
@@ -30,7 +31,7 @@ end
 local function build_context(args_or_context)
   if args_or_context.config and args_or_context.logger and args_or_context.peripherals and args_or_context.modem then return args_or_context end
   local cfg = config.load(args_or_context.config or "configs/templates/network.example.json")
-  return { id = args_or_context.id, role = "station", config = cfg, logger = log.new("INFO", 200), peripherals = peripherals.new(), hardware = hardware_config.new(cfg), modem = cc_modem.new({ channel = cfg.channel }) }
+  return { id = args_or_context.id, role = "station", config = cfg, logger = log.new("INFO", 200), peripherals = peripherals.new(), hardware = hardware_config.new(cfg), modem = cc_modem.for_node(cfg, args_or_context.id) }
 end
 
 function station_node.build_platform_map(station_config)
@@ -63,8 +64,8 @@ function station_node.new_runtime(args_or_context)
   local station_id = station_cfg.station_id or context.id
   local station_type = station_cfg.station_type or station_cfg.type or "mixed"
   local display_name = station_cfg.display_name or station_id
-  local monitor_name = station_cfg.monitor or "monitor"
-  local monitor = context.peripherals.wrap(monitor_name)
+  local monitor, monitor_note = monitors.resolve(context.peripherals, station_cfg.monitor)
+  if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local sensor_adapter = create_sensors.new(context.peripherals, { hardware = context.hardware })
   local state = { node_id = context.id, station_id = station_id, display_name = display_name, station_type = station_type, state = "ONLINE", platforms = station_node.build_platform_map(station_cfg) }
 

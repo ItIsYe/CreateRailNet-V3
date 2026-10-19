@@ -241,7 +241,7 @@ return {
     local ok, err = world.run({}, { "3" })
     assert(ok, tostring(err))
     assert(world.shell_runs[1] == "scripts/setup.lua --role sensor", "3 is the sensor")
-    assert(world.output():find("MASTER", 1, true) and world.output():find("PANEL", 1, true))
+    assert(world.output():find("Master", 1, true) and world.output():find("Monitor", 1, true), "the menu uses the words of the wizard")
 
     local second = installer_world.new()
     local failed = second.run({}, { "x" })
@@ -398,40 +398,41 @@ return {
 
   -- the wizard the installer hands over to ------------------------------------------------------------------------
 
-  test_the_setup_wizard_takes_the_role_from_the_installer = function()
+  test_the_setup_script_takes_the_role_from_the_installer_and_runs_the_wizard = function()
     local memfs = require("tests.harness.memfs")
-    local function run_wizard(argv)
+    local netplan = require("src.setup.netplan")
+    local function run_script(argv, answers)
       local fs = memfs.new()
-      local lines, rebooted = {}, 0
+      fs.set("crn_version.txt", "main-test0000") -- the installer has been here
+      local queue, lines, rebooted = {}, {}, 0
+      for _, a in ipairs(answers) do queue[#queue + 1] = a end
       local env = setmetatable({
         fs = fs,
-        io = { write = function(text) lines[#lines + 1] = tostring(text) end, read = function() return "" end },
         print = function(text) lines[#lines + 1] = tostring(text) end,
+        write = function(text) lines[#lines + 1] = tostring(text) end,
+        read = function() return table.remove(queue, 1) end,
+        peripheral = { getNames = function() return { "top" } end, getType = function() return "modem" end, getMethods = function() return {} end },
         os = setmetatable({ reboot = function() rebooted = rebooted + 1 end }, { __index = os }),
       }, { __index = _G })
       local chunk = assert(installer_world.compile_with_env(read_disk("scripts/setup.lua"), "setup", env))
       local unpack_fn = table.unpack or unpack
-      -- safe_write writes through the global fs: point it at the in-memory one so the repository's own startup.lua stays alone
-      local real_fs = _G.fs
-      _G.fs = fs
       local ok, err = pcall(chunk, unpack_fn(argv))
-      _G.fs = real_fs
       assert(ok, tostring(err) .. "\n" .. table.concat(lines, "\n"))
       return fs, table.concat(lines, "\n"), rebooted
     end
 
-    -- every question answered with its default: no menu appears when the installer chose the role
-    local fs, output, rebooted = run_wizard({ "--role", "signal" })
+    -- the installer starts it with the role: every question has a suggestion, so Enter all the way
+    local fs, output, rebooted = run_script({ "--role", "signal" }, { "", "", "", "", "", "", "", "j" })
     local parsed = startup_template.parse(fs.files["startup.lua"] or "")
-    assert(parsed and parsed.role == "signal" and parsed.id == "SIG-1", output)
-    assert(output:find("chosen by the installer", 1, true) and not output:find("Central controller", 1, true), "no role menu")
+    assert(parsed and parsed.role == "signal" and parsed.id == "SIG-1" and parsed.config == netplan.PATH, output)
+    assert(not output:find("Welche Aufgabe", 1, true), "no role menu when the installer chose the role")
     assert(fs.files["startup.lua"]:find("crn_install_journal", 1, true), "the new startup.lua carries the install guard")
+    local cfg, errors = netplan.parse(fs.files[netplan.PATH])
+    assert(cfg and errors == nil, "the plan the wizard wrote validates")
     assert(rebooted == 1)
 
-    -- without a role, or with a wrong one, it asks (default answer = first entry: master)
-    local asked_fs, asked_output = run_wizard({})
-    assert(startup_template.parse(asked_fs.files["startup.lua"]).role == "master" and asked_output:find("Central controller", 1, true))
-    local wrong_fs, wrong_output = run_wizard({ "--role", "wizard" })
-    assert(wrong_output:find("Unknown role", 1, true) and startup_template.parse(wrong_fs.files["startup.lua"]).role == "master")
+    -- without a role it asks; input that ends cancels without writing
+    local asked_fs, asked_output = run_script({}, { "" })
+    assert(asked_output:find("Abgebrochen. Es wurde nichts geaendert.", 1, true) and asked_fs.files["startup.lua"] == nil and asked_fs.files[netplan.PATH] == nil and asked_fs.files["crn_status.lua"] == nil)
   end,
 }

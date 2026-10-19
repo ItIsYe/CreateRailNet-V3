@@ -23,7 +23,6 @@ return function(deps)
 
   local result = { installed = 0, unchanged = 0, removed = 0, needs_setup = false }
 
-  ui.header("CreateRailNet Installer")
   ui.info("Ref: " .. ref)
 
   -- 1. what is on this computer already -------------------------------------------------------------------------
@@ -54,7 +53,9 @@ return function(deps)
     if not role then error("Ungueltige Rolle.", 0) end
   end
   result.role, result.ref = role, ref
-  ui.header("Installiere " .. role:upper())
+  local role_label = role
+  for _, entry in ipairs(plan.ROLES) do if entry.key == role then role_label = entry.label end end
+  ui.header("Installiere: " .. role_label)
 
   -- 2. manifest of exactly this ref -------------------------------------------------------------------------------
   local body, dl_err = deps.http.download_file(ref, "install/manifest.lua")
@@ -111,9 +112,13 @@ return function(deps)
     ui.info(#todo .. " Dateien werden geladen (" .. unchanged .. " unveraendert)")
     for i, path in ipairs(todo) do
       local ok, err = stage.fetch(ref, path, files[path])
-      if not ok then error("Installation abgebrochen bei " .. path .. ": " .. tostring(err) .. " -- 'installer --resume' setzt fort.", 0) end
+      if not ok then
+        ui.progress_done()
+        error("Installation abgebrochen bei " .. path .. ": " .. tostring(err) .. " -- 'installer --resume' setzt fort.", 0)
+      end
       ui.progress(i, #todo, path)
     end
+    ui.progress_done()
     result.installed = #todo
   else
     ui.ok("Alle Dateien sind auf dem Stand " .. manifest.id)
@@ -144,7 +149,7 @@ return function(deps)
 
   -- 9. finished ---------------------------------------------------------------------------------------------------
   journal.clear()
-  ui.ok("Installation abgeschlossen: " .. role:upper() .. " (" .. result.installed .. " geladen, " .. result.unchanged .. " unveraendert, " .. result.removed .. " entfernt)")
+  ui.ok("Fertig: " .. role_label .. ". " .. result.installed .. " geladen, " .. result.unchanged .. " unveraendert, " .. result.removed .. " entfernt.")
 
   -- 10. a new computer gets the setup wizard, an installed one is upgraded and restarted ----------------------------
   if not existing or existing.role ~= role then

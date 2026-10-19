@@ -25,7 +25,7 @@ function bootstrap.create_context(argv, role)
   startup_guard.ensure({ logger = logger, enabled = cfg.startup_autoupgrade ~= false })
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
-  local modem = cc_modem.new({ channel = cfg.channel })
+  local modem = cc_modem.for_node(cfg, parsed.id)
 
   return {
     args = parsed,

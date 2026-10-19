@@ -7,6 +7,7 @@ local config = require("src.shared.config")
 local log = require("src.shared.log")
 local shared_args = require("src.shared.args")
 local peripherals = require("src.adapter.peripherals")
+local monitors = require("src.adapter.monitors")
 local hardware_config = require("src.adapter.hardware_config")
 local create_train_schedule = require("src.adapter.create_train_schedule")
 local cc_modem = require("src.adapter.cc_modem")
@@ -23,7 +24,7 @@ end
 local function build_context(args_or_context)
   if args_or_context.config and args_or_context.logger and args_or_context.peripherals and args_or_context.modem then return args_or_context end
   local cfg = config.load(args_or_context.config or "configs/templates/network.example.json")
-  return { id = args_or_context.id, role = "train", config = cfg, logger = log.new("INFO", 200), peripherals = peripherals.new(), hardware = hardware_config.new(cfg), modem = cc_modem.new({ channel = cfg.channel }) }
+  return { id = args_or_context.id, role = "train", config = cfg, logger = log.new("INFO", 200), peripherals = peripherals.new(), hardware = hardware_config.new(cfg), modem = cc_modem.for_node(cfg, args_or_context.id) }
 end
 
 local function status_payload(state, train_id, display_name)
@@ -52,9 +53,9 @@ function train_node.new_runtime(args_or_context)
   local train_cfg = find_train_config(context.config, context.id)
   local train_id = train_cfg.train_id or context.id
   local display_name = train_cfg.display_name or train_id
-  local monitor_name = train_cfg.monitor or "monitor"
   local schedule_station = train_cfg.schedule_station or train_cfg.create_station
-  local monitor = context.peripherals.wrap(monitor_name)
+  local monitor, monitor_note = monitors.resolve(context.peripherals, train_cfg.monitor)
+  if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local schedule_adapter = create_train_schedule.new(context.peripherals, { hardware = context.hardware, station = schedule_station })
 
   local state = {

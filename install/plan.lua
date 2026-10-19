@@ -15,14 +15,14 @@ Notes: read_local(path) -> body | nil. Sizes are compared before checksums, so a
 local plan = {}
 
 plan.ROLES = {
-  { key = "master",  label = "MASTER",  text = "Zentrale Steuerung (genau einer pro Netz)" },
-  { key = "signal",  label = "SIGNAL",  text = "Create-Signal" },
-  { key = "sensor",  label = "SENSOR",  text = "Create Train Observer (Melder)" },
-  { key = "switch",  label = "SWITCH",  text = "Weiche (Redstone)" },
-  { key = "station", label = "STATION", text = "Create-Bahnhof" },
-  { key = "depot",   label = "DEPOT",   text = "Depot / Abstellbereich" },
-  { key = "train",   label = "TRAIN",   text = "Bordcomputer im Zug" },
-  { key = "panel",   label = "PANEL",   text = "Bedien-Monitor" },
+  { key = "master",  label = "Master",  text = "Zentrale Steuerung (nur einer)" },
+  { key = "signal",  label = "Signal",  text = "steuert ein Signal" },
+  { key = "sensor",  label = "Melder",  text = "meldet Zuege (Train Observer)" },
+  { key = "switch",  label = "Weiche",  text = "stellt eine Weiche (Redstone)" },
+  { key = "station", label = "Bahnhof", text = "gehoert zu einem Create-Bahnhof" },
+  { key = "depot",   label = "Depot",   text = "Abstellbereich / Depot" },
+  { key = "train",   label = "Zug",     text = "Bordcomputer im Zug" },
+  { key = "panel",   label = "Monitor", text = "Bedien-Monitor (Panel)" },
 }
 
 local MAX_FILES = 400
