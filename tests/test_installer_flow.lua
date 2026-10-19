@@ -403,6 +403,7 @@ return {
     local netplan = require("src.setup.netplan")
     local function run_script(argv, answers)
       local fs = memfs.new()
+      fs.set("crn_version.txt", "main-test0000") -- the installer has been here
       local queue, lines, rebooted = {}, {}, 0
       for _, a in ipairs(answers) do queue[#queue + 1] = a end
       local env = setmetatable({
@@ -432,6 +433,6 @@ return {
 
     -- without a role it asks; input that ends cancels without writing
     local asked_fs, asked_output = run_script({}, { "" })
-    assert(asked_output:find("Abgebrochen. Es wurde nichts geaendert.", 1, true) and next(asked_fs.files) == nil)
+    assert(asked_output:find("Abgebrochen. Es wurde nichts geaendert.", 1, true) and asked_fs.files["startup.lua"] == nil and asked_fs.files[netplan.PATH] == nil and asked_fs.files["crn_status.lua"] == nil)
   end,
 }

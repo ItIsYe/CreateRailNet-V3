@@ -7,7 +7,7 @@ Public API: new(env) -> terminal
                                            [ ] (names of steps that do not apply are simply not in the trail), and a rule that carries
                                            the hint set with set_hint (the keys of the wizard)
   terminal.set_hint(text)                  text at the right end of the rule of every following page (nil = none)
-  terminal.say(text, kind)                 wrapped to the width; kind nil | "dim" | "ok" | "err" | "title"
+  terminal.say(text, kind)                 wrapped to the width; kind nil | "dim" | "ok" | "warn" | "err" | "title"
   terminal.aside(title) -> done()          a page of its own (help); done() makes the page before it current again
   terminal.restore()                       draws the current page again as it was
   terminal.blank()
@@ -73,7 +73,7 @@ function terminal.new(env)
     if ok and color and colors_api[name] then pcall(term_api.setTextColor, colors_api[name]) end
   end
 
-  local KIND_COLOR = { title = "yellow", ok = "lime", err = "red", dim = "lightGray" }
+  local KIND_COLOR = { title = "yellow", ok = "lime", warn = "orange", err = "red", dim = "lightGray" }
 
   local current_page = nil
   local rule_hint = nil

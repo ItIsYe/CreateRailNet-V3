@@ -4,6 +4,8 @@ Purpose: First-time setup of a CreateRailNet computer. A step-by-step wizard (ro
 Usage: shell.run("scripts/setup.lua")                 asks for everything
        shell.run("scripts/setup.lua", "--role", "sensor")   role chosen already (the installer does this)
        shell.run("scripts/setup.lua", "--check")             is configs/network.json valid? (or --check <file>); changes nothing
+       shell.run("scripts/setup.lua", "--doctor")            is this computer ready? plan, devices, modem, monitor, space; says what to do;
+                                                              changes nothing but the record of the result (crn_status.lua)
 Notes: Enter takes the suggestion in [ ], ? explains the question, < goes one step back. Nothing is written before the summary is confirmed.
 ]]
 

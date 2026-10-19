@@ -3,7 +3,8 @@ Purpose: The first-time setup of a computer: role, network plan, name, hardware,
 Public API: run(opts) -> result { ok, aborted, role, id, config, written, rebooted, error }
   opts: args (argv list, "--role <role>" skips the role question), env { print, write, read, term, colors, fs, peripheral, os }
   check(path, env) -> { ok, path }          prints whether a network plan is valid (scripts/setup.lua --check [file])
-  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path }
+  doctor(env) -> { ok, report }             prints what is wrong with this computer and what to do (scripts/setup.lua --doctor)
+  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor }
 Flow: Rolle > Netzplan > Name > Hardware > Pruefen. One question per page, every page fits 51 x 19, the header shows where you are. A step that
   has nothing to ask is left out (an example plan already says everything about this computer). "?" explains the question, "<" goes back.
   Nothing is written before the summary is confirmed.
@@ -17,6 +18,8 @@ local hardware = require("src.setup.hardware")
 local netplan = require("src.setup.netplan")
 local startup_template = require("src.shared.startup_template")
 local safe_write = require("src.shared.safe_write")
+local doctor = require("src.setup.doctor")
+local setup_status = require("src.shared.setup_status")
 
 local wizard = {}
 
@@ -83,6 +86,9 @@ function wizard.parse_args(argv)
     if argv[i] == "--role" then
       args.role = argv[i + 1]
       i = i + 2
+    elseif argv[i] == "--doctor" then
+      args.doctor = true
+      i = i + 1
     elseif argv[i] == "--check" then
       args.check = true
       local path = argv[i + 1]
@@ -137,12 +143,45 @@ local function label_of(list, value)
   return tostring(value)
 end
 
+-- the version of the installed files (crn_version.txt: "<ref>-<id>"), or nil
+local function file_version(files)
+  local text = files.read("crn_version.txt")
+  return text and text:match("^%s*(%S+)") or nil
+end
+
+-- the doctor's result goes into crn_status.lua: what was checked, when, against which file state (a failure to write it is no failure of the setup)
+local function record_status(env, files, report)
+  local status = doctor.status(report, { version = file_version(files) })
+  if status.role and status.id then pcall(setup_status.write, env.fs, status) end
+  return status
+end
+
+-- scripts/setup.lua --doctor: what is wrong with this computer, and what to do about it (changes nothing but the record of the result)
+function wizard.doctor(env, probe)
+  local t = terminal.new(env)
+  local files = make_files(env.fs)
+  t.say("Pruefung dieses Computers", "title")
+  local report = doctor.run({ fs = env.fs, peripheral = env.peripheral, probe = probe })
+  for _, line in ipairs(doctor.lines(report, t.width() - 1)) do t.say(line.text, line.kind) end
+  t.blank()
+  t.say(doctor.summary(report), report.fails > 0 and "err" or (report.warns > 0 and "warn" or "ok"))
+  local fixes = doctor.fix_lines(report, t.width() - 1)
+  if #fixes > 0 then
+    t.blank()
+    t.say("Was zu tun ist:", "title")
+    for _, line in ipairs(fixes) do t.say(line.text, line.kind) end
+  end
+  record_status(env, files, report)
+  return { ok = report.ready, report = report }
+end
+
 -- ── the wizard ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function wizard.run(opts)
   local env = opts.env
   local args = wizard.parse_args(opts.args)
   if args.check then return wizard.check(args.check_path, env) end
+  if args.doctor then return wizard.doctor(env) end
   local t = terminal.new(env)
   t.set_hint("Enter ok  ? Hilfe  < zurueck")
   local files = make_files(env.fs)
@@ -1001,6 +1040,9 @@ function wizard.run(opts)
     end
     result.written[#result.written + 1] = "startup.lua"
     result.config = plan.path
+    -- how far the setup got: the doctor moves it on (and writes it again) once it has looked at what was just written
+    pcall(setup_status.write, env.fs, { state = "KONFIGURIERT", role = ctx.role, id = ctx.node_id, config = plan.path, version = file_version(files),
+      at = (env.os and env.os.epoch and math.floor(env.os.epoch("utc") / 1000)) or (os.epoch and math.floor(os.epoch("utc") / 1000)) or os.time() })
     return true
   end
 
@@ -1013,10 +1055,38 @@ function wizard.run(opts)
     "   einrichten (Befehl in docs/INSTALL.md).",
   }
 
-  local function finish()
+  -- the doctor found something: the list, then what to do about it (several pages when it is long)
+  local function show_report(report)
+    t.page("Pruefung", nil, nil, true)
+    for _, line in ipairs(doctor.lines(report, t.width() - 1)) do t.say(line.text, line.kind) end
+    t.blank()
+    t.say(doctor.summary(report), report.fails > 0 and "err" or "warn")
+    t.blank()
+    pause("Weiter mit Enter: was zu tun ist.")
+    local fixes = doctor.fix_lines(report, t.width() - 1)
+    local room = math.max(6, t.height() - 5)
+    local index = 1
+    while index <= #fixes do
+      t.page("Pruefung - was zu tun ist", nil, nil, true)
+      local used = 0
+      while index <= #fixes and used < room do
+        t.say(fixes[index].text, fixes[index].kind)
+        index = index + 1
+        used = used + 1
+      end
+      t.blank()
+      pause("Weiter mit Enter.")
+    end
+  end
+
+  local function finish(report)
     t.page("Fertig")
     t.say("Eingerichtet: " .. role_label(ctx.role) .. " " .. ctx.node_id, "ok")
-    for _, path in ipairs(result.written) do t.say("  geschrieben: " .. path) end
+    t.say("  geschrieben: " .. table.concat(result.written, ", "))
+    if report then
+      local clean = report.fails == 0 and report.warns == 0
+      t.say("Pruefung: " .. doctor.summary(report) .. (clean and "" or "  (scripts/setup.lua --doctor)"), report.fails > 0 and "err" or (clean and "ok" or "warn"))
+    end
     t.blank()
     -- a node has a line to carry over to the master: the restart must not be the thing that wipes it off the screen
     local keep_screen = false
@@ -1031,9 +1101,11 @@ function wizard.run(opts)
       keep_screen = true
     end
     t.blank()
-    local reboot = ask_yes("Jetzt neu starten?", not keep_screen,
-      keep_screen and "Beim Neustart verschwindet diese Seite. Notiere die Zeile oder starte spaeter mit 'reboot'. Mit Nein bleibt sie stehen."
-        or "Beim Neustart startet der Computer in seiner Rolle. Mit Nein startest du spaeter mit 'reboot'.")
+    -- a red check or a line to carry over: the way on is the player's decision (Enter does not restart)
+    local default_restart = not keep_screen and not (report and report.fails > 0)
+    local reboot = ask_yes("Jetzt neu starten?", default_restart,
+      default_restart and "Beim Neustart startet der Computer in seiner Rolle. Mit Nein startest du spaeter mit 'reboot'."
+        or "Beim Neustart verschwindet diese Seite, und mit einer roten Pruefung laeuft der Computer nicht richtig. Erst beheben (scripts/setup.lua --doctor), dann 'reboot'. Mit Ja startest du trotzdem.")
     if reboot == true and env.os and env.os.reboot then
       result.rebooted = true
       t.say("Neustart ...", "dim")
@@ -1093,10 +1165,14 @@ function wizard.run(opts)
         i = decision
       end
     end
-    -- the files are written: from here on the setup is done, whatever happens to the question about the restart
+    -- the files are written: from here on the setup is done, whatever happens to the pages that follow
     result.ok = true
     result.role, result.id = ctx.role, ctx.node_id
-    finish()
+    local report = doctor.run({ fs = env.fs, peripheral = env.peripheral })
+    result.report = report
+    record_status(env, files, report)
+    if report.fails > 0 or report.warns > 0 then show_report(report) end
+    finish(report)
   end
 
   applies = {

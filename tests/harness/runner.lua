@@ -59,6 +59,7 @@ local tests = {
   "tests/test_installer_ui.lua",
   "tests/test_manual_repair.lua",
   "tests/test_monitors.lua",
+  "tests/test_doctor.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",
   "tests/test_log_collector.lua",

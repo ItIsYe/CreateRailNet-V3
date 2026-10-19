@@ -89,7 +89,7 @@ return {
 
   test_station_asks_for_type_and_the_create_name = function()
     local world = setup_world.new()
-    local result = world.run({ "--role", "station" }, { "", "", "", "ST-A", "3", "Hauptbahnhof", "Haupt Bahnhof", "", "j" })
+    local result = world.run({ "--role", "station" }, { "", "", "", "ST-A", "3", "Hauptbahnhof", "Haupt Bahnhof", "", "", "", "j" })
     assert_done(world, result, "station", "ST-A")
     local entry = node(plan_of(world), "ST-A")
     assert(entry.station_type == "mixed" and entry.display_name == "Hauptbahnhof" and entry.create_station_name == "Haupt Bahnhof")
@@ -97,12 +97,12 @@ return {
 
   test_depot_and_train_and_panel = function()
     local depot = setup_world.new()
-    local result = depot.run({ "--role", "depot" }, enters(7, { "j" }))
+    local result = depot.run({ "--role", "depot" }, enters(9, { "j" }))
     assert_done(depot, result, "depot", "DEPOT-1")
     assert(node(plan_of(depot), "DEPOT-1").depot_type == "mixed")
 
     local train = setup_world.new({ peripherals = { MODEM, STATION } })
-    result = train.run({ "--role", "train" }, enters(7, { "j" }))
+    result = train.run({ "--role", "train" }, enters(9, { "j" }))
     assert_done(train, result, "train", "TRAIN-1")
     local entry = node(plan_of(train), "TRAIN-1")
     assert(entry.create_station == "Create_Station_0" and entry.schedule_station == "Create_Station_0")
@@ -124,7 +124,7 @@ return {
 
   test_master_with_an_empty_plan = function()
     local world = setup_world.new()
-    local result = world.run({ "--role", "master" }, { "2", "", "MASTER-7", "", "" })
+    local result = world.run({ "--role", "master" }, { "2", "", "MASTER-7", "", "", "", "" })
     assert_done(world, result, "master", "MASTER-7")
     local cfg = plan_of(world)
     assert(#cfg.nodes == 1 and cfg.master_id == "MASTER-7" and #cfg.blocks == 0)
@@ -136,7 +136,7 @@ return {
     local world = setup_world.new({ peripherals = { MODEM } })
     -- plan 2 = own file (read only), its path, the entry of that file, then the device the entry names is missing
     local path = "configs/templates/network.example.json"
-    local result = world.run({ "--role", "signal" }, { "2", path, "", "", "", "" })
+    local result = world.run({ "--role", "signal" }, { "2", path, "", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1", path)
     assert(world.fs.files[netplan.PATH] == nil, "a plan used in place is not copied")
     assert(not world.text():find("Beispiel-Netzplan verwenden", 1, true), "a node is not offered the examples: their device names are placeholders")
@@ -176,7 +176,8 @@ return {
   test_a_missing_device_named_in_the_plan_is_called_out = function()
     local world = setup_world.new({ peripherals = { MODEM }, files = { [netplan.PATH] = netplan.encode({ v = 1, channel = 777, master_id = "MASTER-1",
       nodes = { { id = "MASTER-1", role = "master" }, { id = "SIG-9", role = "signal", adapter = "peripheral", peripheral = "Create_Signal_5" } }, blocks = {}, routes = {} }) } })
-    local result = world.run({ "--role", "signal" }, enters(5))
+    -- the doctor finds the missing device red: two pages, and Enter does not restart
+    local result = world.run({ "--role", "signal" }, enters(6, { "j" }))
     assert_done(world, result, "signal", "SIG-9")
     assert(world.text():find("Create_Signal_5", 1, true) and world.text():find("nicht angeschlossen", 1, true) and world.text():find("(NICHT gefunden)", 1, true))
   end,
@@ -185,7 +186,7 @@ return {
     local broken = '{"v":1,"channel":777,"master_id":"MASTER-1","nodes":[{"id":"MASTER-1","role":"master"}],"blocks":[{"id":"B1","entry_signal":"X","exit_signal":"Y"}],"routes":[]}'
     local world = setup_world.new({ files = { [netplan.PATH] = broken } })
     -- keep (marked FEHLERHAFT) -> errors are shown -> "no" -> back to the choice -> empty plan; overwrite question: yes
-    local result = world.run({ "--role", "master" }, { "1", "n", "3", "j", "", "", "", "" })
+    local result = world.run({ "--role", "master" }, { "1", "n", "3", "j", "", "", "", "", "", "" })
     assert(world.text():find("FEHLERHAFT", 1, true) and world.text():find("Dieser Netzplan hat Fehler", 1, true))
     assert_done(world, result, "master", "MASTER-1")
     assert(world.fs.files[netplan.PATH .. ".prev"] == broken)
@@ -194,7 +195,7 @@ return {
   test_an_own_file_must_exist_and_be_valid = function()
     local good = netplan.encode({ v = 1, channel = 5, master_id = "M", nodes = { { id = "M", role = "master" } }, blocks = {}, routes = {} })
     local world = setup_world.new({ files = { ["mein/netz.json"] = good, ["mein/kaputt.json"] = "{ not json" } })
-    local result = world.run({ "--role", "master" }, { "3", "mein/gibt-es-nicht.json", "mein/kaputt.json", "mein/netz.json", "", "" })
+    local result = world.run({ "--role", "master" }, { "3", "mein/gibt-es-nicht.json", "mein/kaputt.json", "mein/netz.json", "", "", "", "" })
     assert_done(world, result, "master", "M", "mein/netz.json")
     assert(world.text():find("Diese Datei gibt es nicht", 1, true) and world.text():find("Keine gueltige JSON-Datei", 1, true))
     assert(world.fs.files[netplan.PATH] == nil)
@@ -522,13 +523,13 @@ return {
 
   test_two_monitors_ask_which_one_for_a_station = function()
     local world = setup_world.new({ peripherals = { MODEM, MONITOR, MONITOR2 } })
-    local result = world.run({ "--role", "station" }, { "", "", "", "ST-1", "2", "", "", "", "", "j" })
+    local result = world.run({ "--role", "station" }, { "", "", "", "ST-1", "2", "", "", "", "", "", "", "j" })
     assert_done(world, result, "station", "ST-1")
     assert(node(plan_of(world), "ST-1").monitor == "monitor_1")
     assert(world.text():find("monitor_1 (festgelegt)", 1, true))
     -- one monitor is found by itself
     local single = setup_world.new({ peripherals = { MODEM, MONITOR } })
-    local done = single.run({ "--role", "station" }, { "", "", "", "ST-1", "", "", "", "", "j" })
+    local done = single.run({ "--role", "station" }, { "", "", "", "ST-1", "", "", "", "", "", "", "j" })
     assert_done(single, done, "station", "ST-1")
     assert(node(plan_of(single), "ST-1").monitor == nil and single.text():find("monitor_0 (automatisch)", 1, true))
   end,
@@ -549,9 +550,10 @@ return {
     local plan = netplan.encode({ v = 1, channel = 777, master_id = "MASTER-1",
       nodes = { { id = "MASTER-1", role = "master" }, { id = "SIG-9", role = "signal", adapter = "peripheral", peripheral = "Create_Signal_0" } }, blocks = {}, routes = {} })
     local world = setup_world.new({ peripherals = { MODEM, MODEM2, SIGNAL }, files = { [netplan.PATH] = plan } })
-    local result = world.run({ "--role", "signal" }, enters(4))
+    local result = world.run({ "--role", "signal" }, enters(6))
     assert_done(world, result, "signal", "SIG-9")
     assert(world.fs.files[netplan.PATH] == plan, "the plan stays as it is")
+    assert(world.text():find("Mehrere Modems, keines festgelegt", 1, true), "the doctor says it as well")
     assert(world.text():find("NICHT festgelegt (2 vorhanden)", 1, true))
     assert(not world.text():find("Ueber welches Modem", 1, true))
   end,

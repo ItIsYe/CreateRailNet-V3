@@ -3,7 +3,7 @@ Purpose: A fake CC:Tweaked computer for the setup wizard: in-memory disk, made-u
   scripted answers.
 Public API:
   new(opts) -> world       opts: files (path -> body), templates (true: the real configs/templates/*.json on the disk), peripherals (list of
-                           { name, type, methods }), width, height
+                           { name, type, methods }), width, height, version (false: no crn_version.txt, as before an installer run)
   world.run(argv, answers) -> result      runs src/setup/wizard with those arguments; read() hands out the answers in order
   world.pages -> list of { lines = {...} }   world.fs, world.rebooted, world.unused (answers that were not asked for)
   world.text() -> all output as one string     world.last_page_text()
@@ -43,7 +43,9 @@ function setup_world.new(opts)
   if o.templates ~= false then
     for _, name in ipairs(TEMPLATE_NAMES) do world.fs.set("configs/templates/" .. name, read_disk("configs/templates/" .. name)) end
   end
-  local peripherals = o.peripherals or { setup_world.MODEM }
+  -- a computer the installer has been on: it left its version file (the doctor warns about a missing one)
+  if o.version ~= false and world.fs.files["crn_version.txt"] == nil then world.fs.set("crn_version.txt", "main-test0000") end
+  local peripherals = o.peripherals or { setup_world.MODEM, setup_world.MONITOR }
 
   function world.run(argv, answers)
     local queue = {}
