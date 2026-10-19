@@ -85,6 +85,7 @@ local files = {
   "src/master/app.lua",
   "src/master/dispatcher.lua",
   "src/master/manual_control.lua",
+  "src/master/ota_targets.lua",
   "src/master/pairing.lua",
   "src/master/plan_service.lua",
   "src/master/restart.lua",

@@ -8,6 +8,7 @@ Options: --ref <branch|tag>   source (default: main)
          --role <role>        master signal sensor switch station depot train panel (default: the installed role, or a menu)
          --yes                no questions (keeps the installed role)
          --resume             finish an interrupted installation (startup.lua calls this by itself)
+         --preview            only say what would be installed (new / changed / removed files, space); changes nothing
 Notes: thin bootstrap, like the installer of the reactor project: the real logic lives in install/*.lua of the same ref and is
   downloaded on every run, so there is no second copy to keep in sync. Nothing on the computer is changed before the space check
   passed. docs/INSTALL.md has the details.
@@ -29,15 +30,17 @@ do
     local token = argv[i]
     if token == "--yes" then args.yes = true; i = i + 1
     elseif token == "--resume" then args.resume = true; i = i + 1
+    elseif token == "--preview" then args.preview = true; i = i + 1
     elseif token == "--role" or token == "--ref" then
       if not argv[i + 1] then error("Zu " .. token .. " fehlt der Wert.", 0) end
       args[token:sub(3)] = argv[i + 1]
       i = i + 2
     else
-      error("Unbekannte Option: " .. tostring(token) .. " (erlaubt: --ref --role --yes --resume)", 0)
+      error("Unbekannte Option: " .. tostring(token) .. " (erlaubt: --ref --role --yes --resume --preview)", 0)
     end
   end
 end
+if args.preview and args.resume then error("--preview und --resume gehen nicht zusammen: eine Vorschau aendert nichts, --resume setzt eine Installation fort.", 0) end
 local ref = args.ref or DEFAULT_REF
 -- before any URL is built: branch names and tags, nothing that could leave the repository path
 if #ref > 100 or not ref:match("^[%w%._%-/]+$") or ref:find("..", 1, true) or ref:sub(1, 1) == "/" or ref:sub(-1) == "/" then
@@ -125,7 +128,10 @@ if not ok then
   error("Installation nicht abgeschlossen.", 0)
 end
 
-if result.needs_setup then
+if result.preview then
+  say("")
+  say("Vorschau beendet.")
+elseif result.needs_setup then
   if args.yes or args.resume then
     say("Dieser Computer ist noch nicht eingerichtet: 'scripts/setup.lua' ausfuehren (Rolle " .. result.role .. ").")
   elseif shell then

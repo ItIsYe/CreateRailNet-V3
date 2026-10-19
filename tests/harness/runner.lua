@@ -77,6 +77,8 @@ local tests = {
   "tests/test_linktest.lua",
   "tests/test_setup_linktest.lua",
   "tests/test_export.lua",
+  "tests/test_installer_preview.lua",
+  "tests/test_ota_targets.lua",
   "tests/test_setup_panel.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",

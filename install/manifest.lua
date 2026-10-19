@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "f2d95590",
+  id = "56d9632e",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -11,7 +11,7 @@ return {
     ["configs/templates/network.mixed.example.json"] = { 2828, 2186586288 },
     ["configs/templates/network.redstone.example.json"] = { 754, 3425159284 },
     ["configs/templates/network.service_plan.example.json"] = { 3335, 2518286490 },
-    ["scripts/ota_push.lua"] = { 4810, 2581345386 },
+    ["scripts/ota_push.lua"] = { 5806, 3213656621 },
     ["scripts/setup.lua"] = { 2793, 3638910044 },
     ["scripts/start_depot.lua"] = { 510, 1327409773 },
     ["scripts/start_master.lua"] = { 487, 1914216691 },
@@ -60,6 +60,7 @@ return {
     ["src/master/main.lua"] = { 280, 3234684894 },
     ["src/master/manual_control.lua"] = { 10088, 867247706 },
     ["src/master/ota_manager.lua"] = { 19866, 678918975 },
+    ["src/master/ota_targets.lua"] = { 2936, 2726804893 },
     ["src/master/pairing.lua"] = { 10972, 329197167 },
     ["src/master/plan_service.lua"] = { 4322, 574526950 },
     ["src/master/restart.lua"] = { 1685, 378025617 },
@@ -226,6 +227,7 @@ return {
       "src/master/main.lua",
       "src/master/manual_control.lua",
       "src/master/ota_manager.lua",
+      "src/master/ota_targets.lua",
       "src/master/pairing.lua",
       "src/master/plan_service.lua",
       "src/master/restart.lua",

@@ -1,7 +1,9 @@
 --[[
 Purpose: The installation itself: pick the role, fetch the manifest of one ref, replace only what differs, finish with the setup wizard.
-Public API: returns function(deps) -> result table { role, ref, id, installed, unchanged, removed, needs_setup }
-  deps: ref, args { role, yes, resume }, http, plan, stage, ui, journal, checksum, safe_write, startup_template,
+Public API: returns function(deps) -> result table { role, ref, id, installed, unchanged, removed, needs_setup, preview }
+  args.preview: steps 1 - 4 only, then a report of what would happen (new / changed / unchanged / removed files, bytes, whether it fits) and
+  nothing else: no file is written (not even the copy of the installer), no journal, no restart, no wizard. result.preview = the numbers.
+  deps: ref, args { role, yes, resume, preview }, http, plan, stage, ui, journal, checksum, safe_write, startup_template,
         env { fs, shell, sleep, reboot, now }
 Order (nothing is touched before the space check passes):
   1 existing startup.lua / install record -> role   2 manifest of the ref   3 compare with the disk   4 space check, copy of the installer itself
@@ -24,6 +26,10 @@ return function(deps)
   local result = { installed = 0, unchanged = 0, removed = 0, needs_setup = false }
 
   ui.info("Ref: " .. ref)
+  if plan.ref_kind(ref) == "branch" and not args.resume then
+    ui.warn("'" .. ref .. "' ist ein Branch und kann sich mit jedem Push aendern: Computer, die zu verschiedenen Zeiten installieren, bekommen verschiedene Staende. "
+      .. "Fuer ein ganzes Netz einen Tag oder Commit nehmen (installer --ref <Tag>).")
+  end
 
   -- 1. what is on this computer already -------------------------------------------------------------------------
   local startup_text = stage.read("startup.lua")
@@ -99,6 +105,43 @@ return function(deps)
     own_copy = nil
   end
   local fits, fit_err = stage.check_capacity(planned + largest, reclaimable)
+  if args.preview then
+    -- only a report: nothing is written (not even the copy of the installer), nothing is restarted
+    local added, changed = {}, {}
+    local added_bytes, changed_bytes = 0, 0
+    for _, path in ipairs(todo) do
+      if fsys.exists(path) then changed[#changed + 1] = path; changed_bytes = changed_bytes + files[path].size
+      else added[#added + 1] = path; added_bytes = added_bytes + files[path].size end
+    end
+    table.sort(added)
+    table.sort(changed)
+    table.sort(obsolete)
+    local function count(n) return n .. (n == 1 and " Datei" or " Dateien") end
+    -- a path longer than the line keeps its end ("...mplates/network.full.example.json"), so no line breaks in the middle of a name
+    local function shorten(path, room)
+      if #path <= room then return path end
+      return "..." .. path:sub(-(room - 3))
+    end
+    local function list(label, paths)
+      for index, path in ipairs(paths) do
+        if index > 8 then ui.info("  " .. label .. ": ... und " .. (#paths - 8) .. " weitere"); break end
+        ui.info("  " .. label .. ": " .. shorten(path, 49 - 4 - #label - 6))
+      end
+    end
+    ui.header("Vorschau (es wird nichts geaendert)")
+    ui.info("Neu: " .. count(#added) .. ", " .. added_bytes .. " Byte")
+    list("neu", added)
+    ui.info("Geaendert: " .. count(#changed) .. ", " .. changed_bytes .. " Byte")
+    list("geaendert", changed)
+    ui.info("Unveraendert: " .. count(unchanged))
+    ui.info("Entfernt: " .. count(#obsolete))
+    list("entfernt", obsolete)
+    if own_copy then ui.info("Der Installer selbst (installer) wird erneuert.") end
+    if fits then ui.ok("Speicher reicht (" .. planned .. " Byte zu schreiben).") else ui.warn("Speicher reicht NICHT. " .. tostring(fit_err)) end
+    ui.info("Nichts wurde geaendert. Zum Installieren den Befehl ohne --preview wiederholen.")
+    result.preview = { new = #added, changed = #changed, unchanged = unchanged, removed = #obsolete, bytes = planned, fits = fits and true or false }
+    return result
+  end
   if not fits then error(fit_err, 0) end
   if own_copy then
     local saved, save_err = deps.safe_write.write("installer", own_copy, { fs = fsys, keep_backup = false })
