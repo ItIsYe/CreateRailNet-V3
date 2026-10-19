@@ -3,9 +3,12 @@ Purpose: Asks the master whether it knows this computer: for the setup wizard (b
   sends the same announcement a node sends (event pair_probe) and waits a few seconds for the answer. Nothing is registered by it.
 Public API: probe(opts) -> { state, detail }
   opts: channel, master_id, id, role, entry (the plan entry of this computer), setup (record of the setup), modem_name (entry field "modem"),
-        peripheral (CC peripheral api), wait_s (default 6)
+        peripheral (CC peripheral api), wait_s (default 6),
+        pad_bytes (the probe carries that many bytes of filler), echo_bytes (the master answers with that many bytes of filler): the link test
+        (src/setup/linktest.lua) uses them to find out how large a message gets through
         for tests: modem (a transport instead of the real one), pull_event(timeout_s) -> event | nil, time (clock module), now() -> seconds
   state: "known" | "pending" | "conflict" | "rejected" | "old_master" | "no_answer" | "no_modem"
+  also rtt_s (seconds from sending to the answer; answered probes only) and echoed (bytes of filler that came back in the answer; 0 when none)
 Notes: the master answers every probe (cmd pair_state with the id of the probe, probe_id), also when its answer is the same as the last one; an
   answer that names another probe is ignored. "old_master" means the master acknowledged the message but does not know pairing (protocol
   revision below 3): it is there, but it cannot say whether it knows this computer. Anything that went wrong on the way (no modem, nothing sent) is reported, never raised.
@@ -46,13 +49,17 @@ function link.probe(opts)
   network.on_ack = function(_, original)
     if original and original.payload and original.payload.type == "pair_probe" then acked = true end
   end
-  local sent = network.send_reliable("event", o.master_id, { type = "pair_probe", role = o.role, entry = o.entry, setup = o.setup })
+  local event = { type = "pair_probe", role = o.role, entry = o.entry, setup = o.setup }
+  if type(o.pad_bytes) == "number" and o.pad_bytes >= 1 then event.pad = string.rep("x", math.floor(o.pad_bytes)) end
+  if type(o.echo_bytes) == "number" and o.echo_bytes >= 1 then event.echo = math.floor(o.echo_bytes) end
+  local now = o.now or function() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
+  local started = now()
+  local sent = network.send_reliable("event", o.master_id, event)
   if not sent then return { state = "no_answer", detail = "nothing could be sent" } end
   local question = sent.id
 
-  local now = o.now or function() return (os.epoch and os.epoch("utc") / 1000) or os.clock() end
   local pull = o.pull_event or default_pull
-  local deadline = now() + (o.wait_s or DEFAULT_WAIT_S)
+  local deadline = started + (o.wait_s or DEFAULT_WAIT_S)
   while true do
     local remaining = deadline - now()
     if remaining <= 0 then break end
@@ -65,7 +72,9 @@ function link.probe(opts)
         -- an answer to another question (an earlier probe, a message that was delayed) says nothing about this one
         local answered = msg.payload.probe_id
         if answered == nil or answered == question then
-          return { state = REPLIES[msg.payload.state] or "pending", detail = msg.payload.detail }
+          local pad = msg.payload.pad
+          return { state = REPLIES[msg.payload.state] or "pending", detail = msg.payload.detail, rtt_s = math.max(0, now() - started),
+            echoed = type(pad) == "string" and #pad or 0 }
         end
       end
     end

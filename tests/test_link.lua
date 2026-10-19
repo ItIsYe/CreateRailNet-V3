@@ -232,4 +232,62 @@ return {
     local none = doctor.run({ fs = fs, peripheral = { getNames = function() return {} end, getType = function() end, getMethods = function() return {} end }, probe = function() error("must not be asked") end })
     assert(none.ctx.link == nil)
   end,
+  -- the link test: a probe may carry filler and ask for filler back, to find out how large a message gets through in each direction
+  test_a_probe_carries_filler_to_the_master_and_gets_filler_back = function()
+    local b = bus()
+    local m = master_on(b)
+    local seen_bytes = 0
+    local inner = b.probe_modem.send
+    b.probe_modem.send = function(self, channel, dst, msg)
+      if msg.payload and msg.payload.pad then seen_bytes = #msg.payload.pad end
+      return inner(self, channel, dst, msg)
+    end
+    local result = probe(b, m, { pad_bytes = 3000, echo_bytes = 3000 })
+    assert(result.state == "pending" and result.echoed == 3000, tostring(result.state) .. " " .. tostring(result.echoed))
+    assert(seen_bytes == 3000, "the probe carried the filler")
+    assert(type(result.rtt_s) == "number" and result.rtt_s >= 0)
+    -- nothing asked for, nothing sent back
+    assert(probe(b, m).echoed == 0)
+  end,
+
+  test_the_filler_the_master_sends_back_is_limited_and_filler_is_not_kept = function()
+    local b = bus()
+    local m = master_on(b)
+    assert(probe(b, m, { echo_bytes = 4000 }).echoed == 4000)
+    assert(probe(b, m, { echo_bytes = 4001 }).echoed == 0, "a request for more than 4000 bytes is answered without filler")
+    assert(probe(b, m, { echo_bytes = 10 ^ 9 }).echoed == 0)
+    -- the filler of the probe is not written into the pairing book
+    probe(b, m, { pad_bytes = 3000 })
+    local candidate = m.pairing.get("SIG-9")
+    local function size(value)
+      if type(value) == "string" then return #value end
+      local sum = 0
+      if type(value) == "table" then for _, item in pairs(value) do sum = sum + size(item) end end
+      return sum
+    end
+    assert(size(candidate) < 600, "the candidate is small: " .. size(candidate))
+  end,
+
+  test_a_master_from_before_pairing_cannot_send_filler_and_the_probe_says_so = function()
+    local b = bus()
+    local m = master_on(b, { old = true })
+    local result = probe(b, m, { echo_bytes = 1000 })
+    assert(result.state == "old_master" and (result.echoed or 0) == 0)
+  end,
+
+  test_the_time_to_the_answer_is_measured_from_sending = function()
+    local b = bus()
+    local m = master_on(b)
+    -- the answer comes after 0.4 s of the test's clock
+    local function slow(timeout)
+      m.step()
+      if #b.inbox.probe > 0 and b.clock < 1000.4 then b.clock = b.clock + 0.4 end
+      local msg = table.remove(b.inbox.probe, 1)
+      if msg then return { "modem_message", nil, nil, nil, msg } end
+      b.clock = b.clock + timeout
+      return nil
+    end
+    local result = probe(b, m, { pull_event = slow })
+    assert(result.state == "pending" and math.abs(result.rtt_s - 0.4) < 0.001, tostring(result.rtt_s))
+  end,
 }

@@ -5,12 +5,15 @@ Public API: run(opts) -> result { ok, aborted, role, id, config, written, reboot
         env.link(opts) -> { state, detail } asks the master whether it knows this computer (src/setup/link.lua); without it nothing is asked
         env.fetch(opts) -> result fetches the plan from the master (src/setup/plan_fetch.lua); without it the plan cannot be fetched
         env.sleep(seconds), env.redstone: for the function test (CC sleep and redstone api)
+        env.host (the CC version string, _HOST): for the diagnostic file
   check(path, env) -> { ok, path }          prints whether a network plan is valid (scripts/setup.lua --check [file])
   doctor(env) -> { ok, report }             prints what is wrong with this computer and what to do (scripts/setup.lua --doctor)
   fetch_plan(env) -> { ok, state, wrote }   fetches the plan from the master for a station / depot computer (scripts/setup.lua --fetch-plan)
   functest(env) -> { ok, state, result }    the guided function test (scripts/setup.lua --test): reads freely, switches only after a yes;
                                             state: passed / incomplete (a step got no yes) / failed / declined / setup (computer not set up)
-  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor, fetch_plan, functest }
+    linktest(env) -> { ok, state, result }    how good the link to the master is (scripts/setup.lua --linktest): answers, time, largest message
+  export(env) -> { ok, path }               writes crn_diag.txt: version, doctor result, own entry, devices, files, free space (scripts/setup.lua --export)
+  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor, fetch_plan, functest, linktest, export }
 Flow: Rolle > Netzplan > Name > Hardware > Pruefen. One question per page, every page fits 51 x 19, the header shows where you are. A step that
   has nothing to ask is left out (an example plan already says everything about this computer). "?" explains the question, "<" goes back.
   Nothing is written before the summary is confirmed.
@@ -27,6 +30,8 @@ local safe_write = require("src.shared.safe_write")
 local doctor = require("src.setup.doctor")
 local setup_status = require("src.shared.setup_status")
 local functest = require("src.setup.functest")
+local linktest = require("src.setup.linktest")
+local export = require("src.setup.export")
 
 local wizard = {}
 
@@ -101,6 +106,12 @@ function wizard.parse_args(argv)
       i = i + 1
     elseif argv[i] == "--test" then
       args.functest = true
+      i = i + 1
+    elseif argv[i] == "--linktest" then
+      args.linktest = true
+      i = i + 1
+    elseif argv[i] == "--export" then
+      args.export = true
       i = i + 1
     elseif argv[i] == "--check" then
       args.check = true
@@ -370,6 +381,87 @@ function wizard.functest(env)
   return { ok = result.ok, state = result.failed > 0 and "failed" or (result.skipped > 0 and "incomplete" or "passed"), result = result }
 end
 
+-- scripts/setup.lua --linktest: how good is the link to the master? Questions are asked (the master sees ordinary probes), nothing is written.
+local LINK_ADVICE = {
+  none = "Keine Antwort vom Master. Laeuft er? Gleicher Kanal? Das Modem muss in Reichweite sein (Wireless) oder per Kabel verbunden und aktiviert (Kabelmodem: Rechtsklick, roter Ring).",
+  bad = "Die meisten Nachrichten gehen verloren. Reichweite des Modems pruefen (Wireless-Modem), Kabel, und ob der Chunk des Masters geladen bleibt.",
+  shaky = "Einzelne Nachrichten gehen verloren oder kommen spaet. Der Betrieb wiederholt sie, aber die Strecke ist grenzwertig: Reichweite / Kabel / geladene Chunks pruefen.",
+  old_master = "Der Master antwortet, kennt aber das Anmelden von Computern nicht (aelterer Stand). Die Strecke funktioniert; den Master aktualisieren.",
+  no_modem = "Dieser Computer hat kein nutzbares Modem. scripts/setup.lua --doctor sagt, was fehlt.",
+}
+
+function wizard.linktest(env)
+  local t = terminal.new(env)
+  t.say("Funkstrecke zum Master testen", "title")
+  local report = doctor.run({ fs = env.fs, peripheral = env.peripheral })
+  local ctx = report.ctx
+  if not (ctx.role and ctx.cfg and ctx.entry and ctx.id) then
+    t.say("Dieser Computer ist noch nicht eingerichtet (Netzplan und Eintrag fehlen). Erst scripts/setup.lua ausfuehren.", "err")
+    return { ok = false, state = "setup" }
+  end
+  if ctx.role == "master" then
+    t.say("Das ist der Master. Den Test auf einem anderen Computer des Netzes ausfuehren.", "warn")
+    return { ok = false, state = "master" }
+  end
+  if not env.link then
+    t.say("Hier kann nicht gefragt werden (kein Modemzugriff in dieser Umgebung).", "err")
+    return { ok = false, state = "no_link" }
+  end
+  t.say("Der Master " .. tostring(ctx.cfg.master_id) .. " wird auf Kanal " .. tostring(ctx.cfg.channel) .. " gefragt. Er sieht gewoehnliche Anfragen dieses Computers (" .. tostring(ctx.id) .. "), geschaltet wird nichts. Das dauert bis zu einer halben Minute.", "dim")
+  t.blank()
+  local result = linktest.run(ctx, { link = env.link, peripheral = env.peripheral })
+  local kind = (result.state == "ok" and result.part_ok) and "ok" or ((result.state == "none" or result.state == "bad" or result.state == "no_modem") and "err" or "warn")
+  if result.sent > 0 then
+    t.say(string.format("Fragen: %d gestellt, %d beantwortet, %d sofort.", result.sent, result.answered, result.quick), kind)
+  end
+  if result.rtt_avg then
+    t.say(string.format("Laufzeit: im Mittel %.2f s (%.2f bis %.2f s).", result.rtt_avg, result.rtt_min, result.rtt_max), "dim")
+  end
+  if result.sizes and #result.sizes > 0 then
+    t.say("Wie gross darf eine Nachricht sein (hin und zurueck)?")
+    for _, size in ipairs(result.sizes) do
+      t.say(string.format("  %5d Byte  %s", size.bytes, size.ok and "kommt an" or "KOMMT NICHT AN"), size.ok and "ok" or "err")
+    end
+  end
+  if result.state == "ok" or result.state == "old_master" then
+    if result.sizes then
+      if result.part_ok then
+        t.say("Die Strecke ist in Ordnung, auch Teile des Netzplans (" .. linktest.PART_BYTES .. " Byte) kommen durch.", "ok")
+      else
+        t.say("Kleine Nachrichten kommen an, grosse nicht (bis " .. tostring(result.largest) .. " Byte). Der Plan-Abruf (--fetch-plan) kann daran scheitern.", "warn")
+      end
+    end
+  end
+  if LINK_ADVICE[result.state] then t.say(LINK_ADVICE[result.state], result.state == "old_master" and "warn" or "err") end
+  return { ok = result.state == "ok" and result.part_ok == true, state = result.state, result = result }
+end
+
+-- scripts/setup.lua --export: the diagnostic file crn_diag.txt (everything a person who is not at the computer needs; nothing is asked or switched)
+function wizard.export(env)
+  local t = terminal.new(env)
+  t.say("Diagnosedatei schreiben", "title")
+  local function call(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(fn, ...)
+    return ok and value or nil
+  end
+  local clock = env.os or {}
+  local now = clock.epoch and call(clock.epoch, "utc")
+  local ok, path, text = export.write({
+    fs = env.fs, peripheral = env.peripheral, host = env.host,
+    computer_id = call(clock.getComputerID), label = call(clock.getComputerLabel),
+    now = type(now) == "number" and math.floor(now / 1000) or nil, date = clock.date,
+  })
+  if not ok then
+    t.say("Die Datei " .. export.PATH .. " konnte nicht geschrieben werden: " .. tostring(path), "err")
+    return { ok = false, error = path }
+  end
+  t.say("Geschrieben: " .. path .. " (" .. #text .. " Byte).", "ok")
+  t.say("Darin stehen: Version, Ergebnis der Pruefung, der Eintrag dieses Computers im Netzplan, die angeschlossenen Geraete, Dateien und freier Platz. Passwoerter gibt es nicht; der Netzplan selbst steht nicht drin.", "dim")
+  t.say("Weitergeben: 'pastebin put " .. path .. "' (zeigt einen Code) oder die Datei aus dem Ordner des Computers kopieren.", "dim")
+  return { ok = true, path = path }
+end
+
 -- ── the wizard ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function wizard.run(opts)
@@ -379,6 +471,8 @@ function wizard.run(opts)
   if args.doctor then return wizard.doctor(env) end
   if args.fetch_plan then return wizard.fetch_plan(env) end
   if args.functest then return wizard.functest(env) end
+  if args.linktest then return wizard.linktest(env) end
+  if args.export then return wizard.export(env) end
   local t = terminal.new(env)
   t.set_hint("Enter ok  ? Hilfe  < zurueck")
   local files = make_files(env.fs)

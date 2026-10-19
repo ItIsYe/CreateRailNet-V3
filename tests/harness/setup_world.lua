@@ -10,6 +10,7 @@ Public API:
   world.link = function(opts) -> { state }   what the master answers to "do you know this computer?" (none set: nobody is asked)
   world.fetch = function(opts) -> result      what comes back when the computer fetches the plan of the master (none set: it cannot)
   world.redstone, world.sleep                 what the function test switches and waits with (a strict redstone, a sleep that logs)
+  world.computer_id, world.label, world.host, world.epoch_ms     what the computer says about itself (os.getComputerID / getComputerLabel, _HOST, os.epoch)
   answers can also be a function(page_text) -> answer: it is asked at every prompt with the text of the page so far (nil ends the input)
   world.pages -> list of { lines = {...} }   world.fs, world.rebooted, world.unused (answers that were not asked for)
   world.text() -> all output as one string     world.last_page_text()
@@ -45,7 +46,8 @@ setup_world.MONITOR = { name = "monitor_0", type = "monitor", methods = { "write
 
 function setup_world.new(opts)
   local o = opts or {}
-  local world = { fs = memfs.new(), pages = { { lines = {} } }, rebooted = 0, width = o.width or 51, height = o.height or 19 }
+  local world = { fs = memfs.new(), pages = { { lines = {} } }, rebooted = 0, width = o.width or 51, height = o.height or 19,
+    computer_id = 12, label = "Signal West", host = "ComputerCraft 1.115.1 (Minecraft 1.20.1)", epoch_ms = 1700000000000 }
   for path, body in pairs(o.files or {}) do world.fs.set(path, body) end
   if o.templates ~= false then
     for _, name in ipairs(TEMPLATE_NAMES) do world.fs.set("configs/templates/" .. name, read_disk("configs/templates/" .. name)) end
@@ -91,7 +93,14 @@ function setup_world.new(opts)
         wrap = function(name) for _, p in ipairs(peripherals) do if p.name == name then return device_of(p) end end end,
         find = function(kind) for _, p in ipairs(peripherals) do if p.type == kind then return device_of(p), p.name end end end,
       },
-      os = { reboot = function() world.rebooted = world.rebooted + 1 end },
+      os = {
+        reboot = function() world.rebooted = world.rebooted + 1 end,
+        getComputerID = function() return world.computer_id end,
+        getComputerLabel = function() return world.label end,
+        epoch = function() return world.epoch_ms end,
+        date = os.date,
+      },
+      host = world.host,
       link = world.link,
       fetch = world.fetch,
       redstone = world.redstone,
