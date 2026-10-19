@@ -8,6 +8,8 @@ Public API:
   files_for_role(manifest, role) -> { [path] = { size, adler, seed } } | nil, err
   total_bytes(files) -> number
   diff(files, read_local, adler32, exists) -> todo (paths, largest first), unchanged (count)
+  ref_kind(ref) -> "fixed" | "branch"     a version tag (v1.2.0, 1.4) or a commit id (7 to 40 hex digits) stays what it is; every other name is a
+                                          branch and moves with the next push
 Notes: read_local(path) -> body | nil. Sizes are compared before checksums, so an unchanged tree costs one read per file.
   Seed files (config templates, scripts/start_*.lua) are what an operator edits: they count as unchanged as soon as they exist.
 ]]
@@ -102,6 +104,13 @@ function plan.files_for_role(manifest, role)
   for _, path in ipairs(manifest.base) do add(path) end
   for _, path in ipairs(extra) do add(path) end
   return files
+end
+
+function plan.ref_kind(ref)
+  local text = tostring(ref)
+  if #text >= 7 and #text <= 40 and text:match("^%x+$") then return "fixed" end
+  if text:match("^v?%d+%.%d+[%w%.%-]*$") then return "fixed" end
+  return "branch"
 end
 
 function plan.total_bytes(files)

@@ -54,7 +54,7 @@ function train_node.new_runtime(args_or_context)
   local train_id = train_cfg.train_id or context.id
   local display_name = train_cfg.display_name or train_id
   local schedule_station = train_cfg.schedule_station or train_cfg.create_station
-  local monitor, monitor_note = monitors.resolve(context.peripherals, train_cfg.monitor)
+  local monitor, monitor_note = monitors.resolve(context.peripherals, train_cfg.monitor, train_cfg.monitor_scale)
   if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local schedule_adapter = create_train_schedule.new(context.peripherals, { hardware = context.hardware, station = schedule_station })
 

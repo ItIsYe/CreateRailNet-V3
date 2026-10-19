@@ -110,12 +110,25 @@ return {
     assert(not seed["src/shared/net.lua"])
   end,
 
+  test_the_planner_is_installed_on_the_master_and_on_no_other_computer = function()
+    local manifest = load_manifest()
+    for _, role in ipairs(plan.ROLES) do
+      local files = assert(plan.files_for_role(manifest, role.key))
+      for _, path in ipairs({ "src/setup/layout.lua", "src/setup/plan_builder.lua", "src/setup/bauliste.lua" }) do
+        assert((files[path] ~= nil) == (role.key == "master"), path .. " on " .. role.key)
+      end
+    end
+  end,
+
   test_a_role_fits_on_a_default_computer = function()
     local manifest = load_manifest()
     for _, role in ipairs(plan.ROLES) do
       local total = plan.total_bytes(assert(plan.files_for_role(manifest, role.key)))
-      -- CC:Tweaked computers hold 1 MB by default; the installer needs the files, one temporary copy and a little more
-      assert(total < 600000, role.key .. " needs " .. total .. " bytes")
+      -- CC:Tweaked computers hold 1 MB by default. The installer checks the space itself (the files it has to write, one temporary copy of the
+      -- largest, a little more; docs/assumptions.md "Space budget"); this is the budget that leaves a node room for its state and an update that
+      -- arrives over the air. The master carries the dispatcher, the operator pages and the setup tools of every role, so its budget is larger.
+      local budget = role.key == "master" and 740000 or 600000
+      assert(total < budget, role.key .. " needs " .. total .. " bytes (budget " .. budget .. ")")
     end
   end,
 

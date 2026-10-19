@@ -40,7 +40,7 @@ local function ctx()
     on_sensor_event_by_sensor = function() return true end
   }
   local context = {
-    config = {},
+    config = { nodes = { { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel" } } },
     registry = fake_registry(),
     dispatcher = dispatcher,
     network = network,

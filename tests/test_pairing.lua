@@ -160,6 +160,19 @@ return {
     assert(again == false and why:find("Kein wartender", 1, true))
   end,
 
+  test_the_resolver_of_the_running_master_finds_an_accepted_computer = function()
+    local hardware_config = require("src.adapter.hardware_config")
+    local p, w = master()
+    local hw = hardware_config.new(w.cfg)
+    assert(hw.adapter("SIG-9") == "peripheral" and hw.side("SIG-9") == nil, "unknown so far")
+    p.announce("SIG-9", { role = "signal", entry = { id = "SIG-9", role = "signal", adapter = "redstone", side = "left" } })
+    local ok, message = p.accept("SIG-9", "PANEL-1")
+    assert(ok, message)
+    assert(hw.adapter("SIG-9") == "redstone" and hw.side("SIG-9") == "left", "the entry of the accepted computer is used, not only after a restart")
+    assert(hw.target("SIG-1") == "Create_Signal_0", "the others are untouched")
+    assert(message:find("Neustart des Masters", 1, true), "the operator is told what a restart is still needed for")
+  end,
+
   test_a_broken_plan_file_is_not_touched = function()
     local p, w = master()
     p.announce("SIG-7", { role = "signal" })

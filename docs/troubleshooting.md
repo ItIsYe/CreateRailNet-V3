@@ -47,6 +47,14 @@ Default timeout is 6 seconds. Node heartbeats fire every 2 seconds.
 - **Wrong channel**: Node and master must use the same `channel` in config.
 - **Server lag**: At low TPS, heartbeat intervals stretch. Consider increasing `heartbeat_timeout_s` in config (e.g. to 15 for laggy servers).
 
+## A computer runs but the master ignores it
+
+The master handles only computers that its plan lists **with the role they announce**. A computer that is not listed, or whose id has another role in the plan, is not registered
+and its events (sensor, train, station, depot, panel) are ignored; it waits on the master's page *EINRICHTUNG* (third page) or shows red there.
+- Open that page. Accept the computer (it is written into the plan), or correct the id/role of the entry in the plan.
+- Blocks and routes that use a computer you just accepted apply after a restart of the master.
+- A panel does not steer until the master has heard from it (its heartbeat, every 2 s); a panel that is not in the plan never does.
+
 ## A signal shows something else than the master wants
 
 The master sends signals again at start, a few per second afterwards (`signal_refresh_per_s`) and when a signal node comes back, so a wrong
@@ -71,8 +79,17 @@ interrupted installation, which `startup.lua` resumes by itself (`installer --re
   `Modem ... nicht gefunden` (the plan names a modem that is not attached: attach it or change the `modem` field of the entry), `Mehrere Modems, keines festgelegt` and
   `Mehrere Monitore, keiner festgelegt` (the first one is used; write its name into the entry as `modem` / `monitor`), `Kein Monitor` (the display stays empty),
   `Bahnhof ohne Bahnsteige` / `Depot ohne Gleise` (see below), `Speicher fast voll`.
-- **A station or depot computer says "Bahnhof ohne Bahnsteige" / "Depot ohne Gleise"**: platforms and tracks are read from the computer's own plan, and a short plan has none.
-  Copy the complete plan of the master to this computer (for example with a disk) and choose "Eigene Datei angeben" in the wizard. There is no distribution of the plan yet.
+- **A station or depot computer says "Bahnhof ohne Bahnsteige" / "Depot ohne Gleise"**: platforms and tracks are read from the computer's own plan, and a short plan has none. Put them in the entry
+  of the computer in the master's plan (`docs/config_reference.md`), restart the master, accept the computer on the page *Einrichtung* if it waits there, then run `scripts/setup.lua --fetch-plan` on it.
+- **`--fetch-plan` says ...**: "Der Master kennt diesen Computer noch nicht" (accept it at the master first); "Die ID ... mit einer anderen Rolle" (id or role in the master's plan differs); "Der Master antwortet nicht"
+  (the master runs, same channel, modem in range, and the master has the version with `plan_get` -- an older master is silent); "Der Master kann den Plan nicht liefern ... Fehler" (`scripts/setup.lua --check` at the master);
+  "beschaedigt" / "hat sich geaendert" (it was fetched again up to two times; try once more when nobody edits the plan); "gehoert zu einem anderen Netz" (channel or master id differ: the computer is set up for another network);
+  "noch keine Bahnsteige" (the entry in the master's plan has none yet). In every case nothing was written.
+- **The master's pages are cut off, buttons are missing**: the monitor has fewer than 51 x 19 characters (`scripts/setup.lua --doctor` says so on the master and on a panel). Write `"monitor_scale": 0.5` into the entry
+  of that computer in its plan (smaller text, about twice the characters), restart; or build the monitor bigger. `docs/config_reference.md`.
+- **Messages get lost, plan transfer fails, a node flaps between UP and DOWN**: `scripts/setup.lua --linktest` on that computer. "keine Antwort" = master off, other channel, modem out of range or not activated (a wired
+  modem needs a right click until the ring turns red); "einzelne Nachrichten gehen verloren" = the edge of the wireless range or an unloaded chunk; "grosse Nachrichten kommen nicht an" = `--fetch-plan` will fail, use a
+  wired modem or move closer. When someone else has to look: `scripts/setup.lua --export` writes `crn_diag.txt`.
 - **The computer does not show up on the master's page *Einrichtung***: the computer needs a modem on the same channel as the master, the master must run (a master from
   before revision 3 ignores the announcement; update it with the installer), and the link test of the wizard says which of these it is ("Master antwortet nicht" / "kennt die ID noch nicht").
   A rejected id is ignored for 10 minutes; a computer that stood on the page for an hour without a sign is forgotten and announces itself again.

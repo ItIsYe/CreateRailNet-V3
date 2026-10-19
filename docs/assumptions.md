@@ -8,6 +8,7 @@
 - `os.time()` is NOT used for timeouts — it returns in-game time (0..24 float) in CC:Tweaked.
 - At most 256 events are queued per computer; beyond that CC:Tweaked drops events, timers included. All periodic work therefore runs in the ticker, which notices a missing timer.
 - A computer has a disk quota (1 MB by default). The installer checks the free space before it touches anything; an update stages every file next to the live one first, so a full disk makes the update fail before any live file is touched.
+- **Space budget.** The installer's own check decides whether an installation or update fits (the bytes it has to write, one temporary copy of the largest file, a little headroom, against the free space plus the bytes of the files it replaces; it changes nothing when that fails). On top of that the test suite keeps a budget so a computer keeps room for its state files and for an update over the air: **600 000 bytes for a node, 740 000 for the master** (it carries the dispatcher, the operator pages, the setup tools of every role and the planner of whole networks, 46 KB that no other role gets). A role that grows past its budget is a decision to make (move code out, or raise `computer_space_limit`), not a number to quietly raise.
 
 ## Network
 
@@ -20,17 +21,40 @@
 
 ## Setup and pairing
 
-- **Announcing grants nothing.** A computer that is not in the plan can announce itself to the master (`pair_announce`). It waits as a candidate; only an operator's
-  deliberate two-touch on the master (**[ANNEHMEN]**) writes its entry into the plan. There is no time window in which acceptance happens by itself, because a window
+- **Announcing grants nothing.** A computer that is not in the plan can announce itself to the master (`pair_announce`). It waits as a candidate and is not a node: the master does not
+  register it and ignores its events, whatever role it claims; only an operator's deliberate two-touch on the master (**[ANNEHMEN]**) writes its entry into the plan.
+  The plan is the one list of who belongs to the network, and an event type is taken from the role that owns it (`docs/protocol.md`). There is no time window in which acceptance happens by itself, because a window
   would turn "someone in range" into "part of the network". Candidates are bounded (64), forgotten after an hour, and everything they send is cut down before it is kept.
 - **Setup never actuates hardware.** The wizard and the doctor only read (peripherals, files, the answer of the master); they never switch a signal or a turnout, so there is no
   release gate in the dispatcher. The record `crn_status.lua` (KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN) is information for the operator, not a permission.
+- **The function test switches only after a yes.** `scripts/setup.lua --test` is the one place where setup moves a signal or a turnout, and only one action at a time after a deliberate yes (Enter is a no), with the safe state
+  (RED / straight) restored afterwards. It does not release anything: the release of the operation (`require_release`) is the operator's decision at the master. Its result is a claim of the computer about itself, like the doctor's.
+- **The link test uses ordinary probes.** `--linktest` asks the master the way the doctor does; a computer that is not in the plan appears as a waiting candidate. The filler a probe may ask for is capped at 4000 bytes per answer; anybody
+  on the channel can send a probe anyway (the channel is not encrypted), so this adds no new ability. "Answered at the first try" means an answer within 0.35 s, i.e. before the protocol's first retry (0.2 s) would have gone out.
+- **The diagnostic file is for sharing.** `crn_diag.txt` holds no plan (only the computer's own entry and a summary) and no secrets, because the system has none; check it anyway before posting it in public.
+- **Peripherals are checked against their arguments offline.** `tests/harness/strict_cc.lua` fakes the monitor, window, modem, redstone and peripheral APIs the way CC:Tweaked answers (a fraction as a cursor position, a text that is
+  no string, a colour that is no power of two, a channel that is no number raise there and are recorded). The real master application and every node role run on them (`tests/test_master_app.lua`, `tests/test_node_apps.lua`);
+  this found a real defect: the modem adapter was written with dots where the adapter's own methods are called with a colon, so it could neither open a channel nor send in the game (fixed, `tests/test_cc_modem.lua`). What
+  the fakes cannot know is how the real thing behaves beyond its documented arguments (names, ranges, timing).
+- **Monitor sizes.** The pages are laid out for 51 x 19 characters (a 5 x 3 block monitor at text scale 1; a 3 x 2 block monitor at scale 0.5 gives about 58 x 24). Smaller monitors (down to 15 x 10) are drawn without wrong calls
+  and without raising, but text and buttons get cut; the size of a monitor of n x m blocks at scale 1 is about (11n - 4) x (7m - 2) characters. How readable the pages are on a real monitor is a matter for `docs/INGAME_TESTS.md`.
+- **The planner follows the dispatcher's model, and says where that model stops.** A line is a one-way track: both directions are two tracks with their own blocks, signals and detectors (a detector belongs to one block, a signal faces one way), so a single track used in both directions
+  cannot be generated. A platform is not a block: the train waits in front of the entry signal of the first block and has arrived behind the last, because a dispatcher route finishes when the train leaves its last block and the next request of that train is refused until then. A platform that
+  is still occupied after its route ended is protected by nothing but the Create signal at the station entrance (`docs/STATION_DEPOT_TRACK_LOGIC.md`). Routes into or out of the same platform exclude each other through a conflict group (`PLAT-<station>-<platform>`), the ladder switches by their locks.
+  Verified offline against the real dispatcher (`tests/test_plan_builder_sim.lua`); **not verified in the game**: how `STRAIGHT` / `DIVERGING` of a ladder switch relate to the real turnouts, and that the signals stand where the model puts them.
+- **A ref is fixed or it moves.** The installer calls a version tag (`v1.2.0`) or a commit id (7 to 40 hex digits) fixed and every other name a branch; a branch whose name looks like a commit id is taken as fixed. This is a heuristic on the
+  name, not a look at GitHub.
 - **Devices are bound by name.** A plan entry may name its `modem` and its `monitor`. A named modem that is missing is never replaced by another one (a computer
   must not silently talk through a different network); a missing named monitor falls back to the first one (a display is not safety relevant). Real monitors are called
   `monitor_<n>` or like their side, never `monitor`; the code looks them up by type when no name fits. **Not verified in the game** (read from the CC:Tweaked API): the exact
   names a real computer reports, and the behaviour of wired versus wireless modems.
-- **No distribution of the plan.** Every computer reads its own plan file. Signal, sensor, switch, train and panel computers need only a short plan; a station or depot
-  computer needs its platforms/tracks in its own plan, so it needs the full plan copied (the doctor says so). Distributing plans is not built.
+- **Accepting does not reconfigure a running dispatcher.** The entry is written to the plan file and the master's device lookup follows it, but blocks and routes are built from the
+  plan at start: what uses the new computer applies after a restart of the master. A live reload of the dispatcher is not built (it would touch the safety core for a rare operation).
+- **The plan is fetched by the computer that needs it, never pushed.** Every computer reads its own plan file. Signal, sensor, switch, train and panel computers need only a short plan; a station or
+  depot computer needs its platforms/tracks, so its wizard asks the master for the plan (`plan_get` / `plan_part`), checks it and writes it only after the player's yes. The master never writes a
+  plan to another computer, and the OTA paths still exclude `configs/network.json`. The master hands out the file as it lies on its disk when it validates, and only to a station or depot that its
+  plan lists with that role; the plan goes over the channel in the clear like everything else (no cryptography, see "Network"). Checks (Adler-32, validation, channel and master, the computer's own
+  entry) catch damage and mistakes, not a forged master.
 - **On-screen text is ASCII.** The terminal shows bytes; umlauts would depend on the font and the CC version, so wizard, installer and master page write `ae oe ue ss`. Whether
   a real terminal could show umlauts is a test in `docs/INGAME_TESTS.md`, not an assumption.
 

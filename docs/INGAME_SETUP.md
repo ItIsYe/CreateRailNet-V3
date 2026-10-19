@@ -81,8 +81,23 @@ bestehen (`validate_config`), sonst wird nichts geschrieben. Ein vorhandener Net
    Computer von selbst (siehe unten) und du bestätigst ihn dort. Läuft er noch nicht, zeigt der Assistent die Zeile für den Netzplan des Masters.
 3. Jeder Computer gehört in `nodes` des Masters: Blöcke und Routen verweisen auf diese IDs.
 4. **Bahnhof und Depot** brauchen ihre Bahnsteige und Gleise (`platforms`, `tracks` mit `sensor_id` und `block_id`). Ein Computer liest aber nur seinen eigenen
-   Netzplan und prüft ihn beim Start vollständig; mit dem Kurzplan fehlen ihm diese Angaben (der Doktor sagt „Bahnhof ohne Bahnsteige"). Für diese Rollen
-   den kompletten Plan des Masters auf den Computer kopieren und im Assistenten „Eigene Datei angeben" wählen (`docs/INSTALL.md`, Abschnitt „Konfiguration verteilen").
+   Netzplan und prüft ihn beim Start vollständig; mit dem Kurzplan fehlen ihm diese Angaben (der Doktor sagt „Bahnhof ohne Bahnsteige"). Die holt sich der Computer
+   beim Master (nächster Abschnitt): Bahnsteige im Netzplan des Masters eintragen, Master neu starten, auf dem Computer `scripts/setup.lua --fetch-plan`.
+
+### Den Plan vom Master holen (Bahnhof und Depot)
+
+Der Master schickt seinen Netzplan nur auf Nachfrage und nur an einen **Bahnhof oder ein Depot, das im Plan steht** (mit dieser Rolle). Wer ihn holt, bestimmt der Spieler am Computer:
+
+1. Am Master: der Computer ist angenommen (Seite EINRICHTUNG), seine Bahnsteige bzw. Gleise stehen im Eintrag (`docs/config_reference.md`), der Master läuft mit diesem Plan.
+2. Am Computer, während der Einrichtung: kennt der Master ihn und fehlen die Bahnsteige, fragt der Assistent „Den Plan jetzt vom Master holen?". Später jederzeit (auch wenn sich der Plan am Master geändert hat):
+   `scripts/setup.lua --fetch-plan`.
+3. Der Computer holt den Plan in Teilen (jedes Teil wird bei Verlust neu angefragt) und prüft ihn, **bevor** er etwas schreibt: Pruefsumme, gültiges Format, derselbe Kanal und Master, und dass
+   der Plan diesen Computer mit seiner Rolle enthält. Hat der Plan am Master sich währenddessen geändert oder ist etwas beschädigt angekommen, holt er ihn von vorn.
+4. Dann zeigt er, was kam (Computer, Blöcke, Routen, Bahnsteige), und schreibt erst nach deinem **Ja** nach `configs/network.json`. Die alte Datei bleibt als `.prev`; Modem und Monitor, die auf diesem Computer
+   gewählt wurden, bleiben im Eintrag. Der neue Plan gilt ab dem nächsten Start des Computers (`reboot`).
+
+Der Master liefert die Datei so, wie sie **jetzt auf seiner Platte** liegt, wenn sie gültig ist; das ist die Datei, die du bearbeitet hast (der laufende Master kennt neue Bloecke erst nach seinem Neustart).
+Hat der Eintrag im Plan des Masters noch keine Bahnsteige oder Gleise, sagt der Computer das und schreibt nichts. Signal, Melder, Weiche, Zug und Monitor bekommen keinen Plan (sie brauchen ihn nicht).
 
 ### Neue Computer am Master aufnehmen
 
@@ -90,11 +105,17 @@ Ein Computer, der noch nicht im Netzplan des Masters steht, meldet sich nach dem
 Prüfprotokoll). Der Master tut damit **nichts außer es anzuzeigen**: der Computer bekommt keine Befehle, keinen Block und keine Fahrt.
 
 - Am Master erscheint eine gelbe Meldung „Neuer Computer wartet: SIG-3 (signal)" und die Statusseite wird gelb.
-- Die Seite **EINRICHTUNG** (zweite Seite nach den Meldungen) zeigt vier Zeilen: Netzplan hat Blöcke und Routen, Computer online, Prüfung der Computer,
-  neue Computer. Jede Zeile hat ein Wort (OK, OFFEN, FEHLER), nicht nur eine Farbe. Darunter die wartenden Computer.
+- Die Seite **EINRICHTUNG** (dritte Seite, nach Status und Meldungen) zeigt vier Zeilen: Netzplan hat Blöcke und Routen, Computer online, Selbsttest der Computer
+  (was jeder über sich selbst herausgefunden hat, „lokal geprüft"; keine Freigabe der Strecke), neue Computer, die auf Annahme warten. Jede Zeile hat ein Wort (OK, OFFEN, FEHLER), nicht nur eine Farbe. Darunter die wartenden Computer.
 - Zeile antippen wählt aus. **[ANNEHMEN]** fragt beim ersten Antippen („[SICHER?]") und schreibt beim zweiten den Eintrag in den Netzplan des Masters
   (`configs/network.json`, alte Fassung als `.prev`, vorher wird geprüft, dass der Plan mit dem Eintrag gültig bleibt). **[ABLEHNEN]** ignoriert die ID etwa 10 Minuten.
 - Steht die ID schon mit anderer Rolle im Plan, ist die Zeile rot und kann nicht angenommen werden.
+- Ein wartender Computer ist **kein Node**: der Master registriert ihn nicht, ignoriert seine Ereignisse (auch Bedienbefehle von etwas, das sich „Panel" nennt) und schickt ihm nichts.
+  Erst der Eintrag im Netzplan macht ihn dazu.
+- Nach dem Annehmen erscheint auf der Seite der Knopf **[MASTER NEU STARTEN]** (zwei Berührungen; die erste nennt, wie viele Blöcke gerade belegt sind; der Zustand wird gesichert, alle Signale gehen auf ROT,
+  dann startet der Master neu und wartet auf die Bestätigung des Wiederanlaufs). Verlangt der Plan `require_release`, steht darunter **[BETRIEB FREIGEBEN]** (`docs/OPERATIONS.md`).
+- Nach dem Annehmen steht der Eintrag im Plan und der Computer ist ein Node. **Bloecke und Routen, die ihn benutzen, gelten nach einem Neustart des Masters** (der Dispatcher wird beim
+  Start aus dem Plan gebaut); die Meldung auf dem Monitor sagt das.
 - Der Computer erfährt das Ergebnis (`known` / `rejected`), schreibt es ins Log und fragt danach nur noch alle 10 Minuten.
 
 Läuft der Master mit einer Vorlage aus `configs/templates/` statt mit einer eigenen `configs/network.json`, nimmt er niemanden auf (die Vorlagen bleiben unverändert):
@@ -106,11 +127,45 @@ erst mit `scripts/setup.lua` einen eigenen Netzplan anlegen.
 scripts/setup.lua --check              prüft configs/network.json
 scripts/setup.lua --check <datei>      prüft eine andere Datei
 scripts/setup.lua --doctor             prüft diesen Computer und sagt, was zu tun ist (fragt auch den Master)
+scripts/setup.lua --fetch-plan         Bahnhof/Depot: holt den Netzplan vom Master (schreibt erst nach einem Ja)
+scripts/setup.lua --test               geführter Funktionstest: liest, schaltet nur nach einem Ja und stellt zurück
+scripts/setup.lua --linktest           Funkstrecke zum Master: Antworten, Laufzeit, größte Nachricht, die durchkommt
+scripts/setup.lua --export             schreibt crn_diag.txt für die Fehlersuche aus der Ferne
+scripts/setup.lua --layout [datei]     Master: baut aus einer kurzen Beschreibung den Plan eines ganzen neuen Netzes (docs/NETZ_BAUEN.md)
 ```
 
 `--check` ändert nichts. Es meldet „in Ordnung (5 Computer, 1 Block, 1 Route)" oder nennt jeden Fehler **auf Deutsch** mit seiner Stelle im Plan (zum Beispiel
 `nodes[2] (SIG-2).role: unbekannte Rolle "x"`). `--doctor` ändert nur das Prüfprotokoll `crn_status.lua`. Der Master startet mit einem fehlerhaften Plan nicht.
 `lua scripts/check_configs.lua` ist dagegen ein Entwicklungsskript für die Beispiele im Repository und liegt nicht auf den Spiel-Computern.
+
+### Funktionstest (`--test`)
+
+`--doctor` liest nur. Ob das, was im Plan steht, auch **tut**, was es soll, prüft `scripts/setup.lua --test` auf dem Computer selbst. Der Test zeigt zuerst, was er vorhat
+(`[liest]`, `[zeigt]`, `[SCHALTET]`), und fragt einmal, ob er starten soll. Dann:
+
+- **Gelesen** wird ohne Rückfrage: das Modem (Kanal lässt sich öffnen), der Master (antwortet er, kennt er die ID; angemeldet wird dabei niemand), der Melder (6 Sekunden lang,
+  mit demselben Aufruf wie im Betrieb), der Create-Bahnhof (Name wie im Plan).
+- **Gezeigt** wird auf dem Monitor eine Zeile „CreateRailNet Funktionstest"; du bestätigst, dass du sie siehst.
+- **Geschaltet** wird nur nach einem eigenen Ja für diese eine Aktion (Enter allein ist ein Nein): ein Signal wird 3 Sekunden freigegeben und danach wieder auf **ROT** gestellt, eine Weiche 3 Sekunden
+  auf Abzweig und danach auf geradeaus. Der sichere Zustand wird auch hergestellt, wenn der Schritt davor fehlschlug oder du mit Strg+T abbrichst; lässt er sich nicht herstellen, steht „ACHTUNG ... von Hand pruefen" da.
+  Es darf dabei kein Zug in der Nähe sein; ein Computer im Betrieb sollte vorher angehalten werden.
+
+Am Ende steht ein Ergebnis (bestanden / fehlgeschlagen / übersprungen). In `crn_status.lua` (und damit beim Master als „Hardwaretest") landet **bestanden** nur, wenn jeder Schritt gemacht wurde und
+bestanden hat; **fehlgeschlagen** wird immer festgehalten; fehlen Schritte (kein Ja), bleibt der Eintrag, wie er war. Der Test gibt nichts frei; ob der Betrieb läuft, entscheidet nur der Mensch am Master
+(`require_release`, `docs/OPERATIONS.md`).
+
+### Funkstrecke (`--linktest`)
+
+Fragt den Master zehnmal und sagt: wie viele Fragen beantwortet wurden, wie viele davon sofort (beim ersten Versuch), die Laufzeit, und danach in Stufen von 256 bis 4000 Byte, wie groß eine Nachricht
+sein darf, die **in beide Richtungen** durchkommt. Ein Teil des Netzplans (`--fetch-plan`) ist rund 3300 Byte groß; kommt das nicht durch, sagt der Test das, bevor der Plan-Abruf daran scheitert.
+Antwortet der Master nicht, ist nach drei Fragen Schluss. Der Master sieht gewöhnliche Anfragen dieses Computers (steht er nicht im Plan, erscheint er wie bei `--doctor` als wartender Computer); geschaltet
+oder geschrieben wird nichts. Auf dem Master selbst läuft der Test nicht.
+
+### Diagnosedatei (`--export`)
+
+Schreibt `crn_diag.txt` (höchstens 8000 Byte, nur ASCII): Version, Ergebnis der Prüfung mit den Hinweisen, der Eintrag dieses Computers im Netzplan, das Prüfprotokoll, die angeschlossenen Geräte mit den Namen,
+wie das Spiel sie nennt, die Dateien mit Größe und der freie Platz. Der Netzplan selbst steht nicht drin, Passwörter gibt es nicht. Sie liest nur und fragt niemanden. Zum Weitergeben:
+`pastebin put crn_diag.txt` (zeigt einen Code) oder die Datei aus dem Ordner des Computers kopieren. Das ist der erste Schritt, wenn sich jemand anderes einen Fehler ansehen soll.
 
 Neu einrichten: den Assistenten noch einmal starten. Auf einem bereits eingerichteten Computer fragt er zuerst, ob er neu einrichten soll
 (Nein ändert nichts); die alten Antworten sind teils als Vorschlag da. Computer, die mit einer älteren Version eingerichtet wurden, laufen weiter: sie fügen
@@ -118,132 +173,33 @@ die fehlende OTA-Wiederherstellung ihrer `startup.lua` selbst hinzu, und die neu
 (`docs/OTA.md`). Nach der ersten Einrichtung einer Welt einmal `docs/INGAME_TESTS.md` durcharbeiten.
 
 
-## Ziel
+## Ein ganz neues Netz
 
-Diese Datei beschreibt den einfachen Start in CC:Tweaked / ATM10.
+Statt `configs/network.json` von Hand zu schreiben, beschreibst du das Netz (Bahnhöfe, Strecken, Züge) in wenigen Zeilen; `scripts/setup.lua --layout` am Master macht daraus den vollständigen Plan
+(Blöcke, Signale, Melder, Weichen, Routen, Fahrpläne) und eine Bauliste, was wo aufgestellt wird. Aufbau, Modell und Grenzen: `docs/NETZ_BAUEN.md`.
 
-## Minimaler Ablauf
+## Von Hand starten
 
-1. Repository-Dateien auf die Computer kopieren.
-2. Auf jedem Computer eine Rolle wählen.
-3. Eine passende Startdatei aus `scripts/` als `startup.lua` kopieren oder direkt ausführen.
-4. `configs/templates/network.full.example.json` an deine Welt anpassen.
-5. Config prüfen, bevor du echte Hardware schaltest.
-
-## Starter
-
-### Master
+Der Assistent schreibt `startup.lua`, danach startet der Computer seine Rolle von selbst. Von Hand geht es mit dem passenden Starter (er liegt ab der
+Installation auf dem Computer und wird nie überschrieben):
 
 ```lua
-shell.run("scripts/start_master.lua")
+shell.run("scripts/start_master.lua")   -- start_train, start_panel, start_signal, start_sensor, start_switch, start_station, start_depot
 ```
 
-### Train
+## Werkzeuge
 
-```lua
-shell.run("scripts/start_train.lua")
-```
-
-### Panel
-
-```lua
-shell.run("scripts/start_panel.lua")
-```
-
-### Signal
-
-```lua
-shell.run("scripts/start_signal.lua")
-```
-
-### Sensor
-
-```lua
-shell.run("scripts/start_sensor.lua")
-```
-
-### Switch
-
-```lua
-shell.run("scripts/start_switch.lua")
-```
-
-### Station
-
-```lua
-shell.run("scripts/start_station.lua")
-```
-
-### Depot
-
-```lua
-shell.run("scripts/start_depot.lua")
-```
-
-## Config Check
-
-Vor dem Ingame-Test:
-
-```lua
-local check = require("src.tools.config_check")
-check.run("configs/templates/network.full.example.json")
-```
-
-Das prüft Struktur, Rollen, Routen, Service-Pläne, Stops und Referenzen.
-
-## Dry-Run System Check
-
-Ohne reale Hardware zu schalten:
-
-```lua
-local sys = require("src.tools.system_check")
-sys.run("configs/templates/network.full.example.json")
-```
-
-Der Check baut Domain-Modelle auf und testet einen Dispatcher-Reservierungspfad mit Fake-Adaptern.
-
-## Peripheral Inspector
-
-Zum Prüfen von Methoden und Seiten:
-
-```lua
-local insp = require("src.tools.peripheral_inspector")
-insp.run()
-```
-
-Oder für eine Seite:
-
-```lua
-local insp = require("src.tools.peripheral_inspector")
-insp.run({ side = "left" })
-```
-
-Das ist besonders wichtig für Create Train Schedule, weil die echten Methoden im Modpack/Peripheral sichtbar gemacht werden müssen.
-
-## Debug Events
-
-Sichere Testevents an den Master senden:
-
-```lua
-local dbg = require("src.tools.debug_events")
-dbg.run({ kind = "sensor", sensor_id = "SEN-AB", action = "enter" })
-```
-
-```lua
-local dbg = require("src.tools.debug_events")
-dbg.run({ kind = "train_depart", train_id = "TRAIN-1", from = "ST-A", to = "ST-B" })
-```
-
-```lua
-local dbg = require("src.tools.debug_events")
-dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
-```
+Auf dem Spiel-Computer sind `scripts/setup.lua --check`, `--doctor`, `--test`, `--linktest`, `--export` und `peripherals` (CC:Tweaked) die Werkzeuge für Einrichtung und Fehlersuche. Die Programme in `src/tools/`
+(Config-Check, System-Check, Peripheral Inspector, Debug-Events und andere) sind **Entwicklerwerkzeuge**: der Installer legt sie nicht auf Spiel-Computern ab.
+Sie stehen in `docs/TOOLS.md`. Wer den Peripheral Inspector im Spiel braucht (etwa um die echten Methoden des Create-Bahnhofs zu sehen), kopiert die einzelne Datei
+`src/tools/peripheral_inspector.lua` an denselben Pfad auf den Computer (zum Beispiel mit `wget` von GitHub); er benötigt nur Module, die der Installer ohnehin mitbringt.
+Im Spiel ist das nicht getestet.
 
 ## Wichtige Config-Felder
 
 - `channel`: gemeinsamer Funkkanal
 - `master_id`: ID des Master-Computers
-- `nodes`: alle Rollen im Netz
+- `nodes`: alle Computer im Netz, je einer pro Eintrag mit seiner Rolle (neue Computer trägt der Master selbst ein, siehe oben)
 - `blocks`: reale Gleisabschnitte
 - `routes`: fahrbare Routen über Blöcke
 - `service_plans`: Umläufe/Fahrpläne für Trains

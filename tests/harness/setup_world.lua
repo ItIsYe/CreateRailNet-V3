@@ -3,15 +3,22 @@ Purpose: A fake CC:Tweaked computer for the setup wizard: in-memory disk, made-u
   scripted answers.
 Public API:
   new(opts) -> world       opts: files (path -> body), templates (true: the real configs/templates/*.json on the disk), peripherals (list of
-                           { name, type, methods }), width, height, version (false: no crn_version.txt, as before an installer run)
+                           { name, type, methods, object }), width, height, version (false: no crn_version.txt, as before an installer run)
+                           peripheral.wrap / find hand out `object`; a modem or monitor without one gets a strict fake (tests/harness/strict_cc.lua),
+                           kept in world.devices[name]
   world.run(argv, answers) -> result      runs src/setup/wizard with those arguments; read() hands out the answers in order
   world.link = function(opts) -> { state }   what the master answers to "do you know this computer?" (none set: nobody is asked)
+  world.fetch = function(opts) -> result      what comes back when the computer fetches the plan of the master (none set: it cannot)
+  world.redstone, world.sleep                 what the function test switches and waits with (a strict redstone, a sleep that logs)
+  world.computer_id, world.label, world.host, world.epoch_ms     what the computer says about itself (os.getComputerID / getComputerLabel, _HOST, os.epoch)
+  answers can also be a function(page_text) -> answer: it is asked at every prompt with the text of the page so far (nil ends the input)
   world.pages -> list of { lines = {...} }   world.fs, world.rebooted, world.unused (answers that were not asked for)
   world.text() -> all output as one string     world.last_page_text()
   world.check_screen(allow_tall) -> nil | message   every line <= width - 1 characters, ASCII only, every page <= height lines (unless allow_tall)
 ]]
 
 local memfs = require("tests.harness.memfs")
+local strict_cc = require("tests.harness.strict_cc")
 local wizard = require("src.setup.wizard")
 
 local setup_world = {}
@@ -39,7 +46,8 @@ setup_world.MONITOR = { name = "monitor_0", type = "monitor", methods = { "write
 
 function setup_world.new(opts)
   local o = opts or {}
-  local world = { fs = memfs.new(), pages = { { lines = {} } }, rebooted = 0, width = o.width or 51, height = o.height or 19 }
+  local world = { fs = memfs.new(), pages = { { lines = {} } }, rebooted = 0, width = o.width or 51, height = o.height or 19,
+    computer_id = 12, label = "Signal West", host = "ComputerCraft 1.115.1 (Minecraft 1.20.1)", epoch_ms = 1700000000000 }
   for path, body in pairs(o.files or {}) do world.fs.set(path, body) end
   if o.templates ~= false then
     for _, name in ipairs(TEMPLATE_NAMES) do world.fs.set("configs/templates/" .. name, read_disk("configs/templates/" .. name)) end
@@ -47,10 +55,21 @@ function setup_world.new(opts)
   -- a computer the installer has been on: it left its version file (the doctor warns about a missing one)
   if o.version ~= false and world.fs.files["crn_version.txt"] == nil then world.fs.set("crn_version.txt", "main-test0000") end
   local peripherals = o.peripherals or { setup_world.MODEM, setup_world.MONITOR }
+  world.devices = {}
+  local function device_of(p)
+    if p.object then return p.object end
+    if world.devices[p.name] == nil then
+      if p.type == "modem" then world.devices[p.name] = strict_cc.modem()
+      elseif p.type == "monitor" then world.devices[p.name] = strict_cc.monitor(51, 19)
+      else world.devices[p.name] = false end
+    end
+    return world.devices[p.name] or nil
+  end
 
   function world.run(argv, answers)
     local queue = {}
-    for _, a in ipairs(answers or {}) do queue[#queue + 1] = a end
+    local responder = type(answers) == "function" and answers or nil
+    if not responder then for _, a in ipairs(answers or {}) do queue[#queue + 1] = a end end
     local pending = nil
     local function current() return world.pages[#world.pages] end
     local env = {
@@ -59,6 +78,7 @@ function setup_world.new(opts)
       write = function(text) pending = (pending or "") .. tostring(text) end,
       read = function()
         if pending then current().lines[#current().lines + 1] = pending; pending = nil end
+        if responder then return responder(table.concat(current().lines, "\n")) end
         return table.remove(queue, 1)
       end,
       term = {
@@ -70,9 +90,21 @@ function setup_world.new(opts)
         getNames = function() local names = {}; for _, p in ipairs(peripherals) do names[#names + 1] = p.name end; return names end,
         getType = function(name) for _, p in ipairs(peripherals) do if p.name == name then return p.type end end end,
         getMethods = function(name) for _, p in ipairs(peripherals) do if p.name == name then return p.methods end end end,
+        wrap = function(name) for _, p in ipairs(peripherals) do if p.name == name then return device_of(p) end end end,
+        find = function(kind) for _, p in ipairs(peripherals) do if p.type == kind then return device_of(p), p.name end end end,
       },
-      os = { reboot = function() world.rebooted = world.rebooted + 1 end },
+      os = {
+        reboot = function() world.rebooted = world.rebooted + 1 end,
+        getComputerID = function() return world.computer_id end,
+        getComputerLabel = function() return world.label end,
+        epoch = function() return world.epoch_ms end,
+        date = os.date,
+      },
+      host = world.host,
       link = world.link,
+      fetch = world.fetch,
+      redstone = world.redstone,
+      sleep = world.sleep,
     }
     local result = wizard.run({ args = argv or {}, env = env })
     world.unused = #queue

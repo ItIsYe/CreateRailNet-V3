@@ -35,6 +35,11 @@ function master_runtime.new(context)
     maintenance = context.maintenance,
     ota = context.ota,
     pairing = context.pairing,
+    plan_service = context.plan_service,
+    restart = context.restart,
+    restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
+    -- config require_release: until the operator releases the operation no train starts a journey (a restart takes the release back)
+    release = { required = type(context.config) == "table" and context.config.require_release == true, released = false },
     alerts = context.alerts,
     logs = context.logs,
     trace = context.trace,
@@ -62,22 +67,46 @@ function master_runtime.new(context)
 
   local function audit(kind, data) if runtime.audit_log then runtime.audit_log.record(kind, data) end end
 
+  -- ── who belongs to the network: the plan decides, not what a computer says about itself ────────────────────────────────
+  -- A computer that is not in the plan (or whose id has another role there) may announce itself, nothing else: it is not registered, its
+  -- events are not handled. The operator's acceptance writes it into the plan (pair_decide), from then on it is a node.
+  local plan_roles, plan_size = {}, -1
+  local function plan_role_of(id)
+    local nodes = runtime.config and runtime.config.nodes
+    if type(nodes) ~= "table" or type(id) ~= "string" then return nil end
+    if #nodes ~= plan_size then
+      plan_roles, plan_size = {}, #nodes
+      for _, node in ipairs(nodes) do
+        if type(node) == "table" and type(node.id) == "string" and type(node.role) == "string" then plan_roles[node.id] = node.role end
+      end
+    end
+    return plan_roles[id]
+  end
+  runtime.plan_role = plan_role_of
+  local unplanned_once = once_log.new(context.logger)
+
   -- ── pairing: computers that are not in the plan wait for the operator ───────────────────────────────────────────────
   local pair_sent = {}   -- node id -> the last state told to that node (a node is told again only when it changes)
 
-  -- tell the node where it stands (only nodes that announced protocol revision 3 or newer understand it)
-  local function pair_reply(dst, state, detail)
+  -- Tell the node where it stands (only nodes that announced protocol revision 3 or newer understand it).
+  -- An unasked announcement is told only when the state changed (a node announces every few minutes and does not need the same answer
+  -- again). A probe of the setup wizard is a question: it is answered every time, and the answer names the question (probe_id).
+  -- echo: a probe may ask for a message of that many bytes back (the link test of scripts/setup.lua --linktest), at most MAX_ECHO_BYTES
+  local MAX_ECHO_BYTES = 4000
+  local function pair_reply(dst, state, detail, probe_id, echo)
     local network = runtime.network
     local revision = network.peer_revision and network.peer_revision(dst)
     if not revision or revision < 3 then return end
-    if pair_sent[dst] == state then return end
+    if probe_id == nil and pair_sent[dst] == state then return end
     pair_sent[dst] = state
-    local payload = { cmd = "pair_state", state = state, detail = detail }
+    local payload = { cmd = "pair_state", state = state, detail = detail, probe_id = probe_id }
+    if probe_id ~= nil and type(echo) == "number" and echo >= 1 and echo <= MAX_ECHO_BYTES then payload.pad = string.rep("x", math.floor(echo)) end
     if network.send_reliable then network.send_reliable("cmd", dst, payload) elseif network.send then network.send("cmd", dst, payload) end
   end
 
   -- an announcement (register, heartbeat of an unknown node, pair_announce, pair_probe); returns the state
-  local function note_candidate(src, payload, reply)
+  -- reply: false = say nothing, nil = tell the node when its state changed, a probe id = answer that question
+  local function note_candidate(src, payload, reply, echo)
     if not runtime.pairing then return nil end
     local state, detail = runtime.pairing.announce(src, payload)
     if state == "pending" or state == "conflict" then
@@ -89,7 +118,7 @@ function master_runtime.new(context)
     elseif state == "known" and runtime.alerts and runtime.alerts.clear then
       runtime.alerts.clear("pair:" .. tostring(src))
     end
-    if reply ~= false and state then pair_reply(src, state, detail) end
+    if reply ~= false and state then pair_reply(src, state, detail, reply, echo) end
     return state, detail
   end
 
@@ -104,10 +133,29 @@ function master_runtime.new(context)
       if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("pair:" .. tostring(id)) end
       pair_sent[id] = nil
       pair_reply(id, action == "accept" and "known" or "rejected")
+      if action == "accept" then runtime.restart_needed = true end
     end
     runtime.ui.mark_dirty()
     return ok, message
   end
+  -- The operator restarts the master (the setup page): the state is saved, then the restart runs (signals to RED, reboot).
+  function runtime.restart_master(operator)
+    if not runtime.restart then return false, "Der Neustart ist hier nicht verfuegbar." end
+    audit("master_restart", { by = operator })
+    runtime.save_recovery_state("restart")
+    return runtime.restart(operator)
+  end
+
+  -- how many blocks are in use right now (a restart stops the trains in front of red signals)
+  function runtime.busy_blocks()
+    local overview = runtime.dispatcher and runtime.dispatcher.get_overview and runtime.dispatcher.get_overview() or {}
+    local busy = 0
+    for _, block in pairs(overview) do
+      if type(block) == "table" and (block.state == "OCCUPIED" or block.state == "RESERVED") then busy = busy + 1 end
+    end
+    return busy
+  end
+
   -- Signals are re-sent, not read back. Whatever failed is reported once per change, not on every pass.
   local function note_signal_result(result, what)
     if not result then return end
@@ -120,6 +168,40 @@ function master_runtime.new(context)
 
   local function maintenance_enabled() if not runtime.maintenance then return false end; if runtime.maintenance.is_locked then return runtime.maintenance.is_locked() end; if runtime.maintenance.status then return runtime.maintenance.status().enabled == true end; return runtime.maintenance.enabled == true end
   local function recovery_locked() return runtime.recovery.required == true and runtime.recovery.confirmed ~= true end
+  local function release_locked() return runtime.release.required == true and runtime.release.released ~= true end
+
+  -- The operator releases the operation (config require_release): from here on trains may start journeys. Only when the network is as it
+  -- should be: every computer of the plan that runs the track (not trains, not panels) is online and no block is in FAULT. A restart of the
+  -- master takes the release back, like it asks for the recovery to be confirmed again.
+  local RELEASE_ROLES = { signal = true, sensor = true, switch = true, station = true, depot = true }
+  function runtime.release_operation(operator)
+    local release = runtime.release
+    if not release.required then return true, "Fuer dieses Netz wird keine Freigabe verlangt." end
+    if release.released then return true, "Der Betrieb ist schon freigegeben." end
+    if recovery_locked() then return false, "Erst den Wiederanlauf bestaetigen, dann den Betrieb freigeben." end
+    local registry = runtime.registry.all and runtime.registry.all() or {}
+    local offline = {}
+    for _, node in ipairs((runtime.config and runtime.config.nodes) or {}) do
+      if RELEASE_ROLES[node.role] then
+        local entry = registry[node.id]
+        if not (entry and tostring(entry.status):upper() == "UP") then offline[#offline + 1] = node.id end
+      end
+    end
+    table.sort(offline)
+    if #offline > 0 then
+      local names = table.concat(offline, ", ", 1, math.min(3, #offline)) .. (#offline > 3 and ", ..." or "")
+      return false, "Nicht freigegeben: " .. #offline .. " Computer offline (" .. names .. ")."
+    end
+    local overview = runtime.dispatcher and runtime.dispatcher.get_overview and runtime.dispatcher.get_overview() or {}
+    local faulted = 0
+    for _, block in pairs(overview) do if type(block) == "table" and block.state == "FAULT" then faulted = faulted + 1 end end
+    if faulted > 0 then return false, "Nicht freigegeben: " .. faulted .. " Bloecke gestoert (erst beheben)." end
+    release.released, release.by, release.at = true, operator, time.now_s()
+    audit("operation_released", { by = operator })
+    if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("release:required") end
+    runtime.ui.mark_dirty()
+    return true, "Betrieb freigegeben."
+  end
 
   function runtime.save_recovery_state(reason)
     if not runtime.auto_save_state or not runtime.state_store or not runtime.dispatcher or not runtime.dispatcher.snapshot then return true end
@@ -186,9 +268,21 @@ function master_runtime.new(context)
     return true
   end
 
+  local function reject_release(msg, action)
+    local payload = msg.payload or {}
+    audit("release_blocked", { action = action, src = msg.src, train_id = payload.train_id, route_id = payload.route_id })
+    if payload.train_id then
+      local body = { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "Betrieb nicht freigegeben" }
+      if runtime.network.send_reliable then runtime.network.send_reliable("cmd", msg.src, body) else runtime.network.send("cmd", msg.src, body) end
+    end
+    runtime.network.ack_for(msg, true)
+    runtime.ui.mark_dirty()
+    return true
+  end
+
   local function panel_snapshot()
     local context_view = { config = runtime.config, registry = runtime.registry, logger = runtime.logger, dispatcher = runtime.dispatcher, route_integration = runtime.route_integration, service_plan_registry = runtime.service_plan_registry, audit_log = runtime.audit_log, maintenance = runtime.maintenance }
-    local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or "ONLINE")
+    local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or (release_locked() and "NICHT_FREIGEGEBEN" or "ONLINE"))
     local built = { cmd = "panel_update", master_state = master_state, overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
     built.diagnostics.recovery = runtime.recovery
     built.diagnostics.loop = runtime.ticker.stats()
@@ -206,9 +300,20 @@ function master_runtime.new(context)
   local function apply_station_snapshot(station_id, payload) if not runtime.station_registry then return end; runtime.station_registry.register(station_id, payload.node_id or station_id, payload or {}); for platform_id, platform in pairs((payload and payload.platforms) or {}) do runtime.station_registry.update_platform(station_id, platform_id, platform) end end
   local function apply_depot_snapshot(depot_id, payload) if not runtime.depot_registry then return end; runtime.depot_registry.register(depot_id, payload.node_id or depot_id, payload or {}); for track_id, track in pairs((payload and payload.tracks) or {}) do runtime.depot_registry.update_track(depot_id, track_id, track) end end
 
+  -- A computer that the plan does not list with this role is a candidate, not a node: it is told where it stands and nothing else happens.
+  local function not_a_node(msg, role)
+    local planned = plan_role_of(msg.src)
+    if planned ~= nil and planned == role then return false end
+    note_candidate(msg.src, { role = role })
+    runtime.network.ack_for(msg, true)
+    runtime.ui.mark_dirty()
+    return true
+  end
+
   handlers.register = function(msg)
     local role = msg.payload and msg.payload.role
     audit("register", { src = msg.src, role = role })
+    if not_a_node(msg, role) then return true end
     local previous = runtime.registry.all and runtime.registry.all()[msg.src]
     runtime.registry.register(msg.src, role, nil)
     note_candidate(msg.src, { role = role }, false)
@@ -216,7 +321,7 @@ function master_runtime.new(context)
     if role == "train" and runtime.train_registry then
       local train_id = msg.payload.train_id or msg.src
       runtime.train_registry.register(train_id, msg.src, msg.payload or {})
-      if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.send_service_plan(train_id) end
+      if runtime.route_integration and not maintenance_enabled() and not recovery_locked() and not release_locked() then runtime.route_integration.send_service_plan(train_id) end
     elseif role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then apply_depot_snapshot(msg.payload.depot_id or msg.src, msg.payload or {})
     elseif role == "panel" then send_panel_snapshot(msg.src)
@@ -227,8 +332,16 @@ function master_runtime.new(context)
   handlers.heartbeat = function(msg)
     local known = runtime.registry.all and runtime.registry.all()[msg.src]
     local announced_role = msg.payload and msg.payload.role
+    -- a heartbeat does not make a computer a node: the plan lists it (with the role it announces) or it is only a candidate
+    local planned = plan_role_of(msg.src)
+    if planned == nil or (announced_role ~= nil and announced_role ~= planned) then
+      note_candidate(msg.src, { role = announced_role })
+      runtime.ui.mark_dirty()
+      return true
+    end
+    announced_role = announced_role or planned
     -- a sensor tells whether its detector is occupied (not while its read fails); this clears blocks after an outage
-    if announced_role == "sensor" and type(msg.payload.occupied) == "boolean" then
+    if announced_role == "sensor" and type(msg.payload) == "table" and type(msg.payload.occupied) == "boolean" then
       runtime.sensor_levels[msg.src] = { occupied = msg.payload.occupied, at = time.now_s() }
     end
     if not known and announced_role and runtime.registry.register then
@@ -258,7 +371,7 @@ function master_runtime.new(context)
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
     runtime.network.ack_for(msg, true)
     if ok == false and runtime.logger then runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id }) end
-    if runtime.route_integration and not recovery_locked() then runtime.route_integration.process_queue() end
+    if runtime.route_integration and not recovery_locked() and not release_locked() then runtime.route_integration.process_queue() end
     runtime.ui.mark_dirty(); save_after("sensor")
   end
 
@@ -268,6 +381,7 @@ function master_runtime.new(context)
     audit("train_event", { src = msg.src, train_id = train_id, event_type = payload.type })
     if maintenance_enabled() and (payload.type == "request_departure" or payload.type == "arrived") then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "request_departure" then return reject_recovery(msg, payload.type) end
+    if release_locked() and payload.type == "request_departure" then return reject_release(msg, payload.type) end
     if payload.type == "train_status" then runtime.train_registry.update_status(train_id, payload)
     elseif payload.type == "request_departure" then if runtime.route_integration then runtime.route_integration.handle_train_request(payload, msg.src) end; if runtime.logger then runtime.logger.info("train requested departure", payload) end; save_after("route_request")
     elseif payload.type == "arrived" then if runtime.route_integration then runtime.route_integration.handle_train_arrival(payload, msg.src) end; save_after("train_arrival")
@@ -282,6 +396,7 @@ function master_runtime.new(context)
     audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "station_ready_departure" then return reject_recovery(msg, payload.type) end
+    if release_locked() and payload.type == "station_ready_departure" then return reject_release(msg, payload.type) end
     if payload.type == "station_status" then runtime.station_registry.update_status(station_id, payload); if payload.platforms then apply_station_snapshot(station_id, payload) end
     elseif payload.type == "platform_status" then runtime.station_registry.update_platform(station_id, payload.platform_id, payload)
     elseif payload.type == "train_arrived_station" then runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "DWELLING", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
@@ -297,6 +412,7 @@ function master_runtime.new(context)
     audit("depot_event", { src = msg.src, depot_id = depot_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "depot_request_dispatch" then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "depot_request_dispatch" then return reject_recovery(msg, payload.type) end
+    if release_locked() and payload.type == "depot_request_dispatch" then return reject_release(msg, payload.type) end
     if payload.type == "depot_status" then runtime.depot_registry.update_status(depot_id, payload); if payload.tracks then apply_depot_snapshot(depot_id, payload) end
     elseif payload.type == "depot_track_status" then runtime.depot_registry.update_track(depot_id, payload.track_id, payload)
     elseif payload.type == "depot_train_ready" then runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "READY", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
@@ -311,6 +427,7 @@ function master_runtime.new(context)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg, true)
     elseif msg.payload and msg.payload.type == "manual_control" then
       if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg, true); return true end
+      if msg.payload.action == "release_operation" then runtime.release_operation(msg.src); runtime.network.ack_for(msg, true); return true end
       local ok, err = false, "manual control unavailable"
       if runtime.manual_control and not recovery_locked() then ok, err = runtime.manual_control.handle(msg.payload, msg.src) elseif recovery_locked() then ok, err = false, "recovery review required" end
       if not ok and runtime.logger then runtime.logger.warn("manual control rejected", { error = err, src = msg.src }) end
@@ -388,34 +505,80 @@ function master_runtime.new(context)
       runtime.network.ack_for(msg, true)
       runtime.ui.mark_dirty()
     end,
+    -- a station or depot computer asks for the plan (setup wizard): the plan is handed out, in parts, to those two roles of the plan and to
+    -- nobody else; the others are told why not (a small answer, nothing is kept for them)
+    plan_get                 = function(msg)
+      local payload = msg.payload or {}
+      local role = plan_role_of(msg.src)
+      local reply
+      if not runtime.plan_service then reply = { ok = false, state = "refused", reason = "unavailable" }
+      elseif not role then reply = { ok = false, state = "refused", reason = "not_in_plan" }
+      elseif payload.role ~= nil and payload.role ~= role then reply = { ok = false, state = "refused", reason = "conflict" }
+      elseif role ~= "station" and role ~= "depot" then reply = { ok = false, state = "refused", reason = "role" }
+      else
+        reply = runtime.plan_service.part(payload.index, payload.version)
+        if reply.ok and reply.index == 1 then audit("plan_served", { node_id = msg.src, version = reply.version, parts = reply.total }) end
+      end
+      reply.cmd, reply.question = "plan_part", msg.id
+      -- no retry state on the master: the asker asks for a part again when it did not arrive
+      runtime.network.send("cmd", msg.src, reply)
+      runtime.network.ack_for(msg, true)
+    end,
     pair_probe               = function(msg)
       local payload = msg.payload or {}
-      note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup })
+      note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup }, msg.id, payload.echo)
       runtime.network.ack_for(msg, true)
       runtime.ui.mark_dirty()
     end,
   }
 
-  -- Who may send what: a sensor event must come from the sensor it names, manual control only from a panel node.
+  -- Who may send what. The plan decides who is a node and with which role; an event type that belongs to one role (a sensor event comes from a
+  -- sensor and names itself, manual control comes from a panel) is taken from that role only, every other event (log, update) from any node
+  -- of the plan. Only the announcements of pairing are open to every computer.
+  local OPEN_EVENTS = { pair_announce = true, pair_probe = true, plan_get = true }
+  local EVENT_ROLE = {
+    sensor = "sensor",
+    train_status = "train", request_departure = "train", arrived = "train", schedule_applied = "train", train_fault = "train",
+    station_status = "station", station_ready_departure = "station", station_fault = "station", platform_status = "station",
+    train_arrived_station = "station", train_left_station = "station",
+    depot_status = "depot", depot_track_status = "depot", depot_train_ready = "depot", depot_request_dispatch = "depot",
+    depot_train_arrived = "depot", depot_train_left = "depot", depot_fault = "depot",
+    panel_request_snapshot = "panel", manual_control = "panel",
+  }
+
+  -- returns nil when the sender may send this event, else the reason and whether the sender is a computer of the plan at all
   local function event_sender_problem(msg, ptype)
+    if OPEN_EVENTS[ptype] then return nil end
     local payload = msg.payload or {}
+    local planned = plan_role_of(msg.src)
+    if not planned then return "sender is not in the plan", false end
+    local needed = EVENT_ROLE[ptype]
+    if needed and planned ~= needed then return ptype .. " from a " .. planned .. " node", true end
     if ptype == "sensor" and payload.sensor_id ~= msg.src then
-      return "sensor event for " .. tostring(payload.sensor_id) .. " sent by " .. tostring(msg.src)
+      return "sensor event for " .. tostring(payload.sensor_id) .. " sent by " .. tostring(msg.src), true
     end
     if ptype == "manual_control" then
       local sender = runtime.registry.all and runtime.registry.all()[msg.src]
-      if not sender or sender.role ~= "panel" then return "manual control from a node that is not a panel" end
+      if not sender or sender.role ~= "panel" then return "manual control from a node that is not a panel", true end
     end
     return nil
   end
 
   handlers.event = function(msg)
     local ptype = msg.payload and tostring(msg.payload.type) or ""
-    local problem = event_sender_problem(msg, ptype)
+    local problem, in_plan = event_sender_problem(msg, ptype)
     if problem then
-      audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
-      event_once.warn("event:" .. tostring(msg.src) .. ":" .. ptype, "event rejected", { src = msg.src, type = ptype, reason = problem })
-      if runtime.alerts then runtime.alerts.raise("event:" .. tostring(msg.src) .. ":" .. ptype, "YELLOW", "Ereignis abgelehnt: " .. problem, nil, { ttl_s = 120 }) end
+      if in_plan then
+        audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
+        event_once.warn("event:" .. tostring(msg.src) .. ":" .. ptype, "event rejected", { src = msg.src, type = ptype, reason = problem })
+        if runtime.alerts then runtime.alerts.raise("event:" .. tostring(msg.src) .. ":" .. ptype, "YELLOW", "Ereignis abgelehnt: " .. problem, nil, { ttl_s = 120 }) end
+      else
+        -- a computer the plan does not list: one line per minute for all of them together (strangers must not fill the log or the alerts)
+        if unplanned_once.first("unplanned") then
+          audit("event_rejected", { src = msg.src, type = ptype, reason = problem })
+          if runtime.logger then runtime.logger.warn("events of computers that are not in the plan are ignored", { src = msg.src, type = ptype }) end
+        end
+      end
       -- acknowledged all the same: the sender must not retry what will never be accepted
       runtime.network.ack_for(msg, true)
       return true
@@ -456,6 +619,10 @@ function master_runtime.new(context)
   end
 
   function runtime.start()
+    -- a network that asks for a release says so until the operator gave it
+    if release_locked() and runtime.alerts then
+      runtime.alerts.raise("release:required", "YELLOW", "Betrieb nicht freigegeben (Seite EINRICHTUNG: BETRIEB FREIGEBEN)")
+    end
     local ok_restore, restore_err = pcall(runtime.restore_recovery_state)
     if not ok_restore and runtime.logger then
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
@@ -515,7 +682,7 @@ function master_runtime.new(context)
   runtime.ticker.every("signals", 1, function() runtime.refresh_signals() end)
 
   runtime.ticker.every("dwell", 1, function()
-    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then
+    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() and not release_locked() then
       runtime.route_integration.process_due()
       save_after("dwell")
     end

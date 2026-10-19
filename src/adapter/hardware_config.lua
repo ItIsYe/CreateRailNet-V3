@@ -1,6 +1,6 @@
 --[[
 Purpose: Resolve node hardware configuration for adapters.
-Public API: new(config) -> resolver with node(id), target(id), adapter(id), side(id), value(id, key).
+Public API: new(config) -> resolver with node(id), target(id), adapter(id), side(id), value(id, key). Entries added to config.nodes later are found.
 
 Node config fields:
   adapter    "peripheral" (default) | "redstone"
@@ -22,17 +22,25 @@ Create mod specific notes:
 local hardware_config = {}
 
 function hardware_config.new(config)
-  local by_id = {}
-  for _, node in ipairs((config and config.nodes) or {}) do
-    if node.id then
-      by_id[node.id] = node
+  -- Follows the plan: the master appends the entry of a computer it accepts to config.nodes while it runs, and that entry has to be found
+  -- (the index is built again when the number of entries changed).
+  local by_id, indexed = {}, -1
+  local function index()
+    local nodes = config and config.nodes
+    if type(nodes) ~= "table" then return by_id end
+    if #nodes ~= indexed then
+      by_id, indexed = {}, #nodes
+      for _, node in ipairs(nodes) do
+        if type(node) == "table" and node.id then by_id[node.id] = node end
+      end
     end
+    return by_id
   end
 
   local self = {}
 
   function self.node(id)
-    return by_id[id] or { id = id }
+    return index()[id] or { id = id }
   end
 
   function self.adapter(id)

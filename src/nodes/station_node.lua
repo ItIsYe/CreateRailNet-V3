@@ -64,7 +64,7 @@ function station_node.new_runtime(args_or_context)
   local station_id = station_cfg.station_id or context.id
   local station_type = station_cfg.station_type or station_cfg.type or "mixed"
   local display_name = station_cfg.display_name or station_id
-  local monitor, monitor_note = monitors.resolve(context.peripherals, station_cfg.monitor)
+  local monitor, monitor_note = monitors.resolve(context.peripherals, station_cfg.monitor, station_cfg.monitor_scale)
   if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local sensor_adapter = create_sensors.new(context.peripherals, { hardware = context.hardware })
   local state = { node_id = context.id, station_id = station_id, display_name = display_name, station_type = station_type, state = "ONLINE", platforms = station_node.build_platform_map(station_cfg) }

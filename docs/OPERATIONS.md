@@ -25,13 +25,37 @@ alert "Neuer Computer wartet: <id> (<rolle>)" (yellow) points at it. Touch its r
 entry into the plan file (`configs/network.json`; the old file stays as `.prev`) and tells the computer. **[ABLEHNEN]** ignores that id for 10 minutes.
 A computer whose id stands in the plan with another role is shown red and cannot be accepted; fix the id or the role first.
 
-- Announcing grants nothing. A waiting computer gets no commands, owns no blocks, and is forgotten after an hour of silence; at most 64 wait at once.
-- Accepting writes the entry only. Blocks, routes and signals still come from the plan, so a new signal node does nothing until the plan uses its id.
+- Announcing grants nothing. A waiting computer is not registered, its events are ignored (also `manual_control` from something that calls itself a panel),
+  it gets no commands and no panel snapshot, and it is forgotten after an hour of silence; at most 64 wait at once. The same holds for a computer whose id is in
+  the plan with another role.
+- Accepting writes the entry only. Blocks, routes and signals still come from the plan, so a new signal node does nothing until the plan uses its id; the
+  dispatcher is built from the plan at start, so **blocks and routes that use a new computer apply after a restart of the master** (the acceptance message says so).
+  The master's lookup of device names (`modem`, `peripheral`, `side`) follows the plan at once.
+- **When updating a network that ran before this rule:** every computer must be listed in the master's plan (the documentation always required that). A computer that was
+  not listed used to be adopted by its heartbeat; it now waits on the setup page. Open that page after the update and accept the ones that belong to the network.
 - A master that runs on a bundled template (`configs/templates/...`) or on a plan that does not validate refuses to write and says why; create
   an own plan with `scripts/setup.lua` first (`--check` names the errors).
-- A computer of the plan shows what it reported about its own setup (`crn_status.lua`: KONFIGURIERT / GEPRUEFT / Pruefung offen). This is information for the
+- A computer of the plan shows what it reported about its own setup (`crn_status.lua`: KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN, shown as "Selbsttest ok" / "Selbsttest offen"). This is information for the
   operator, not a release: setup never switches a signal or a turnout, and the dispatcher does not wait for it.
 - Audit: `pair_candidate`, `pair_conflict`, `node_accepted`, `pair_rejected`.
+- **Handing out the plan.** A station or depot computer that the plan lists fetches the master's plan (`scripts/setup.lua --fetch-plan` on that computer). The master answers from the plan **file on its disk**
+  when it validates (so a plan you edited reaches the computer before the master has been restarted with it), in parts of 3000 bytes; each hand-out is audited as `plan_served`. Everybody else is refused
+  with a small answer. The master needs the version of this release for it; an older master does not answer.
+
+## Restarting the master from the setup page
+
+After a computer was accepted, blocks and routes that use it apply after a restart of the master. The page *Einrichtung* then shows **[MASTER NEU STARTEN]**. The first touch says what will
+happen (how many blocks are busy, that every signal goes to RED first); the second touch does it: `master_restart` goes into the audit, the state of the dispatcher is saved, then every signal goes
+to RED as when a master stops, then `os.reboot`. After the restart the master restores the state and waits in recovery mode until the operator confirms, like after any restart.
+A restart with trains on the way stops them at red signals; do it when the network is quiet. The button is on the master's own setup page; no message from another computer restarts the master.
+
+## Releasing the operation (optional)
+
+With `require_release: true` in the plan, the master does not start any journey after a start until the operator releases the operation on the page *Einrichtung* (**[BETRIEB FREIGEBEN]**, two touches).
+Until then: a request to depart is held with the reason "Betrieb nicht freigegeben" (audit `release_blocked`), the status page shows `NICHT_FREIGEGEBEN` and a yellow alert says so. The release is
+accepted only when the wiring is as it should be: the recovery is confirmed, every signal / sensor / switch / station / depot computer of the plan is online, and no block is in FAULT; otherwise the button
+answers with what is missing. A panel of the plan can send the same release as `manual_control` with `action = "release_operation"` (like `confirm_recovery`; the same conditions apply, the panel's id is audited). A restart of the master takes the release back (`operation_released` in the audit shows who released and when). The default is `false`: a network that ran before keeps its behaviour.
+The page also counts the computers whose guided function test (`scripts/setup.lua --test`) passed ("Hardwaretest"); this is information, the release does not depend on it.
 
 ## Repairing a fault
 
@@ -99,6 +123,7 @@ safety invariant that breaks. `tests/test_trace_recorder.lua` records random run
 | `signal_red_on_stop` | `true` | every signal to RED when the master stops |
 | `heartbeat_timeout_s` | 6 | silence after which a node is DOWN |
 | `startup_autoupgrade` | `true` | nodes add the OTA recovery to an old `startup.lua` (`docs/OTA.md`) |
+| `require_release` | `false` | no journeys after a start until the operator releases the operation (see above) |
 
 The complete list is in `docs/config_reference.md`.
 

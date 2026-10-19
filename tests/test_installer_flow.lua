@@ -40,12 +40,26 @@ local function install(world, role)
   assert(ok, tostring(err) .. "\n" .. world.output())
 end
 
--- the sensor node of a later version: it no longer needs create_sensors and needs a new module
-local function sensor_node_v2()
+-- the sensor node of the first version in these tests: it needs a module that a later version does not need any more (every module of the
+-- real tree is needed by some other role or tool as well, so the one that goes away is made up)
+local function sensor_node_v1()
   local body = read_disk("src/nodes/sensor_node.lua")
-  local changed = body:gsub('local create_sensors = require%("src.adapter.create_sensors"%)', 'local extra = require("src.shared.extra_module")\nlocal create_sensors = { new = function() end }')
+  local changed = body:gsub('local create_sensors = require%("src.adapter.create_sensors"%)', 'local create_sensors = require("src.adapter.create_sensors")\nlocal legacy = require("src.shared.legacy_module")')
   assert(changed ~= body)
   return changed
+end
+
+-- the sensor node of a later version: it no longer needs that module and needs a new one
+local function sensor_node_v2()
+  local body = read_disk("src/nodes/sensor_node.lua")
+  local changed = body:gsub('local create_sensors = require%("src.adapter.create_sensors"%)', 'local create_sensors = require("src.adapter.create_sensors")\nlocal extra = require("src.shared.extra_module")')
+  assert(changed ~= body)
+  return changed
+end
+
+-- the first version: the sensor node that needs the legacy module
+local function serve_first_version(world)
+  world.set_version({ ["src/nodes/sensor_node.lua"] = sensor_node_v1(), ["src/shared/legacy_module.lua"] = "return {}\n" })
 end
 
 local function startup_for(role) return startup_template.render({ role = role, id = role:upper() .. "-1", config = "configs/templates/network.full.example.json" }) end
@@ -106,19 +120,20 @@ return {
 
   test_new_files_arrive_and_files_of_the_old_version_go = function()
     local world = installer_world.new()
+    serve_first_version(world)
     install(world, "sensor")
     world.fs.set("startup.lua", startup_for("sensor"))
-    assert(world.fs.files["src/adapter/create_sensors.lua"])
+    assert(world.fs.files["src/shared/legacy_module.lua"])
+    local old_set = files_of("sensor", plan.parse_manifest(world.served["install/manifest.lua"]))
     world.set_version({
       ["src/nodes/sensor_node.lua"] = sensor_node_v2(),
       ["src/shared/extra_module.lua"] = "return {}\n",
     })
-    local old_set = files_of("sensor")
     local new_set = files_of("sensor", plan.parse_manifest(world.served["install/manifest.lua"]))
     local ok, err = world.run({ "--yes" })
     assert(ok, tostring(err))
     assert(world.fs.files["src/shared/extra_module.lua"] == "return {}\n", "new file")
-    assert(world.fs.files["src/adapter/create_sensors.lua"] == nil, "old file removed")
+    assert(world.fs.files["src/shared/legacy_module.lua"] == nil, "old file removed")
     local gone = 0
     for path, entry in pairs(old_set) do
       if not new_set[path] and not entry.seed then
@@ -310,6 +325,7 @@ return {
       local world = installer_world.new()
       world.fs.sticky_crash = true
       if scenario == "update" then
+        serve_first_version(world)
         install(world, "sensor")
         world.fs.set("startup.lua", startup_for("sensor"))
         world.set_version({
@@ -361,7 +377,7 @@ return {
         for path, new_body in pairs(expected) do assert(world.fs.files[path] == new_body, scenario .. " n=" .. n .. ": " .. path) end
         assert(not has_leftovers(world.fs), scenario .. " n=" .. n .. ": " .. tostring(has_leftovers(world.fs)))
         assert(world.fs.files["crn_install.lua"] and world.fs.files["crn_version.txt"])
-        if scenario == "update" then assert(world.fs.files["src/adapter/create_sensors.lua"] == nil, "n=" .. n .. ": old file left") end
+        if scenario == "update" then assert(world.fs.files["src/shared/legacy_module.lua"] == nil, "n=" .. n .. ": old file left") end
       end
     end
   end,

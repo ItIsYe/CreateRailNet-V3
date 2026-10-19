@@ -43,7 +43,8 @@ master then waits in recovery mode until an operator confirms.
 - Anything uncertain is RED: unknown node, FAULT block, recovery, maintenance.
 - The master sends signals again instead of trusting what they show: everything at start, a few blocks per second in a rolling refresh,
   all signals of a node that comes back; RED everywhere when the master stops.
-- Commands only from the master (and `cmd_sources`); sensor events only from the sensor itself; manual control only from panels;
+- Commands only from the master (and `cmd_sources`); only computers the plan lists are nodes (a stranger can announce itself and wait, nothing
+  else); an event type is taken from the role that owns it (sensor events only from the sensor itself, manual control only from panels);
   updates only from the master and `ota_sources`.
 - Files are written with a temporary file, read back, a `.prev` copy and rollback (`safe_write`); over-the-air updates are transactions
   with a journal and an automatic return to the old version (`docs/OTA.md`).
@@ -70,7 +71,10 @@ result of the doctor is kept in `crn_status.lua` (`src/shared/setup_status.lua`;
 
 A computer the master does not know announces itself (`pair_announce`, protocol revision 3). The master keeps it as a bounded candidate in `src/master/pairing.lua` and shows it
 on the page *setup* (`src/master/ui/panels/setup.lua`); only the operator's two-touch **[ANNEHMEN]** writes its entry into the plan file (`safe_write`, `.prev` kept).
-Nothing in this path switches hardware or releases anything: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
+A station or depot computer gets its platforms / tracks by **fetching** the master's plan (`src/setup/plan_fetch.lua` asks, `src/master/plan_service.lua` answers in parts of 3000 bytes; the player confirms
+before the file is written). For a whole new network, `src/setup/layout.lua` reads the description (a few lines of text or JSON), `src/setup/plan_builder.lua` builds the plan from it (blocks with signals and detectors, switch ladders, routes per pair of platforms, trains and service plans) and `src/setup/bauliste.lua` writes the build list; `wizard.layout` (`scripts/setup.lua --layout`) runs this on the master. The three modules are installed on the master only. On the computer itself three more tools: the **function test** (`src/setup/functest.lua`: steps that read, show or act; an action needs its own yes and ends in the safe state), the **link test**
+(`src/setup/linktest.lua`: questions and growing filler through `link.probe`) and the **diagnostic file** (`src/setup/export.lua`: at most 8000 bytes, ASCII). On the master, `src/master/restart.lua` is the
+controlled restart (signals RED, state saved, reboot) and `runtime.release_operation` the opt-in release (`require_release`). Nothing in this path releases anything by itself, and apart from the function test it switches no hardware: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
 
 ## Installation
 

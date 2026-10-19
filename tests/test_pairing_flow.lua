@@ -120,7 +120,7 @@ return {
   test_the_setup_record_goes_along_and_nothing_is_announced_without_a_plan_entry = function()
     local env = fake_node()
     local fs = memfs.new()
-    fs.set("crn_status.lua", setup_status.render({ state = "GEPRUEFT", role = "signal", id = "SIG-1", version = "main-abc", fail = 0, warn = 1, at = 5 }))
+    fs.set("crn_status.lua", setup_status.render({ state = "GEPRUEFT", role = "signal", id = "SIG-1", version = "main-abc", fail = 0, warn = 1, at = 5, hw = "ok", hw_at = 7 }))
     local real_fs = _G.fs
     _G.fs = fs
     env.node.start()
@@ -129,6 +129,7 @@ return {
     _G.fs = real_fs
     local payload = announcements(env)[1].payload
     assert(payload.setup and payload.setup.state == "GEPRUEFT" and payload.setup.version == "main-abc" and payload.setup.warn == 1 and payload.setup.at == nil)
+    assert(payload.setup.hw == "ok", "the result of the function test goes along")
     local bare = fake_node({ nodes = {} })
     bare.node.start()
     master_says(bare, 3)
@@ -263,7 +264,7 @@ return {
     local fs = memfs.new()
     local acks = 0
     local runtime = runtime_factory.new({
-      config = { nodes = {} }, registry = registry_factory.new(),
+      config = { nodes = { { id = "X-1", role = "signal" } } }, registry = registry_factory.new(),
       dispatcher = { get_overview = function() return {} end, timeout_node = function() end },
       network = { receive = function() return "ok" end, ack_for = function() acks = acks + 1 end, send = function() end, tick = function() end },
       ui = { mark_dirty = function() end, draw = function() end, handle_touch = function() end },
@@ -271,7 +272,9 @@ return {
     })
     runtime.handle_event({ "modem_message", nil, nil, nil, { v = 1, id = "a.1", type = "event", src = "X-1", dst = "M", payload = { type = "pair_announce", role = "signal" } } })
     runtime.handle_event({ "modem_message", nil, nil, nil, { v = 1, id = "a.2", type = "register", src = "X-1", dst = "M", payload = { role = "signal" } } })
-    assert(runtime.registry.all()["X-1"], "registered as always")
+    assert(runtime.registry.all()["X-1"], "a computer of the plan registers as always")
+    runtime.handle_event({ "modem_message", nil, nil, nil, { v = 1, id = "a.3", type = "register", src = "X-2", dst = "M", payload = { role = "signal" } } })
+    assert(runtime.registry.all()["X-2"] == nil, "a computer that is not in the plan does not, with or without a pairing book")
     local ok, err = runtime.pair_decide("accept", "X-1", "x")
     assert(ok == false and err:find("nicht verfuegbar", 1, true))
     assert(fs ~= nil)

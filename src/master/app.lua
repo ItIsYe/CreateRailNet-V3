@@ -36,6 +36,8 @@ local gleisbild_panel = require("src.master.ui.panels.gleisbild")
 local peripherals = require("src.adapter.peripherals")
 local monitors = require("src.adapter.monitors")
 local pairing_module = require("src.master.pairing")
+local plan_service_module = require("src.master.plan_service")
+local restart_module = require("src.master.restart")
 local setup_panel = require("src.master.ui.panels.setup")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
@@ -89,7 +91,7 @@ function app.new(args)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
-  local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor)
+  local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor, hw.value(parsed.id or cfg.master_id, "monitor_scale") or cfg.monitor_scale)
   if monitor_note then logger.warn("master monitor", { note = monitor_note, using = monitor_found and "first monitor found" or "none (no display)" }) end
   local monitor = monitor_found or fallback_monitor()
   -- filled in below; the status page reads them through functions because it is built before them
@@ -108,7 +110,19 @@ function app.new(args)
       decide = function(action, id, operator)
         if instance and instance.runtime then return instance.runtime.pair_decide(action, id, operator) end
         return false, "Der Master startet noch."
-      end
+      end,
+      -- the button "MASTER NEU STARTEN" appears after a computer was accepted
+      restart_needed = function() return instance and instance.runtime and instance.runtime.restart_needed == true end,
+      restart = function(operator)
+        if instance and instance.runtime then return instance.runtime.restart_master(operator) end
+        return false, "Der Master startet noch."
+      end,
+      busy_blocks = function() return instance and instance.runtime and instance.runtime.busy_blocks() or 0 end,
+      release = function() return instance and instance.runtime and instance.runtime.release or nil end,
+      release_now = function(operator)
+        if instance and instance.runtime then return instance.runtime.release_operation(operator) end
+        return false, "Der Master startet noch."
+      end,
     }),
     status    = status_panel.new({
       alerts = alerts,
@@ -154,6 +168,10 @@ function app.new(args)
   context.manual_control = manual_control.new(context)
   context.ota = ota_manager.new(network, reg, logger)
   context.pairing = pairing
+  -- the controlled restart (setup page): signals to RED like on a stop, then the reboot
+  context.restart = restart_module.build({ dispatcher = disp, red = cfg.signal_red_on_stop ~= false, logger = logger, reboot = function() if os.reboot then os.reboot() end end })
+  -- station and depot computers fetch their plan from here (setup wizard); the file is read when they ask
+  context.plan_service = plan_service_module.new({ plan_path = parsed.config or "configs/templates/network.example.json", fs = _G.fs })
   context.cargo = cargo_module.new(cfg)
 
   -- Rewire interactive panels with manual_control and full context

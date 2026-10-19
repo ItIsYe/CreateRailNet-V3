@@ -51,7 +51,7 @@ local ID_PREFIX = { master = "MASTER", signal = "SIG", sensor = "SEN", switch = 
 local KEY_ORDER = {
   "v", "channel", "master_id", "nodes", "blocks", "routes", "service_plans",
   "id", "role", "display_name", "adapter", "peripheral", "side", "invert", "active_position",
-  "station_type", "create_station_name", "depot_type", "create_station", "schedule_station", "modem", "monitor",
+  "station_type", "create_station_name", "depot_type", "create_station", "schedule_station", "modem", "monitor", "monitor_scale",
 }
 local KEY_RANK = {}
 for i, key in ipairs(KEY_ORDER) do KEY_RANK[key] = i end

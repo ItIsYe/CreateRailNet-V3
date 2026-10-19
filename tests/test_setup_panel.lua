@@ -76,16 +76,17 @@ local function find_row(m, text)
 end
 
 return {
-  test_a_finished_network_shows_four_ok_lines_and_no_waiting_computers = function()
+  test_a_finished_network_shows_only_ok_lines_and_no_waiting_computers = function()
     local w = world()
-    w.pairing.announce("SIG-1", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0 } })
-    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0 } })
+    w.pairing.announce("SIG-1", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0, hw = "ok" } })
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0, hw = "ok" } })
     local m = recording_monitor(51, 19)
     w.panel.draw(m)
     local text = m.text()
+    assert(text:find("Hardwaretest: alle 2 Computer getestet", 1, true), text)
     assert(text:find("EINRICHTUNG", 1, true) and text:find("Kanal 777", 1, true))
     assert(text:find("OK     Netzplan: 1 Block/Bloecke, 1 Route(n)", 1, true), text)
-    assert(text:find("Computer online: 2 von 2", 1, true) and text:find("alle 2 Computer geprueft", 1, true) and text:find("keiner wartet", 1, true))
+    assert(text:find("Computer online: 2 von 2", 1, true) and text:find("alle 2 Computer lokal geprueft", 1, true) and text:find("keiner wartet", 1, true))
     assert(not text:find("OFFEN", 1, true) and not text:find("FEHLER", 1, true))
     assert(text:find("Keine. Neue Computer melden sich", 1, true))
   end,
@@ -99,14 +100,33 @@ return {
     local text = m.text()
     assert(text:find("OFFEN  Netzplan: noch keine Bloecke oder Routen", 1, true), text)
     assert(text:find("FEHLER Computer offline: 1 von 2 (SIG-2)", 1, true))
-    assert(text:find("FEHLER Pruefung: 1 Computer mit offener Pruefung", 1, true))
-    assert(text:find("OFFEN  Neue Computer: 1 warten auf Freigabe", 1, true))
+    assert(text:find("FEHLER Selbsttest: 1 Computer mit offener Pruefung", 1, true))
+    assert(text:find("OFFEN  Neue Computer: 1 warten auf Annahme", 1, true))
     -- the same words on a monochrome monitor
     local mono = recording_monitor(51, 19, false)
     w.panel.draw(mono)
     assert(mono.text():find("FEHLER Computer offline", 1, true))
     local model = w.panel.model()
-    assert(model.nodes == 2 and model.offline == 1 and #model.lines == 4)
+    assert(text:find("OFFEN  Hardwaretest: 0 von 2 Computern getestet", 1, true), text)
+    assert(model.nodes == 2 and model.offline == 1 and #model.lines == 5)
+  end,
+
+  test_the_function_test_of_the_computers_is_counted_apart_from_the_self_test = function()
+    local w = world()
+    w.pairing.announce("SIG-1", { role = "signal", setup = { state = "GEPRUEFT", hw = "ok" } })
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT" } })
+    local m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    assert(m.text():find("Selbsttest: alle 2 Computer lokal geprueft", 1, true) and m.text():find("OFFEN  Hardwaretest: 1 von 2 Computern getestet", 1, true), m.text())
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", hw = "fail" } })
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    assert(m.text():find("FEHLER Hardwaretest: 1 Computer mit Fehler", 1, true), "a failed function test is red whatever else is ok")
+    -- anything else a computer calls its function test is not believed
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", hw = "bestens" } })
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    assert(m.text():find("OFFEN  Hardwaretest: 1 von 2 Computern getestet", 1, true))
   end,
 
   test_waiting_computers_are_listed_and_touching_a_row_selects_it = function()
@@ -119,7 +139,7 @@ return {
     local row = find_row(m, "SEN-4")
     local row7 = find_row(m, "SIG-7")
     assert(row and row7 and row < row7, "sorted by id")
-    assert(m.row(row7):find("Signal, Create_Signal_3, geprueft", 1, true), m.row(row7))
+    assert(m.row(row7):find("Signal, Create_Signal_3, Selbsttest ok", 1, true), m.row(row7))
     assert(m.row(row):find("Melder", 1, true))
     assert(find_row(m, "Zeile antippen"))
     w.panel.touch(5, row7)
@@ -153,6 +173,28 @@ return {
     m = recording_monitor(51, 19)
     w.panel.draw(m)
     assert(not m.text():find("eingetragen", 1, true), "the message goes away by itself")
+  end,
+
+  test_what_an_acceptance_still_needs_is_not_cut_off_on_the_screen = function()
+    local w = world()
+    w.pairing.announce("SIG-7", { role = "signal", entry = { id = "SIG-7", role = "signal", adapter = "redstone", side = "left" } })
+    local m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    w.panel.touch(5, find_row(m, "SIG-7"))
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    local button_row = find_row(m, "[ANNEHMEN]")
+    w.panel.touch(3, button_row)
+    w.panel.touch(3, button_row)
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    local text = m.text()
+    assert(text:find("Neustart", 1, true) and text:find("des Masters", 1, true), "the note about the restart is on the screen: " .. text)
+    for row = 1, 19 do assert(#m.row(row) <= 51) end
+    -- a monitor that is narrower still shows all of it, on more lines or with an ellipsis, never past the edge
+    local narrow = recording_monitor(30, 19)
+    w.panel.draw(narrow)
+    for row = 1, 19 do assert(#narrow.row(row) <= 30, narrow.row(row)) end
   end,
 
   test_the_confirmation_runs_out = function()

@@ -3,7 +3,7 @@ Purpose: The record of how far this computer's setup got: written by the setup w
 Public API:
   PATH -> "crn_status.lua"        STATES -> { KONFIGURIERT, GEPRUEFT, PRUEFUNG_OFFEN } (state names, German on purpose: they are shown)
   render(status) -> text          parse(text) -> status | nil       read(fs) -> status | nil       write(fs, status) -> ok, err
-  status: { state, role, id, config, version, at, fail, warn }
+  status: { state, role, id, config, version, at, fail, warn, hw, hw_at }   hw: "ok" | "fail", the result of the function test, at hw_at
 Notes: the file is a Lua table that runs without any globals (like the installer's records) and is checked field by field when it is read,
   so a damaged or hand-edited file never gives a half-valid status. It records what the doctor found, it grants nothing: the release of
   a node for operation is the master's decision.
@@ -16,9 +16,11 @@ local setup_status = {}
 
 setup_status.PATH = "crn_status.lua"
 setup_status.STATES = { KONFIGURIERT = true, GEPRUEFT = true, PRUEFUNG_OFFEN = true }
+-- the result of the guided function test (scripts/setup.lua --test): "ok" = every step that was done passed, "fail" = one did not
+setup_status.HW = { ok = true, fail = true }
 
-local STRING_FIELDS = { "state", "role", "id", "config", "version" }
-local NUMBER_FIELDS = { "at", "fail", "warn" }
+local STRING_FIELDS = { "state", "role", "id", "config", "version", "hw" }
+local NUMBER_FIELDS = { "at", "fail", "warn", "hw_at" }
 local MAX_STRING = 200
 
 function setup_status.render(status)
@@ -68,6 +70,7 @@ function setup_status.parse(text)
     end
   end
   if not setup_status.STATES[status.state or ""] then return nil end
+  if status.hw ~= nil and not setup_status.HW[status.hw] then return nil end
   return status
 end
 

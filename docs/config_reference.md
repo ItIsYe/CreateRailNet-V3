@@ -23,7 +23,10 @@ valid on its own and holds only this computer and the master:
 }
 ```
 
-The master needs an entry in `nodes` for every computer, with the same fields. `scripts/setup.lua --check [file]` validates a plan on the computer.
+The master needs an entry in `nodes` for every computer, with the same fields. For a whole new network the plan does not have to be typed: `scripts/setup.lua --layout` builds it from a short description (`docs/NETZ_BAUEN.md`). `scripts/setup.lua --check [file]` validates a plan on the computer.
+
+A **station or depot** computer needs its `platforms` / `tracks` in its own plan. The master's plan is the source: put them in the entry of that computer there and let the computer fetch the plan
+(`scripts/setup.lua --fetch-plan`, `docs/INGAME_SETUP.md`); the computer writes it to its own `configs/network.json` after a yes.
 
 A computer that is not in the master's plan yet does not have to be typed in: it announces itself, waits on the master's page *Einrichtung* and is written
 into the plan file when the operator accepts it (`docs/INGAME_SETUP.md`). The master then writes the plan in the format of the setup wizard (stable key
@@ -48,6 +51,7 @@ order, the old file stays as `<file>.prev`); a plan that is a bundled template (
 |---|---|---|
 | `heartbeat_timeout_s` | 6 | a node that is silent this long is DOWN and its blocks go FAULT. Raise to 15 on a laggy server |
 | `sensor_guard_min_occupy_ms` | see `sensor_guard.lua` | shortest plausible stay on a detector; `0` switches the check off |
+| `require_release` | `false` | `true`: after every start of the master no train starts a journey until the operator touches **[BETRIEB FREIGEBEN]** on the page *Einrichtung* (only possible when every signal / sensor / switch / station / depot computer of the plan is online and no block is in FAULT; `docs/OPERATIONS.md`). A restart takes the release back |
 | `auto_clear_faults` | `true` | blocks that went FAULT because a node timed out clear themselves (`docs/OPERATIONS.md`); `false` = operator only |
 | `auto_clear_stable_s` | 15 | how long every node of the cause has to be back before the block may clear |
 | `auto_clear_max_age_s` | 10 | oldest detector report that still counts as "free" |
@@ -110,6 +114,7 @@ The devices a computer talks and shows through are named in its own entry (the s
 |---|---|---|
 | `modem` | non-empty string | the modem to use, e.g. `modem_0` or `top`. Exactly this one is used: if it is missing the computer has no network (and says so) instead of picking another modem. Without the key the first modem found is used, which is a guess when there are several |
 | `monitor` | non-empty string | the monitor of a master or panel, e.g. `monitor_0` or `left`. Real monitors are never called just `monitor`; a missing named monitor falls back to the first monitor found (logged), and the old name `monitor` still works for plans written before |
+| `monitor_scale` | number 0.5 .. 5 in steps of 0.5 | text scale of that computer's monitor (`setTextScale`; a top-level `monitor_scale` is the fallback for the master). Not set = the monitor is left as it is (scale 1). A smaller scale puts more characters on the same monitor: a 3 x 2 block monitor has about 29 x 19 characters at 1 and about 58 x 24 at 0.5; the pages of the master and of a panel are drawn for 51 x 19. `scripts/setup.lua --doctor` warns about a monitor that is smaller than that. A value that is not valid is refused by the plan check. It stays on the computer when it fetches the master's plan |
 
 Both are checked by the validator (`<path>.modem: must be non-empty string`). A wrong shape in a plan (a number where a list is expected, a block entry that
 is not an object) is reported with its path; it does not raise an error.

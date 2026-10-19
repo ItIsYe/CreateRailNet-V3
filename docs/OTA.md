@@ -13,6 +13,18 @@ How new code reaches the nodes, what is checked on the way, and what happens whe
 A node answers the sender with `ota_result` right before it reboots and with `ota_confirmed` (to the master) after the first good
 boot. `DONE` therefore means "swapped, reboot pending", not "running".
 
+## Rolling out step by step
+
+`scripts/ota_push.lua` takes the targets from the plan, so a new version can go to one computer first:
+
+    lua scripts/ota_push.lua --role signal --limit 1 --dry-run     whom would this reach? (nothing is sent, no modem is opened)
+    lua scripts/ota_push.lua --role signal --limit 1                the first signal computer (sorted by id)
+    lua scripts/ota_push.lua --role signal                          every signal computer
+    lua scripts/ota_push.lua                                        every computer that answers on the channel
+
+The master is never a target (it is installed, not pushed). A wrong role, a role nobody has in the plan, or a bad `--limit` stops the tool before anything is sent; `--node` is combined with nothing else.
+Wait for `CONFIRMED` of the first computer (and look at it in the game) before the next step.
+
 ## Nodes that run the old code (first distribution)
 
 Two ways. A computer with HTTP simply runs the installer (`docs/INSTALL.md`); it replaces what differs, adds the recovery to `startup.lua` and restarts.

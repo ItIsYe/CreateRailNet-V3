@@ -12,6 +12,8 @@ local route_kinds = { passenger = true, freight = true, mixed = true, depot = tr
 
 local function add(errors, path, message) table.insert(errors, path .. ": " .. message) end
 local function nonempty(value) return type(value) == "string" and value ~= "" end
+-- what CC:Tweaked's monitor.setTextScale takes: 0.5 to 5 in steps of 0.5
+local function valid_text_scale(value) return type(value) == "number" and value >= 0.5 and value <= 5 and value * 2 == math.floor(value * 2) end
 local function arr(value) return type(value) == "table" end
 local function node_station_id(node) return node.station_id or node.id end
 local function node_depot_id(node) return node.depot_id or node.id end
@@ -29,6 +31,7 @@ local function validate_inner(cfg, errors)
   if type(cfg) ~= "table" then add(errors, "config", "must be an object"); return false, errors end
   if cfg.v ~= 1 then add(errors, "v", "must be 1") end
   if type(cfg.channel) ~= "number" or cfg.channel <= 0 or cfg.channel % 1 ~= 0 then add(errors, "channel", "must be integer > 0") end
+  if cfg.monitor_scale ~= nil and not valid_text_scale(cfg.monitor_scale) then add(errors, "monitor_scale", "must be a number from 0.5 to 5 in steps of 0.5") end
   if not nonempty(cfg.master_id) then add(errors, "master_id", "must be non-empty string") end
   if type(cfg.blocks) ~= "table" then add(errors, "blocks", "must be an array") end
   if type(cfg.routes) ~= "table" then add(errors, "routes", "must be an array") end
@@ -39,7 +42,7 @@ local function validate_inner(cfg, errors)
     local value = cfg[key]
     if value ~= nil and (type(value) ~= "number" or value < 0) then add(errors, key, "must be a number >= 0") end
   end
-  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward" }) do
+  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward", "require_release" }) do
     if cfg[key] ~= nil and type(cfg[key]) ~= "boolean" then add(errors, key, "must be true or false") end
   end
 
@@ -55,6 +58,7 @@ local function validate_inner(cfg, errors)
     -- the devices this computer uses: the modem it talks through, the monitor it shows on
     if node.modem ~= nil and not nonempty(node.modem) then add(errors, path .. ".modem", "must be non-empty string") end
     if node.monitor ~= nil and not nonempty(node.monitor) then add(errors, path .. ".monitor", "must be non-empty string") end
+    if node.monitor_scale ~= nil and not valid_text_scale(node.monitor_scale) then add(errors, path .. ".monitor_scale", "must be a number from 0.5 to 5 in steps of 0.5") end
 
     if node.role == "train" then
       local train_id = node_train_id(node)

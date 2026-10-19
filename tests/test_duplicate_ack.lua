@@ -59,7 +59,7 @@ return {
     local acks, handled, statuses = 0, 0, { "ok", "duplicate", "duplicate" }
     local position = 0
     local rt = runtime_factory.new({
-      config = { nodes = {} },
+      config = { nodes = { { id = "TRAIN-1", role = "train" } } },
       registry = { all = function() return {} end, register = function() end, heartbeat = function() end },
       dispatcher = { get_overview = function() return {} end, timeout_node = function() end },
       network = {

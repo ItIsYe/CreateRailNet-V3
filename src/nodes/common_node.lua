@@ -86,7 +86,7 @@ function common_node.new(opts)
     for _, candidate in ipairs(node.config.nodes or {}) do if candidate.id == node.id then entry = candidate end end
     local setup = nil
     local ok, status = pcall(setup_status.read)
-    if ok and status then setup = { state = status.state, fail = status.fail, warn = status.warn, version = status.version } end
+    if ok and status then setup = { state = status.state, fail = status.fail, warn = status.warn, version = status.version, hw = status.hw } end
     return node.net.send_reliable("event", node.config.master_id, { type = "pair_announce", role = node.role, entry = entry, setup = setup })
   end
 

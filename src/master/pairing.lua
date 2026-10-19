@@ -84,6 +84,7 @@ local function clean_setup(setup)
     if type(setup[key]) == "number" and setup[key] >= 0 and setup[key] < 1000 then out[key] = math.floor(setup[key]) end
   end
   if type(setup.version) == "string" and #setup.version <= 60 then out.version = setup.version end
+  if setup_status.HW[setup.hw or ""] then out.hw = setup.hw end
   if next(out) == nil then return nil end
   return out
 end
@@ -215,7 +216,7 @@ function pairing.new(opts)
     candidates[id] = nil
     count = count - 1
     audit("node_accepted", { node_id = id, role = entry.role, by = operator })
-    return true, id .. " ist im Netzplan eingetragen (alte Fassung: " .. o.plan_path .. ".prev)."
+    return true, id .. " ist im Netzplan eingetragen (alte Fassung: " .. o.plan_path .. ".prev). Bloecke und Routen, die ihn nutzen, gelten nach einem Neustart des Masters."
   end
 
   function self.reject(id, operator)

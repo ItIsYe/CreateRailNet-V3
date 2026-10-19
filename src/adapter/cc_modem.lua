@@ -1,6 +1,8 @@
 --[[
 Purpose: CC:Tweaked modem transport adapter compatible with shared net module.
-Public API: new(opts), for_node(cfg, node_id, opts), open(), send(channel,dst,msg), broadcast(channel,msg), poll(event).
+Public API: new(opts), for_node(cfg, node_id, opts), and the methods that net and the nodes call with a colon (modem:open(channel),
+  modem:send(channel, dst, msg), modem:broadcast(channel, msg), modem:poll(event)). They are methods: defined with a dot they would take the
+  adapter itself for the channel, and a real modem refuses that (tests/test_cc_modem.lua uses a modem that checks its arguments).
   opts.modem_name: use exactly this modem (entry field "modem"); a missing one is not replaced by another, the modem stays unavailable
 Notes: without a name the first modem is used. With several modems that is a guess, so the setup wizard writes the name into the plan.
 ]]
@@ -27,7 +29,7 @@ function cc_modem.new(opts)
 
   local self = { modem = modem, reply_channel = reply_channel or options.channel, modem_name = options.modem_name }
 
-  function self.open(channel)
+  function self:open(channel)
     if not self.modem then
       return false, "modem unavailable"
     end
@@ -38,7 +40,7 @@ function cc_modem.new(opts)
     return true
   end
 
-  function self.send(channel, dst, msg)
+  function self:send(channel, dst, msg)
     if not self.modem then
       return false, "modem unavailable"
     end
@@ -49,11 +51,11 @@ function cc_modem.new(opts)
     return true
   end
 
-  function self.broadcast(channel, msg)
-    return self.send(channel, "broadcast", msg)
+  function self:broadcast(channel, msg)
+    return self:send(channel, "broadcast", msg)
   end
 
-  function self.poll(event)
+  function self:poll(event)
     if type(event) ~= "table" or event[1] ~= "modem_message" then
       return nil
     end

@@ -3,6 +3,9 @@ Purpose: Standalone OTA update push tool: offers the runtime files to nodes, sen
 Usage:
   lua ota_push.lua                          -- find all nodes on the channel (broadcast offer) and update them
   lua ota_push.lua --node TRAIN-1           -- update one node
+  lua ota_push.lua --role signal            -- update the nodes of one role (from the config; the master is never a target)
+  lua ota_push.lua --role signal --limit 1  -- only the first n of them: try a new version on one computer before it goes to all
+  lua ota_push.lua --role signal --dry-run  -- say whom it would reach and stop (nothing is sent, no modem is opened)
   lua ota_push.lua --version v2.0           -- tag with a version string
   lua ota_push.lua --config network.json    -- use a specific config
   lua ota_push.lua --wait 600               -- give up after this many seconds (default 300)
@@ -20,6 +23,7 @@ Notes: run it on a computer that has the source files and a modem on the network
 package.path = "/?.lua;/?/init.lua;" .. (package.path or "")
 
 local shared_args = require("src.shared.args")
+local ota_targets = require("src.master.ota_targets")
 local config = require("src.shared.config")
 local log = require("src.shared.log")
 local cc_modem = require("src.adapter.cc_modem")
@@ -28,8 +32,31 @@ local ota_manager = require("src.master.ota_manager")
 local ticker = require("src.shared.ticker")
 local time = require("src.shared.time")
 
-local parsed = shared_args.parse({...}, { config = {}, node = {}, version = {}, wait = {}, legacy = { boolean = true } })
+local parsed = shared_args.parse({...}, { config = {}, node = {}, version = {}, wait = {}, legacy = { boolean = true },
+  role = {}, limit = {}, ["dry-run"] = { boolean = true } })
 local cfg = config.load(parsed.config or "configs/templates/network.full.example.json")
+
+-- who is reached: --node, or --role / --limit from the plan; a mistake ends here, before any modem is opened
+local nodes
+if parsed.node or parsed.role or parsed.limit then
+  local chosen, why = ota_targets.select(cfg, { node = parsed.node, role = parsed.role, limit = parsed.limit })
+  if not chosen then error(why, 0) end
+  nodes = chosen
+end
+if parsed.legacy and not nodes then
+  -- the old protocol cannot be discovered: every node of the config except the master
+  nodes = {}
+  for _, node in ipairs(cfg.nodes or {}) do
+    if node.id and node.role ~= "master" and node.id ~= cfg.master_id then nodes[#nodes + 1] = node.id end
+  end
+  table.sort(nodes)
+end
+if parsed["dry-run"] then
+  print((parsed.legacy and "LEGACY: " or "") .. ota_targets.describe(nodes, { role = parsed.role, limit = parsed.limit and #nodes }))
+  print("Nichts wurde gesendet (--dry-run).")
+  return
+end
+
 local logger = log.new("INFO", 200)
 local modem = cc_modem.new({ channel = cfg.channel })
 local opened, open_err = modem:open(cfg.channel)
@@ -39,16 +66,6 @@ local network = net.new(modem, cfg.channel, "OTA-TOOL", logger)
 local manager = ota_manager.new(network, nil, logger)
 
 local version = parsed.version or ("ota-" .. tostring(time.now_s()))
-local nodes = parsed.node and { parsed.node } or nil
-if parsed.legacy and not nodes then
-  -- the old protocol cannot be discovered: every node of the config except the master
-  nodes = {}
-  for _, node in ipairs(cfg.nodes or {}) do
-    if node.id and node.role ~= "master" and node.id ~= cfg.master_id then nodes[#nodes + 1] = node.id end
-  end
-  table.sort(nodes)
-end
-
 print("CreateRailNet OTA Push")
 print("Version: " .. version)
 print("Targets: " .. (nodes and table.concat(nodes, ", ") or "every node that answers on the channel"))

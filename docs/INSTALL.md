@@ -42,6 +42,10 @@ rot, Hinweise gelb, wenn der Bildschirm Farben kann. Nur ASCII, damit auch jede 
 | `--role <rolle>` | `master signal sensor switch station depot train panel`; ohne Angabe: die installierte Rolle (wird bestätigt) oder das Menü |
 | `--yes` | keine Fragen; behält die installierte Rolle (ein neuer Computer braucht dann `--role`) |
 | `--resume` | eine abgebrochene Installation zu Ende führen (`startup.lua` ruft das selbst auf) |
+| `--preview` | nur ansehen: wie viele Dateien neu / geändert / unverändert / entfernt würden, wie viele Bytes, ob der Speicher reicht. Ändert **nichts** (keine Datei, auch nicht die Kopie des Installers, kein Journal, kein Neustart, kein Assistent); geht nicht zusammen mit `--resume` |
+
+**Branch oder Tag?** `main` und jeder andere Branch ändern sich mit dem nächsten Push; zwei Computer, die zu verschiedenen Zeiten installieren, hätten dann verschiedene Stände. Der Installer warnt
+bei einem Branch als Ref (nicht bei einem Tag wie `v1.0.0` oder einer Commit-ID, und nicht beim Fortsetzen). Für ein ganzes Netz einen Tag nehmen: `docs/RELEASE.md`.
 
 ## Was passiert
 
@@ -93,10 +97,11 @@ Verbindungstest: sobald der Computer läuft, meldet er sich beim Master und wart
 schreibt den Eintrag dann selbst in seinen Netzplan (`docs/INGAME_SETUP.md`, „Neue Computer am Master aufnehmen"). Einen Eintrag von Hand dorthin zu
 tippen ist nicht mehr nötig, aber weiter möglich.
 
-**Grenze:** eine Konfiguration wird nicht an andere Computer **verteilt**. Ein Bahnhof- oder Depot-Computer, dessen Kurzplan nur ihn selbst und den Master kennt,
-kann seine Plattformen und Gleise nicht aus dem Plan lesen; für ihn muss der vollständige Netzplan auf dem Computer liegen (Datei vom Master kopieren,
-etwa per Diskette; `scripts/setup.lua --doctor` weist darauf hin). Signal, Melder, Weiche, Zug und Monitor kommen mit dem Kurzplan aus. Das Verteilen größerer
-Pläne per OTA (`scripts/ota_push.lua`) gilt weiter nur für Dateien unter `configs/templates/`.
+**Bahnhof und Depot** brauchen ihre Bahnsteige und Gleise aus dem vollständigen Netzplan. Den **holt der Assistent beim Master** (nicht der Master bei ihm): am Ende der Einrichtung
+(„Den Plan jetzt vom Master holen?") oder später mit `scripts/setup.lua --fetch-plan`. Der Computer prüft den Plan, bevor er ihn nach einem Ja speichert (alte Datei als `.prev`),
+siehe `docs/INGAME_SETUP.md`, „Den Plan vom Master holen". Signal, Melder, Weiche, Zug und Monitor kommen mit dem Kurzplan aus. Per OTA (`scripts/ota_push.lua`) werden weiter nur Programme
+und die Dateien unter `configs/templates/` verteilt, nie ein Netzplan.
+
 ## Aktualisieren, reparieren, Rolle wechseln
 
 - **Aktualisieren / reparieren**: `installer` (oder `installer --yes`) noch einmal ausführen. Fehlende, abgeschnittene oder veränderte Dateien werden
