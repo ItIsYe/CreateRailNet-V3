@@ -19,9 +19,10 @@ local function write_file(path, text)
   created[#created + 1] = path
 end
 
--- the full example, with the state file and the files of the repository left alone
-local function plan_path()
+-- the full example, with the state file and the files of the repository left alone; patch(text) -> text changes the plan first
+local function plan_path(patch)
   local text = plan_bus.template("network.full.example.json")
+  if patch then text = patch(text) end
   local state = os.tmpname()
   os.remove(state)
   created[#created + 1] = state
@@ -54,7 +55,7 @@ local function with_master(opts, run)
   local ok, err = pcall(function()
     package.loaded["src.master.app"] = nil
     local app = require("src.master.app")
-    world.path = plan_path()
+    world.path = plan_path(o.patch)
     world.instance = app.new({ config = world.path, id = "MASTER-1" })
     run(world)
   end)
@@ -205,6 +206,25 @@ return {
       assert(failed == 0, "signals that did not take their output: " .. tostring(failed))
       assert(#world.redstone.violations == 0, table.concat(world.redstone.violations, "; "))
     end)
+  end,
+
+  test_the_text_scale_of_the_plan_reaches_the_monitor = function()
+    local function with_scale(text)
+      local patched, count = text:gsub('"id": "MASTER%-1",', '"id": "MASTER-1", "monitor_scale": 0.5,', 1)
+      assert(count == 1, "the master entry is in the example")
+      return patched
+    end
+    with_master({ patch = with_scale }, function(world)
+      assert(world.monitor.surface.scale == 0.5, "the master set the text scale of its monitor: " .. tostring(world.monitor.surface.scale))
+      assert(#violations_of(world) == 0, table.concat(violations_of(world), "; "))
+    end)
+    -- without the key the monitor keeps its scale
+    with_master({}, function(world) assert(world.monitor.surface.scale == nil) end)
+    -- a scale that is not valid makes the plan invalid: the master does not start with it (the plan check says why)
+    local ok, err = pcall(function()
+      with_master({ patch = function(text) return (text:gsub('"id": "MASTER%-1",', '"id": "MASTER-1", "monitor_scale": 7,', 1)) end }, function() end)
+    end)
+    assert(not ok and tostring(err):find("monitor_scale", 1, true), tostring(err))
   end,
 
   test_nothing_in_the_log_is_a_warning_after_a_normal_start = function()

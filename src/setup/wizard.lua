@@ -264,12 +264,12 @@ local function fetch_flow(env, t, files, io, report)
   end
   t.say(ctx.id .. ": " .. count .. " " .. word .. ".")
 
-  -- the devices stay as they are on this computer (the master wrote its entry from what the computer announced, before it was set up for good)
+  -- the devices (and the text scale of the monitor) stay as they are on this computer (the master wrote its entry from what the computer announced, before it was set up for good)
   local body = got.text
-  local fields = { modem = ctx.entry.modem, monitor = ctx.entry.monitor }
-  if (fields.modem and got.entry.modem ~= fields.modem) or (fields.monitor and got.entry.monitor ~= fields.monitor) then
-    body = netplan.encode(netplan.set_fields(got.cfg, ctx.id, fields))
-  end
+  local fields = { modem = ctx.entry.modem, monitor = ctx.entry.monitor, monitor_scale = ctx.entry.monitor_scale }
+  local differs = false
+  for key, value in pairs(fields) do if got.entry[key] ~= value then differs = true end end
+  if differs then body = netplan.encode(netplan.set_fields(got.cfg, ctx.id, fields)) end
   local parsed, errors = netplan.parse(body)
   if not parsed or errors then
     t.say("Der Plan waere mit den Geraeten dieses Computers nicht gueltig. Nichts geaendert.", "err")

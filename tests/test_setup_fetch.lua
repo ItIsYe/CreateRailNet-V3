@@ -182,6 +182,18 @@ return {
     assert(again.ok and again.state == "same" and again.wrote == false and world.text():find("schon genau diesen Plan", 1, true))
   end,
 
+  test_the_text_scale_chosen_on_this_computer_survives_the_fetch = function()
+    local world = station_world({ peripherals = { MODEM, STATION, { name = "monitor", type = "monitor", methods = MONITOR.methods } } })
+    world.run({ "--role", "station" }, responder({ { "[ST-1] >", "ST-B" }, { "Den Plan jetzt vom Master holen?", "n" } }))
+    -- the operator gave this computer's monitor a text scale in its own plan; the plan of the master knows nothing of it
+    world.fs.set(PLAN, netplan.encode(netplan.set_fields(plan_of(world), "ST-B", { monitor_scale = 0.5 })))
+    world.pages = { { lines = {} } }
+    local result = world.run({ "--fetch-plan" }, responder({}))
+    assert(result.ok and result.wrote == true, tostring(result.state))
+    local entry = entry_of(plan_of(world), "ST-B")
+    assert(entry.monitor_scale == 0.5 and #entry.platforms == 2, "own scale kept, platforms from the master")
+  end,
+
   test_fetch_plan_with_no_answers_to_the_question_changes_nothing = function()
     local world = station_world()
     world.run({ "--role", "station" }, responder({ { "[ST-1] >", "ST-B" }, { "Den Plan jetzt vom Master holen?", "n" } }))

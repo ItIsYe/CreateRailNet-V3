@@ -4,7 +4,7 @@ Purpose: Fakes of the CC:Tweaked peripherals that check their arguments the way 
   empty screen or a silent failure). Here every such call is recorded in `violations` and raises the error CC:Tweaked would raise.
 Public API:
   monitor(w, h, opts) -> monitor     opts.color (default true); methods getSize, isColor, setCursorPos, getCursorPos, write, clear, clearLine,
-                                     setTextColor, setBackgroundColor, setTextScale; monitor.violations, monitor.row(n), monitor.text(), monitor.touches
+                                     setTextColor, setBackgroundColor, setTextScale; monitor.violations, monitor.row(n), monitor.text(), monitor.touches, monitor.surface.scale (last text scale set)
   window_api(opts) -> window         the CC window API: window.create(parent, x, y, w, h, visible) -> window with the same methods and setVisible
   modem() -> modem                   open(channel), close, isOpen, transmit(channel, reply, payload); modem.opened, modem.transmitted, modem.violations
   redstone() -> redstone             setOutput(side, boolean), getOutput(side), getInput(side) with the six sides
@@ -87,6 +87,7 @@ local function surface(w, h, violations, opts)
       violations[#violations + 1] = "setTextScale: bad scale " .. tostring(scale)
       error("Expected number in range 0.5-5", 2)
     end
+    s.scale = scale
   end
   function api.getRow(y)
     local out = {}

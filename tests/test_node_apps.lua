@@ -226,6 +226,20 @@ return {
     end)
   end,
 
+  test_a_node_sets_the_text_scale_of_its_entry_on_its_monitor = function()
+    with_node("depot", { id = "DEPOT-1", role = "depot", display_name = "Depot 1", depot_type = "mixed", monitor_scale = 0.5 }, nil, function(world)
+      assert(world.monitor.surface.scale == 0.5, tostring(world.monitor.surface.scale))
+      assert_clean(world)
+    end)
+    with_node("panel", { id = "PANEL-1", role = "panel", monitor_scale = 2 }, nil, function(world)
+      assert(world.monitor.surface.scale == 2)
+      assert_clean(world)
+    end)
+    with_node("depot", { id = "DEPOT-1", role = "depot", display_name = "Depot 1", depot_type = "mixed" }, nil, function(world)
+      assert(world.monitor.surface.scale == nil, "no key, no change")
+    end)
+  end,
+
   test_a_depot_starts_and_draws_its_monitor = function()
     with_node("depot", { id = "DEPOT-1", role = "depot", display_name = "Depot 1", depot_type = "mixed" }, nil, function(world)
       assert_alive(world)

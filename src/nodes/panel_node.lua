@@ -35,7 +35,7 @@ end
 function panel_node.new_runtime(args_or_context)
   local context = build_context(args_or_context)
   local panel_cfg = find_panel_config(context.config, context.id)
-  local monitor, monitor_note = monitors.resolve(context.peripherals, panel_cfg.monitor)
+  local monitor, monitor_note = monitors.resolve(context.peripherals, panel_cfg.monitor, panel_cfg.monitor_scale)
   if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local state_model = panel_state.new(context.config, context.id)
 

@@ -37,6 +37,9 @@ local function FETCH_HINT(key, id)
   return "Sie stehen im Netzplan des Masters im Eintrag " .. id .. " unter \"" .. key .. "\" (mit sensor_id und block_id; docs/config_reference.md). Ist der Computer am Master angenommen und der Master neu gestartet, holt scripts/setup.lua --fetch-plan den Plan."
 end
 local KINDS = { ok = "ok", warn = "warn", fail = "err" }
+-- the pages of the master and of a panel are drawn for this many characters (51 x 19 is a 5 x 3 block monitor at text scale 1)
+local PAGE_ROLES = { master = true, panel = true }
+local PAGE_WIDTH, PAGE_HEIGHT = 51, 19
 
 local function kb(bytes) return math.floor(bytes / 1000 + 0.5) end
 
@@ -222,16 +225,36 @@ function doctor.run(opts)
     local monitors = hardware.of_class(devices, "monitor")
     local named = entry and entry.monitor
     local bad = ctx.role == "panel" and "fail" or "warn"
+    -- the pages of the master and of a panel are laid out for 51 x 19 characters: a smaller monitor cuts them, the text scale is the way to more room
+    local function monitor_line(name, how)
+      local label = "Monitor " .. name .. " (" .. how .. ")"
+      if not PAGE_ROLES[ctx.role] then return add("monitor", "ok", label) end
+      if entry and entry.monitor_scale ~= nil then return add("monitor", "ok", label .. ", Textskalierung " .. tostring(entry.monitor_scale)) end
+      local api = o.peripheral or _G.peripheral
+      local width, height
+      if api and api.wrap then
+        local wrapped, device = pcall(api.wrap, name)
+        if wrapped and type(device) == "table" and type(device.getSize) == "function" then
+          local sized, w, h = pcall(device.getSize)
+          if sized and type(w) == "number" and type(h) == "number" then width, height = w, h end
+        end
+      end
+      if width and (width < PAGE_WIDTH or height < PAGE_HEIGHT) then
+        return add("monitor", "warn", "Monitor " .. name .. " nur " .. width .. " x " .. height .. " Zeichen (die Seiten brauchen " .. PAGE_WIDTH .. " x " .. PAGE_HEIGHT .. ")",
+          "Mehr Platz bringt eine kleinere Schrift: im Eintrag dieses Computers \"monitor_scale\": 0.5 (docs/config_reference.md), danach neu starten. Oder mehr Bloecke zum Monitor zusammenbauen.")
+      end
+      return add("monitor", "ok", label)
+    end
     if named then
       if hardware.find(devices, named) then
-        add("monitor", "ok", "Monitor " .. named .. " (festgelegt)")
+        monitor_line(named, "festgelegt")
       else
         add("monitor", bad, "Monitor " .. named .. " nicht gefunden", "Den Monitor anbauen oder den Namen im Netzplan aendern (Feld monitor). Ohne Namen wird der erste gefundene genommen.")
       end
     elseif #monitors == 0 then
       add("monitor", bad, "Kein Monitor", "Einen Monitor direkt an den Computer setzen oder per Kabel anbinden. Ohne Monitor bleibt die Anzeige leer.")
     elseif #monitors == 1 then
-      add("monitor", "ok", "Monitor " .. monitors[1].name .. " (automatisch)")
+      monitor_line(monitors[1].name, "automatisch")
     else
       add("monitor", "warn", "Mehrere Monitore, keiner festgelegt", "Beim Eintrag \"monitor\": \"" .. monitors[1].name .. "\" (oder einen anderen) eintragen, sonst gilt der erste.")
     end

@@ -91,7 +91,7 @@ function app.new(args)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
-  local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor)
+  local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor, hw.value(parsed.id or cfg.master_id, "monitor_scale") or cfg.monitor_scale)
   if monitor_note then logger.warn("master monitor", { note = monitor_note, using = monitor_found and "first monitor found" or "none (no display)" }) end
   local monitor = monitor_found or fallback_monitor()
   -- filled in below; the status page reads them through functions because it is built before them

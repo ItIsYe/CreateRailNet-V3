@@ -84,7 +84,7 @@ echten Monitor aussieht. Master mit Netzplan und mindestens zwei weitere Compute
 | 0ax | `installer --preview --ref <zweig>` auf einem eingerichteten Computer, danach `installer --ref <zweig>` | die Vorschau nennt neu/geändert/entfernt und ändert nichts (`list` der Dateien vorher und nachher gleich); der echte Lauf tut genau das | Vorschau weicht ab: beide Ausgaben notieren | |
 | 0ay | Installer mit `main` und mit einem Tag (`--ref v0.0.1`, falls vorhanden) | bei `main` die Branch-Warnung, bei dem Tag keine | | |
 | 0az | `lua scripts/ota_push.lua --role signal --limit 1 --dry-run`, dann ohne `--dry-run` | die Vorschau nennt genau einen Signal-Computer; nur der bekommt die Aktualisierung | alle Signal-Computer wurden aktualisiert: melden | |
-| 0ba | Monitore der Größen 1x1, 2x1, 3x2, 4x3 als Master-Monitor (Textskalierung 1 bzw. 0,5) | alle Seiten lesbar; die Größen unter 51x19 Zeichen sind ein Kompromiss (`docs/assumptions.md`); was nicht lesbar ist, mit Größe notieren | Seite abgeschnitten, Knöpfe nicht erreichbar | |
+| 0ba | Monitore der Größen 1x1, 2x1, 3x2, 4x3 als Master-Monitor, jeweils ohne und mit `"monitor_scale": 0.5` im Eintrag des Masters (Neustart) | `--doctor` meldet unter 51x19 Zeichen den Hinweis mit `monitor_scale`; mit 0,5 hat der Monitor etwa doppelt so viele Zeichen (3x2 Blöcke: rund 58x24), alle Seiten lesbar, Knöpfe erreichbar; kleine Monitore bleiben ein Kompromiss (`docs/assumptions.md`) | Seite abgeschnitten, Knöpfe nicht erreichbar: Größe und Skalierung notieren | |
 
 ## 1. Was macht ein Create-Signal, wenn sein Computer ausfällt? (offene Frage Nr. 1)
 

@@ -188,6 +188,35 @@ return {
     assert(lvl_master == "warn" and master_check.title:find("Bloecke", 1, true), "an empty plan cannot run a train yet")
   end,
 
+  -- the pages are built for 51 x 19 characters; a smaller monitor is said, with the way to more room
+  test_a_monitor_that_is_too_small_for_the_pages_is_a_hint_with_the_text_scale_as_the_way_out = function()
+    local function size_api(width, height)
+      local api = peripheral_api({ MODEM, MONITOR })
+      api.wrap = function(name) if name == "monitor_0" then return { getSize = function() return width, height end } end end
+      return api
+    end
+    local function monitor_check(role, entry, width, height)
+      local c = computer({ role = role, id = role == "master" and "MASTER-1" or "PANEL-1", entry = entry, devices = { MODEM, MONITOR } })
+      c.peripheral = size_api(width, height)
+      local report = doctor.run({ fs = c.fs, peripheral = c.peripheral })
+      for _, check in ipairs(report.checks) do if check.id == "monitor" then return check end end
+    end
+    local small = monitor_check("master", nil, 29, 19)
+    assert(small.level == "warn" and small.title:find("29 x 19", 1, true) and small.fix:find("monitor_scale", 1, true) and small.fix:find("0.5", 1, true), small.title)
+    assert(monitor_check("panel", nil, 51, 12).level == "warn", "too low is too small too")
+    assert(monitor_check("master", nil, 58, 24).level == "ok" and monitor_check("master", nil, 51, 19).level == "ok")
+    -- a plan that asks for a scale has taken care of it
+    local scaled = monitor_check("master", { monitor_scale = 0.5 }, 29, 19)
+    assert(scaled.level == "ok" and scaled.title:find("0.5", 1, true), scaled.title)
+    -- other roles draw small displays; and an API that cannot say the size says nothing
+    assert(monitor_check("station", nil, 29, 19) == nil or monitor_check("station", nil, 29, 19).level == "ok")
+    local c = computer({ role = "master", id = "MASTER-1", devices = { MODEM, MONITOR } })
+    local report = doctor.run({ fs = c.fs, peripheral = c.peripheral })
+    for _, check in ipairs(report.checks) do if check.id == "monitor" then assert(check.level == "ok") end end
+    -- a size that is nonsense is not believed
+    assert(monitor_check("master", nil, "x", 19).level == "ok")
+  end,
+
   test_the_monitor_is_red_for_a_panel_and_amber_for_the_others = function()
     local panel = { role = "panel", id = "PANEL-1", entry = { display_name = "P" }, devices = { MODEM } }
     assert(level(run(panel), "monitor") == "fail")

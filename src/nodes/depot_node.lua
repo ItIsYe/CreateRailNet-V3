@@ -66,7 +66,7 @@ function depot_node.new_runtime(args_or_context)
   local depot_id = depot_cfg.depot_id or context.id
   local depot_type = depot_cfg.depot_type or depot_cfg.type or "mixed"
   local display_name = depot_cfg.display_name or depot_id
-  local monitor, monitor_note = monitors.resolve(context.peripherals, depot_cfg.monitor)
+  local monitor, monitor_note = monitors.resolve(context.peripherals, depot_cfg.monitor, depot_cfg.monitor_scale)
   if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local sensor_adapter = create_sensors.new(context.peripherals, { hardware = context.hardware })
   local state = { node_id = context.id, depot_id = depot_id, display_name = display_name, depot_type = depot_type, state = "ONLINE", queue = {}, tracks = depot_node.build_track_map(depot_cfg) }

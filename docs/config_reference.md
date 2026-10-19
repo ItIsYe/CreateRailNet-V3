@@ -114,6 +114,7 @@ The devices a computer talks and shows through are named in its own entry (the s
 |---|---|---|
 | `modem` | non-empty string | the modem to use, e.g. `modem_0` or `top`. Exactly this one is used: if it is missing the computer has no network (and says so) instead of picking another modem. Without the key the first modem found is used, which is a guess when there are several |
 | `monitor` | non-empty string | the monitor of a master or panel, e.g. `monitor_0` or `left`. Real monitors are never called just `monitor`; a missing named monitor falls back to the first monitor found (logged), and the old name `monitor` still works for plans written before |
+| `monitor_scale` | number 0.5 .. 5 in steps of 0.5 | text scale of that computer's monitor (`setTextScale`; a top-level `monitor_scale` is the fallback for the master). Not set = the monitor is left as it is (scale 1). A smaller scale puts more characters on the same monitor: a 3 x 2 block monitor has about 29 x 19 characters at 1 and about 58 x 24 at 0.5; the pages of the master and of a panel are drawn for 51 x 19. `scripts/setup.lua --doctor` warns about a monitor that is smaller than that. A value that is not valid is refused by the plan check. It stays on the computer when it fetches the master's plan |
 
 Both are checked by the validator (`<path>.modem: must be non-empty string`). A wrong shape in a plan (a number where a list is expected, a block entry that
 is not an object) is reported with its path; it does not raise an error.

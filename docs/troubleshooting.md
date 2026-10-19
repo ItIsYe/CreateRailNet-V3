@@ -85,6 +85,8 @@ interrupted installation, which `startup.lua` resumes by itself (`installer --re
   (the master runs, same channel, modem in range, and the master has the version with `plan_get` -- an older master is silent); "Der Master kann den Plan nicht liefern ... Fehler" (`scripts/setup.lua --check` at the master);
   "beschaedigt" / "hat sich geaendert" (it was fetched again up to two times; try once more when nobody edits the plan); "gehoert zu einem anderen Netz" (channel or master id differ: the computer is set up for another network);
   "noch keine Bahnsteige" (the entry in the master's plan has none yet). In every case nothing was written.
+- **The master's pages are cut off, buttons are missing**: the monitor has fewer than 51 x 19 characters (`scripts/setup.lua --doctor` says so on the master and on a panel). Write `"monitor_scale": 0.5` into the entry
+  of that computer in its plan (smaller text, about twice the characters), restart; or build the monitor bigger. `docs/config_reference.md`.
 - **Messages get lost, plan transfer fails, a node flaps between UP and DOWN**: `scripts/setup.lua --linktest` on that computer. "keine Antwort" = master off, other channel, modem out of range or not activated (a wired
   modem needs a right click until the ring turns red); "einzelne Nachrichten gehen verloren" = the edge of the wireless range or an unloaded chunk; "grosse Nachrichten kommen nicht an" = `--fetch-plan` will fail, use a
   wired modem or move closer. When someone else has to look: `scripts/setup.lua --export` writes `crn_diag.txt`.
