@@ -120,7 +120,7 @@ return {
   test_the_setup_record_goes_along_and_nothing_is_announced_without_a_plan_entry = function()
     local env = fake_node()
     local fs = memfs.new()
-    fs.set("crn_status.lua", setup_status.render({ state = "GEPRUEFT", role = "signal", id = "SIG-1", version = "main-abc", fail = 0, warn = 1, at = 5 }))
+    fs.set("crn_status.lua", setup_status.render({ state = "GEPRUEFT", role = "signal", id = "SIG-1", version = "main-abc", fail = 0, warn = 1, at = 5, hw = "ok", hw_at = 7 }))
     local real_fs = _G.fs
     _G.fs = fs
     env.node.start()
@@ -129,6 +129,7 @@ return {
     _G.fs = real_fs
     local payload = announcements(env)[1].payload
     assert(payload.setup and payload.setup.state == "GEPRUEFT" and payload.setup.version == "main-abc" and payload.setup.warn == 1 and payload.setup.at == nil)
+    assert(payload.setup.hw == "ok", "the result of the function test goes along")
     local bare = fake_node({ nodes = {} })
     bare.node.start()
     master_says(bare, 3)

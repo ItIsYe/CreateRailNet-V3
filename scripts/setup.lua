@@ -8,6 +8,8 @@ Usage: shell.run("scripts/setup.lua")                 asks for everything
                                                               changes nothing but the record of the result (crn_status.lua)
        shell.run("scripts/setup.lua", "--fetch-plan")        station / depot: fetch the network plan from the master (platforms, tracks);
                                                               writes it only after a yes, the old file stays as .prev
+       shell.run("scripts/setup.lua", "--test")              guided function test: reads freely, switches a signal / turnout only after a yes
+                                                              and puts it back (signal RED, turnout straight); the result goes to the master
 Notes: Enter takes the suggestion in [ ], ? explains the question, < goes one step back. Nothing is written before the summary is confirmed.
 ]]
 
@@ -31,6 +33,8 @@ local result = wizard.run({
     os = os,
     link = link.probe,
     fetch = plan_fetch.fetch,
+    sleep = sleep,
+    redstone = redstone,
   },
 })
 

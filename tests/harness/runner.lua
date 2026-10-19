@@ -72,6 +72,8 @@ local tests = {
   "tests/test_cc_modem.lua",
   "tests/test_master_app.lua",
   "tests/test_node_apps.lua",
+  "tests/test_functest.lua",
+  "tests/test_setup_functest.lua",
   "tests/test_setup_panel.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",

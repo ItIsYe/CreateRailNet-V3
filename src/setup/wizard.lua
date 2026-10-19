@@ -4,10 +4,13 @@ Public API: run(opts) -> result { ok, aborted, role, id, config, written, reboot
   opts: args (argv list, "--role <role>" skips the role question), env { print, write, read, term, colors, fs, peripheral, os, link }
         env.link(opts) -> { state, detail } asks the master whether it knows this computer (src/setup/link.lua); without it nothing is asked
         env.fetch(opts) -> result fetches the plan from the master (src/setup/plan_fetch.lua); without it the plan cannot be fetched
+        env.sleep(seconds), env.redstone: for the function test (CC sleep and redstone api)
   check(path, env) -> { ok, path }          prints whether a network plan is valid (scripts/setup.lua --check [file])
   doctor(env) -> { ok, report }             prints what is wrong with this computer and what to do (scripts/setup.lua --doctor)
   fetch_plan(env) -> { ok, state, wrote }   fetches the plan from the master for a station / depot computer (scripts/setup.lua --fetch-plan)
-  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor, fetch_plan }
+  functest(env) -> { ok, state, result }    the guided function test (scripts/setup.lua --test): reads freely, switches only after a yes;
+                                            state: passed / incomplete (a step got no yes) / failed / declined / setup (computer not set up)
+  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor, fetch_plan, functest }
 Flow: Rolle > Netzplan > Name > Hardware > Pruefen. One question per page, every page fits 51 x 19, the header shows where you are. A step that
   has nothing to ask is left out (an example plan already says everything about this computer). "?" explains the question, "<" goes back.
   Nothing is written before the summary is confirmed.
@@ -23,6 +26,7 @@ local startup_template = require("src.shared.startup_template")
 local safe_write = require("src.shared.safe_write")
 local doctor = require("src.setup.doctor")
 local setup_status = require("src.shared.setup_status")
+local functest = require("src.setup.functest")
 
 local wizard = {}
 
@@ -94,6 +98,9 @@ function wizard.parse_args(argv)
       i = i + 1
     elseif argv[i] == "--fetch-plan" then
       args.fetch_plan = true
+      i = i + 1
+    elseif argv[i] == "--test" then
+      args.functest = true
       i = i + 1
     elseif argv[i] == "--check" then
       args.check = true
@@ -274,12 +281,9 @@ local function fetch_flow(env, t, files, io, report)
   return { ok = true, state = "written", wrote = true }
 end
 
--- scripts/setup.lua --fetch-plan: fetch the plan of the master again (the master's plan changed), after a "yes" write it
-function wizard.fetch_plan(env)
-  local t = terminal.new(env)
-  local files = make_files(env.fs)
-  t.say("Plan vom Master holen", "title")
-  local io = {
+-- the questions of the commands that run on their own (not inside the wizard): a yes / no question; input that ends is a no
+local function cli_io(t)
+  return {
     ask_yes = function(question, default_yes)
       t.say(question)
       while true do
@@ -293,6 +297,14 @@ function wizard.fetch_plan(env)
       end
     end,
   }
+end
+
+-- scripts/setup.lua --fetch-plan: fetch the plan of the master again (the master's plan changed), after a "yes" write it
+function wizard.fetch_plan(env)
+  local t = terminal.new(env)
+  local files = make_files(env.fs)
+  t.say("Plan vom Master holen", "title")
+  local io = cli_io(t)
   local report = doctor.run({ fs = env.fs, peripheral = env.peripheral })
   local outcome = fetch_flow(env, t, files, io, report)
   if outcome.wrote then
@@ -303,6 +315,61 @@ function wizard.fetch_plan(env)
   return outcome
 end
 
+-- scripts/setup.lua --test: the guided function test of this computer. Reading needs no question, anything that switches is asked for one action
+-- at a time (and put back afterwards); the result goes into the record of this computer (crn_status.lua, field hw) and from there to the master.
+function wizard.functest(env)
+  local t = terminal.new(env)
+  local files = make_files(env.fs)
+  local io = cli_io(t)
+  t.say("Funktionstest dieses Computers", "title")
+  local report = doctor.run({ fs = env.fs, peripheral = env.peripheral })
+  local ctx = report.ctx
+  if not (ctx.role and ctx.cfg and ctx.entry and ctx.id) then
+    t.say("Dieser Computer ist noch nicht eingerichtet (Netzplan und Eintrag fehlen). Erst scripts/setup.lua ausfuehren.", "err")
+    return { ok = false, state = "setup" }
+  end
+  if report.fails > 0 then t.say("Hinweis: die Pruefung (scripts/setup.lua --doctor) hat noch rote Punkte; der Test sagt dir dann auch, woran es liegt.", "warn") end
+  t.say("Gelesen wird ohne Rueckfrage. Was etwas schaltet, wird einzeln gefragt und danach in den sicheren Zustand gebracht (Signal ROT, Weiche geradeaus). Ohne dein Ja passiert nichts. "
+    .. "Dieser Computer sollte dabei nicht gerade im Betrieb sein (Strg+T beendet das Programm).", "dim")
+  local opts = {
+    peripheral = env.peripheral, redstone = env.redstone, sleep = env.sleep, link = env.link, confirm = io.ask_yes,
+    on_step = function(step, phase, result)
+      if phase == "end" then
+        local tag = result.state == "ok" and "[ OK ] " or (result.state == "fail" and "[FEHL] " or "[----] ")
+        t.say(tag .. step.title .. ": " .. tostring(result.detail), result.state == "ok" and "ok" or (result.state == "fail" and "err" or "dim"))
+      end
+    end,
+  }
+  t.blank()
+  t.say("Das ist geplant:")
+  for _, step in ipairs(functest.steps(ctx, opts)) do
+    local kind = step.kind == "act" and "[SCHALTET] " or (step.kind == "show" and "[zeigt]    " or "[liest]    ")
+    t.say("  " .. kind .. step.title)
+  end
+  t.blank()
+  if io.ask_yes("Funktionstest starten?", true) ~= true then
+    t.say("Nichts gemacht.", "dim")
+    return { ok = true, state = "declined" }
+  end
+  t.blank()
+  local result = functest.run(ctx, opts)
+  t.blank()
+  t.say(string.format("Ergebnis: %d bestanden, %d fehlgeschlagen, %d uebersprungen.", result.done, result.failed, result.skipped),
+    result.failed > 0 and "err" or (result.skipped > 0 and "warn" or "ok"))
+  -- only a complete test counts for the record: a step that was skipped (no yes) has not been tested
+  local mark
+  if result.failed > 0 then mark = "fail" elseif result.skipped == 0 and result.done > 0 then mark = "ok" end
+  if mark then
+    local status = setup_status.read(env.fs) or { state = "KONFIGURIERT", role = ctx.role, id = ctx.id, config = ctx.config, version = file_version(files) }
+    status.hw, status.hw_at = mark, (env.os and env.os.epoch and math.floor(env.os.epoch("utc") / 1000)) or (os.epoch and math.floor(os.epoch("utc") / 1000)) or os.time()
+    pcall(setup_status.write, env.fs, status)
+    t.say(mark == "ok" and "Im Pruefprotokoll steht: Hardwaretest bestanden (der Master zeigt es nach der naechsten Meldung)." or "Im Pruefprotokoll steht: Hardwaretest fehlgeschlagen.", mark == "ok" and "ok" or "err")
+  else
+    t.say("Nicht alle Schritte wurden gemacht: im Pruefprotokoll bleibt der Hardwaretest, wie er war.", "dim")
+  end
+  return { ok = result.ok, state = result.failed > 0 and "failed" or (result.skipped > 0 and "incomplete" or "passed"), result = result }
+end
+
 -- ── the wizard ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function wizard.run(opts)
@@ -311,6 +378,7 @@ function wizard.run(opts)
   if args.check then return wizard.check(args.check_path, env) end
   if args.doctor then return wizard.doctor(env) end
   if args.fetch_plan then return wizard.fetch_plan(env) end
+  if args.functest then return wizard.functest(env) end
   local t = terminal.new(env)
   t.set_hint("Enter ok  ? Hilfe  < zurueck")
   local files = make_files(env.fs)
