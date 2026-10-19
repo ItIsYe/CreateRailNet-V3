@@ -85,7 +85,7 @@ return {
     local text = m.text()
     assert(text:find("EINRICHTUNG", 1, true) and text:find("Kanal 777", 1, true))
     assert(text:find("OK     Netzplan: 1 Block/Bloecke, 1 Route(n)", 1, true), text)
-    assert(text:find("Computer online: 2 von 2", 1, true) and text:find("alle 2 Computer geprueft", 1, true) and text:find("keiner wartet", 1, true))
+    assert(text:find("Computer online: 2 von 2", 1, true) and text:find("alle 2 Computer lokal geprueft", 1, true) and text:find("keiner wartet", 1, true))
     assert(not text:find("OFFEN", 1, true) and not text:find("FEHLER", 1, true))
     assert(text:find("Keine. Neue Computer melden sich", 1, true))
   end,
@@ -99,8 +99,8 @@ return {
     local text = m.text()
     assert(text:find("OFFEN  Netzplan: noch keine Bloecke oder Routen", 1, true), text)
     assert(text:find("FEHLER Computer offline: 1 von 2 (SIG-2)", 1, true))
-    assert(text:find("FEHLER Pruefung: 1 Computer mit offener Pruefung", 1, true))
-    assert(text:find("OFFEN  Neue Computer: 1 warten auf Freigabe", 1, true))
+    assert(text:find("FEHLER Selbsttest: 1 Computer mit offener Pruefung", 1, true))
+    assert(text:find("OFFEN  Neue Computer: 1 warten auf Annahme", 1, true))
     -- the same words on a monochrome monitor
     local mono = recording_monitor(51, 19, false)
     w.panel.draw(mono)
@@ -119,7 +119,7 @@ return {
     local row = find_row(m, "SEN-4")
     local row7 = find_row(m, "SIG-7")
     assert(row and row7 and row < row7, "sorted by id")
-    assert(m.row(row7):find("Signal, Create_Signal_3, geprueft", 1, true), m.row(row7))
+    assert(m.row(row7):find("Signal, Create_Signal_3, Selbsttest ok", 1, true), m.row(row7))
     assert(m.row(row):find("Melder", 1, true))
     assert(find_row(m, "Zeile antippen"))
     w.panel.touch(5, row7)

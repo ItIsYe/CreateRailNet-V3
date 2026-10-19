@@ -52,13 +52,19 @@ during a rolling OTA old and new nodes talk to each other, so changes to the env
 - **Commands to a node** are executed only when `src` is `master_id` or listed in `config.cmd_sources`; anything else gets an
   `err` ("source not allowed") and is logged once per sender and minute. OTA commands follow `config.ota_sources` instead
   (see `docs/OTA.md`), so the OTA tool can update but not steer.
-- **Sensor events** are only accepted from the sensor node they name (`payload.sensor_id == src`); **manual control** only from a
-  registered node with role `panel`. Rejected events are audited (`event_rejected`) and still acknowledged so the sender stops
+- **The plan decides who is a node.** The master registers a computer, and handles its events, only when the plan lists its id with the
+  role it announces. Any other computer (not in the plan, or in the plan with another role) is a pairing candidate and nothing else: it is
+  not registered, its events are not handled, it gets no panel snapshot, and no alert is raised for it (a stranger must not be able to fill
+  the alerts; one audit line per minute covers all of them). Only `pair_announce` and `pair_probe` are open to every computer. A plan
+  without nodes admits nobody.
+- **An event type belongs to one role**: `sensor` from a sensor (and only about itself, `payload.sensor_id == src`); `request_departure`,
+  `arrived`, `train_status`, `schedule_applied`, `train_fault` from a train; `station_*`, `platform_status`, `train_arrived_station`,
+  `train_left_station` from a station; `depot_*` from a depot; `manual_control` and `panel_request_snapshot` from a panel, and for manual
+  control the panel must also be registered (it has been heard). Other events (log, update) come from any node of the plan. Rejected
+  events of a computer of the plan are audited (`event_rejected`), raise a yellow alert, and are still acknowledged so the sender stops
   retrying.
-- **Heartbeats** of nodes the master does not know (it restarted, nodes only register at their own start) register them
-  (`node_adopted`); a heartbeat or register of a node that was DOWN is audited as `node_reconnect`. A node that is **not in the plan**
-  still shows up in the registry as before, and it also becomes a pairing candidate (below). Blocks, routes and signals come from the plan
-  only, so it has no say in the network until the operator accepts it.
+- **Heartbeats** of nodes of the plan that the master does not know (it restarted, nodes only register at their own start) register them
+  (`node_adopted`); a heartbeat or register of a node that was DOWN is audited as `node_reconnect`.
 
 ## Pairing (revision 3)
 
@@ -70,7 +76,7 @@ announced revision 3 or newer (`net.peer_revision`).
 |---|---|---|
 | `pair_announce` (event, reliable) | node -> master | `{ type, role, entry, setup }`: `entry` is the node's own entry of its plan (or none), `setup` is `{ state, fail, warn, version }` from its `crn_status.lua` record |
 | `pair_probe` (event, reliable) | setup wizard -> master | same payload; sent by `scripts/setup.lua` for the link test. It registers nothing: a master that knows the computer answers `known`, otherwise the computer waits as a candidate like after an announcement |
-| `pair_state` (cmd) | master -> node | `{ cmd = "pair_state", state, detail }`; sent when the state changes, answered with an ack |
+| `pair_state` (cmd) | master -> node | `{ cmd = "pair_state", state, detail, probe_id? }`; sent to a node when its state changes (unasked), answered with an ack. A `pair_probe` is a question and is answered **every time**, even with the same state as before; that answer carries `probe_id` (the id of the probe message), and the asking side ignores an answer that names another probe |
 
 States: `known` (in the plan with this role), `pending` (waits for the operator), `conflict` (the id is in the plan with another role; `detail`
 is the planned role), `rejected` / `muted` (the operator said no; ignored for 10 minutes), `full` (64 candidates already wait), `invalid`

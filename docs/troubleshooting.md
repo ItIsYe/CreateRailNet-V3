@@ -47,6 +47,14 @@ Default timeout is 6 seconds. Node heartbeats fire every 2 seconds.
 - **Wrong channel**: Node and master must use the same `channel` in config.
 - **Server lag**: At low TPS, heartbeat intervals stretch. Consider increasing `heartbeat_timeout_s` in config (e.g. to 15 for laggy servers).
 
+## A computer runs but the master ignores it
+
+The master handles only computers that its plan lists **with the role they announce**. A computer that is not listed, or whose id has another role in the plan, is not registered
+and its events (sensor, train, station, depot, panel) are ignored; it waits on the master's page *EINRICHTUNG* (third page) or shows red there.
+- Open that page. Accept the computer (it is written into the plan), or correct the id/role of the entry in the plan.
+- Blocks and routes that use a computer you just accepted apply after a restart of the master.
+- A panel does not steer until the master has heard from it (its heartbeat, every 2 s); a panel that is not in the plan never does.
+
 ## A signal shows something else than the master wants
 
 The master sends signals again at start, a few per second afterwards (`signal_refresh_per_s`) and when a signal node comes back, so a wrong

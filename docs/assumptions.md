@@ -20,8 +20,9 @@
 
 ## Setup and pairing
 
-- **Announcing grants nothing.** A computer that is not in the plan can announce itself to the master (`pair_announce`). It waits as a candidate; only an operator's
-  deliberate two-touch on the master (**[ANNEHMEN]**) writes its entry into the plan. There is no time window in which acceptance happens by itself, because a window
+- **Announcing grants nothing.** A computer that is not in the plan can announce itself to the master (`pair_announce`). It waits as a candidate and is not a node: the master does not
+  register it and ignores its events, whatever role it claims; only an operator's deliberate two-touch on the master (**[ANNEHMEN]**) writes its entry into the plan.
+  The plan is the one list of who belongs to the network, and an event type is taken from the role that owns it (`docs/protocol.md`). There is no time window in which acceptance happens by itself, because a window
   would turn "someone in range" into "part of the network". Candidates are bounded (64), forgotten after an hour, and everything they send is cut down before it is kept.
 - **Setup never actuates hardware.** The wizard and the doctor only read (peripherals, files, the answer of the master); they never switch a signal or a turnout, so there is no
   release gate in the dispatcher. The record `crn_status.lua` (KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN) is information for the operator, not a permission.
@@ -29,6 +30,8 @@
   must not silently talk through a different network); a missing named monitor falls back to the first one (a display is not safety relevant). Real monitors are called
   `monitor_<n>` or like their side, never `monitor`; the code looks them up by type when no name fits. **Not verified in the game** (read from the CC:Tweaked API): the exact
   names a real computer reports, and the behaviour of wired versus wireless modems.
+- **Accepting does not reconfigure a running dispatcher.** The entry is written to the plan file and the master's device lookup follows it, but blocks and routes are built from the
+  plan at start: what uses the new computer applies after a restart of the master. A live reload of the dispatcher is not built (it would touch the safety core for a rare operation).
 - **No distribution of the plan.** Every computer reads its own plan file. Signal, sensor, switch, train and panel computers need only a short plan; a station or depot
   computer needs its platforms/tracks in its own plan, so it needs the full plan copied (the doctor says so). Distributing plans is not built.
 - **On-screen text is ASCII.** The terminal shows bytes; umlauts would depend on the font and the CC version, so wizard, installer and master page write `ae oe ue ss`. Whether

@@ -43,7 +43,8 @@ master then waits in recovery mode until an operator confirms.
 - Anything uncertain is RED: unknown node, FAULT block, recovery, maintenance.
 - The master sends signals again instead of trusting what they show: everything at start, a few blocks per second in a rolling refresh,
   all signals of a node that comes back; RED everywhere when the master stops.
-- Commands only from the master (and `cmd_sources`); sensor events only from the sensor itself; manual control only from panels;
+- Commands only from the master (and `cmd_sources`); only computers the plan lists are nodes (a stranger can announce itself and wait, nothing
+  else); an event type is taken from the role that owns it (sensor events only from the sensor itself, manual control only from panels);
   updates only from the master and `ota_sources`.
 - Files are written with a temporary file, read back, a `.prev` copy and rollback (`safe_write`); over-the-air updates are transactions
   with a journal and an automatic return to the old version (`docs/OTA.md`).

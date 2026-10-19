@@ -90,11 +90,15 @@ Ein Computer, der noch nicht im Netzplan des Masters steht, meldet sich nach dem
 Prüfprotokoll). Der Master tut damit **nichts außer es anzuzeigen**: der Computer bekommt keine Befehle, keinen Block und keine Fahrt.
 
 - Am Master erscheint eine gelbe Meldung „Neuer Computer wartet: SIG-3 (signal)" und die Statusseite wird gelb.
-- Die Seite **EINRICHTUNG** (zweite Seite nach den Meldungen) zeigt vier Zeilen: Netzplan hat Blöcke und Routen, Computer online, Prüfung der Computer,
-  neue Computer. Jede Zeile hat ein Wort (OK, OFFEN, FEHLER), nicht nur eine Farbe. Darunter die wartenden Computer.
+- Die Seite **EINRICHTUNG** (dritte Seite, nach Status und Meldungen) zeigt vier Zeilen: Netzplan hat Blöcke und Routen, Computer online, Selbsttest der Computer
+  (was jeder über sich selbst herausgefunden hat, „lokal geprüft"; keine Freigabe der Strecke), neue Computer, die auf Annahme warten. Jede Zeile hat ein Wort (OK, OFFEN, FEHLER), nicht nur eine Farbe. Darunter die wartenden Computer.
 - Zeile antippen wählt aus. **[ANNEHMEN]** fragt beim ersten Antippen („[SICHER?]") und schreibt beim zweiten den Eintrag in den Netzplan des Masters
   (`configs/network.json`, alte Fassung als `.prev`, vorher wird geprüft, dass der Plan mit dem Eintrag gültig bleibt). **[ABLEHNEN]** ignoriert die ID etwa 10 Minuten.
 - Steht die ID schon mit anderer Rolle im Plan, ist die Zeile rot und kann nicht angenommen werden.
+- Ein wartender Computer ist **kein Node**: der Master registriert ihn nicht, ignoriert seine Ereignisse (auch Bedienbefehle von etwas, das sich „Panel" nennt) und schickt ihm nichts.
+  Erst der Eintrag im Netzplan macht ihn dazu.
+- Nach dem Annehmen steht der Eintrag im Plan und der Computer ist ein Node. **Bloecke und Routen, die ihn benutzen, gelten nach einem Neustart des Masters** (der Dispatcher wird beim
+  Start aus dem Plan gebaut); die Meldung auf dem Monitor sagt das.
 - Der Computer erfährt das Ergebnis (`known` / `rejected`), schreibt es ins Log und fragt danach nur noch alle 10 Minuten.
 
 Läuft der Master mit einer Vorlage aus `configs/templates/` statt mit einer eigenen `configs/network.json`, nimmt er niemanden auf (die Vorlagen bleiben unverändert):
@@ -118,132 +122,28 @@ die fehlende OTA-Wiederherstellung ihrer `startup.lua` selbst hinzu, und die neu
 (`docs/OTA.md`). Nach der ersten Einrichtung einer Welt einmal `docs/INGAME_TESTS.md` durcharbeiten.
 
 
-## Ziel
+## Von Hand starten
 
-Diese Datei beschreibt den einfachen Start in CC:Tweaked / ATM10.
-
-## Minimaler Ablauf
-
-1. Repository-Dateien auf die Computer kopieren.
-2. Auf jedem Computer eine Rolle wählen.
-3. Eine passende Startdatei aus `scripts/` als `startup.lua` kopieren oder direkt ausführen.
-4. `configs/templates/network.full.example.json` an deine Welt anpassen.
-5. Config prüfen, bevor du echte Hardware schaltest.
-
-## Starter
-
-### Master
+Der Assistent schreibt `startup.lua`, danach startet der Computer seine Rolle von selbst. Von Hand geht es mit dem passenden Starter (er liegt ab der
+Installation auf dem Computer und wird nie überschrieben):
 
 ```lua
-shell.run("scripts/start_master.lua")
+shell.run("scripts/start_master.lua")   -- start_train, start_panel, start_signal, start_sensor, start_switch, start_station, start_depot
 ```
 
-### Train
+## Werkzeuge
 
-```lua
-shell.run("scripts/start_train.lua")
-```
-
-### Panel
-
-```lua
-shell.run("scripts/start_panel.lua")
-```
-
-### Signal
-
-```lua
-shell.run("scripts/start_signal.lua")
-```
-
-### Sensor
-
-```lua
-shell.run("scripts/start_sensor.lua")
-```
-
-### Switch
-
-```lua
-shell.run("scripts/start_switch.lua")
-```
-
-### Station
-
-```lua
-shell.run("scripts/start_station.lua")
-```
-
-### Depot
-
-```lua
-shell.run("scripts/start_depot.lua")
-```
-
-## Config Check
-
-Vor dem Ingame-Test:
-
-```lua
-local check = require("src.tools.config_check")
-check.run("configs/templates/network.full.example.json")
-```
-
-Das prüft Struktur, Rollen, Routen, Service-Pläne, Stops und Referenzen.
-
-## Dry-Run System Check
-
-Ohne reale Hardware zu schalten:
-
-```lua
-local sys = require("src.tools.system_check")
-sys.run("configs/templates/network.full.example.json")
-```
-
-Der Check baut Domain-Modelle auf und testet einen Dispatcher-Reservierungspfad mit Fake-Adaptern.
-
-## Peripheral Inspector
-
-Zum Prüfen von Methoden und Seiten:
-
-```lua
-local insp = require("src.tools.peripheral_inspector")
-insp.run()
-```
-
-Oder für eine Seite:
-
-```lua
-local insp = require("src.tools.peripheral_inspector")
-insp.run({ side = "left" })
-```
-
-Das ist besonders wichtig für Create Train Schedule, weil die echten Methoden im Modpack/Peripheral sichtbar gemacht werden müssen.
-
-## Debug Events
-
-Sichere Testevents an den Master senden:
-
-```lua
-local dbg = require("src.tools.debug_events")
-dbg.run({ kind = "sensor", sensor_id = "SEN-AB", action = "enter" })
-```
-
-```lua
-local dbg = require("src.tools.debug_events")
-dbg.run({ kind = "train_depart", train_id = "TRAIN-1", from = "ST-A", to = "ST-B" })
-```
-
-```lua
-local dbg = require("src.tools.debug_events")
-dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
-```
+Auf dem Spiel-Computer sind `scripts/setup.lua --check`, `--doctor` und `peripherals` (CC:Tweaked) die Werkzeuge für Einrichtung und Fehlersuche. Die Programme in `src/tools/`
+(Config-Check, System-Check, Peripheral Inspector, Debug-Events und andere) sind **Entwicklerwerkzeuge**: der Installer legt sie nicht auf Spiel-Computern ab.
+Sie stehen in `docs/TOOLS.md`. Wer den Peripheral Inspector im Spiel braucht (etwa um die echten Methoden des Create-Bahnhofs zu sehen), kopiert die einzelne Datei
+`src/tools/peripheral_inspector.lua` an denselben Pfad auf den Computer (zum Beispiel mit `wget` von GitHub); er benötigt nur Module, die der Installer ohnehin mitbringt.
+Im Spiel ist das nicht getestet.
 
 ## Wichtige Config-Felder
 
 - `channel`: gemeinsamer Funkkanal
 - `master_id`: ID des Master-Computers
-- `nodes`: alle Rollen im Netz
+- `nodes`: alle Computer im Netz, je einer pro Eintrag mit seiner Rolle (neue Computer trägt der Master selbst ein, siehe oben)
 - `blocks`: reale Gleisabschnitte
 - `routes`: fahrbare Routen über Blöcke
 - `service_plans`: Umläufe/Fahrpläne für Trains

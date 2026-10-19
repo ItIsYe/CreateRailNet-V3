@@ -1,5 +1,10 @@
 # CreateRailNet-V3 Tools
 
+The programs in `src/tools/` described below are **development tools**: they run in the repository (or the simulation) and are not installed on game
+computers by the installer (`install/manifest.lua` does not list them). On a game computer use `scripts/setup.lua --check` and `--doctor` (see "Scripts"
+below). A single tool can be copied to a computer by hand to the same path if it is needed there (for example the peripheral inspector); that is not tested
+in the game.
+
 ## Config Check
 
 ```lua

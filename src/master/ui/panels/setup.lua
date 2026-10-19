@@ -8,6 +8,8 @@ Notes: four lines say how far the setup is: the plan has blocks and routes, the 
   check, nobody is waiting. Every line has a word as well as a colour (OK / OFFEN / FEHLER), so a monochrome monitor shows the same.
   Waiting computers are listed below; touching a row selects it, [ANNEHMEN] writes its entry into the plan (touch twice: the first touch
   asks), [ABLEHNEN] ignores it for a while. A computer whose id is in the plan with another role is shown red and cannot be accepted.
+  Words that stay apart: "Selbsttest" is what a computer found out about itself (the doctor), "angenommen" is the operator's entry in the
+  plan, and nothing on this page says that a track is released: the release of a stretch is the operator's decision, made on the track.
 ]]
 
 local ui_utils = require("src.master.ui.ui_utils")
@@ -104,18 +106,18 @@ function setup_panel.new(sources)
       else open = open + 1 end
     end
     if #nodes == 0 then
-      lines[#lines + 1] = { word = "OFFEN", text = "Pruefung der Computer: nichts zu pruefen" }
+      lines[#lines + 1] = { word = "OFFEN", text = "Selbsttest: nichts zu pruefen" }
     elseif open > 0 then
-      lines[#lines + 1] = { word = "FEHLER", text = "Pruefung: " .. open .. " Computer mit offener Pruefung" }
+      lines[#lines + 1] = { word = "FEHLER", text = "Selbsttest: " .. open .. " Computer mit offener Pruefung" }
     elseif unknown > 0 then
-      lines[#lines + 1] = { word = "OFFEN", text = "Pruefung: " .. unknown .. " Computer ohne Pruefprotokoll" }
+      lines[#lines + 1] = { word = "OFFEN", text = "Selbsttest: " .. unknown .. " Computer ohne Pruefprotokoll" }
     else
-      lines[#lines + 1] = { word = "OK", text = "Pruefung: alle " .. clean .. " Computer geprueft" }
+      lines[#lines + 1] = { word = "OK", text = "Selbsttest: alle " .. clean .. " Computer lokal geprueft" }
     end
 
     local waiting = src.pairing and src.pairing.count and src.pairing.count() or 0
     if waiting > 0 then
-      lines[#lines + 1] = { word = "OFFEN", text = "Neue Computer: " .. waiting .. " warten auf Freigabe" }
+      lines[#lines + 1] = { word = "OFFEN", text = "Neue Computer: " .. waiting .. " warten auf Annahme" }
     else
       lines[#lines + 1] = { word = "OK", text = "Neue Computer: keiner wartet" }
     end
@@ -138,7 +140,7 @@ function setup_panel.new(sources)
     elseif entry.peripheral then bits[#bits + 1] = tostring(entry.peripheral)
     elseif entry.create_station_name then bits[#bits + 1] = tostring(entry.create_station_name)
     elseif entry.display_name then bits[#bits + 1] = tostring(entry.display_name) end
-    if candidate.setup and candidate.setup.state then bits[#bits + 1] = candidate.setup.state == "GEPRUEFT" and "geprueft" or "Pruefung offen" end
+    if candidate.setup and candidate.setup.state then bits[#bits + 1] = candidate.setup.state == "GEPRUEFT" and "Selbsttest ok" or "Selbsttest offen" end
     return table.concat(bits, ", ")
   end
 

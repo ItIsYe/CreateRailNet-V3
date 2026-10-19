@@ -62,6 +62,9 @@ echten Monitor aussieht. Master mit Netzplan und mindestens zwei weitere Compute
 | 0ab | Station-Computer mit Kurzplan: `--doctor` | Hinweis „Bahnhof ohne Bahnsteige" mit dem Weg (vollständigen Plan kopieren); nach dem Kopieren und „Eigene Datei angeben" verschwindet er | | |
 | 0ac | Installer auf einem echten Terminal und auf einem Pocket-Computer | der Fortschritt ist **eine** Zeile, die sich überschreibt; Zeilen umbrechen an Wortgrenzen; Fehler rot, Hinweise gelb | Zeilen springen oder doppeln sich: Terminalgröße und Verhalten notieren (`install/ui.lua`) | |
 | 0ad | `print(string.char(228, 246, 252, 223))` am Terminal und auf einem Monitor | zeigt ä ö ü ß, dann könnten Texte später Umlaute bekommen (derzeit steht alles in ASCII: ae oe ue ss) | andere Zeichen: ASCII beibehalten | |
+| 0ae | ein Computer, der **nicht** im Plan steht, als Panel eingerichtet (Rolle `panel`), versucht am Panel einen Bedienbefehl (zum Beispiel Not-Halt) | der Master ignoriert ihn; der Computer steht auf der Seite EINRICHTUNG; im Audit `event_rejected`, keine Wirkung auf Züge oder Signale | der Befehl wirkt: sofort melden, Protokoll (Audit) aufheben | |
+| 0af | denselben Computer annehmen (zwei Berührungen), Master neu starten, dann dieselbe Aktion | die Meldung nach dem Annehmen nennt den Neustart; nach dem Neustart steht der Computer im Plan und das Panel funktioniert | Panel bleibt wirkungslos: `configs/network.json` und Rolle des Eintrags prüfen | |
+| 0ag | auf einem laufenden Node mehrmals `scripts/setup.lua --doctor` nacheinander (Master unverändert) | jedes Mal dieselbe Zeile zum Master (`antwortet und kennt ...` oder `kennt ... noch nicht`), nie „aelterer Stand" | „aelterer Stand" erscheint beim zweiten Aufruf: melden | |
 
 ## 1. Was macht ein Create-Signal, wenn sein Computer ausfällt? (offene Frage Nr. 1)
 

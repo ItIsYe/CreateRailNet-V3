@@ -25,11 +25,17 @@ alert "Neuer Computer wartet: <id> (<rolle>)" (yellow) points at it. Touch its r
 entry into the plan file (`configs/network.json`; the old file stays as `.prev`) and tells the computer. **[ABLEHNEN]** ignores that id for 10 minutes.
 A computer whose id stands in the plan with another role is shown red and cannot be accepted; fix the id or the role first.
 
-- Announcing grants nothing. A waiting computer gets no commands, owns no blocks, and is forgotten after an hour of silence; at most 64 wait at once.
-- Accepting writes the entry only. Blocks, routes and signals still come from the plan, so a new signal node does nothing until the plan uses its id.
+- Announcing grants nothing. A waiting computer is not registered, its events are ignored (also `manual_control` from something that calls itself a panel),
+  it gets no commands and no panel snapshot, and it is forgotten after an hour of silence; at most 64 wait at once. The same holds for a computer whose id is in
+  the plan with another role.
+- Accepting writes the entry only. Blocks, routes and signals still come from the plan, so a new signal node does nothing until the plan uses its id; the
+  dispatcher is built from the plan at start, so **blocks and routes that use a new computer apply after a restart of the master** (the acceptance message says so).
+  The master's lookup of device names (`modem`, `peripheral`, `side`) follows the plan at once.
+- **When updating a network that ran before this rule:** every computer must be listed in the master's plan (the documentation always required that). A computer that was
+  not listed used to be adopted by its heartbeat; it now waits on the setup page. Open that page after the update and accept the ones that belong to the network.
 - A master that runs on a bundled template (`configs/templates/...`) or on a plan that does not validate refuses to write and says why; create
   an own plan with `scripts/setup.lua` first (`--check` names the errors).
-- A computer of the plan shows what it reported about its own setup (`crn_status.lua`: KONFIGURIERT / GEPRUEFT / Pruefung offen). This is information for the
+- A computer of the plan shows what it reported about its own setup (`crn_status.lua`: KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN, shown as "Selbsttest ok" / "Selbsttest offen"). This is information for the
   operator, not a release: setup never switches a signal or a turnout, and the dispatcher does not wait for it.
 - Audit: `pair_candidate`, `pair_conflict`, `node_accepted`, `pair_rejected`.
 
