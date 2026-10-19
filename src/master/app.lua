@@ -36,6 +36,7 @@ local gleisbild_panel = require("src.master.ui.panels.gleisbild")
 local peripherals = require("src.adapter.peripherals")
 local monitors = require("src.adapter.monitors")
 local pairing_module = require("src.master.pairing")
+local plan_service_module = require("src.master.plan_service")
 local setup_panel = require("src.master.ui.panels.setup")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
@@ -154,6 +155,8 @@ function app.new(args)
   context.manual_control = manual_control.new(context)
   context.ota = ota_manager.new(network, reg, logger)
   context.pairing = pairing
+  -- station and depot computers fetch their plan from here (setup wizard); the file is read when they ask
+  context.plan_service = plan_service_module.new({ plan_path = parsed.config or "configs/templates/network.example.json", fs = _G.fs })
   context.cargo = cargo_module.new(cfg)
 
   -- Rewire interactive panels with manual_control and full context

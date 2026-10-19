@@ -14,7 +14,7 @@ local time = require("src.shared.time")
 local net = {}
 
 net.PROTOCOL_VERSION = 1
-net.PROTOCOL_REVISION = 3
+net.PROTOCOL_REVISION = 4
 
 local MAX_ID_LENGTH = 160
 local MAX_NODE_LENGTH = 64

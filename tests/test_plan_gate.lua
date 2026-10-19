@@ -11,13 +11,16 @@ local runtime_factory = require("src.master.runtime")
 local registry_factory = require("src.shared.registry")
 local alerts_module = require("src.domain.alerts")
 local pairing_module = require("src.master.pairing")
+local plan_service_module = require("src.master.plan_service")
+local checksum = require("src.shared.checksum")
 local log_collector = require("src.domain.log_collector")
 local memfs = require("tests.harness.memfs")
 local netplan = require("src.setup.netplan")
 
 local PLAN = "configs/network.json"
 
-local function master()
+local function master(opts)
+  local o = opts or {}
   local fs = memfs.new()
   local cfg = {
     v = 1, channel = 1, master_id = "M", blocks = {}, routes = {},
@@ -27,11 +30,13 @@ local function master()
     },
   }
   fs.set(PLAN, netplan.encode(cfg))
-  local env = { fs = fs, cfg = cfg, sent = {}, audits = {}, calls = { sensor = {}, manual = {}, train = {}, station = {}, depot = {}, ota = {} } }
+  local env = { fs = fs, cfg = cfg, sent = {}, audits = {}, no_plan_service = o.no_plan_service, calls = { sensor = {}, manual = {}, train = {}, station = {}, depot = {}, ota = {} } }
   env.alerts = alerts_module.new()
   env.logs = log_collector.new()
   env.pairing = pairing_module.new({ config = cfg, plan_path = PLAN, fs = fs })
   env.registry = registry_factory.new()
+  local plan_service = nil
+  if not o.no_plan_service then plan_service = plan_service_module.new({ plan_path = PLAN, fs = fs, chunk_size = 200 }) end
   env.runtime = runtime_factory.new({
     config = cfg, registry = env.registry,
     dispatcher = {
@@ -47,6 +52,7 @@ local function master()
     ui = { mark_dirty = function() end, draw = function() end, handle_touch = function() end },
     audit_log = { record = function(kind, data) env.audits[#env.audits + 1] = { kind = kind, data = data } end },
     alerts = env.alerts, pairing = env.pairing, logs = env.logs,
+    plan_service = plan_service,
     manual_control = { handle = function(payload, src) env.calls.manual[#env.calls.manual + 1] = src .. ":" .. tostring(payload.action); return true end },
     route_integration = {
       handle_train_request = function(payload, src) env.calls.train[#env.calls.train + 1] = src; return true end,
@@ -77,6 +83,14 @@ local function master()
 end
 
 local function none(list) return #list == 0 end
+
+local function parts_to(m, src, role)
+  m.event(src, { type = "plan_get", role = role, index = 1 })
+  local first
+  for _, item in ipairs(m.sent) do if item.kind == "cmd" and item.dst == src and item.payload.cmd == "plan_part" then first = item.payload end end
+  return first
+end
+
 
 return {
   test_a_stranger_who_calls_itself_a_panel_cannot_steer = function()
@@ -202,6 +216,63 @@ return {
     m.event("NEW-2", { type = "pair_probe", role = "sensor", entry = { id = "NEW-2", role = "sensor" } })
     assert(m.pairing.get("NEW-1") and m.pairing.get("NEW-2"))
     assert(not m.rejected("NEW-1") and not m.rejected("NEW-2"))
+  end,
+
+  -- the plan itself: handed out to the station and depot computers of the plan, and to nobody else ---------------------------------
+
+  test_a_station_and_a_depot_of_the_plan_get_the_plan_in_parts = function()
+    local m = master()
+    for _, who in ipairs({ { "ST-1", "station" }, { "DEP-1", "depot" } }) do
+      m.sent = {}
+      local first = parts_to(m, who[1], who[2])
+      assert(first and first.ok and first.index == 1 and first.total > 1, "several parts of 200 bytes")
+      local text = first.data
+      for index = 2, first.total do
+        m.event(who[1], { type = "plan_get", role = who[2], index = index, version = first.version })
+        local part = m.sent[#m.sent].payload
+        assert(part.ok and part.index == index and part.version == first.version)
+        text = text .. part.data
+      end
+      assert(text == m.fs.files[PLAN] and #text == first.size)
+      assert(checksum.hex(checksum.adler32(text)) == first.version)
+    end
+    local served = false
+    for _, a in ipairs(m.audits) do if a.kind == "plan_served" and a.data.node_id == "DEP-1" then served = true end end
+    assert(served, "handing the plan out is audited")
+  end,
+
+  test_the_answer_names_the_question_and_is_not_kept_for_retries = function()
+    local m = master()
+    m.event("ST-1", { type = "plan_get", role = "station", index = 1 })
+    local reply = m.sent[#m.sent]
+    assert(reply.kind == "cmd" and reply.dst == "ST-1" and reply.reliable == nil, "a plain message: the asker asks again")
+    assert(type(reply.payload.question) == "string" and reply.payload.cmd == "plan_part")
+  end,
+
+  test_the_plan_is_refused_to_everybody_else_with_a_small_answer = function()
+    local m = master()
+    local stranger = parts_to(m, "EVIL-1", "station")
+    assert(stranger and stranger.ok == false and stranger.state == "refused" and stranger.reason == "not_in_plan" and stranger.data == nil)
+    local sensor = parts_to(m, "SEN-1", "sensor")
+    assert(sensor.ok == false and sensor.reason == "role" and sensor.data == nil, "only the roles that read their platforms and tracks from the plan")
+    local claims = parts_to(m, "SEN-1", "station")
+    assert(claims.ok == false and claims.reason == "conflict" and claims.data == nil, "the role in the plan counts")
+    for _, a in ipairs(m.audits) do assert(a.kind ~= "plan_served", "nothing was handed out") end
+    assert(#m.alerts.list() == 0 and m.registry.get("EVIL-1") == nil, "asking registers nothing and raises nothing")
+  end,
+
+  test_a_master_without_a_plan_service_says_so = function()
+    local m = master({ no_plan_service = true })
+    local reply = parts_to(m, "ST-1", "station")
+    assert(reply and reply.ok == false and reply.reason == "unavailable")
+  end,
+
+  test_many_strangers_asking_for_the_plan_cost_one_small_answer_each = function()
+    local m = master()
+    for i = 1, 200 do m.event("NOISE-" .. i, { type = "plan_get", role = "station", index = 1 }) end
+    assert(#m.sent == 200)
+    for _, item in ipairs(m.sent) do assert(item.payload.data == nil and item.payload.ok == false) end
+    assert(#m.alerts.list() == 0)
   end,
 
   test_a_plan_without_nodes_admits_nobody = function()

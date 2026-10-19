@@ -35,6 +35,7 @@ function master_runtime.new(context)
     maintenance = context.maintenance,
     ota = context.ota,
     pairing = context.pairing,
+    plan_service = context.plan_service,
     alerts = context.alerts,
     logs = context.logs,
     trace = context.trace,
@@ -428,6 +429,25 @@ function master_runtime.new(context)
       runtime.network.ack_for(msg, true)
       runtime.ui.mark_dirty()
     end,
+    -- a station or depot computer asks for the plan (setup wizard): the plan is handed out, in parts, to those two roles of the plan and to
+    -- nobody else; the others are told why not (a small answer, nothing is kept for them)
+    plan_get                 = function(msg)
+      local payload = msg.payload or {}
+      local role = plan_role_of(msg.src)
+      local reply
+      if not runtime.plan_service then reply = { ok = false, state = "refused", reason = "unavailable" }
+      elseif not role then reply = { ok = false, state = "refused", reason = "not_in_plan" }
+      elseif payload.role ~= nil and payload.role ~= role then reply = { ok = false, state = "refused", reason = "conflict" }
+      elseif role ~= "station" and role ~= "depot" then reply = { ok = false, state = "refused", reason = "role" }
+      else
+        reply = runtime.plan_service.part(payload.index, payload.version)
+        if reply.ok and reply.index == 1 then audit("plan_served", { node_id = msg.src, version = reply.version, parts = reply.total }) end
+      end
+      reply.cmd, reply.question = "plan_part", msg.id
+      -- no retry state on the master: the asker asks for a part again when it did not arrive
+      runtime.network.send("cmd", msg.src, reply)
+      runtime.network.ack_for(msg, true)
+    end,
     pair_probe               = function(msg)
       local payload = msg.payload or {}
       note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup }, msg.id)
@@ -439,7 +459,7 @@ function master_runtime.new(context)
   -- Who may send what. The plan decides who is a node and with which role; an event type that belongs to one role (a sensor event comes from a
   -- sensor and names itself, manual control comes from a panel) is taken from that role only, every other event (log, update) from any node
   -- of the plan. Only the announcements of pairing are open to every computer.
-  local OPEN_EVENTS = { pair_announce = true, pair_probe = true }
+  local OPEN_EVENTS = { pair_announce = true, pair_probe = true, plan_get = true }
   local EVENT_ROLE = {
     sensor = "sensor",
     train_status = "train", request_departure = "train", arrived = "train", schedule_applied = "train", train_fault = "train",

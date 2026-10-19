@@ -64,6 +64,7 @@ local tests = {
   "tests/test_pairing_flow.lua",
   "tests/test_link.lua",
   "tests/test_plan_gate.lua",
+  "tests/test_plan_service.lua",
   "tests/test_setup_panel.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",
