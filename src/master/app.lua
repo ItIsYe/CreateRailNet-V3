@@ -36,6 +36,7 @@ local gleisbild_panel = require("src.master.ui.panels.gleisbild")
 local peripherals = require("src.adapter.peripherals")
 local monitors = require("src.adapter.monitors")
 local pairing_module = require("src.master.pairing")
+local setup_panel = require("src.master.ui.panels.setup")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
 local create_switches = require("src.adapter.create_switches")
@@ -95,8 +96,20 @@ function app.new(args)
   local context, instance
   local alerts = alerts_module.new()
   local logs = log_collector.new()
+  -- computers that announce themselves but are not in the plan wait for the operator; accepting writes into this plan file
+  local pairing = pairing_module.new({
+    config = cfg, plan_path = parsed.config or "configs/templates/network.example.json", fs = _G.fs,
+    audit = function(kind, data) audits.record(kind, data) end,
+  })
   local ui = ui_core.new(monitor, {
     alerts    = alerts_panel.new(alerts, nil),
+    setup     = setup_panel.new({
+      config = cfg, registry = reg, pairing = pairing,
+      decide = function(action, id, operator)
+        if instance and instance.runtime then return instance.runtime.pair_decide(action, id, operator) end
+        return false, "Der Master startet noch."
+      end
+    }),
     status    = status_panel.new({
       alerts = alerts,
       registry = reg,
@@ -140,11 +153,7 @@ function app.new(args)
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
   context.ota = ota_manager.new(network, reg, logger)
-  -- computers that announce themselves but are not in the plan wait for the operator; accepting writes into this plan file
-  context.pairing = pairing_module.new({
-    config = cfg, plan_path = parsed.config or "configs/templates/network.example.json", fs = _G.fs,
-    audit = function(kind, data) audits.record(kind, data) end,
-  })
+  context.pairing = pairing
   context.cargo = cargo_module.new(cfg)
 
   -- Rewire interactive panels with manual_control and full context

@@ -193,13 +193,13 @@ function doctor.run(opts)
       end
     elseif role == "station" then
       if type(entry.platforms) ~= "table" or #entry.platforms == 0 then
-        add("device", "warn", "Bahnhof ohne Bahnsteige", "Beim Eintrag " .. ctx.id .. " fehlt \"platforms\" (Bahnsteige mit sensor_id und block_id). Beispiel: configs/templates/network.station.example.json.")
+        add("device", "warn", "Bahnhof ohne Bahnsteige", "Die Bahnsteige stehen im Eintrag " .. ctx.id .. " unter \"platforms\" (mit sensor_id und block_id; Beispiel: configs/templates/network.station.example.json). Dieser Computer liest nur seinen eigenen Netzplan: den kompletten Plan des Masters hierher kopieren und im Assistenten \"Eigene Datei angeben\" waehlen.")
       else
         add("device", "ok", "Bahnhof: " .. #entry.platforms .. " Bahnsteig(e)")
       end
     elseif role == "depot" then
       if type(entry.tracks) ~= "table" or #entry.tracks == 0 then
-        add("device", "warn", "Depot ohne Gleise", "Beim Eintrag " .. ctx.id .. " fehlt \"tracks\" (Gleise mit sensor_id und block_id). Beispiel: configs/templates/network.depot.example.json.")
+        add("device", "warn", "Depot ohne Gleise", "Die Gleise stehen im Eintrag " .. ctx.id .. " unter \"tracks\" (mit sensor_id und block_id; Beispiel: configs/templates/network.depot.example.json). Dieser Computer liest nur seinen eigenen Netzplan: den kompletten Plan des Masters hierher kopieren und im Assistenten \"Eigene Datei angeben\" waehlen.")
       else
         add("device", "ok", "Depot: " .. #entry.tracks .. " Gleis(e)")
       end

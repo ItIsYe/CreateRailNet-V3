@@ -51,11 +51,12 @@ function common_node.new(opts)
   -- pairing (below): asked every few seconds until the master has said that it knows this computer
   node.pair = { state = nil, announced_at = nil }
   node.ticker.every("pair", 5, function()
-    if node.pair.state == "known" then return end
     local revision = node.net.peer_revision(node.config.master_id)
     if not revision or revision < 3 then return end
     local now = (opts.clock or function() return time.now_ms() / 1000 end)()
-    local wait = node.pair.state and 300 or 20
+    -- not heard back yet: every 20 s; waiting for the operator: every 5 minutes; known: every 10 minutes (the master forgets the
+    -- setup record it was told when it restarts, and the operator sees it on the setup page)
+    local wait = node.pair.state == "known" and 600 or (node.pair.state and 300 or 20)
     if node.pair.announced_at and now - node.pair.announced_at < wait then return end
     node.pair.announced_at = now
     node.announce()
@@ -79,7 +80,7 @@ function common_node.new(opts)
 
   -- Pairing: the node tells the master which entry of the plan it is (and how far its setup got). A master that does not know the
   -- computer shows it to the operator; the answer (cmd pair_state) is kept here and written to the log when it changes.
-  -- Asked once the master has shown that it understands it (protocol revision 3), again every 5 minutes while it is not "known".
+  -- Asked once the master has shown that it understands it (protocol revision 3), then again now and then (see the job below).
   function node.announce()
     local entry = nil
     for _, candidate in ipairs(node.config.nodes or {}) do if candidate.id == node.id then entry = candidate end end

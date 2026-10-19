@@ -127,6 +127,7 @@ local files = {
   "tests/test_pairing.lua",
   "tests/test_pairing_flow.lua",
   "tests/test_link.lua",
+  "tests/test_setup_panel.lua",
   "tests/harness/setup_world.lua",
   "tests/harness/installer_world.lua",
   "tests/test_sleep_guard.lua",

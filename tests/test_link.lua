@@ -147,23 +147,24 @@ return {
     local b = bus()
     local m = master_on(b)
     local pulls = 0
+    -- before the master has said anything: a pair_state from somebody who is not the master, a message of another protocol, a string
     local function hostile(timeout)
       pulls = pulls + 1
-      m.step()
       if pulls == 1 then
-        -- a pair_state from somebody who is not the master, then garbage, then something that is no message
         local fake = net.new(b.master_modem, 7, "EVIL", quiet, b.time)
         fake.send("cmd", "SIG-9", { cmd = "pair_state", state = "known" })
         b.inbox.probe[#b.inbox.probe + 1] = { v = 99 }
         b.inbox.probe[#b.inbox.probe + 1] = "nope"
-        return { "modem_message", nil, nil, nil, table.remove(b.inbox.probe, 1) }
+      elseif #b.inbox.probe == 0 then
+        m.step()
       end
       local msg = table.remove(b.inbox.probe, 1)
-      if msg then return { "modem_message", nil, nil, nil, msg } end
+      if msg ~= nil then return { "modem_message", nil, nil, nil, msg } end
       b.clock = b.clock + timeout
       return nil
     end
     local result = probe(b, m, { pull_event = hostile })
+    assert(pulls >= 4, "the three bad messages were looked at first")
     assert(result.state == "pending", "only the master's answer counts: " .. tostring(result.state))
   end,
 

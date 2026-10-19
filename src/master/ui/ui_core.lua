@@ -13,7 +13,7 @@ local once_log = require("src.shared.once_log")
 
 local ui_core = {}
 
-ui_core.PAGE_ORDER = { "status", "alerts", "overview", "gleisbild", "trains", "stations", "depots", "fahrplan", "cargo", "diag", "logs", "ota" }
+ui_core.PAGE_ORDER = { "status", "alerts", "setup", "overview", "gleisbild", "trains", "stations", "depots", "fahrplan", "cargo", "diag", "logs", "ota" }
 
 function ui_core.new(monitor, panels, opts)
   local options = opts or {}

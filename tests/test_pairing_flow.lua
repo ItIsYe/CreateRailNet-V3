@@ -136,7 +136,7 @@ return {
     assert(announcements(bare)[1].payload.entry == nil, "no entry in the plan: the master gets role and id only")
   end,
 
-  test_the_node_asks_again_while_the_master_does_not_know_it_and_stops_when_it_does = function()
+  test_the_node_asks_again_while_the_master_does_not_know_it_and_less_often_once_it_does = function()
     local env = fake_node()
     env.node.start()
     master_says(env, 3)
@@ -153,8 +153,9 @@ return {
     assert(#announcements(env) == 3)
     master_says(env, 3, { cmd = "pair_state", state = "known" }, "m.known")
     tick(env, 400)
+    assert(#announcements(env) == 3, "known: not within 10 minutes")
     tick(env, 400)
-    assert(#announcements(env) == 3, "known: nothing more to say")
+    assert(#announcements(env) == 4, "known: every 10 minutes, so a master that restarted learns the setup record again")
   end,
 
   test_pair_state_is_acknowledged_logged_once_per_change_and_only_taken_from_the_master = function()
@@ -208,6 +209,15 @@ return {
     assert(m.pairing.get("NEW-2").entry.role == "switch")
     m.message("SIG-1", "heartbeat", { role = "signal" })
     assert(m.pairing.get("SIG-1") == nil)
+  end,
+
+  test_a_peer_that_does_not_understand_revision_3_is_not_sent_pair_state_even_if_it_announces = function()
+    local m = fake_master({ revisions = { ["ODD-1"] = 2 } })
+    m.event("ODD-1", { type = "pair_announce", role = "sensor" })
+    m.event("STRANGE-2", { type = "pair_announce", role = "sensor" })
+    assert(m.pairing.get("ODD-1") and m.pairing.get("STRANGE-2"), "both are listed")
+    assert(#m.replies("ODD-1") == 0 and #m.replies("STRANGE-2") == 0, "nobody is told something it may not understand")
+    assert(m.acks == 2)
   end,
 
   test_the_probe_of_the_wizard_is_answered_and_does_not_register_a_node = function()
