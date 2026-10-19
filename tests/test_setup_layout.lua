@@ -137,6 +137,16 @@ return {
     assert(same.run({ "--layout" }, function() return "" end).state == "declined")
   end,
 
+  test_the_plan_is_built_for_the_id_this_master_has = function()
+    local cfg = netplan.short_plan("master", { id = "ZENTRALE-1", role = "master" }, 555, "ZENTRALE-1")
+    local world = setup_world.new({ files = {
+      ["startup.lua"] = startup_template.render({ role = "master", id = "ZENTRALE-1", config = PLAN }), [PLAN] = netplan.encode(cfg), [DEFAULT_FILE] = DESCRIPTION } })
+    local result = world.run({ "--layout" }, responder({ { "configs/network.json speichern?", "j" } }))
+    assert(result.state == "written", tostring(result.state) .. words(world))
+    local plan = plan_of(world)
+    assert(plan.master_id == "ZENTRALE-1" and netplan.find_node(plan, "ZENTRALE-1").role == "master" and netplan.find_node(plan, "MASTER-1") == nil)
+  end,
+
   test_a_channel_in_the_description_wins_over_the_old_one = function()
     local world = master_world({ [DEFAULT_FILE] = DESCRIPTION .. "\nkanal 4242\n" })
     world.run({ "--layout" }, responder({ { "configs/network.json speichern?", "j" } }))

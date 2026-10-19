@@ -34,11 +34,15 @@ function net.validate(msg)
   return true
 end
 
--- differs between boots of the same node: real milliseconds plus a random part (several nets in one test process too)
+-- differs between boots of the same node: real milliseconds plus a random part, the processor time in microseconds and a count of the nets made in this
+-- process (several nets of one node id in one second must not meet: the master drops the second message as a duplicate)
+local nets_made = 0
 local function boot_nonce()
+  nets_made = nets_made + 1
   local epoch = os.epoch and os.epoch("utc") or ((os.time and os.time() or 0) * 1000)
   local jitter = math.random and math.random(0, 65535) or 0
-  return string.format("%x%04x", epoch % 4294967296, jitter)
+  local ticks = math.floor((os.clock and os.clock() or 0) * 1000000) % 4294967296
+  return string.format("%xk%04xk%xk%x", epoch % 4294967296, jitter, ticks, nets_made)
 end
 
 local function now_ms(time_mod)

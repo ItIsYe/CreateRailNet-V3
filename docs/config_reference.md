@@ -23,7 +23,7 @@ valid on its own and holds only this computer and the master:
 }
 ```
 
-The master needs an entry in `nodes` for every computer, with the same fields. `scripts/setup.lua --check [file]` validates a plan on the computer.
+The master needs an entry in `nodes` for every computer, with the same fields. For a whole new network the plan does not have to be typed: `scripts/setup.lua --layout` builds it from a short description (`docs/NETZ_BAUEN.md`). `scripts/setup.lua --check [file]` validates a plan on the computer.
 
 A **station or depot** computer needs its `platforms` / `tracks` in its own plan. The master's plan is the source: put them in the entry of that computer there and let the computer fetch the plan
 (`scripts/setup.lua --fetch-plan`, `docs/INGAME_SETUP.md`); the computer writes it to its own `configs/network.json` after a yes.

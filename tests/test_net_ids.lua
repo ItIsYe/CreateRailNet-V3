@@ -36,6 +36,18 @@ return {
     end
   end,
 
+  -- computers that restart over and over (the link test creates one net per question) must not meet themselves: with only the second and 16 random bits
+  -- two of a few thousand nets of one node id in one second share a prefix (found as a rare failure of the link test), and the master drops the second as a duplicate
+  test_many_nets_of_one_node_in_a_hurry_never_share_a_message_id = function()
+    local net = require("src.shared.net")
+    local seen = {}
+    for _ = 1, 4000 do
+      local msg = net.new(mock_modem.new(), 1, "NODE-A", nil, clock()).send("event", "M", {})
+      assert(not seen[msg.id], "id sent twice: " .. msg.id)
+      seen[msg.id] = true
+    end
+  end,
+
   test_a_rebooted_node_does_not_reuse_the_ids_of_its_previous_boot = function()
     local first = fresh_net_module().new(mock_modem.new(), 1, "NODE-A", nil, clock())
     local second = fresh_net_module().new(mock_modem.new(), 1, "NODE-A", nil, clock())

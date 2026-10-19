@@ -177,6 +177,16 @@ return {
     assert(switches == 2, "p - 1 switches")
   end,
 
+  test_a_station_that_is_only_left_has_no_arrival_switches = function()
+    -- two platforms, but every line leads away from it: nothing arrives, so the ladder of the approach is not built
+    local plan = build("bahnhof ST-A 2\nbahnhof ST-B\nstrecke ST-A ST-B 1 passenger einrichtung\n")
+    assert(by_id(plan.nodes)["SW-A-ARR-1"] == nil and by_id(plan.blocks)["B-A-ARR-1"] == nil)
+    assert(by_id(plan.blocks)["B-A-DEP-1"] and by_id(plan.blocks)["B-A-DEP-2"], "but the platforms have their departure blocks")
+    -- the other way round: nothing leaves, the ladder of the approach exists
+    local arrive = build("bahnhof ST-A\nbahnhof ST-B 2\nstrecke ST-A ST-B 1 passenger einrichtung\n")
+    assert(by_id(arrive.nodes)["SW-B-ARR-1"] and by_id(arrive.nodes)["SW-B-DEP-1"] == nil)
+  end,
+
   test_one_platform_and_one_line_each_way_needs_no_switch_at_all = function()
     local plan = build(SIMPLE)
     for _, node in ipairs(plan.nodes) do assert(node.role ~= "switch") end
@@ -245,6 +255,11 @@ return {
     assert(sp.stops[1].dwell_seconds == 30 and sp.stops[2].from == "DEPOT-1" and sp.stops[2].dwell_seconds == 0, sp.stops[2].dwell_seconds)
   end,
 
+  test_a_trip_that_does_not_come_back_is_not_repeated_in_the_plan = function()
+    local plan = build("bahnhof ST-A\nbahnhof ST-B\nstrecke ST-A ST-B\nzug T1 ST-A ST-B\nzug T2 ST-A ST-B ST-A\n")
+    assert(by_id(plan.service_plans)["SP-T1"].repeat_plan == false and by_id(plan.service_plans)["SP-T2"].repeat_plan == true)
+  end,
+
   test_without_trains_there_is_no_service_plan = function()
     local plan = build("bahnhof ST-A\nbahnhof ST-B\nstrecke ST-A ST-B\n")
     assert(plan.service_plans == nil or #plan.service_plans == 0)
@@ -263,7 +278,7 @@ return {
   test_two_stations_with_the_same_short_code_are_refused = function()
     local l = assert(layout.parse("bahnhof ST-A\nbahnhof A\nbahnhof ST-B\nstrecke ST-A ST-B\nstrecke A ST-B\n"))
     local plan, errors = plan_builder.build(l)
-    assert(plan == nil and table.concat(errors, "\n"):find("doppelt", 1, true), table.concat(errors or {}, "\n"))
+    assert(plan == nil and table.concat(errors, "\n"):find("Kurzform A kommt bei ST-A und A doppelt vor", 1, true), table.concat(errors or {}, "\n"))
   end,
 
   test_a_network_too_large_for_the_transfer_to_the_computers_is_refused = function()

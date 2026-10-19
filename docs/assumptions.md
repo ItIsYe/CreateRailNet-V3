@@ -38,6 +38,10 @@
   the fakes cannot know is how the real thing behaves beyond its documented arguments (names, ranges, timing).
 - **Monitor sizes.** The pages are laid out for 51 x 19 characters (a 5 x 3 block monitor at text scale 1; a 3 x 2 block monitor at scale 0.5 gives about 58 x 24). Smaller monitors (down to 15 x 10) are drawn without wrong calls
   and without raising, but text and buttons get cut; the size of a monitor of n x m blocks at scale 1 is about (11n - 4) x (7m - 2) characters. How readable the pages are on a real monitor is a matter for `docs/INGAME_TESTS.md`.
+- **The planner follows the dispatcher's model, and says where that model stops.** A line is a one-way track: both directions are two tracks with their own blocks, signals and detectors (a detector belongs to one block, a signal faces one way), so a single track used in both directions
+  cannot be generated. A platform is not a block: the train waits in front of the entry signal of the first block and has arrived behind the last, because a dispatcher route finishes when the train leaves its last block and the next request of that train is refused until then. A platform that
+  is still occupied after its route ended is protected by nothing but the Create signal at the station entrance (`docs/STATION_DEPOT_TRACK_LOGIC.md`). Routes into or out of the same platform exclude each other through a conflict group (`PLAT-<station>-<platform>`), the ladder switches by their locks.
+  Verified offline against the real dispatcher (`tests/test_plan_builder_sim.lua`); **not verified in the game**: how `STRAIGHT` / `DIVERGING` of a ladder switch relate to the real turnouts, and that the signals stand where the model puts them.
 - **A ref is fixed or it moves.** The installer calls a version tag (`v1.2.0`) or a commit id (7 to 40 hex digits) fixed and every other name a branch; a branch whose name looks like a commit id is taken as fixed. This is a heuristic on the
   name, not a look at GitHub.
 - **Devices are bound by name.** A plan entry may name its `modem` and its `monitor`. A named modem that is missing is never replaced by another one (a computer

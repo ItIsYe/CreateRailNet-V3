@@ -138,6 +138,21 @@ return {
     end
   end,
 
+  test_the_channel_of_a_json_description_is_checked_too = function()
+    local function with_channel(value)
+      return '{"channel": ' .. value .. ', "stations": [{"id": "ST-A"}, {"id": "ST-B"}], "lines": [{"from": "ST-A", "to": "ST-B"}]}'
+    end
+    assert(layout.parse(with_channel(65535)) and layout.parse(with_channel(1)))
+    for _, bad in ipairs({ "0", "65536", "70000", "1.5", '"viel"', "-3" }) do
+      assert(errors_of(with_channel(bad)):find("Kanal", 1, true), bad)
+    end
+  end,
+
+  test_a_trip_that_does_not_come_back_does_not_repeat_by_default = function()
+    local l = assert(layout.parse("bahnhof ST-A\nbahnhof ST-B\nstrecke ST-A ST-B\nzug T1 ST-A ST-B\nzug T2 ST-A ST-B ST-A\nzug T3 ST-A ST-B ST-A einmalig\nzug T4 ST-A ST-B wiederholen\n"))
+    assert(l.trains[1].repeat_plan == false and l.trains[2].repeat_plan == true and l.trains[3].repeat_plan == false and l.trains[4].repeat_plan == true)
+  end,
+
   test_a_train_cannot_drive_where_there_is_no_line_and_a_one_way_line_is_one_way = function()
     local text = errors_of("bahnhof ST-A\nbahnhof ST-B\nbahnhof ST-C\nstrecke ST-A ST-B\nzug T1 ST-A ST-C\n")
     assert(text:find("Zeile 5", 1, true) and text:find("Strecke", 1, true) and text:find("ST-A", 1, true) and text:find("ST-C", 1, true), text)

@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "e9708829",
+  id = "f36e882d",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -112,7 +112,7 @@ return {
     ["src/shared/log.lua"] = { 1316, 1814472377 },
     ["src/shared/log_forwarder.lua"] = { 3701, 3271670072 },
     ["src/shared/message_handlers.lua"] = { 539, 3116480595 },
-    ["src/shared/net.lua"] = { 7388, 2268623483 },
+    ["src/shared/net.lua"] = { 7698, 3359365361 },
     ["src/shared/once_log.lua"] = { 2370, 566365531 },
     ["src/shared/ota_recovery.lua"] = { 7358, 1086619993 },
     ["src/shared/registry.lua"] = { 902, 3734969404 },

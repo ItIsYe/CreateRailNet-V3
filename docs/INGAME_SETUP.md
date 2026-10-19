@@ -131,6 +131,7 @@ scripts/setup.lua --fetch-plan         Bahnhof/Depot: holt den Netzplan vom Mast
 scripts/setup.lua --test               geführter Funktionstest: liest, schaltet nur nach einem Ja und stellt zurück
 scripts/setup.lua --linktest           Funkstrecke zum Master: Antworten, Laufzeit, größte Nachricht, die durchkommt
 scripts/setup.lua --export             schreibt crn_diag.txt für die Fehlersuche aus der Ferne
+scripts/setup.lua --layout [datei]     Master: baut aus einer kurzen Beschreibung den Plan eines ganzen neuen Netzes (docs/NETZ_BAUEN.md)
 ```
 
 `--check` ändert nichts. Es meldet „in Ordnung (5 Computer, 1 Block, 1 Route)" oder nennt jeden Fehler **auf Deutsch** mit seiner Stelle im Plan (zum Beispiel
@@ -171,6 +172,11 @@ Neu einrichten: den Assistenten noch einmal starten. Auf einem bereits eingerich
 die fehlende OTA-Wiederherstellung ihrer `startup.lua` selbst hinzu, und die neuen Dateien erreichen sie mit `scripts/ota_push.lua --legacy`
 (`docs/OTA.md`). Nach der ersten Einrichtung einer Welt einmal `docs/INGAME_TESTS.md` durcharbeiten.
 
+
+## Ein ganz neues Netz
+
+Statt `configs/network.json` von Hand zu schreiben, beschreibst du das Netz (Bahnhöfe, Strecken, Züge) in wenigen Zeilen; `scripts/setup.lua --layout` am Master macht daraus den vollständigen Plan
+(Blöcke, Signale, Melder, Weichen, Routen, Fahrpläne) und eine Bauliste, was wo aufgestellt wird. Aufbau, Modell und Grenzen: `docs/NETZ_BAUEN.md`.
 
 ## Von Hand starten
 

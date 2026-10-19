@@ -22,6 +22,7 @@ The wizard binds the modem and the monitor by name, runs the doctor (`scripts/se
 does not know yet waits on the master's page *Einrichtung* until you accept it there.
 A station or depot computer fetches its platforms / tracks from the master's plan (`scripts/setup.lua --fetch-plan`, checked before it is written).
 `scripts/setup.lua --test` (guided function test: switches only after a yes), `--linktest` (how good is the link to the master) and `--export` (a diagnostic file to send in) check a computer later.
+A whole new network is described in a few lines (stations, lines, trains) and built by `scripts/setup.lua --layout` on the master: the full plan plus a build list (`docs/NETZ_BAUEN.md`).
 `installer --preview` shows what an installation would change without changing anything; `docs/RELEASE.md` describes how a version gets a tag.
 Running the installer again updates or repairs. Wizard: `docs/INGAME_SETUP.md`. Installer details, options and error messages: `docs/INSTALL.md`.
 
