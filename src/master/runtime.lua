@@ -36,6 +36,8 @@ function master_runtime.new(context)
     ota = context.ota,
     pairing = context.pairing,
     plan_service = context.plan_service,
+    restart = context.restart,
+    restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
     alerts = context.alerts,
     logs = context.logs,
     trace = context.trace,
@@ -126,10 +128,29 @@ function master_runtime.new(context)
       if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("pair:" .. tostring(id)) end
       pair_sent[id] = nil
       pair_reply(id, action == "accept" and "known" or "rejected")
+      if action == "accept" then runtime.restart_needed = true end
     end
     runtime.ui.mark_dirty()
     return ok, message
   end
+  -- The operator restarts the master (the setup page): the state is saved, then the restart runs (signals to RED, reboot).
+  function runtime.restart_master(operator)
+    if not runtime.restart then return false, "Der Neustart ist hier nicht verfuegbar." end
+    audit("master_restart", { by = operator })
+    runtime.save_recovery_state("restart")
+    return runtime.restart(operator)
+  end
+
+  -- how many blocks are in use right now (a restart stops the trains in front of red signals)
+  function runtime.busy_blocks()
+    local overview = runtime.dispatcher and runtime.dispatcher.get_overview and runtime.dispatcher.get_overview() or {}
+    local busy = 0
+    for _, block in pairs(overview) do
+      if type(block) == "table" and (block.state == "OCCUPIED" or block.state == "RESERVED") then busy = busy + 1 end
+    end
+    return busy
+  end
+
   -- Signals are re-sent, not read back. Whatever failed is reported once per change, not on every pass.
   local function note_signal_result(result, what)
     if not result then return end

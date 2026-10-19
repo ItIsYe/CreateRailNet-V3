@@ -1,13 +1,17 @@
 --[[
-Purpose: The setup page of the master: what is still open before the network can run (instead of one green lamp), and the computers that
-  announced themselves and wait for the operator.
+Purpose: The setup page of the master: what is still open before the network can run (instead of one green lamp), the computers that
+  announced themselves and wait for the operator, and the two things the operator does from here after that: restart the master (a
+  new computer's blocks and routes apply after it) and, when the plan asks for it, release the operation.
 Public API: new(sources) -> panel with draw(monitor), touch(x, y), model()
   sources: config (the loaded plan), registry, pairing (src/master/pairing.lua), decide(action, id, operator) -> ok, message
            (runtime.pair_decide), now_s() (default: time.now_s)
-Notes: four lines say how far the setup is: the plan has blocks and routes, the computers of the plan are online, they reported a clean
+           restart_needed() -> boolean, restart(operator) -> ok, message, busy_blocks() -> number   (runtime.restart_master; the button appears
+           after a computer was accepted)
+Notes: lines say how far the setup is: the plan has blocks and routes, the computers of the plan are online, they reported a clean
   check, nobody is waiting. Every line has a word as well as a colour (OK / OFFEN / FEHLER), so a monochrome monitor shows the same.
   Waiting computers are listed below; touching a row selects it, [ANNEHMEN] writes its entry into the plan (touch twice: the first touch
   asks), [ABLEHNEN] ignores it for a while. A computer whose id is in the plan with another role is shown red and cannot be accepted.
+  Every action that has a consequence (accepting, restarting) takes two touches; the first one says what will happen.
   Words that stay apart: "Selbsttest" is what a computer found out about itself (the doctor), "angenommen" is the operator's entry in the
   plan, and nothing on this page says that a track is released: the release of a stretch is the operator's decision, made on the track.
 ]]
@@ -17,8 +21,9 @@ local time = require("src.shared.time")
 
 local setup_panel = {}
 
-local FIRST_LIST_ROW = 9
-local LIST_ROWS = 5
+local LAST_LIST_ROW = 13   -- the list ends here; it starts below the lines and the heading
+local ACTION_ROW = 14      -- the buttons that act on the master as a whole
+local BUTTON_ROW = 15      -- accept / reject
 local CONFIRM_S = 8
 local MESSAGE_S = 12
 
@@ -58,7 +63,10 @@ function setup_panel.new(sources)
   local C = ui_utils.colors
   local now = src.now_s or time.now_s
   local selected, confirming, message = nil, nil, nil
+  local confirming_action = nil   -- { key, at }: a button for the master as a whole that has been touched once
   local rows = {}            -- screen row -> candidate id, rebuilt on every draw
+  local action_zones = {}    -- where the buttons of the action row are, rebuilt on every draw
+  local first_row, list_rows = 10, 4
   local height, width = 19, 51
   local pages = 1
 
@@ -146,6 +154,25 @@ function setup_panel.new(sources)
 
   local WORD_COLOR = { OK = C.lime, OFFEN = C.yellow, FEHLER = C.red }
 
+  -- the buttons that act on the master as a whole; each is shown only while it makes sense and needs two touches
+  local function actions()
+    local list = {}
+    if src.restart_needed and src.restart and src.restart_needed() then
+      list[#list + 1] = {
+        key = "restart", x = 1, label = "[MASTER NEU STARTEN]", sure = "[SICHER? SIGNALE ROT]",
+        ask = function()
+          local busy = src.busy_blocks and src.busy_blocks() or 0
+          return "Neustart: alle Signale gehen auf ROT, der Wiederanlauf will bestaetigt werden." .. (busy > 0 and (" ACHTUNG: " .. busy .. " Bloecke belegt, Zuege unterwegs!") or "")
+            .. " Zum Bestaetigen noch einmal tippen."
+        end,
+        run = function() return src.restart("MASTER-UI") end,
+      }
+    end
+    return list
+  end
+
+  local function action_width(action) return math.max(#action.label, #action.sure) end
+
   function panel.draw(monitor)
     if not monitor then return end
     local u = ui_utils.new(monitor)
@@ -154,6 +181,7 @@ function setup_panel.new(sources)
     local t = now()
     if message and t - message.at > MESSAGE_S then message = nil end
     if confirming and t - confirming.at > CONFIRM_S then confirming = nil end
+    if confirming_action and t - confirming_action.at > CONFIRM_S then confirming_action = nil end
     u.clear(C.black)
     u.header(1, "EINRICHTUNG", src.config and ("Kanal " .. tostring(src.config.channel)) or nil, w)
     -- nothing is written past the right edge of a small monitor
@@ -167,21 +195,25 @@ function setup_panel.new(sources)
       put(8, row, line.text:sub(1, w - 8), line.word == "OK" and C.lightGray or C.white)
     end
 
+    -- the list sits below the lines and ends at a fixed row, so more lines mean fewer places in the list
+    local heading_row = 3 + #model.lines + 1
+    first_row = heading_row + 1
+    list_rows = math.max(2, LAST_LIST_ROW - first_row + 1)
     local list = candidates()
     local waiting = #list
-    put(1, FIRST_LIST_ROW - 1, string.format("WARTENDE COMPUTER (%d)", waiting), C.cyan)
-    pages = math.max(1, math.ceil(waiting / LIST_ROWS))
+    put(1, heading_row, string.format("WARTENDE COMPUTER (%d)", waiting), C.cyan)
+    pages = math.max(1, math.ceil(waiting / list_rows))
     if panel.page > pages then panel.page = pages end
     rows = {}
     if waiting == 0 then
-      put(2, FIRST_LIST_ROW, "Keine. Neue Computer melden sich nach der", C.lightGray)
-      put(2, FIRST_LIST_ROW + 1, "Einrichtung hier von selbst.", C.lightGray)
+      put(2, first_row, "Keine. Neue Computer melden sich nach der", C.lightGray)
+      put(2, first_row + 1, "Einrichtung hier von selbst.", C.lightGray)
     end
     if selected and not find(list, selected) then selected = nil end
-    local first = (panel.page - 1) * LIST_ROWS + 1
-    for i = first, math.min(waiting, first + LIST_ROWS - 1) do
+    local first = (panel.page - 1) * list_rows + 1
+    for i = first, math.min(waiting, first + list_rows - 1) do
       local candidate = list[i]
-      local row = FIRST_LIST_ROW + (i - first)
+      local row = first_row + (i - first)
       rows[row] = candidate.id
       local marker = candidate.id == selected and ">" or " "
       local color = candidate.state == "conflict" and C.red or (candidate.id == selected and C.white or C.yellow)
@@ -190,37 +222,66 @@ function setup_panel.new(sources)
       put(1, row, text:sub(1, w), color)
     end
 
+    -- buttons for the master as a whole
+    action_zones = {}
+    local x = 1
+    for _, action in ipairs(actions()) do
+      local asking = confirming_action and confirming_action.key == action.key
+      put(x, ACTION_ROW, asking and action.sure or action.label, asking and C.orange or C.cyan)
+      action_zones[#action_zones + 1] = { from = x, to = x + action_width(action) - 1, action = action }
+      x = x + action_width(action) + 2
+    end
+
     local chosen = selected and find(list, selected)
     if chosen then
       local accept_label = (confirming and confirming.id == chosen.id) and "[SICHER?]" or "[ANNEHMEN]"
-      if chosen.state ~= "conflict" then put(1, FIRST_LIST_ROW + LIST_ROWS + 1, accept_label, (confirming and C.orange) or C.lime) end
-      put(12, FIRST_LIST_ROW + LIST_ROWS + 1, "[ABLEHNEN]", C.red)
+      if chosen.state ~= "conflict" then put(1, BUTTON_ROW, accept_label, (confirming and C.orange) or C.lime) end
+      put(12, BUTTON_ROW, "[ABLEHNEN]", C.red)
     elseif waiting > 0 then
-      put(1, FIRST_LIST_ROW + LIST_ROWS + 1, "Zeile antippen, dann annehmen oder ablehnen.", C.lightGray)
+      put(1, BUTTON_ROW, "Zeile antippen, dann annehmen oder ablehnen.", C.lightGray)
     end
     if message then
       -- at most three rows, wrapped at word borders: what an acceptance still needs (a restart) must not be cut off
       local lines = wrap(message.text, w, MESSAGE_ROWS)
-      for i, line in ipairs(lines) do put(1, h - MESSAGE_ROWS + i - 1, line, message.ok and C.lime or C.red) end
+      local color = message.warn and C.yellow or (message.ok and C.lime or C.red)
+      for i, line in ipairs(lines) do put(1, h - MESSAGE_ROWS + i - 1, line, color) end
     end
     u.footer(h, string.format("<  Seite %d/%d  >", panel.page, pages), w)
   end
 
   function panel.touch(x, y)
     local list = candidates()
-    local button_row = FIRST_LIST_ROW + LIST_ROWS + 1
     if y == height then
       if x <= math.floor(width / 2) then panel.page = math.max(1, panel.page - 1) else panel.page = math.min(pages, panel.page + 1) end
+      return
+    end
+    if y == ACTION_ROW then
+      for _, zone in ipairs(action_zones) do
+        if x >= zone.from and x <= zone.to then
+          local action = zone.action
+          if confirming_action and confirming_action.key == action.key and now() - confirming_action.at <= CONFIRM_S then
+            confirming_action = nil
+            local ok, text = action.run()
+            message = { text = text or (ok and "Erledigt." or "Fehlgeschlagen."), ok = ok, at = now() }
+          else
+            confirming_action = { key = action.key, at = now() }
+            message = { text = action.ask(), warn = true, at = now() }
+          end
+          return
+        end
+      end
+      confirming_action = nil
       return
     end
     local id = rows[y]
     if id then
       selected = id
       confirming = nil
+      confirming_action = nil
       return
     end
     local chosen = selected and find(list, selected)
-    if y == button_row and chosen and src.decide then
+    if y == BUTTON_ROW and chosen and src.decide then
       if x <= 10 and chosen.state ~= "conflict" then
         if confirming and confirming.id == chosen.id and now() - confirming.at <= CONFIRM_S then
           local ok, text = src.decide("accept", chosen.id, "MASTER-UI")
