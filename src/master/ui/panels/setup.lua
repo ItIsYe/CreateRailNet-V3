@@ -20,6 +20,32 @@ local LIST_ROWS = 5
 local CONFIRM_S = 8
 local MESSAGE_S = 12
 
+local MESSAGE_ROWS = 3
+
+-- `text` in lines of at most `width` characters, at most `rows` of them (the rest is cut with "...")
+local function wrap(text, width, rows)
+  local lines, line = {}, ""
+  for word in tostring(text):gmatch("%S+") do
+    while #word > width do
+      if line ~= "" then lines[#lines + 1] = line; line = "" end
+      lines[#lines + 1] = word:sub(1, width)
+      word = word:sub(width + 1)
+    end
+    if line == "" then line = word
+    elseif #line + 1 + #word <= width then line = line .. " " .. word
+    else lines[#lines + 1] = line; line = word end
+  end
+  if line ~= "" then lines[#lines + 1] = line end
+  if #lines > rows then
+    local kept = {}
+    for i = 1, rows do kept[i] = lines[i] end
+    local last = kept[rows]
+    kept[rows] = (#last > width - 3 and last:sub(1, width - 3) or last) .. "..."
+    return kept
+  end
+  return lines
+end
+
 local ROLE_WORD = {
   master = "Master", signal = "Signal", sensor = "Melder", switch = "Weiche", station = "Bahnhof", depot = "Depot", train = "Zug", panel = "Monitor",
 }
@@ -170,7 +196,11 @@ function setup_panel.new(sources)
     elseif waiting > 0 then
       put(1, FIRST_LIST_ROW + LIST_ROWS + 1, "Zeile antippen, dann annehmen oder ablehnen.", C.lightGray)
     end
-    if message then put(1, h - 1, message.text:sub(1, w), message.ok and C.lime or C.red) end
+    if message then
+      -- at most three rows, wrapped at word borders: what an acceptance still needs (a restart) must not be cut off
+      local lines = wrap(message.text, w, MESSAGE_ROWS)
+      for i, line in ipairs(lines) do put(1, h - MESSAGE_ROWS + i - 1, line, message.ok and C.lime or C.red) end
+    end
     u.footer(h, string.format("<  Seite %d/%d  >", panel.page, pages), w)
   end
 

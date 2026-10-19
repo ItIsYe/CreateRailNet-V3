@@ -155,6 +155,28 @@ return {
     assert(not m.text():find("eingetragen", 1, true), "the message goes away by itself")
   end,
 
+  test_what_an_acceptance_still_needs_is_not_cut_off_on_the_screen = function()
+    local w = world()
+    w.pairing.announce("SIG-7", { role = "signal", entry = { id = "SIG-7", role = "signal", adapter = "redstone", side = "left" } })
+    local m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    w.panel.touch(5, find_row(m, "SIG-7"))
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    local button_row = find_row(m, "[ANNEHMEN]")
+    w.panel.touch(3, button_row)
+    w.panel.touch(3, button_row)
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    local text = m.text()
+    assert(text:find("Neustart", 1, true) and text:find("des Masters", 1, true), "the note about the restart is on the screen: " .. text)
+    for row = 1, 19 do assert(#m.row(row) <= 51) end
+    -- a monitor that is narrower still shows all of it, on more lines or with an ellipsis, never past the edge
+    local narrow = recording_monitor(30, 19)
+    w.panel.draw(narrow)
+    for row = 1, 19 do assert(#narrow.row(row) <= 30, narrow.row(row)) end
+  end,
+
   test_the_confirmation_runs_out = function()
     local w = world()
     w.pairing.announce("SIG-7", { role = "signal" })

@@ -215,7 +215,7 @@ function pairing.new(opts)
     candidates[id] = nil
     count = count - 1
     audit("node_accepted", { node_id = id, role = entry.role, by = operator })
-    return true, id .. " ist im Netzplan eingetragen (alte Fassung: " .. o.plan_path .. ".prev)."
+    return true, id .. " ist im Netzplan eingetragen (alte Fassung: " .. o.plan_path .. ".prev). Bloecke und Routen, die ihn nutzen, gelten nach einem Neustart des Masters."
   end
 
   function self.reject(id, operator)

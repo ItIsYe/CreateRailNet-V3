@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "29db0acc",
+  id = "b0650b05",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -27,7 +27,7 @@ return {
     ["src/adapter/create_signals.lua"] = { 3203, 3713088194 },
     ["src/adapter/create_switches.lua"] = { 2175, 3870487096 },
     ["src/adapter/create_train_schedule.lua"] = { 5961, 3305582575 },
-    ["src/adapter/hardware_config.lua"] = { 1807, 4139602789 },
+    ["src/adapter/hardware_config.lua"] = { 2292, 4276089686 },
     ["src/adapter/methods.lua"] = { 1189, 1634307114 },
     ["src/adapter/monitors.lua"] = { 1795, 2767673587 },
     ["src/adapter/peripherals.lua"] = { 1486, 108392091 },
@@ -60,7 +60,7 @@ return {
     ["src/master/main.lua"] = { 280, 3234684894 },
     ["src/master/manual_control.lua"] = { 10088, 867247706 },
     ["src/master/ota_manager.lua"] = { 19866, 678918975 },
-    ["src/master/pairing.lua"] = { 10832, 3589797177 },
+    ["src/master/pairing.lua"] = { 10908, 2893156468 },
     ["src/master/route_integration.lua"] = { 16654, 3845117673 },
     ["src/master/runtime.lua"] = { 40732, 3610579500 },
     ["src/master/ui/panels/alerts.lua"] = { 3076, 2500248277 },
@@ -72,7 +72,7 @@ return {
     ["src/master/ui/panels/ota_status.lua"] = { 3282, 541647327 },
     ["src/master/ui/panels/overview.lua"] = { 4869, 3703206276 },
     ["src/master/ui/panels/service_plans.lua"] = { 3950, 344043790 },
-    ["src/master/ui/panels/setup.lua"] = { 9768, 3488606321 },
+    ["src/master/ui/panels/setup.lua"] = { 10859, 2098279975 },
     ["src/master/ui/panels/stations.lua"] = { 7912, 2535743394 },
     ["src/master/ui/panels/status.lua"] = { 4640, 2310387181 },
     ["src/master/ui/panels/trains.lua"] = { 7627, 3940958412 },
