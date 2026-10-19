@@ -5,7 +5,7 @@ Purpose: The description of a new rail network, the way a person writes it down:
 Public API:
   parse(text) -> layout | nil, errors     the text form, or JSON when the first character is {   errors: list of German sentences that name the line
   KINDS, STATION_TYPES, MAX_BLOCKS, MAX_BERTHS      the limits
-  layout: { name, channel, master_id, panel,
+  layout: { name, channel, master_id, panel, given = { channel, master_id } (true when the description names them),
             stations = { { id, name, type = passenger|freight|mixed, platforms } },
             depots   = { { id, name, tracks } },
             lines    = { { from, to, blocks, kind = passenger|freight|mixed|depot, oneway } },
@@ -275,6 +275,7 @@ end
 
 local function finish(raw, errors)
   local result = {
+    given = { channel = raw.channel ~= nil, master_id = raw.master_id ~= nil },
     name = "", channel = 777, master_id = "MASTER-1", panel = true,
     stations = {}, depots = {}, lines = {}, trains = {},
     defaults = {
@@ -410,6 +411,20 @@ local function finish(raw, errors)
   end
   return result
 end
+
+-- a description that works as it stands: two stations with a depot, a train; the start of a new network (scripts/setup.lua --layout writes it when there is none)
+layout.EXAMPLE = [=[
+# Beschreibung eines Netzes: jede Zeile eine Angabe, # beginnt einen Kommentar.
+netz Mein erstes Netz
+bahnhof ST-A "Station A" passenger
+bahnhof ST-B "Station B" passenger 2
+depot DEPOT-1 "Depot 1"
+# Strecke: von nach Anzahl-Bloecke; ohne "einrichtung" in beide Richtungen
+strecke ST-A ST-B 2
+strecke ST-B DEPOT-1 1 depot
+# Zug: ID "Name" und die Halte; ST-B:2 = Bahnsteig 2; pause=Sekunden am Halt
+zug TRAIN-1 "Regio 1" ST-A ST-B:1 ST-A pause=15
+]=]
 
 -- ── entry point ───────────────────────────────────────────────────────────────────────────────────────────────────
 

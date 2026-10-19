@@ -32,7 +32,8 @@ local TEMPLATES = {
 }
 
 manifest_builder.ROLES = {
-  master  = { entries = { "src/master/main.lua", "scripts/ota_push.lua", "scripts/start_master.lua" } },
+  -- the planner (scripts/setup.lua --layout) is loaded by name from the wizard, so it is named here
+  master  = { entries = { "src/master/main.lua", "scripts/ota_push.lua", "scripts/start_master.lua", "src.setup.layout", "src.setup.plan_builder", "src.setup.bauliste" } },
   signal  = { entries = { "src.nodes.signal_node", "scripts/start_signal.lua" } },
   sensor  = { entries = { "src.nodes.sensor_node", "scripts/start_sensor.lua" } },
   switch  = { entries = { "src.nodes.switch_node", "scripts/start_switch.lua" } },

@@ -83,6 +83,7 @@ local tests = {
   "tests/test_plan_builder.lua",
   "tests/test_plan_builder_sim.lua",
   "tests/test_bauliste.lua",
+  "tests/test_setup_layout.lua",
   "tests/test_release_check.lua",
   "tests/test_setup_panel.lua",
   "tests/test_alerts.lua",

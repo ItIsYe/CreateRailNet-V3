@@ -12,8 +12,9 @@ Public API: run(opts) -> result { ok, aborted, role, id, config, written, reboot
   functest(env) -> { ok, state, result }    the guided function test (scripts/setup.lua --test): reads freely, switches only after a yes;
                                             state: passed / incomplete (a step got no yes) / failed / declined / setup (computer not set up)
     linktest(env) -> { ok, state, result }    how good the link to the master is (scripts/setup.lua --linktest): answers, time, largest message
+  layout(env, path) -> { ok, state, wrote_plan, wrote_list }   builds the plan of a whole network from a description (scripts/setup.lua --layout [file]), on the master
   export(env) -> { ok, path }               writes crn_diag.txt: version, doctor result, own entry, devices, files, free space (scripts/setup.lua --export)
-  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor, fetch_plan, functest, linktest, export }
+  ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor, fetch_plan, functest, linktest, export, layout, layout_path }
 Flow: Rolle > Netzplan > Name > Hardware > Pruefen. One question per page, every page fits 51 x 19, the header shows where you are. A step that
   has nothing to ask is left out (an example plan already says everything about this computer). "?" explains the question, "<" goes back.
   Nothing is written before the summary is confirmed.
@@ -113,6 +114,10 @@ function wizard.parse_args(argv)
     elseif argv[i] == "--export" then
       args.export = true
       i = i + 1
+    elseif argv[i] == "--layout" then
+      args.layout = true
+      local path = argv[i + 1]
+      if path and path:sub(1, 2) ~= "--" then args.layout_path = path; i = i + 2 else i = i + 1 end
     elseif argv[i] == "--check" then
       args.check = true
       local path = argv[i + 1]
@@ -462,6 +467,132 @@ function wizard.export(env)
   return { ok = true, path = path }
 end
 
+-- scripts/setup.lua --layout [file]: the plan of a whole new network from a short description (src/setup/layout.lua), on the master. The build list is
+-- harmless and written by default; the plan replaces configs/network.json only after a yes (the old file stays as .prev).
+local LAYOUT_PATH = "configs/layout.txt"
+
+-- The planner is for the master only. Every role has the wizard, so a literal require here would put 46 KB on every signal and detector computer: the
+-- modules are named by a computed string (the require scan of the installer does not see it) and listed as entries of the master role instead
+-- (src/tools/manifest_builder.lua; tests/test_installer_manifest.lua checks both sides).
+local function planner(name) return require("src.setup." .. name) end
+
+function wizard.layout(env, path)
+  local layout, plan_builder, bauliste = planner("layout"), planner("plan_builder"), planner("bauliste")
+  local t = terminal.new(env)
+  local files = make_files(env.fs)
+  local io = cli_io(t)
+  t.say("Netz aus einer Beschreibung bauen", "title")
+  local report = doctor.run({ fs = env.fs, peripheral = env.peripheral })
+  local ctx = report.ctx
+  if not (ctx.role and ctx.id and ctx.config) then
+    t.say("Dieser Computer ist noch nicht eingerichtet. Erst scripts/setup.lua ausfuehren (Rolle Master).", "err")
+    return { ok = false, state = "setup" }
+  end
+  if ctx.role ~= "master" then
+    t.say("Das Netz wird am Master gebaut. Dieser Computer ist " .. role_label(ctx.role) .. " " .. ctx.id .. ".", "err")
+    return { ok = false, state = "no_master" }
+  end
+
+  path = path or LAYOUT_PATH
+  local text = files.read(path)
+  if not text then
+    t.say("Die Beschreibung " .. path .. " gibt es noch nicht.", "warn")
+    t.say("Darin steht in wenigen Zeilen, welche Bahnhoefe, Strecken und Zuege das Netz hat. Ein Beispiel zum Abaendern kann ich anlegen.", "dim")
+    if io.ask_yes("Beispiel als " .. path .. " anlegen?", true) ~= true then return { ok = false, state = "missing" } end
+    local ok, err = files.write(path, layout.EXAMPLE)
+    if not ok then
+      t.say("Die Datei konnte nicht angelegt werden: " .. tostring(err), "err")
+      return { ok = false, state = "write" }
+    end
+    t.say("Angelegt: " .. path .. ". Bearbeiten mit: edit " .. path .. " -- danach scripts/setup.lua --layout noch einmal.", "ok")
+    return { ok = true, state = "example" }
+  end
+
+  local function refuse(title, list)
+    t.say(title, "err")
+    for _, line in ipairs(list) do t.say("- " .. line, "err") end
+    return { ok = false, state = "invalid" }
+  end
+
+  local described, errors = layout.parse(text)
+  if not described then return refuse("Die Beschreibung " .. path .. " ist nicht in Ordnung:", errors) end
+  if described.given.master_id and described.master_id ~= ctx.id then
+    return refuse("Die Beschreibung " .. path .. " ist nicht in Ordnung:", { "sie nennt den Master " .. described.master_id .. ", dieser Computer heisst " .. ctx.id .. " (die Zeile master weglassen)" })
+  end
+  described.master_id = ctx.id
+
+  local old_text = files.read(ctx.config)
+  local old_cfg = old_text and netplan.parse(old_text) or nil
+  if not described.given.channel and old_cfg and type(old_cfg.channel) == "number" then described.channel = old_cfg.channel end
+
+  local plan, meta = plan_builder.build(described)
+  if not plan then return refuse("Aus der Beschreibung " .. path .. " wird kein Plan:", meta) end
+  -- this computer keeps its own devices
+  local old_master = old_cfg and netplan.find_node(old_cfg, ctx.id)
+  local new_master = netplan.find_node(plan, ctx.id)
+  if old_master and new_master then
+    for _, key in ipairs({ "modem", "monitor", "monitor_scale" }) do
+      if old_master[key] ~= nil then new_master[key] = old_master[key] end
+    end
+  end
+  local body = netplan.encode(plan)
+  local parsed, problems = netplan.parse(body)
+  if not parsed or problems then return refuse("Der erzeugte Plan ist nicht gueltig (das sollte nicht passieren):", problems or { "keine gueltige Datei" }) end
+
+  local stats = meta.stats
+  t.say((described.name ~= "" and ("Netz \"" .. described.name .. "\": ") or "Netz: ") .. stats.stations .. " Bahnhoefe, " .. stats.depots .. " Depots, " .. #described.lines .. " Strecken, " .. stats.trains .. " Zuege.", "ok")
+  t.say("Daraus entstehen " .. stats.blocks .. " Bloecke, " .. stats.routes .. " Routen und " .. stats.computers .. " Computer (" .. stats.signals .. " Signale, " .. stats.sensors .. " Melder, " .. stats.switches .. " Weichen).")
+  if old_cfg then
+    local now = {}
+    for _, node in ipairs(plan.nodes) do now[node.id] = true end
+    local gone = {}
+    for _, node in ipairs(old_cfg.nodes or {}) do
+      if type(node) == "table" and node.id and not now[node.id] then gone[#gone + 1] = node.id end
+    end
+    if #gone > 0 then
+      table.sort(gone)
+      local shown = {}
+      for i = 1, math.min(8, #gone) do shown[i] = gone[i] end
+      t.say("Im bisherigen Plan stehen " .. #gone .. " Computer, die im neuen fehlen: " .. table.concat(shown, ", ") .. (#gone > 8 and ", ..." or "") .. ". Sie gehoeren danach nicht mehr zum Netz.", "warn")
+    end
+  end
+
+  local result = { ok = true, state = "declined", wrote_plan = false, wrote_list = false }
+  t.blank()
+  if io.ask_yes("Bauliste nach " .. bauliste.PATH .. " schreiben?", true) == true then
+    local ok, err = safe_write.write(bauliste.PATH, bauliste.render(plan, meta, described), { fs = env.fs, keep_backup = false })
+    if ok then
+      result.wrote_list = true
+      t.say("Geschrieben: " .. bauliste.PATH .. " (lesen mit: edit " .. bauliste.PATH .. ").", "ok")
+    else
+      t.say("Die Bauliste konnte nicht geschrieben werden: " .. tostring(err), "err")
+    end
+  end
+
+  if files.read(ctx.config) == body then
+    t.say("Dieser Computer hat schon genau diesen Plan.", "ok")
+    result.state = "same"
+    return result
+  end
+  t.say("Der Plan ersetzt " .. ctx.config .. " ganz; die alte Fassung bleibt als " .. ctx.config .. ".prev.", "dim")
+  if io.ask_yes("Den Plan als " .. ctx.config .. " speichern?", false) ~= true then
+    t.say("Der Plan wurde nicht gespeichert.", "dim")
+    return result
+  end
+  local ok, err = files.write(ctx.config, body)
+  if not ok then
+    t.say("Der Plan wurde nicht gespeichert: " .. tostring(err), "err")
+    result.ok, result.state = false, "write"
+    return result
+  end
+  result.wrote_plan, result.state = true, "written"
+  t.say("Gespeichert: " .. ctx.config .. ". Der Master braucht einen Neustart (reboot), damit er den Plan benutzt.", "ok")
+  t.say("Danach die Computer nach der Bauliste einrichten.", "ok")
+  local after = doctor.run({ fs = env.fs, peripheral = env.peripheral })
+  record_status(env, files, after)
+  return result
+end
+
 -- ── the wizard ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function wizard.run(opts)
@@ -473,6 +604,7 @@ function wizard.run(opts)
   if args.functest then return wizard.functest(env) end
   if args.linktest then return wizard.linktest(env) end
   if args.export then return wizard.export(env) end
+  if args.layout then return wizard.layout(env, args.layout_path) end
   local t = terminal.new(env)
   t.set_hint("Enter ok  ? Hilfe  < zurueck")
   local files = make_files(env.fs)

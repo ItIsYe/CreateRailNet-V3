@@ -14,6 +14,9 @@ Usage: shell.run("scripts/setup.lua")                 asks for everything
                                                               through; asks only, switches and writes nothing
        shell.run("scripts/setup.lua", "--export")            writes crn_diag.txt: version, check result, own entry, devices, files, free space
                                                               (to send in with `pastebin put crn_diag.txt`); reads only
+       shell.run("scripts/setup.lua", "--layout [datei]")    master: builds the plan of a whole new network from a short description
+                                                              (default configs/layout.txt): blocks, signals, detectors, switches, routes,
+                                                              stations, trains; writes the build list crn_bauliste.txt and, after a yes, the plan
 Notes: Enter takes the suggestion in [ ], ? explains the question, < goes one step back. Nothing is written before the summary is confirmed.
 ]]
 
