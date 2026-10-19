@@ -118,6 +118,47 @@ return {
     assert(netplan.find_node(assert(netplan.parse(m.fs.files[PLAN])), "SIG-9").side == "left")
   end,
 
+  -- the answer of the master to an unasked announcement is sent only when it changes; a question must not be left without an answer
+  test_asking_again_with_the_same_state_gets_the_same_answer_again = function()
+    local b = bus()
+    local m = master_on(b)
+    for round = 1, 3 do
+      local result = probe(b, m)
+      assert(result.state == "pending", "round " .. round .. ": " .. tostring(result.state))
+    end
+    for round = 1, 3 do
+      local result = probe(b, m, { id = "SIG-1" })
+      assert(result.state == "known", "round " .. round .. ": " .. tostring(result.state))
+    end
+  end,
+
+  test_a_computer_that_announces_itself_can_still_ask = function()
+    local b = bus()
+    local m = master_on(b)
+    -- the running node announced itself and was told "pending"; the doctor of the same computer asks later
+    m.runtime.handle_event({ "modem_message", nil, nil, nil, net.new(b.probe_modem, 7, "SIG-9", quiet, b.time).send("event", "M", { type = "pair_announce", role = "signal", entry = { id = "SIG-9", role = "signal" } }) })
+    b.inbox.master = {}
+    b.inbox.probe = {}
+    assert(probe(b, m).state == "pending")
+    assert(probe(b, m).state == "pending")
+  end,
+
+  test_an_answer_to_another_question_does_not_decide_this_one = function()
+    local b = bus()
+    local m = master_on(b)
+    local planted = false
+    local function stale_first(timeout)
+      if not planted then
+        planted = true
+        local fake = net.new(b.master_modem, 7, "M", quiet, b.time)
+        fake.send("cmd", "SIG-9", { cmd = "pair_state", state = "known", probe_id = "an-earlier-probe" })
+      end
+      return puller(b, m)(timeout)
+    end
+    local result = probe(b, m, { pull_event = stale_first })
+    assert(result.state == "pending", "the old answer is skipped: " .. tostring(result.state))
+  end,
+
   test_no_master_means_no_answer_after_the_waiting_time = function()
     local b = bus()
     local start = b.clock

@@ -65,18 +65,21 @@ function master_runtime.new(context)
   -- ── pairing: computers that are not in the plan wait for the operator ───────────────────────────────────────────────
   local pair_sent = {}   -- node id -> the last state told to that node (a node is told again only when it changes)
 
-  -- tell the node where it stands (only nodes that announced protocol revision 3 or newer understand it)
-  local function pair_reply(dst, state, detail)
+  -- Tell the node where it stands (only nodes that announced protocol revision 3 or newer understand it).
+  -- An unasked announcement is told only when the state changed (a node announces every few minutes and does not need the same answer
+  -- again). A probe of the setup wizard is a question: it is answered every time, and the answer names the question (probe_id).
+  local function pair_reply(dst, state, detail, probe_id)
     local network = runtime.network
     local revision = network.peer_revision and network.peer_revision(dst)
     if not revision or revision < 3 then return end
-    if pair_sent[dst] == state then return end
+    if probe_id == nil and pair_sent[dst] == state then return end
     pair_sent[dst] = state
-    local payload = { cmd = "pair_state", state = state, detail = detail }
+    local payload = { cmd = "pair_state", state = state, detail = detail, probe_id = probe_id }
     if network.send_reliable then network.send_reliable("cmd", dst, payload) elseif network.send then network.send("cmd", dst, payload) end
   end
 
   -- an announcement (register, heartbeat of an unknown node, pair_announce, pair_probe); returns the state
+  -- reply: false = say nothing, nil = tell the node when its state changed, a probe id = answer that question
   local function note_candidate(src, payload, reply)
     if not runtime.pairing then return nil end
     local state, detail = runtime.pairing.announce(src, payload)
@@ -89,7 +92,7 @@ function master_runtime.new(context)
     elseif state == "known" and runtime.alerts and runtime.alerts.clear then
       runtime.alerts.clear("pair:" .. tostring(src))
     end
-    if reply ~= false and state then pair_reply(src, state, detail) end
+    if reply ~= false and state then pair_reply(src, state, detail, reply) end
     return state, detail
   end
 
@@ -390,7 +393,7 @@ function master_runtime.new(context)
     end,
     pair_probe               = function(msg)
       local payload = msg.payload or {}
-      note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup })
+      note_candidate(msg.src, { role = payload.role, entry = payload.entry, setup = payload.setup }, msg.id)
       runtime.network.ack_for(msg, true)
       runtime.ui.mark_dirty()
     end,

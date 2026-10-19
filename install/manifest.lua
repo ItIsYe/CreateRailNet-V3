@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "41280b17",
+  id = "58710aed",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -62,7 +62,7 @@ return {
     ["src/master/ota_manager.lua"] = { 19866, 678918975 },
     ["src/master/pairing.lua"] = { 10832, 3589797177 },
     ["src/master/route_integration.lua"] = { 16654, 3845117673 },
-    ["src/master/runtime.lua"] = { 36443, 2283295133 },
+    ["src/master/runtime.lua"] = { 36885, 3252873889 },
     ["src/master/ui/panels/alerts.lua"] = { 3076, 2500248277 },
     ["src/master/ui/panels/cargo.lua"] = { 7195, 641561786 },
     ["src/master/ui/panels/depots.lua"] = { 7399, 756076209 },
@@ -90,7 +90,7 @@ return {
     ["src/nodes/train_node.lua"] = { 9331, 1182365758 },
     ["src/setup/doctor.lua"] = { 17536, 90360324 },
     ["src/setup/hardware.lua"] = { 2934, 1266928313 },
-    ["src/setup/link.lua"] = { 3630, 4128553891 },
+    ["src/setup/link.lua"] = { 4072, 205607040 },
     ["src/setup/netplan.lua"] = { 15640, 959573467 },
     ["src/setup/terminal.lua"] = { 6166, 3386413057 },
     ["src/setup/wizard.lua"] = { 60544, 4170354992 },
