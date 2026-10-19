@@ -6,6 +6,8 @@ Public API:
                            { name, type, methods }), width, height, version (false: no crn_version.txt, as before an installer run)
   world.run(argv, answers) -> result      runs src/setup/wizard with those arguments; read() hands out the answers in order
   world.link = function(opts) -> { state }   what the master answers to "do you know this computer?" (none set: nobody is asked)
+  world.fetch = function(opts) -> result      what comes back when the computer fetches the plan of the master (none set: it cannot)
+  answers can also be a function(page_text) -> answer: it is asked at every prompt with the text of the page so far (nil ends the input)
   world.pages -> list of { lines = {...} }   world.fs, world.rebooted, world.unused (answers that were not asked for)
   world.text() -> all output as one string     world.last_page_text()
   world.check_screen(allow_tall) -> nil | message   every line <= width - 1 characters, ASCII only, every page <= height lines (unless allow_tall)
@@ -50,7 +52,8 @@ function setup_world.new(opts)
 
   function world.run(argv, answers)
     local queue = {}
-    for _, a in ipairs(answers or {}) do queue[#queue + 1] = a end
+    local responder = type(answers) == "function" and answers or nil
+    if not responder then for _, a in ipairs(answers or {}) do queue[#queue + 1] = a end end
     local pending = nil
     local function current() return world.pages[#world.pages] end
     local env = {
@@ -59,6 +62,7 @@ function setup_world.new(opts)
       write = function(text) pending = (pending or "") .. tostring(text) end,
       read = function()
         if pending then current().lines[#current().lines + 1] = pending; pending = nil end
+        if responder then return responder(table.concat(current().lines, "\n")) end
         return table.remove(queue, 1)
       end,
       term = {
@@ -73,6 +77,7 @@ function setup_world.new(opts)
       },
       os = { reboot = function() world.rebooted = world.rebooted + 1 end },
       link = world.link,
+      fetch = world.fetch,
     }
     local result = wizard.run({ args = argv or {}, env = env })
     world.unused = #queue

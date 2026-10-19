@@ -6,6 +6,8 @@ Usage: shell.run("scripts/setup.lua")                 asks for everything
        shell.run("scripts/setup.lua", "--check")             is configs/network.json valid? (or --check <file>); changes nothing
        shell.run("scripts/setup.lua", "--doctor")            is this computer ready? plan, devices, modem, monitor, space; says what to do;
                                                               changes nothing but the record of the result (crn_status.lua)
+       shell.run("scripts/setup.lua", "--fetch-plan")        station / depot: fetch the network plan from the master (platforms, tracks);
+                                                              writes it only after a yes, the old file stays as .prev
 Notes: Enter takes the suggestion in [ ], ? explains the question, < goes one step back. Nothing is written before the summary is confirmed.
 ]]
 
@@ -14,6 +16,7 @@ package.path = "/?.lua;/?/init.lua;" .. (package.path or "")
 
 local wizard = require("src.setup.wizard")
 local link = require("src.setup.link")
+local plan_fetch = require("src.setup.plan_fetch")
 
 local result = wizard.run({
   args = { ... },
@@ -27,6 +30,7 @@ local result = wizard.run({
     peripheral = peripheral,
     os = os,
     link = link.probe,
+    fetch = plan_fetch.fetch,
   },
 })
 

@@ -32,6 +32,10 @@ local DEVICE = {
   sensor = { class = "train_observer", label = "Train Observer" },
 }
 local TAGS = { ok = "[ OK ] ", warn = "[WARN] ", fail = "[FEHL] " }
+-- what to do when a station / depot computer has no platforms / tracks: they stand in the plan of the master, from where this computer fetches them
+local function FETCH_HINT(key, id)
+  return "Sie stehen im Netzplan des Masters im Eintrag " .. id .. " unter \"" .. key .. "\" (mit sensor_id und block_id; docs/config_reference.md). Ist der Computer am Master angenommen und der Master neu gestartet, holt scripts/setup.lua --fetch-plan den Plan."
+end
 local KINDS = { ok = "ok", warn = "warn", fail = "err" }
 
 local function kb(bytes) return math.floor(bytes / 1000 + 0.5) end
@@ -193,13 +197,13 @@ function doctor.run(opts)
       end
     elseif role == "station" then
       if type(entry.platforms) ~= "table" or #entry.platforms == 0 then
-        add("device", "warn", "Bahnhof ohne Bahnsteige", "Die Bahnsteige stehen im Eintrag " .. ctx.id .. " unter \"platforms\" (mit sensor_id und block_id; Beispiel: configs/templates/network.station.example.json). Dieser Computer liest nur seinen eigenen Netzplan: den kompletten Plan des Masters hierher kopieren und im Assistenten \"Eigene Datei angeben\" waehlen.")
+        add("device", "warn", "Bahnhof ohne Bahnsteige", "Dieser Computer liest die Bahnsteige aus seinem eigenen Netzplan. " .. FETCH_HINT("platforms", ctx.id))
       else
         add("device", "ok", "Bahnhof: " .. #entry.platforms .. " Bahnsteig(e)")
       end
     elseif role == "depot" then
       if type(entry.tracks) ~= "table" or #entry.tracks == 0 then
-        add("device", "warn", "Depot ohne Gleise", "Die Gleise stehen im Eintrag " .. ctx.id .. " unter \"tracks\" (mit sensor_id und block_id; Beispiel: configs/templates/network.depot.example.json). Dieser Computer liest nur seinen eigenen Netzplan: den kompletten Plan des Masters hierher kopieren und im Assistenten \"Eigene Datei angeben\" waehlen.")
+        add("device", "warn", "Depot ohne Gleise", "Dieser Computer liest die Gleise aus seinem eigenen Netzplan. " .. FETCH_HINT("tracks", ctx.id))
       else
         add("device", "ok", "Depot: " .. #entry.tracks .. " Gleis(e)")
       end
