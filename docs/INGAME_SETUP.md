@@ -81,8 +81,23 @@ bestehen (`validate_config`), sonst wird nichts geschrieben. Ein vorhandener Net
    Computer von selbst (siehe unten) und du bestätigst ihn dort. Läuft er noch nicht, zeigt der Assistent die Zeile für den Netzplan des Masters.
 3. Jeder Computer gehört in `nodes` des Masters: Blöcke und Routen verweisen auf diese IDs.
 4. **Bahnhof und Depot** brauchen ihre Bahnsteige und Gleise (`platforms`, `tracks` mit `sensor_id` und `block_id`). Ein Computer liest aber nur seinen eigenen
-   Netzplan und prüft ihn beim Start vollständig; mit dem Kurzplan fehlen ihm diese Angaben (der Doktor sagt „Bahnhof ohne Bahnsteige"). Für diese Rollen
-   den kompletten Plan des Masters auf den Computer kopieren und im Assistenten „Eigene Datei angeben" wählen (`docs/INSTALL.md`, Abschnitt „Konfiguration verteilen").
+   Netzplan und prüft ihn beim Start vollständig; mit dem Kurzplan fehlen ihm diese Angaben (der Doktor sagt „Bahnhof ohne Bahnsteige"). Die holt sich der Computer
+   beim Master (nächster Abschnitt): Bahnsteige im Netzplan des Masters eintragen, Master neu starten, auf dem Computer `scripts/setup.lua --fetch-plan`.
+
+### Den Plan vom Master holen (Bahnhof und Depot)
+
+Der Master schickt seinen Netzplan nur auf Nachfrage und nur an einen **Bahnhof oder ein Depot, das im Plan steht** (mit dieser Rolle). Wer ihn holt, bestimmt der Spieler am Computer:
+
+1. Am Master: der Computer ist angenommen (Seite EINRICHTUNG), seine Bahnsteige bzw. Gleise stehen im Eintrag (`docs/config_reference.md`), der Master läuft mit diesem Plan.
+2. Am Computer, während der Einrichtung: kennt der Master ihn und fehlen die Bahnsteige, fragt der Assistent „Den Plan jetzt vom Master holen?". Später jederzeit (auch wenn sich der Plan am Master geändert hat):
+   `scripts/setup.lua --fetch-plan`.
+3. Der Computer holt den Plan in Teilen (jedes Teil wird bei Verlust neu angefragt) und prüft ihn, **bevor** er etwas schreibt: Pruefsumme, gültiges Format, derselbe Kanal und Master, und dass
+   der Plan diesen Computer mit seiner Rolle enthält. Hat der Plan am Master sich währenddessen geändert oder ist etwas beschädigt angekommen, holt er ihn von vorn.
+4. Dann zeigt er, was kam (Computer, Blöcke, Routen, Bahnsteige), und schreibt erst nach deinem **Ja** nach `configs/network.json`. Die alte Datei bleibt als `.prev`; Modem und Monitor, die auf diesem Computer
+   gewählt wurden, bleiben im Eintrag. Der neue Plan gilt ab dem nächsten Start des Computers (`reboot`).
+
+Der Master liefert die Datei so, wie sie **jetzt auf seiner Platte** liegt, wenn sie gültig ist; das ist die Datei, die du bearbeitet hast (der laufende Master kennt neue Bloecke erst nach seinem Neustart).
+Hat der Eintrag im Plan des Masters noch keine Bahnsteige oder Gleise, sagt der Computer das und schreibt nichts. Signal, Melder, Weiche, Zug und Monitor bekommen keinen Plan (sie brauchen ihn nicht).
 
 ### Neue Computer am Master aufnehmen
 
@@ -110,6 +125,7 @@ erst mit `scripts/setup.lua` einen eigenen Netzplan anlegen.
 scripts/setup.lua --check              prüft configs/network.json
 scripts/setup.lua --check <datei>      prüft eine andere Datei
 scripts/setup.lua --doctor             prüft diesen Computer und sagt, was zu tun ist (fragt auch den Master)
+scripts/setup.lua --fetch-plan         Bahnhof/Depot: holt den Netzplan vom Master (schreibt erst nach einem Ja)
 ```
 
 `--check` ändert nichts. Es meldet „in Ordnung (5 Computer, 1 Block, 1 Route)" oder nennt jeden Fehler **auf Deutsch** mit seiner Stelle im Plan (zum Beispiel

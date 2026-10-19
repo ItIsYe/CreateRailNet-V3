@@ -71,7 +71,8 @@ result of the doctor is kept in `crn_status.lua` (`src/shared/setup_status.lua`;
 
 A computer the master does not know announces itself (`pair_announce`, protocol revision 3). The master keeps it as a bounded candidate in `src/master/pairing.lua` and shows it
 on the page *setup* (`src/master/ui/panels/setup.lua`); only the operator's two-touch **[ANNEHMEN]** writes its entry into the plan file (`safe_write`, `.prev` kept).
-Nothing in this path switches hardware or releases anything: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
+A station or depot computer gets its platforms / tracks by **fetching** the master's plan (`src/setup/plan_fetch.lua` asks, `src/master/plan_service.lua` answers in parts of 3000 bytes; the player confirms
+before the file is written). Nothing in this path switches hardware or releases anything: the plan remains the only source of blocks, routes and signals (`docs/assumptions.md`, "Setup and pairing").
 
 ## Installation
 

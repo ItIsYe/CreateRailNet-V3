@@ -20,6 +20,7 @@ The installer asks for the role, downloads and verifies exactly the files that r
 that shows the step (role, network plan, name, hardware, check), `?` for help, `<` to go back, and nothing is written before you confirm the summary.
 The wizard binds the modem and the monitor by name, runs the doctor (`scripts/setup.lua --doctor`) and tests the link to the master; a computer the master
 does not know yet waits on the master's page *Einrichtung* until you accept it there.
+A station or depot computer fetches its platforms / tracks from the master's plan (`scripts/setup.lua --fetch-plan`, checked before it is written).
 Running the installer again updates or repairs. Wizard: `docs/INGAME_SETUP.md`. Installer details, options and error messages: `docs/INSTALL.md`.
 
 ### 2) Configuration

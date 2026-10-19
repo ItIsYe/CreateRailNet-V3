@@ -79,8 +79,12 @@ interrupted installation, which `startup.lua` resumes by itself (`installer --re
   `Modem ... nicht gefunden` (the plan names a modem that is not attached: attach it or change the `modem` field of the entry), `Mehrere Modems, keines festgelegt` and
   `Mehrere Monitore, keiner festgelegt` (the first one is used; write its name into the entry as `modem` / `monitor`), `Kein Monitor` (the display stays empty),
   `Bahnhof ohne Bahnsteige` / `Depot ohne Gleise` (see below), `Speicher fast voll`.
-- **A station or depot computer says "Bahnhof ohne Bahnsteige" / "Depot ohne Gleise"**: platforms and tracks are read from the computer's own plan, and a short plan has none.
-  Copy the complete plan of the master to this computer (for example with a disk) and choose "Eigene Datei angeben" in the wizard. There is no distribution of the plan yet.
+- **A station or depot computer says "Bahnhof ohne Bahnsteige" / "Depot ohne Gleise"**: platforms and tracks are read from the computer's own plan, and a short plan has none. Put them in the entry
+  of the computer in the master's plan (`docs/config_reference.md`), restart the master, accept the computer on the page *Einrichtung* if it waits there, then run `scripts/setup.lua --fetch-plan` on it.
+- **`--fetch-plan` says ...**: "Der Master kennt diesen Computer noch nicht" (accept it at the master first); "Die ID ... mit einer anderen Rolle" (id or role in the master's plan differs); "Der Master antwortet nicht"
+  (the master runs, same channel, modem in range, and the master has the version with `plan_get` -- an older master is silent); "Der Master kann den Plan nicht liefern ... Fehler" (`scripts/setup.lua --check` at the master);
+  "beschaedigt" / "hat sich geaendert" (it was fetched again up to two times; try once more when nobody edits the plan); "gehoert zu einem anderen Netz" (channel or master id differ: the computer is set up for another network);
+  "noch keine Bahnsteige" (the entry in the master's plan has none yet). In every case nothing was written.
 - **The computer does not show up on the master's page *Einrichtung***: the computer needs a modem on the same channel as the master, the master must run (a master from
   before revision 3 ignores the announcement; update it with the installer), and the link test of the wizard says which of these it is ("Master antwortet nicht" / "kennt die ID noch nicht").
   A rejected id is ignored for 10 minutes; a computer that stood on the page for an hour without a sign is forgotten and announces itself again.

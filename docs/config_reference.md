@@ -25,6 +25,9 @@ valid on its own and holds only this computer and the master:
 
 The master needs an entry in `nodes` for every computer, with the same fields. `scripts/setup.lua --check [file]` validates a plan on the computer.
 
+A **station or depot** computer needs its `platforms` / `tracks` in its own plan. The master's plan is the source: put them in the entry of that computer there and let the computer fetch the plan
+(`scripts/setup.lua --fetch-plan`, `docs/INGAME_SETUP.md`); the computer writes it to its own `configs/network.json` after a yes.
+
 A computer that is not in the master's plan yet does not have to be typed in: it announces itself, waits on the master's page *Einrichtung* and is written
 into the plan file when the operator accepts it (`docs/INGAME_SETUP.md`). The master then writes the plan in the format of the setup wizard (stable key
 order, the old file stays as `<file>.prev`); a plan that is a bundled template (`configs/templates/...`) is never written to.

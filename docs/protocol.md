@@ -7,7 +7,7 @@ All messages are JSON tables transmitted over a shared modem channel:
 ```
 {
   v   = 1,                          -- protocol major version, must match
-  pv  = 3,                          -- protocol revision (additive changes only; older nodes send none = 1)
+  pv  = 4,                          -- protocol revision (additive changes only; older nodes send none = 1)
   type = "register|heartbeat|cmd|event|ack|err",
   id  = "<unique string>",          -- for dedup and ack matching
   src = "<node_id>",
@@ -89,6 +89,25 @@ whose `id` and `role` are those of the sender, at most 64 candidates, forgotten 
 (`safe_write`, the old file stays as `.prev`, refused for a template plan or a plan that does not validate before and after). Both
 decisions are audited (`node_accepted`, `pair_rejected`, also `pair_candidate`, `pair_conflict`).
 
+## The plan of the master (revision 4)
+
+A station or depot computer reads its platforms / tracks from its own plan, and a plan is more than one modem message holds, so the setup wizard of that computer fetches it part by part. The computer asks, the master
+answers; the master never sends a plan unasked. Additive again: an older master does not know `plan_get` and stays silent (the asker reports "no answer").
+
+| Message | Direction | Payload |
+|---|---|---|
+| `plan_get` (event, reliable) | computer -> master | `{ type = "plan_get", role, index, version? }`: part `index` (1 = start of a transfer, reads the file again); `version` is the Adler-32 (8 hex characters) the asker began with, absent for part 1 |
+| `plan_part` (cmd, plain) | master -> computer | `{ cmd = "plan_part", question = <id of the plan_get>, ok = true, index, total, version, size, data }` or `{ ok = false, state, reason }` |
+
+`state` of a failure: `refused` (reason `not_in_plan` / `conflict` / `role` / `unavailable`: only a station or depot that the plan lists with that role gets the plan; everybody else gets this small answer and nothing is kept for them),
+`changed` (the plan on the master's disk is no longer the one the asker began with: start again), `error` (reason in German: file missing, empty, too big, not valid). The master reads the plan **file** as it lies on its disk and hands
+it out only when it parses and validates; part 1 reads it again, later parts come from the one cached text (60 s). A part is 3000 bytes of the text; `version` is the Adler-32 of the whole text. `plan_part` is not sent reliably: the
+asker asks again for a part that did not arrive (three times, then it gives up).
+
+The asker checks everything before it uses it: sender is the master, `question` is the id of its own request, `index`/`total`/`size`/`version`/`data` are sane (at most 60 parts, 200000 bytes, parts of at most 8192 bytes), `total`,
+`size` and `version` stay the same in every part, size and Adler-32 of the assembled text match, the text is a valid plan, channel and master id are those of this computer, and the plan lists this computer with its role. A plan
+that changed or arrived damaged is fetched again (twice at most). Whether to write it is the player's decision (`docs/INGAME_SETUP.md`).
+
 ## Reliability
 
 `send_reliable` adds the message to a pending table. `tick()` retries with exponential backoff:
@@ -125,6 +144,7 @@ acks duplicate `event` and `register` messages again. Duplicate heartbeats and a
 | `ota_result` | any node | ❌ best-effort |
 | `pair_announce` | any node | ✅ (revision 3) |
 | `pair_probe` | setup wizard | ✅ (revision 3) |
+| `plan_get` | setup wizard (station / depot) | ✅ (revision 4) |
 
 ## OTA Update Protocol
 

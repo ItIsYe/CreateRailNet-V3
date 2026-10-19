@@ -38,6 +38,9 @@ A computer whose id stands in the plan with another role is shown red and cannot
 - A computer of the plan shows what it reported about its own setup (`crn_status.lua`: KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN, shown as "Selbsttest ok" / "Selbsttest offen"). This is information for the
   operator, not a release: setup never switches a signal or a turnout, and the dispatcher does not wait for it.
 - Audit: `pair_candidate`, `pair_conflict`, `node_accepted`, `pair_rejected`.
+- **Handing out the plan.** A station or depot computer that the plan lists fetches the master's plan (`scripts/setup.lua --fetch-plan` on that computer). The master answers from the plan **file on its disk**
+  when it validates (so a plan you edited reaches the computer before the master has been restarted with it), in parts of 3000 bytes; each hand-out is audited as `plan_served`. Everybody else is refused
+  with a small answer. The master needs the version of this release for it; an older master does not answer.
 
 ## Repairing a fault
 

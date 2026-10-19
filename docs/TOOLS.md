@@ -75,6 +75,7 @@ dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 | `scripts/manifest_sync.lua --write\|--check` | regenerates / checks `install/manifest.lua`, the installer's file list (after changing any installed file) |
 | `scripts/setup.lua [--role R]` | the setup wizard of one computer: role, network plan (`configs/network.json`), id, hardware, summary; writes `startup.lua` (`docs/INGAME_SETUP.md`) |
 | `scripts/setup.lua --check [file]` | checks a network plan (default `configs/network.json`) on the computer and names every problem; changes nothing |
+| `scripts/setup.lua --fetch-plan` | station / depot: asks the master for its network plan (`plan_get` / `plan_part`), checks it (size, Adler-32, valid plan, same channel and master, this computer in it with its role) and writes it to the plan file after a yes; the old file stays as `.prev`; keeps the modem / monitor chosen on this computer |
 | `scripts/setup.lua --doctor` | the doctor: installation, `startup.lua`, plan, entry, modem, devices of the role, monitor, free space, answer of the master; one line per point (`[ OK ]` / `[WARN]` / `[FEHL]`) and what to do about each. Writes only the record of its result, `crn_status.lua` (KONFIGURIERT / GEPRUEFT / PRUEFUNG_OFFEN); never switches a signal or a turnout |
 | `scripts/check_configs.lua` | development only: validates the maintained example plans under `configs/templates/` (not installed on computers) |
 | `scripts/ota_push.lua [--node ID] [--legacy]` | pushes the runtime to nodes (`docs/OTA.md`) |

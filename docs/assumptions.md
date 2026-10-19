@@ -32,8 +32,11 @@
   names a real computer reports, and the behaviour of wired versus wireless modems.
 - **Accepting does not reconfigure a running dispatcher.** The entry is written to the plan file and the master's device lookup follows it, but blocks and routes are built from the
   plan at start: what uses the new computer applies after a restart of the master. A live reload of the dispatcher is not built (it would touch the safety core for a rare operation).
-- **No distribution of the plan.** Every computer reads its own plan file. Signal, sensor, switch, train and panel computers need only a short plan; a station or depot
-  computer needs its platforms/tracks in its own plan, so it needs the full plan copied (the doctor says so). Distributing plans is not built.
+- **The plan is fetched by the computer that needs it, never pushed.** Every computer reads its own plan file. Signal, sensor, switch, train and panel computers need only a short plan; a station or
+  depot computer needs its platforms/tracks, so its wizard asks the master for the plan (`plan_get` / `plan_part`), checks it and writes it only after the player's yes. The master never writes a
+  plan to another computer, and the OTA paths still exclude `configs/network.json`. The master hands out the file as it lies on its disk when it validates, and only to a station or depot that its
+  plan lists with that role; the plan goes over the channel in the clear like everything else (no cryptography, see "Network"). Checks (Adler-32, validation, channel and master, the computer's own
+  entry) catch damage and mistakes, not a forged master.
 - **On-screen text is ASCII.** The terminal shows bytes; umlauts would depend on the font and the CC version, so wizard, installer and master page write `ae oe ue ss`. Whether
   a real terminal could show umlauts is a test in `docs/INGAME_TESTS.md`, not an assumption.
 
