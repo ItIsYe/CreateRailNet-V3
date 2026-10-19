@@ -12,6 +12,7 @@ local updater = require("src.shared.updater")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local log_forwarder = require("src.shared.log_forwarder")
+local setup_status = require("src.shared.setup_status")
 
 local common_node = {}
 
@@ -47,6 +48,19 @@ function common_node.new(opts)
       node.logger.warn("tick job failed", { job = name, error = err, count = count })
     end
   })
+  -- pairing (below): asked every few seconds until the master has said that it knows this computer
+  node.pair = { state = nil, announced_at = nil }
+  node.ticker.every("pair", 5, function()
+    if node.pair.state == "known" then return end
+    local revision = node.net.peer_revision(node.config.master_id)
+    if not revision or revision < 3 then return end
+    local now = (opts.clock or function() return time.now_ms() / 1000 end)()
+    local wait = node.pair.state and 300 or 20
+    if node.pair.announced_at and now - node.pair.announced_at < wait then return end
+    node.pair.announced_at = now
+    node.announce()
+  end)
+
   -- node.heartbeat is looked up on every tick because roles replace it after construction
   node.ticker.every("heartbeat", node.heartbeat_ms / 1000, function() node.heartbeat() end)
 
@@ -62,6 +76,19 @@ function common_node.new(opts)
   function node.register()
     return node.net.send_reliable("register", node.config.master_id, { role = node.role })
   end
+
+  -- Pairing: the node tells the master which entry of the plan it is (and how far its setup got). A master that does not know the
+  -- computer shows it to the operator; the answer (cmd pair_state) is kept here and written to the log when it changes.
+  -- Asked once the master has shown that it understands it (protocol revision 3), again every 5 minutes while it is not "known".
+  function node.announce()
+    local entry = nil
+    for _, candidate in ipairs(node.config.nodes or {}) do if candidate.id == node.id then entry = candidate end end
+    local setup = nil
+    local ok, status = pcall(setup_status.read)
+    if ok and status then setup = { state = status.state, fail = status.fail, warn = status.warn, version = status.version } end
+    return node.net.send_reliable("event", node.config.master_id, { type = "pair_announce", role = node.role, entry = entry, setup = setup })
+  end
+
 
   function node.heartbeat()
     return node.net.heartbeat(node.config.master_id, { role = node.role })
@@ -157,6 +184,17 @@ function common_node.new(opts)
         node.net.send("event", msg.src, { type = "ota_result", node_id = node.id, update_id = payload.update_id, success = false, errors = { tostring(ok) } })
       elseif ok == false then
         node.net.send("err", msg.src, { ref_id = msg.id, error = tostring(err) })
+      end
+      return status
+    end
+
+    -- the master's answer to an announcement: where this computer stands (known / pending / conflict / rejected / muted / full)
+    if payload.cmd == "pair_state" then
+      remember_outcome(msg, true)
+      node.net.ack_for(msg, true)
+      if type(payload.state) == "string" and node.pair.state ~= payload.state then
+        node.pair.state = payload.state
+        node.logger.info("pairing", { state = payload.state, detail = payload.detail })
       end
       return status
     end

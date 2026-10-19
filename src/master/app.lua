@@ -35,6 +35,7 @@ local cargo_panel = require("src.master.ui.panels.cargo")
 local gleisbild_panel = require("src.master.ui.panels.gleisbild")
 local peripherals = require("src.adapter.peripherals")
 local monitors = require("src.adapter.monitors")
+local pairing_module = require("src.master.pairing")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
 local create_switches = require("src.adapter.create_switches")
@@ -139,6 +140,11 @@ function app.new(args)
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
   context.ota = ota_manager.new(network, reg, logger)
+  -- computers that announce themselves but are not in the plan wait for the operator; accepting writes into this plan file
+  context.pairing = pairing_module.new({
+    config = cfg, plan_path = parsed.config or "configs/templates/network.example.json", fs = _G.fs,
+    audit = function(kind, data) audits.record(kind, data) end,
+  })
   context.cargo = cargo_module.new(cfg)
 
   -- Rewire interactive panels with manual_control and full context
