@@ -13,6 +13,7 @@ Notes: Enter takes the suggestion in [ ], ? explains the question, < goes one st
 package.path = "/?.lua;/?/init.lua;" .. (package.path or "")
 
 local wizard = require("src.setup.wizard")
+local link = require("src.setup.link")
 
 local result = wizard.run({
   args = { ... },
@@ -25,6 +26,7 @@ local result = wizard.run({
     fs = fs,
     peripheral = peripheral,
     os = os,
+    link = link.probe,
   },
 })
 

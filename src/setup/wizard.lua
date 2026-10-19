@@ -1,7 +1,8 @@
 --[[
 Purpose: The first-time setup of a computer: role, network plan, name, hardware, summary, then startup.lua (and the plan when needed).
 Public API: run(opts) -> result { ok, aborted, role, id, config, written, rebooted, error }
-  opts: args (argv list, "--role <role>" skips the role question), env { print, write, read, term, colors, fs, peripheral, os }
+  opts: args (argv list, "--role <role>" skips the role question), env { print, write, read, term, colors, fs, peripheral, os, link }
+        env.link(opts) -> { state, detail } asks the master whether it knows this computer (src/setup/link.lua); without it nothing is asked
   check(path, env) -> { ok, path }          prints whether a network plan is valid (scripts/setup.lua --check [file])
   doctor(env) -> { ok, report }             prints what is wrong with this computer and what to do (scripts/setup.lua --doctor)
   ROLES -> list of { key, label, text }       parse_args(argv) -> { role, check, check_path, doctor }
@@ -143,6 +144,17 @@ local function label_of(list, value)
   return tostring(value)
 end
 
+-- what the doctor asks when it wants to know whether the master knows this computer (nil: no way to ask)
+local function probe_function(env)
+  if not env.link then return nil end
+  return function(ctx)
+    return env.link({
+      channel = ctx.cfg.channel, master_id = ctx.cfg.master_id, id = ctx.id, role = ctx.role, entry = ctx.entry,
+      setup = { state = "KONFIGURIERT" }, modem_name = ctx.entry and ctx.entry.modem, peripheral = env.peripheral,
+    })
+  end
+end
+
 -- the version of the installed files (crn_version.txt: "<ref>-<id>"), or nil
 local function file_version(files)
   local text = files.read("crn_version.txt")
@@ -157,10 +169,12 @@ local function record_status(env, files, report)
 end
 
 -- scripts/setup.lua --doctor: what is wrong with this computer, and what to do about it (changes nothing but the record of the result)
-function wizard.doctor(env, probe)
+function wizard.doctor(env)
   local t = terminal.new(env)
   local files = make_files(env.fs)
   t.say("Pruefung dieses Computers", "title")
+  local probe = probe_function(env)
+  if probe then t.say("Frage den Master (bis zu einige Sekunden) ...", "dim") end
   local report = doctor.run({ fs = env.fs, peripheral = env.peripheral, probe = probe })
   for _, line in ipairs(doctor.lines(report, t.width() - 1)) do t.say(line.text, line.kind) end
   t.blank()
@@ -1092,10 +1106,16 @@ function wizard.run(opts)
     local keep_screen = false
     if ctx.role == "master" then
       for _, line in ipairs(MASTER_NEXT_STEPS) do t.say(line) end
+    elseif report and report.ctx.link == "known" then
+      t.say("Der Master kennt diesen Computer schon: nichts weiter einzutragen.", "ok")
     elseif ctx.plan.mode == "use" or ctx.plan_entry then
       t.say("Der Eintrag " .. ctx.node_id .. " steht im Netzplan. Der Master braucht denselben Eintrag, falls er noch fehlt.", "dim")
     else
-      t.say("Trage diese Zeile im Netzplan des Masters unter \"nodes\" ein:")
+      if report and report.ctx.link == "pending" then
+        t.say("Am Master bestaetigen (Seite Einrichtung) oder die Zeile unten im Netzplan des Masters unter \"nodes\" eintragen:", "ok")
+      else
+        t.say("Trage diese Zeile im Netzplan des Masters unter \"nodes\" ein:")
+      end
       for _, line in ipairs(netplan.entry_lines(final_entry(), t.width() - 2)) do t.say(line) end
       t.say("Sie steht auch in " .. ctx.plan.path .. " dieses Computers.", "dim")
       keep_screen = true
@@ -1168,7 +1188,12 @@ function wizard.run(opts)
     -- the files are written: from here on the setup is done, whatever happens to the pages that follow
     result.ok = true
     result.role, result.id = ctx.role, ctx.node_id
-    local report = doctor.run({ fs = env.fs, peripheral = env.peripheral })
+    local probe = ctx.role ~= "master" and probe_function(env) or nil
+    if probe then
+      t.page("Pruefung", nil, nil, true)
+      t.say("Pruefe diesen Computer und frage den Master, ob er ihn kennt (das dauert ohne Antwort einige Sekunden) ...", "dim")
+    end
+    local report = doctor.run({ fs = env.fs, peripheral = env.peripheral, probe = probe })
     result.report = report
     record_status(env, files, report)
     if report.fails > 0 or report.warns > 0 then show_report(report) end

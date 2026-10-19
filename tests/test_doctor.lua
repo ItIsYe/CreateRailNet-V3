@@ -19,6 +19,14 @@ local MODEM, SIGNAL, OBSERVER, STATION, MONITOR = setup_world.MODEM, setup_world
 local MODEM2 = { name = "modem_1", type = "modem", methods = { "open", "transmit", "isOpen" } }
 local MONITOR2 = { name = "monitor_1", type = "monitor", methods = { "write", "setCursorPos", "clear" } }
 
+-- Enter n times, then the given answers
+local function enters(n, extra)
+  local list = {}
+  for i = 1, n do list[i] = "" end
+  for _, value in ipairs(extra or {}) do list[#list + 1] = value end
+  return list
+end
+
 local function peripheral_api(list)
   return {
     getNames = function() local names = {}; for _, p in ipairs(list) do names[#names + 1] = p.name end; return names end,
@@ -357,6 +365,62 @@ return {
     assert(text:find("Pruefung dieses Computers", 1, true) and text:find("Was zu tun ist", 1, true) and text:find("Create_Signal_9", 1, true))
     assert(world.check_screen(true) == nil, tostring(world.check_screen(true)))
     assert(wizard.parse_args({ "--doctor" }).doctor == true)
+  end,
+
+  test_the_wizard_asks_the_master_and_a_known_computer_has_nothing_to_carry_over = function()
+    local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
+    local asked = {}
+    world.link = function(opts) asked[#asked + 1] = opts; return { state = "known" } end
+    local result = world.run({ "--role", "signal" }, enters(7))
+    assert(result.ok and world.rebooted == 1, "the master knows it: nothing to copy, Enter restarts")
+    assert(#asked == 1 and asked[1].id == "SIG-1" and asked[1].role == "signal" and asked[1].master_id == "MASTER-1" and asked[1].channel == 777)
+    assert(asked[1].entry.peripheral == "Create_Signal_0" and asked[1].setup.state == "KONFIGURIERT")
+    local text = world.text()
+    assert(text:find("Der Master kennt diesen Computer schon", 1, true) and not text:find("Trage diese Zeile", 1, true))
+    assert(text:find("Master antwortet und kennt SIG-1", 1, true) == nil, "all green: no list of checks")
+    assert(world.check_screen() == nil, tostring(world.check_screen()))
+  end,
+
+  test_a_master_that_has_not_decided_yet_is_told_to_be_asked_and_the_line_stays_as_a_fallback = function()
+    local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
+    world.link = function() return { state = "pending" } end
+    -- the doctor has an amber point (master does not know it yet): two pages, then the restart question
+    local result = world.run({ "--role", "signal" }, enters(8, { "j" }))
+    assert(result.ok and result.report.fails == 0 and result.report.warns >= 1)
+    local text = world.text()
+    assert(text:find("Master kennt SIG-1 noch nicht", 1, true))
+    assert(text:find("Am Master bestaetigen", 1, true) and text:find('"id": "SIG-1"', 1, true))
+    assert(world.rebooted == 1)
+    assert(world.check_screen() == nil, tostring(world.check_screen()))
+  end,
+
+  test_no_answer_from_the_master_is_an_amber_hint_not_a_stop = function()
+    local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
+    world.link = function() return { state = "no_answer" } end
+    local result = world.run({ "--role", "signal" }, enters(8, { "j" }))
+    assert(result.ok and result.report.fails == 0)
+    assert(world.text():find("Master antwortet nicht", 1, true))
+    assert(setup_status.read(world.fs).state == "GEPRUEFT", "amber does not turn the record red")
+  end,
+
+  test_the_master_itself_asks_nobody = function()
+    local world = setup_world.new({ peripherals = { MODEM, MONITOR } })
+    local asked = 0
+    world.link = function() asked = asked + 1; return { state = "known" } end
+    local result = world.run({ "--role", "master" }, { "", "", "", "", "" })
+    assert(result.ok and asked == 0)
+  end,
+
+  test_the_doctor_command_asks_the_master_too = function()
+    local world = setup_world.new({ peripherals = { MODEM, MONITOR, SIGNAL }, files = {
+      ["startup.lua"] = startup_template.render({ role = "signal", id = "SIG-1", config = netplan.PATH }),
+      [netplan.PATH] = netplan.encode(netplan.short_plan("signal", { id = "SIG-1", role = "signal", adapter = "peripheral", peripheral = "Create_Signal_0" }, 777, "MASTER-1")),
+    } })
+    local asked = 0
+    world.link = function() asked = asked + 1; return { state = "known" } end
+    local result = world.run({ "--doctor" }, {})
+    assert(result.ok and asked == 1 and result.report.ctx.link == "known")
+    assert(world.text():find("Master antwortet und kennt SIG-1", 1, true))
   end,
 
   -- whatever the disk holds, the doctor answers -----------------------------------------------------------------------------

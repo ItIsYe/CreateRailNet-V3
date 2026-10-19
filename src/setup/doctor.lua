@@ -3,8 +3,9 @@ Purpose: The doctor: looks at this computer and says whether it is ready to run 
   thing it writes is the record of its result (crn_status.lua), and only when asked to.
 Public API:
   run(opts) -> report { checks, fails, warns, ready, ctx }
-    opts: fs (CC fs api), peripheral (CC peripheral api), startup (path, default "startup.lua"), probe (nil | { state, detail }: what a test of
-          the link to the master found, see src/setup/link.lua)
+    opts: fs (CC fs api), peripheral (CC peripheral api), startup (path, default "startup.lua"),
+          probe (nil | { state, detail } | function(ctx) -> { state, detail }: what a test of the link to the master found, see
+          src/setup/link.lua; a function is asked only when the plan, the entry and a modem are there to ask with)
     check: { id, level = "ok" | "warn" | "fail", title, fix }
   lines(report, width) -> list of { text, kind }       one line per check, wrapped, "[ OK ] ..." / "[WARN] ..." / "[FEHL] ..."
   fix_lines(report, width) -> list of { text, kind }   what to do about every warning and failure
@@ -41,6 +42,7 @@ function doctor.run(opts)
   local devices = hardware.scan(o.peripheral or _G.peripheral)
   local report = { checks = {}, fails = 0, warns = 0, ready = true, ctx = {} }
   local ctx = report.ctx
+  local modem_usable = false
 
   local function add(id, level, title, fix)
     report.checks[#report.checks + 1] = { id = id, level = level, title = title, fix = fix }
@@ -128,6 +130,7 @@ function doctor.run(opts)
     local bound = ctx.entry and ctx.entry.modem
     if bound then
       if hardware.find(devices, bound) then
+        modem_usable = true
         add("modem", "ok", "Modem " .. bound .. " (festgelegt)")
       else
         add("modem", "fail", "Modem " .. bound .. " nicht gefunden", "Das Modem wieder anbauen oder den Namen im Netzplan aendern (Feld modem beim Eintrag " .. tostring(ctx.id) .. ").")
@@ -135,8 +138,10 @@ function doctor.run(opts)
     elseif #modems == 0 then
       add("modem", "fail", "Kein Modem", "Ein Modem direkt an den Computer setzen (oder per Kabel anbinden). Ohne Modem erreicht er das Netz nicht.")
     elseif #modems == 1 then
+      modem_usable = true
       add("modem", "ok", "Modem " .. modems[1].name .. " (automatisch)")
     else
+      modem_usable = true
       local names = {}
       for _, info in ipairs(modems) do names[#names + 1] = info.name end
       add("modem", "warn", "Mehrere Modems, keines festgelegt",
@@ -254,8 +259,10 @@ function doctor.run(opts)
   end
 
   -- 10. the master
-  if o.probe and ctx.role and ctx.role ~= "master" then
-    local state = o.probe.state
+  if o.probe and ctx.role and ctx.role ~= "master" and (type(o.probe) ~= "function" or (modem_usable and ctx.cfg and ctx.entry)) then
+    local result = type(o.probe) == "function" and o.probe(ctx) or o.probe
+    local state = type(result) == "table" and result.state or nil
+    ctx.link = state or "no_answer"
     local master = ctx.cfg and ctx.cfg.master_id or "?"
     if state == "known" then
       add("link", "ok", "Master antwortet und kennt " .. tostring(ctx.id))
@@ -264,8 +271,13 @@ function doctor.run(opts)
         "Am Master bestaetigen (Seite Einrichtung, neue Computer) oder die Zeile aus dem Assistenten in den Netzplan des Masters eintragen.")
     elseif state == "conflict" then
       add("link", "fail", "Master kennt " .. tostring(ctx.id) .. " mit anderer Rolle", "Die ID " .. tostring(ctx.id) .. " ist im Netzplan des Masters vergeben: eine andere ID nehmen oder dort die Rolle aendern.")
+    elseif state == "rejected" then
+      add("link", "warn", "Master hat " .. tostring(ctx.id) .. " abgelehnt",
+        "Nach etwa 10 Minuten meldet sich der Computer erneut. Oder den Eintrag am Master von Hand in den Netzplan schreiben (die Zeile zeigt scripts/setup.lua am Ende).")
     elseif state == "old_master" then
       add("link", "ok", "Master antwortet (aelterer Stand)")
+    elseif state == "no_modem" then
+      -- reported by the modem check already
     else
       add("link", "warn", "Master antwortet nicht",
         "Laeuft der Master (" .. master .. ")? Gleicher Kanal, Modem in Reichweite, beide Modems offen? Der Test ist erst im Betrieb endgueltig.")
