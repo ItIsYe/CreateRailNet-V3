@@ -45,9 +45,9 @@ A computer whose id stands in the plan with another role is shown red and cannot
 ## Restarting the master from the setup page
 
 After a computer was accepted, blocks and routes that use it apply after a restart of the master. The page *Einrichtung* then shows **[MASTER NEU STARTEN]**. The first touch says what will
-happen (how many blocks are busy, that every signal goes to RED first); the second touch does it, in the order of a master that stops: every signal to RED, the state of the dispatcher is saved
-(`master_restart` in the audit), then `os.reboot`. After the restart the master restores the state and waits in recovery mode until the operator confirms, like after any restart.
-A restart with trains on the way stops them at red signals; do it when the network is quiet. The button only exists on the master's own monitor and is not a remote command.
+happen (how many blocks are busy, that every signal goes to RED first); the second touch does it: `master_restart` goes into the audit, the state of the dispatcher is saved, then every signal goes
+to RED as when a master stops, then `os.reboot`. After the restart the master restores the state and waits in recovery mode until the operator confirms, like after any restart.
+A restart with trains on the way stops them at red signals; do it when the network is quiet. The button is on the master's own setup page; no message from another computer restarts the master.
 
 ## Releasing the operation (optional)
 

@@ -112,7 +112,7 @@ Prüfprotokoll). Der Master tut damit **nichts außer es anzuzeigen**: der Compu
 - Steht die ID schon mit anderer Rolle im Plan, ist die Zeile rot und kann nicht angenommen werden.
 - Ein wartender Computer ist **kein Node**: der Master registriert ihn nicht, ignoriert seine Ereignisse (auch Bedienbefehle von etwas, das sich „Panel" nennt) und schickt ihm nichts.
   Erst der Eintrag im Netzplan macht ihn dazu.
-- Nach dem Annehmen erscheint auf der Seite der Knopf **[MASTER NEU STARTEN]** (zwei Berührungen; die erste nennt, wie viele Blöcke gerade belegt sind; alle Signale gehen auf ROT, der Zustand wird gesichert,
+- Nach dem Annehmen erscheint auf der Seite der Knopf **[MASTER NEU STARTEN]** (zwei Berührungen; die erste nennt, wie viele Blöcke gerade belegt sind; der Zustand wird gesichert, alle Signale gehen auf ROT,
   dann startet der Master neu und wartet auf die Bestätigung des Wiederanlaufs). Verlangt der Plan `require_release`, steht darunter **[BETRIEB FREIGEBEN]** (`docs/OPERATIONS.md`).
 - Nach dem Annehmen steht der Eintrag im Plan und der Computer ist ein Node. **Bloecke und Routen, die ihn benutzen, gelten nach einem Neustart des Masters** (der Dispatcher wird beim
   Start aus dem Plan gebaut); die Meldung auf dem Monitor sagt das.
