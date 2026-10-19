@@ -38,6 +38,8 @@ function master_runtime.new(context)
     plan_service = context.plan_service,
     restart = context.restart,
     restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
+    -- config require_release: until the operator releases the operation no train starts a journey (a restart takes the release back)
+    release = { required = type(context.config) == "table" and context.config.require_release == true, released = false },
     alerts = context.alerts,
     logs = context.logs,
     trace = context.trace,
@@ -163,6 +165,40 @@ function master_runtime.new(context)
 
   local function maintenance_enabled() if not runtime.maintenance then return false end; if runtime.maintenance.is_locked then return runtime.maintenance.is_locked() end; if runtime.maintenance.status then return runtime.maintenance.status().enabled == true end; return runtime.maintenance.enabled == true end
   local function recovery_locked() return runtime.recovery.required == true and runtime.recovery.confirmed ~= true end
+  local function release_locked() return runtime.release.required == true and runtime.release.released ~= true end
+
+  -- The operator releases the operation (config require_release): from here on trains may start journeys. Only when the network is as it
+  -- should be: every computer of the plan that runs the track (not trains, not panels) is online and no block is in FAULT. A restart of the
+  -- master takes the release back, like it asks for the recovery to be confirmed again.
+  local RELEASE_ROLES = { signal = true, sensor = true, switch = true, station = true, depot = true }
+  function runtime.release_operation(operator)
+    local release = runtime.release
+    if not release.required then return true, "Fuer dieses Netz wird keine Freigabe verlangt." end
+    if release.released then return true, "Der Betrieb ist schon freigegeben." end
+    if recovery_locked() then return false, "Erst den Wiederanlauf bestaetigen, dann den Betrieb freigeben." end
+    local registry = runtime.registry.all and runtime.registry.all() or {}
+    local offline = {}
+    for _, node in ipairs((runtime.config and runtime.config.nodes) or {}) do
+      if RELEASE_ROLES[node.role] then
+        local entry = registry[node.id]
+        if not (entry and tostring(entry.status):upper() == "UP") then offline[#offline + 1] = node.id end
+      end
+    end
+    table.sort(offline)
+    if #offline > 0 then
+      local names = table.concat(offline, ", ", 1, math.min(3, #offline)) .. (#offline > 3 and ", ..." or "")
+      return false, "Nicht freigegeben: " .. #offline .. " Computer offline (" .. names .. ")."
+    end
+    local overview = runtime.dispatcher and runtime.dispatcher.get_overview and runtime.dispatcher.get_overview() or {}
+    local faulted = 0
+    for _, block in pairs(overview) do if type(block) == "table" and block.state == "FAULT" then faulted = faulted + 1 end end
+    if faulted > 0 then return false, "Nicht freigegeben: " .. faulted .. " Bloecke gestoert (erst beheben)." end
+    release.released, release.by, release.at = true, operator, time.now_s()
+    audit("operation_released", { by = operator })
+    if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("release:required") end
+    runtime.ui.mark_dirty()
+    return true, "Betrieb freigegeben."
+  end
 
   function runtime.save_recovery_state(reason)
     if not runtime.auto_save_state or not runtime.state_store or not runtime.dispatcher or not runtime.dispatcher.snapshot then return true end
@@ -229,9 +265,21 @@ function master_runtime.new(context)
     return true
   end
 
+  local function reject_release(msg, action)
+    local payload = msg.payload or {}
+    audit("release_blocked", { action = action, src = msg.src, train_id = payload.train_id, route_id = payload.route_id })
+    if payload.train_id then
+      local body = { cmd = "hold_position", train_id = payload.train_id, route_id = payload.route_id, reason = "Betrieb nicht freigegeben" }
+      if runtime.network.send_reliable then runtime.network.send_reliable("cmd", msg.src, body) else runtime.network.send("cmd", msg.src, body) end
+    end
+    runtime.network.ack_for(msg, true)
+    runtime.ui.mark_dirty()
+    return true
+  end
+
   local function panel_snapshot()
     local context_view = { config = runtime.config, registry = runtime.registry, logger = runtime.logger, dispatcher = runtime.dispatcher, route_integration = runtime.route_integration, service_plan_registry = runtime.service_plan_registry, audit_log = runtime.audit_log, maintenance = runtime.maintenance }
-    local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or "ONLINE")
+    local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or (release_locked() and "NICHT_FREIGEGEBEN" or "ONLINE"))
     local built = { cmd = "panel_update", master_state = master_state, overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
     built.diagnostics.recovery = runtime.recovery
     built.diagnostics.loop = runtime.ticker.stats()
@@ -270,7 +318,7 @@ function master_runtime.new(context)
     if role == "train" and runtime.train_registry then
       local train_id = msg.payload.train_id or msg.src
       runtime.train_registry.register(train_id, msg.src, msg.payload or {})
-      if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then runtime.route_integration.send_service_plan(train_id) end
+      if runtime.route_integration and not maintenance_enabled() and not recovery_locked() and not release_locked() then runtime.route_integration.send_service_plan(train_id) end
     elseif role == "station" and runtime.station_registry then apply_station_snapshot(msg.payload.station_id or msg.src, msg.payload or {})
     elseif role == "depot" and runtime.depot_registry then apply_depot_snapshot(msg.payload.depot_id or msg.src, msg.payload or {})
     elseif role == "panel" then send_panel_snapshot(msg.src)
@@ -320,7 +368,7 @@ function master_runtime.new(context)
     local ok, err = runtime.dispatcher.on_sensor_event_by_sensor(msg.payload.sensor_id, msg.payload.action)
     runtime.network.ack_for(msg, true)
     if ok == false and runtime.logger then runtime.logger.warn("sensor event rejected", { error = err, sensor_id = msg.payload.sensor_id }) end
-    if runtime.route_integration and not recovery_locked() then runtime.route_integration.process_queue() end
+    if runtime.route_integration and not recovery_locked() and not release_locked() then runtime.route_integration.process_queue() end
     runtime.ui.mark_dirty(); save_after("sensor")
   end
 
@@ -330,6 +378,7 @@ function master_runtime.new(context)
     audit("train_event", { src = msg.src, train_id = train_id, event_type = payload.type })
     if maintenance_enabled() and (payload.type == "request_departure" or payload.type == "arrived") then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "request_departure" then return reject_recovery(msg, payload.type) end
+    if release_locked() and payload.type == "request_departure" then return reject_release(msg, payload.type) end
     if payload.type == "train_status" then runtime.train_registry.update_status(train_id, payload)
     elseif payload.type == "request_departure" then if runtime.route_integration then runtime.route_integration.handle_train_request(payload, msg.src) end; if runtime.logger then runtime.logger.info("train requested departure", payload) end; save_after("route_request")
     elseif payload.type == "arrived" then if runtime.route_integration then runtime.route_integration.handle_train_arrival(payload, msg.src) end; save_after("train_arrival")
@@ -344,6 +393,7 @@ function master_runtime.new(context)
     audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "station_ready_departure" then return reject_recovery(msg, payload.type) end
+    if release_locked() and payload.type == "station_ready_departure" then return reject_release(msg, payload.type) end
     if payload.type == "station_status" then runtime.station_registry.update_status(station_id, payload); if payload.platforms then apply_station_snapshot(station_id, payload) end
     elseif payload.type == "platform_status" then runtime.station_registry.update_platform(station_id, payload.platform_id, payload)
     elseif payload.type == "train_arrived_station" then runtime.station_registry.update_platform(station_id, payload.platform_id, { state = "DWELLING", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
@@ -359,6 +409,7 @@ function master_runtime.new(context)
     audit("depot_event", { src = msg.src, depot_id = depot_id, event_type = payload.type })
     if maintenance_enabled() and payload.type == "depot_request_dispatch" then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "depot_request_dispatch" then return reject_recovery(msg, payload.type) end
+    if release_locked() and payload.type == "depot_request_dispatch" then return reject_release(msg, payload.type) end
     if payload.type == "depot_status" then runtime.depot_registry.update_status(depot_id, payload); if payload.tracks then apply_depot_snapshot(depot_id, payload) end
     elseif payload.type == "depot_track_status" then runtime.depot_registry.update_track(depot_id, payload.track_id, payload)
     elseif payload.type == "depot_train_ready" then runtime.depot_registry.update_track(depot_id, payload.track_id, { state = "READY", train_id = payload.train_id, train_name = payload.train_name, route_id = payload.route_id, destination = payload.destination })
@@ -373,6 +424,7 @@ function master_runtime.new(context)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg, true)
     elseif msg.payload and msg.payload.type == "manual_control" then
       if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg, true); return true end
+      if msg.payload.action == "release_operation" then runtime.release_operation(msg.src); runtime.network.ack_for(msg, true); return true end
       local ok, err = false, "manual control unavailable"
       if runtime.manual_control and not recovery_locked() then ok, err = runtime.manual_control.handle(msg.payload, msg.src) elseif recovery_locked() then ok, err = false, "recovery review required" end
       if not ok and runtime.logger then runtime.logger.warn("manual control rejected", { error = err, src = msg.src }) end
@@ -564,6 +616,10 @@ function master_runtime.new(context)
   end
 
   function runtime.start()
+    -- a network that asks for a release says so until the operator gave it
+    if release_locked() and runtime.alerts then
+      runtime.alerts.raise("release:required", "YELLOW", "Betrieb nicht freigegeben (Seite EINRICHTUNG: BETRIEB FREIGEBEN)")
+    end
     local ok_restore, restore_err = pcall(runtime.restore_recovery_state)
     if not ok_restore and runtime.logger then
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
@@ -623,7 +679,7 @@ function master_runtime.new(context)
   runtime.ticker.every("signals", 1, function() runtime.refresh_signals() end)
 
   runtime.ticker.every("dwell", 1, function()
-    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() then
+    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() and not release_locked() then
       runtime.route_integration.process_due()
       save_after("dwell")
     end

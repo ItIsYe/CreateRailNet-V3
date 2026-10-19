@@ -158,6 +158,7 @@ return {
     panel.draw(m)
     assert(m.text():find("[SICHER? SIGNALE ROT]", 1, true), "the button asks")
     assert(m.text():find("belegt", 1, true) and m.text():find("Signale gehen auf ROT", 1, true) and m.text():find("ACHTUNG", 1, true), "what will happen is said")
+    assert(m.text():find("Nochmal tippen zum Bestaetigen", 1, true), "and how to go on: the text is not cut off")
     panel.touch(5, row)
     assert(#restarts == 1 and restarts[1] == "MASTER-UI")
     m = monitor()

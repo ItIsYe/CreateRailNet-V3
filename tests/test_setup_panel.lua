@@ -76,13 +76,14 @@ local function find_row(m, text)
 end
 
 return {
-  test_a_finished_network_shows_four_ok_lines_and_no_waiting_computers = function()
+  test_a_finished_network_shows_only_ok_lines_and_no_waiting_computers = function()
     local w = world()
-    w.pairing.announce("SIG-1", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0 } })
-    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0 } })
+    w.pairing.announce("SIG-1", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0, hw = "ok" } })
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", fail = 0, warn = 0, hw = "ok" } })
     local m = recording_monitor(51, 19)
     w.panel.draw(m)
     local text = m.text()
+    assert(text:find("Hardwaretest: alle 2 Computer getestet", 1, true), text)
     assert(text:find("EINRICHTUNG", 1, true) and text:find("Kanal 777", 1, true))
     assert(text:find("OK     Netzplan: 1 Block/Bloecke, 1 Route(n)", 1, true), text)
     assert(text:find("Computer online: 2 von 2", 1, true) and text:find("alle 2 Computer lokal geprueft", 1, true) and text:find("keiner wartet", 1, true))
@@ -106,7 +107,26 @@ return {
     w.panel.draw(mono)
     assert(mono.text():find("FEHLER Computer offline", 1, true))
     local model = w.panel.model()
-    assert(model.nodes == 2 and model.offline == 1 and #model.lines == 4)
+    assert(text:find("OFFEN  Hardwaretest: 0 von 2 Computern getestet", 1, true), text)
+    assert(model.nodes == 2 and model.offline == 1 and #model.lines == 5)
+  end,
+
+  test_the_function_test_of_the_computers_is_counted_apart_from_the_self_test = function()
+    local w = world()
+    w.pairing.announce("SIG-1", { role = "signal", setup = { state = "GEPRUEFT", hw = "ok" } })
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT" } })
+    local m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    assert(m.text():find("Selbsttest: alle 2 Computer lokal geprueft", 1, true) and m.text():find("OFFEN  Hardwaretest: 1 von 2 Computern getestet", 1, true), m.text())
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", hw = "fail" } })
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    assert(m.text():find("FEHLER Hardwaretest: 1 Computer mit Fehler", 1, true), "a failed function test is red whatever else is ok")
+    -- anything else a computer calls its function test is not believed
+    w.pairing.announce("SIG-2", { role = "signal", setup = { state = "GEPRUEFT", hw = "bestens" } })
+    m = recording_monitor(51, 19)
+    w.panel.draw(m)
+    assert(m.text():find("OFFEN  Hardwaretest: 1 von 2 Computern getestet", 1, true))
   end,
 
   test_waiting_computers_are_listed_and_touching_a_row_selects_it = function()

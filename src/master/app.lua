@@ -118,6 +118,11 @@ function app.new(args)
         return false, "Der Master startet noch."
       end,
       busy_blocks = function() return instance and instance.runtime and instance.runtime.busy_blocks() or 0 end,
+      release = function() return instance and instance.runtime and instance.runtime.release or nil end,
+      release_now = function(operator)
+        if instance and instance.runtime then return instance.runtime.release_operation(operator) end
+        return false, "Der Master startet noch."
+      end,
     }),
     status    = status_panel.new({
       alerts = alerts,

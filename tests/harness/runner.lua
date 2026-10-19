@@ -68,6 +68,7 @@ local tests = {
   "tests/test_plan_fetch.lua",
   "tests/test_setup_fetch.lua",
   "tests/test_restart.lua",
+  "tests/test_release.lua",
   "tests/test_setup_panel.lua",
   "tests/test_alerts.lua",
   "tests/test_alerts_panel.lua",

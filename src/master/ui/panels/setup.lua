@@ -7,13 +7,16 @@ Public API: new(sources) -> panel with draw(monitor), touch(x, y), model()
            (runtime.pair_decide), now_s() (default: time.now_s)
            restart_needed() -> boolean, restart(operator) -> ok, message, busy_blocks() -> number   (runtime.restart_master; the button appears
            after a computer was accepted)
+           release() -> { required, released } | nil, release_now(operator) -> ok, message   (runtime.release_operation; a line and a button
+           appear when the plan asks for a release, config require_release)
 Notes: lines say how far the setup is: the plan has blocks and routes, the computers of the plan are online, they reported a clean
   check, nobody is waiting. Every line has a word as well as a colour (OK / OFFEN / FEHLER), so a monochrome monitor shows the same.
   Waiting computers are listed below; touching a row selects it, [ANNEHMEN] writes its entry into the plan (touch twice: the first touch
   asks), [ABLEHNEN] ignores it for a while. A computer whose id is in the plan with another role is shown red and cannot be accepted.
   Every action that has a consequence (accepting, restarting) takes two touches; the first one says what will happen.
   Words that stay apart: "Selbsttest" is what a computer found out about itself (the doctor), "angenommen" is the operator's entry in the
-  plan, and nothing on this page says that a track is released: the release of a stretch is the operator's decision, made on the track.
+  plan, "Hardwaretest" is what the guided function test on a computer found (scripts/setup.lua --test), and "Betrieb" is the operator's release
+  of the operation. Four different things; none of them stands for another.
 ]]
 
 local ui_utils = require("src.master.ui.ui_utils")
@@ -123,11 +126,32 @@ function setup_panel.new(sources)
       lines[#lines + 1] = { word = "OK", text = "Selbsttest: alle " .. clean .. " Computer lokal geprueft" }
     end
 
+    -- the guided function test of a computer (scripts/setup.lua --test) is reported with its announcement
+    local tested, failed_hw = 0, 0
+    for _, node in ipairs(nodes) do
+      local setup = src.pairing and src.pairing.setup_of and src.pairing.setup_of(node.id)
+      if setup and setup.hw == "ok" then tested = tested + 1 elseif setup and setup.hw == "fail" then failed_hw = failed_hw + 1 end
+    end
+    if #nodes == 0 then
+      lines[#lines + 1] = { word = "OFFEN", text = "Hardwaretest: nichts zu testen" }
+    elseif failed_hw > 0 then
+      lines[#lines + 1] = { word = "FEHLER", text = "Hardwaretest: " .. failed_hw .. " Computer mit Fehler" }
+    elseif tested == #nodes then
+      lines[#lines + 1] = { word = "OK", text = "Hardwaretest: alle " .. tested .. " Computer getestet" }
+    else
+      lines[#lines + 1] = { word = "OFFEN", text = "Hardwaretest: " .. tested .. " von " .. #nodes .. " Computern getestet" }
+    end
+
     local waiting = src.pairing and src.pairing.count and src.pairing.count() or 0
     if waiting > 0 then
       lines[#lines + 1] = { word = "OFFEN", text = "Neue Computer: " .. waiting .. " warten auf Annahme" }
     else
       lines[#lines + 1] = { word = "OK", text = "Neue Computer: keiner wartet" }
+    end
+    local release = src.release and src.release() or nil
+    if release and release.required then
+      if release.released then lines[#lines + 1] = { word = "OK", text = "Betrieb: freigegeben" }
+      else lines[#lines + 1] = { word = "OFFEN", text = "Betrieb: nicht freigegeben (verlangt)" } end
     end
     return { lines = lines, nodes = #nodes, offline = #offline }
   end
@@ -162,10 +186,18 @@ function setup_panel.new(sources)
         key = "restart", x = 1, label = "[MASTER NEU STARTEN]", sure = "[SICHER? SIGNALE ROT]",
         ask = function()
           local busy = src.busy_blocks and src.busy_blocks() or 0
-          return "Neustart: alle Signale gehen auf ROT, der Wiederanlauf will bestaetigt werden." .. (busy > 0 and (" ACHTUNG: " .. busy .. " Bloecke belegt, Zuege unterwegs!") or "")
-            .. " Zum Bestaetigen noch einmal tippen."
+          return "Neustart: Signale gehen auf ROT, der Wiederanlauf muss bestaetigt werden." .. (busy > 0 and (" ACHTUNG: " .. busy .. " Bloecke belegt!") or "")
+            .. " Nochmal tippen zum Bestaetigen."
         end,
         run = function() return src.restart("MASTER-UI") end,
+      }
+    end
+    local release = src.release and src.release() or nil
+    if release and release.required and not release.released and src.release_now then
+      list[#list + 1] = {
+        key = "release", label = "[BETRIEB FREIGEBEN]", sure = "[SICHER? FREIGEBEN]",
+        ask = function() return "Freigabe: Zuege duerfen ab jetzt Fahrten anfordern. Alle Computer muessen laufen, kein Block gestoert sein. Nochmal tippen zum Bestaetigen." end,
+        run = function() return src.release_now("MASTER-UI") end,
       }
     end
     return list

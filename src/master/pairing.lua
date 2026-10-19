@@ -84,6 +84,7 @@ local function clean_setup(setup)
     if type(setup[key]) == "number" and setup[key] >= 0 and setup[key] < 1000 then out[key] = math.floor(setup[key]) end
   end
   if type(setup.version) == "string" and #setup.version <= 60 then out.version = setup.version end
+  if setup_status.HW[setup.hw or ""] then out.hw = setup.hw end
   if next(out) == nil then return nil end
   return out
 end
