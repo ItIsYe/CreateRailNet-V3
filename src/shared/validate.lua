@@ -46,6 +46,21 @@ local function validate_inner(cfg, errors)
     if cfg[key] ~= nil and type(cfg[key]) ~= "boolean" then add(errors, key, "must be true or false") end
   end
 
+  -- authentication of the messages (docs/KEYS.md): off | monitor | enforce, and the ids of the master computers
+  if cfg.auth_mode ~= nil and cfg.auth_mode ~= "off" and cfg.auth_mode ~= "monitor" and cfg.auth_mode ~= "enforce" then add(errors, "auth_mode", "must be \"off\", \"monitor\" or \"enforce\"") end
+  if cfg.masters ~= nil then
+    if type(cfg.masters) ~= "table" then
+      add(errors, "masters", "must be an array of node ids")
+    else
+      local seen_masters = {}
+      for i, id in ipairs(cfg.masters) do
+        if not nonempty(id) then add(errors, "masters[" .. i .. "]", "must be non-empty string")
+        elseif seen_masters[id] then add(errors, "masters[" .. i .. "]", "master id listed twice")
+        else seen_masters[id] = true end
+      end
+    end
+  end
+
   local node_ids, block_ids, route_ids, node_roles = {}, {}, {}, {}
   local train_ids, service_plan_ids = {}, {}
   local station_ids, depot_ids = {}, {}

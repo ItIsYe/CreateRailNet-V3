@@ -130,7 +130,7 @@ return {
     end)
   end,
 
-  -- F-03: the content of a message is changed on the way
+  -- F-03: the content of a message is changed on the way: every field of the envelope and the payload is covered by the code
   test_f03_a_changed_message_is_refused = function()
     with_world({}, function(w)
       local m, n = w.master("M"), w.node("N1")
@@ -138,18 +138,36 @@ return {
       w.settle(300)
       n.net.send("event", "M", { type = "sensor", sensor_id = "N1", occupied = false })
       local original = w.captured[#w.captured]
-      local tampered = copy(original)
-      tampered.payload.occupied = true
-      tampered.id = "tampered.1"
-      local status, detail = m.net.receive(tampered)
-      assert(status == "auth_failed" and detail == "bad_mac")
-      for _, field in ipairs({ "src", "dst", "type", "ts", "sq", "ss", "ke", "pv" }) do
-        local variant = copy(original)
-        variant.id = "variant." .. field
-        if type(variant[field]) == "number" then variant[field] = variant[field] + 1 elseif field == "type" then variant[field] = "cmd" elseif field == "dst" then variant[field] = "M" else variant[field] = variant[field] .. "x" end
-        local result = m.net.receive(variant)
-        assert(result ~= "ok", "a change of " .. field .. " was accepted")
+      w.link.in_flight = {} -- the original stays undelivered: every copy below is the first to arrive
+      assert(original.ch ~= nil and original.ss ~= nil and original.sq ~= nil and original.at ~= nil)
+      local function variant(label, change)
+        local v = copy(original)
+        change(v)
+        local status, detail = m.net.receive(v)
+        assert(status == "auth_failed" and detail == "bad_mac", label .. " changed: " .. tostring(status) .. "/" .. tostring(detail))
       end
+      variant("payload", function(v) v.payload.occupied = true end)
+      variant("payload_added", function(v) v.payload.extra = 1 end)
+      variant("type", function(v) v.type = "cmd" end)
+      variant("dst", function(v) v.dst = "broadcast" end)
+      variant("ts", function(v) v.ts = v.ts + 1 end)
+      variant("sq", function(v) v.sq = v.sq + 1 end)
+      variant("ss", function(v) v.ss = v.ss .. "x" end)
+      variant("ch", function(v) v.ch = v.ch .. "x" end)
+      variant("pv", function(v) v.pv = v.pv + 1 end)
+      variant("id", function(v) v.id = v.id .. "x" end)
+      -- the sender's name: another sender has another key, so the check fails at the key
+      local renamed = copy(original)
+      renamed.src = "N1x"
+      local status, detail = m.net.receive(renamed)
+      assert(status == "auth_failed" and detail == "unknown_peer")
+      -- the key epoch: a message that claims another key generation is stale
+      local aged = copy(original)
+      aged.ke = aged.ke + 1
+      status, detail = m.net.receive(aged)
+      assert(status == "auth_failed" and detail == "stale_key")
+      -- the untouched copy is fine
+      assert(m.net.receive(copy(original)) == "ok")
     end)
   end,
 
@@ -398,5 +416,110 @@ return {
       assert(#received(n, "go") == 2)
       assert(#received(a, "sensor") == 1 and #received(b, "sensor") == 1)
     end)
-  end
+  end,
+
+  test_a_recorded_message_cannot_ride_on_an_open_challenge_of_the_same_session = function()
+    with_world({}, function(w)
+      local m, n = w.master("M"), w.node("N1")
+      n.net.send_reliable("event", "M", { type = "sensor", sensor_id = "N1", n = 1 })
+      w.settle(400)
+      local recorded = find_captured(w, function(msg) return msg.src == "N1" and msg.type == "event" and msg.ch ~= nil end)
+      w.restart(m)
+      -- the node speaks again before it knows the new master: the master hands out a challenge for the node's session ...
+      n.net.send("event", "M", { type = "sensor", sensor_id = "N1", n = 2 })
+      local first = w.captured[#w.captured]
+      local status = m.net.receive(copy(first))
+      assert(status == "challenge", "got " .. tostring(status))
+      -- ... and a replay of the old message of that session, with the nonce of the old master, must not use it
+      status = m.net.receive(copy(recorded))
+      assert(status ~= "ok", "an old nonce must not open the session, got " .. tostring(status))
+      assert(#received(m, "sensor") == 0)
+    end)
+  end,
+
+  test_a_recorded_challenge_of_an_earlier_boot_is_not_taken_by_a_node_that_rebooted = function()
+    with_world({}, function(w)
+      local m, n = w.master("M"), w.node("N1")
+      n.net.send_reliable("event", "M", { type = "sensor", sensor_id = "N1" })
+      w.settle(400)
+      local challenge = find_captured(w, function(msg) return msg.type == "auth" and msg.src == "M" and msg.dst == "N1" end)
+      assert(challenge, "a challenge went to the node")
+      w.restart(n)
+      local status, detail = n.net.receive(copy(challenge))
+      assert(status == "auth_failed" and detail == "other_session", tostring(status) .. "/" .. tostring(detail))
+      assert(n.auth.stats.challenge_accepted == nil)
+    end)
+  end,
+
+  test_a_valid_message_of_an_unknown_session_does_not_make_the_receiver_answer_every_time = function()
+    with_world({}, function(w)
+      local m, n = w.master("M"), w.node("N1")
+      n.net.send("event", "M", { type = "sensor", sensor_id = "N1" })
+      local first = w.captured[#w.captured]
+      w.link.in_flight = {}
+      local challenges = 0
+      for _ = 1, 30 do
+        if m.net.receive(copy(first)) == "challenge" then challenges = challenges + 1 end
+      end
+      assert(challenges <= 1, "a replayed message gets at most one answer in a moment, got " .. challenges)
+    end)
+  end,
+
+  test_a_signed_broadcast_is_not_accepted_in_enforce_mode = function()
+    with_world({}, function(w)
+      local m, n = w.master("M"), w.node("N1")
+      n.net.send("heartbeat", "broadcast", { role = "signal" })
+      local broadcast = w.captured[#w.captured]
+      assert(broadcast.at ~= nil)
+      local status, detail = m.net.receive(copy(broadcast))
+      assert(status == "auth_failed" and detail == "broadcast", tostring(status) .. "/" .. tostring(detail))
+    end)
+  end,
+
+  test_one_sender_that_keeps_failing_gets_only_a_few_checks_a_second = function()
+    with_world({}, function(w)
+      local m, n = w.master("M"), w.node("N1")
+      n.net.send_reliable("event", "M", { type = "sensor", sensor_id = "N1" })
+      w.settle(400)
+      local template = w.captured[#w.captured - 1]
+      local calls = 0
+      local original = sha256.hmac_hex
+      sha256.hmac_hex = function(...) calls = calls + 1; return original(...) end
+      for i = 1, 2000 do
+        local msg = copy(template)
+        msg.id = "flood." .. i
+        msg.at = string.rep("c", 32)
+        m.net.receive(msg)
+      end
+      sha256.hmac_hex = original
+      assert(calls <= 20, "one failing sender must not use the whole budget, got " .. calls .. " checks")
+    end)
+  end,
+
+  test_many_senders_together_cannot_use_more_than_the_budget = function()
+    with_world({ seed = 3 }, function(w)
+      local m = w.master("M")
+      local nodes = {}
+      for i = 1, 70 do nodes[i] = w.node("N" .. i) end
+      for _, node in ipairs(nodes) do node.net.send("event", "M", { type = "sensor", sensor_id = node.id }) end
+      local templates = {}
+      for i = 1, 70 do templates[i] = w.captured[#w.captured - 70 + i] end
+      w.link.in_flight = {}
+      for i = 1, 70 do m.net.receive(copy(templates[i])) end -- the master has derived every key once
+      local calls = 0
+      local original = sha256.hmac_hex
+      sha256.hmac_hex = function(...) calls = calls + 1; return original(...) end
+      for round = 1, 9 do
+        for i = 1, 70 do
+          local msg = copy(templates[i])
+          msg.id = "flood." .. round .. "." .. i
+          msg.at = string.rep("d", 32)
+          m.net.receive(msg)
+        end
+      end
+      sha256.hmac_hex = original
+      assert(calls <= 410, "all senders together are limited to the budget of the second, got " .. calls)
+      assert(calls >= 300, "the budget is used, not zero: " .. calls)
+    end)
+  end,
 }

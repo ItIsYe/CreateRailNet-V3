@@ -52,6 +52,8 @@ order, the old file stays as `<file>.prev`); a plan that is a bundled template (
 | `heartbeat_timeout_s` | 6 | a node that is silent this long is DOWN and its blocks go FAULT. Raise to 15 on a laggy server |
 | `sensor_guard_min_occupy_ms` | see `sensor_guard.lua` | shortest plausible stay on a detector; `0` switches the check off |
 | `require_release` | `false` | `true`: after every start of the master no train starts a journey until the operator touches **[BETRIEB FREIGEBEN]** on the page *Einrichtung* (only possible when every signal / sensor / switch / station / depot computer of the plan is online and no block is in FAULT; `docs/OPERATIONS.md`). A restart takes the release back |
+| `auth_mode` | `off` | authentication of every message (`docs/KEYS.md`): `off` = nothing is signed or checked, `monitor` = signed and checked, failures are counted and logged, nothing is refused (the first hours after the keys were handed out), `enforce` = a message without a valid MAC is dropped; only `pair_announce`, `pair_probe`, `plan_get` and the answers `pair_state`, `plan_part` may arrive unsigned. An unknown word counts as `enforce`. The operation release (G2) needs `enforce` |
+| `masters` | `[master_id]` | ids of all master computers (two in the V3 target: A and B); a computer signs and checks messages only with these |
 | `auto_clear_faults` | `true` | blocks that went FAULT because a node timed out clear themselves (`docs/OPERATIONS.md`); `false` = operator only |
 | `auto_clear_stable_s` | 15 | how long every node of the cause has to be back before the block may clear |
 | `auto_clear_max_age_s` | 10 | oldest detector report that still counts as "free" |

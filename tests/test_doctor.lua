@@ -12,6 +12,7 @@ local prng = require("tests.harness.prng")
 local doctor = require("src.setup.doctor")
 local netplan = require("src.setup.netplan")
 local setup_status = require("src.shared.setup_status")
+local keystore = require("src.shared.keystore")
 local startup_template = require("src.shared.startup_template")
 local wizard = require("src.setup.wizard")
 
@@ -488,5 +489,55 @@ return {
       worlds = worlds + 1
     end
     assert(worlds == 300)
+  end,
+
+  -- the keys of the message authentication ---------------------------------------------------------------------------
+
+  test_without_auth_mode_there_is_no_key_check_at_all = function()
+    local report = run(healthy_signal())
+    assert(level(report, "keys") == nil)
+    local spec = healthy_signal()
+    local cfg = netplan.short_plan(spec.role, { id = spec.id, role = spec.role, adapter = "peripheral", peripheral = "Create_Signal_0" }, 777, "MASTER-1")
+    cfg.auth_mode = "off"
+    spec.cfg = cfg
+    assert(level(run(spec), "keys") == nil)
+  end,
+
+  test_a_computer_in_enforce_mode_needs_its_key = function()
+    local function with_mode(mode, files)
+      local spec = healthy_signal()
+      local cfg = netplan.short_plan(spec.role, { id = spec.id, role = spec.role, adapter = "peripheral", peripheral = "Create_Signal_0" }, 777, "MASTER-1")
+      cfg.auth_mode = mode
+      spec.cfg = cfg
+      spec.files = files
+      return run(spec)
+    end
+    local lvl, check = level(with_mode("enforce"), "keys")
+    assert(lvl == "fail" and check.fix:find("keys.lua issue SIG-1", 1, true), "no key file in enforce mode must fail")
+    assert(level(with_mode("monitor"), "keys") == "warn")
+    local trust = { rev = 0, nodes = {} }
+    local record = keystore.issue(trust, string.rep("ab", 32), "SIG-1", "signal", 1)
+    local files = { [keystore.NODE_PATH] = keystore.node_body(record) }
+    assert(level(with_mode("enforce", files), "keys") == "ok")
+    lvl, check = level(with_mode("monitor", files), "keys")
+    assert(lvl == "warn" and check.fix:find("enforce", 1, true), "monitor mode says when to switch to enforce")
+    local other = keystore.issue(trust, string.rep("ab", 32), "SIG-9", "signal", 1)
+    lvl, check = level(with_mode("enforce", { [keystore.NODE_PATH] = keystore.node_body(other) }), "keys")
+    assert(lvl == "fail" and check.title:find("SIG-9", 1, true), "the key of another computer is a failure")
+  end,
+
+  test_a_master_in_enforce_mode_needs_master_key_and_a_readable_list = function()
+    local function master_with(files)
+      local cfg = netplan.short_plan("master", { id = "MASTER-1", role = "master" }, 777, "MASTER-1")
+      cfg.auth_mode = "enforce"
+      return run({ role = "master", id = "MASTER-1", cfg = cfg, files = files, devices = { MODEM, MONITOR } })
+    end
+    local lvl, check = level(master_with({}), "keys")
+    assert(lvl == "fail" and check.fix:find("keys.lua init", 1, true))
+    local files = { [keystore.MASTER_PATH] = '{"v":1,"key":"' .. string.rep("ab", 32) .. '"}' }
+    assert(level(master_with(files), "keys") == "ok", "a missing list is an empty list")
+    files[keystore.TRUST_PATH] = "garbage"
+    lvl, check = level(master_with(files), "keys")
+    assert(lvl == "fail" and check.title:find("beschaedigt", 1, true))
   end,
 }

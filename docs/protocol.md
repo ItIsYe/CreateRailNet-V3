@@ -7,13 +7,15 @@ All messages are JSON tables transmitted over a shared modem channel:
 ```
 {
   v   = 1,                          -- protocol major version, must match
-  pv  = 4,                          -- protocol revision (additive changes only; older nodes send none = 1)
-  type = "register|heartbeat|cmd|event|ack|err",
+  pv  = 5,                          -- protocol revision (additive changes only; older nodes send none = 1)
+  type = "register|heartbeat|cmd|event|ack|err|auth",
   id  = "<unique string>",          -- for dedup and ack matching
   src = "<node_id>",
   dst = "<node_id>|broadcast",
   ts  = <ms since epoch>,           -- time.now_ms()
-  payload = { ... }
+  payload = { ... },
+  -- revision 5, only with config.auth_mode monitor / enforce (docs/KEYS.md):
+  ss = "<session>", sq = <n>, ke = <key epoch>, ch = "<challenge nonce>", at = "<mac, 32 hex>"
 }
 ```
 
@@ -108,6 +110,26 @@ asker asks again for a part that did not arrive (three times, then it gives up).
 The asker checks everything before it uses it: sender is the master, `question` is the id of its own request, `index`/`total`/`size`/`version`/`data` are sane (at most 60 parts, 200000 bytes, parts of at most 8192 bytes), `total`,
 `size` and `version` stay the same in every part, size and Adler-32 of the assembled text match, the text is a valid plan, channel and master id are those of this computer, and the plan lists this computer with its role. A plan
 that changed or arrived damaged is fetched again (twice at most). Whether to write it is the player's decision (`docs/INGAME_SETUP.md`).
+
+## Authentication (revision 5)
+
+With `auth_mode` `monitor` or `enforce` every message carries `ss` (the session of the sender, new at every boot), `sq` (a count per sender, receiver and session), `ke` (the
+key epoch, in messages between a master and a computer), `ch` (the nonce the receiver handed out) and `at`: HMAC-SHA-256, cut to 16 bytes, over the canonical form (`src/shared/canon.lua`) of
+`crn1`, `src`, `dst`, `type`, `id`, `pv`, `ts`, `ss`, `sq`, `ke`, `ch` and `payload`. A message between a master and a computer is signed with that computer's key (the masters derive it from the master key,
+the id and the epoch of the trust list); two masters use a key for that pair. Nothing else is accepted as authenticated: `msg.authenticated` is set by the receiving net after the check and always overwritten.
+
+**Sessions.** A receiver that does not know the session of a sender (it restarted, or the sender did) does not process the message. It answers with `type = "auth"`, payload `{ kind = "challenge", for_ss, nonce, ss }`,
+signed like any message. The sender takes the nonce, repeats everything that waits for that receiver with `ch = nonce`, and answers with a challenge of its own (without `ss`, so it does not go on) so the
+answers to its first message are not lost either. An old recording has no valid nonce. At most one challenge goes out per sender and 250 ms.
+
+**Replay window.** `sq` is accepted when it is new inside a window of 256 below the highest seen; one seen already is `"duplicate"` (retries whose acknowledgement got lost are answered again, nothing is carried out twice);
+one older than the window is refused (`auth_failed`, `replay`). `net.receive` returns `"auth_failed", reason` for a message that is refused (`unsigned`, `bad_mac`, `no_key`, `unknown_peer`, `revoked`, `stale_key`, `replay`, `overload`,
+`bad_field`, `broadcast`), `"challenge"` / `"auth"` for the handshake.
+
+**Open messages.** Without a MAC only `event` of type `pair_announce`, `pair_probe`, `plan_get` and `cmd` `pair_state`, `plan_part` are accepted (a computer that is not part of the net yet must be able to say so; the
+answers are checked by what they carry). A broadcast is never accepted as authenticated.
+
+**Load limit.** At most 400 MAC checks per second for all senders together, and 5 per second for a sender that failed ten checks in the last ten seconds.
 
 ## Reliability
 

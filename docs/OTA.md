@@ -103,3 +103,7 @@ does not run its heartbeat timeout on it, so an update does not turn the blocks 
 - What a Create signal shows while its computer reboots is not verified in game. The quiesce step puts the signal to RED before the
   swap; whether that survives the reboot depends on Create.
 - The master computer itself is not updated by this mechanism; run `installer` on it and restart.
+
+## Mit Authentifizierung (`auth_mode`)
+
+Im Modus `enforce` (`docs/KEYS.md`) hören die Computer nur auf Nachrichten, deren Prüfcode stimmt. Das OTA-Werkzeug `ota_push.lua` hat keinen Schlüssel für die Computer und erreicht sie deshalb in diesem Modus nicht; die Suche über `broadcast` wird nie angenommen. Updates laufen dann über den Master, im Modus `monitor` oder `off` wie bisher mit dem Werkzeug. Der Ablauf mit Betreiberbestätigung, Master-Update und Rollback nach dem Gesamtkonzept (Kap. 14) ist Paket P9.

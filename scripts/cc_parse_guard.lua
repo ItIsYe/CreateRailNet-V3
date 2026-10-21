@@ -13,6 +13,10 @@ if not (io and io.popen) then
   return
 end
 
+-- files that may name a banned library because they test for it first and have a fallback: sha256.lua uses CC:Tweaked's bit32 when the table exists
+-- (the offline interpreters fall back to native operators, LuaJIT's bit or plain arithmetic; tests/test_sha256.lua checks every backend)
+local EXEMPT = { ["src/shared/sha256.lua"] = { ["bit32%."] = true } }
+
 local BANNED = { "utf8%.", "bit32%.", "string%.pack", "string%.unpack", "table%.move", "math%.tointeger", "math%.type" }
 
 local function list_files()
@@ -76,7 +80,7 @@ for _, path in ipairs(files) do
     if chunk then
       local code = strip(body)
       for _, pattern in ipairs(BANNED) do
-        if code:find(pattern) then fail(path, "uses " .. pattern:gsub("%%", "") .. " which plain Lua 5.1 (the offline test interpreter) lacks") end
+        if code:find(pattern) and not (EXEMPT[path] and EXEMPT[path][pattern]) then fail(path, "uses " .. pattern:gsub("%%", "") .. " which plain Lua 5.1 (the offline test interpreter) lacks") end
       end
     end
 

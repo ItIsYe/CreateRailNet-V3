@@ -14,6 +14,8 @@
     "scripts/start_depot.lua",
     "scripts/ota_push.lua",
     "scripts/upgrade_startup.lua",
+    "scripts/keys.lua",
+    "scripts/auth_bench.lua",
     "src/setup/**",
     "src/shared/**",
     "src/domain/**",

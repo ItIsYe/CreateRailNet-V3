@@ -1,0 +1,59 @@
+# V3-Ziel: Gesamtkonzept 1.0 und der Stand dieses Repositories
+
+Das Dokument „CreateRailNet V3 – Verbindliche Gesamtspezifikation“ (Konzeptstand 1.0, 21.10.2026) ist das Ziel. Diese Datei verfolgt, was davon umgesetzt ist,
+wo es im Code liegt und was nur das Spiel zeigen kann. Sie wird mit jedem Paket (P1 bis P10, Kap. 19 des Konzepts) fortgeschrieben.
+
+Die Sprache des Konzepts: **VERBINDLICH** (Sicherheitsinvariante), **ENTWURFSSTANDARD** (darf nach technischer Prüfung geändert werden), **NACHWEISPFLICHT** (nur das Spiel klärt es).
+Eine Funktion ist erst dann „implementiert“, wenn Code, Tests, Migration, Logging und sichere Fehlerbehandlung da sind (Kap. 23). „Betriebsbereit“ ist ein Netzbereich erst nach
+der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, nur vorbereiten.
+
+## Entscheidungen, die für die Umsetzung getroffen wurden
+
+| # | Entscheidung | Grund |
+|---|---|---|
+| E1 | Umbau in Stufen im bestehenden Repository, der Dispatcher bleibt der Kern der Master-Logik; er bekommt Beweisstufen, Wartepunkte und eine Commit-Schranke | die Tests und das Verhalten des bisherigen Dispatchers sind das Sicherheitsnetz; ein zweiter Dispatcher daneben würde beides verdoppeln |
+| E2 | Der **Schiedsrichter ist ein eigener CC-Computer** (Rolle `arbiter`), kein Nebenjob eines Nodes | Kap. 2: dritte Stimme, nur Wahldaten; ein Nebenjob würde Ausfälle koppeln |
+| E3 | Schlüssel: ein Master-Schlüssel (beide Master), je Computer ein abgeleiteter Schlüssel mit Nummer; **Übergabe per Diskette oder Eingabe** am Gerät | Kap. 12.1 verlangt physisch bestätigte Erstregistrierung mit lokaler Schlüsselübergabe |
+| E4 | Authentifizierung ist je Computer schaltbar (`auth_mode` off / monitor / enforce); `off` bleibt der Standard bis zur Einführung | bestehende Netze laufen weiter; der Betrieb nach dem Konzept verlangt `enforce` |
+| E5 | Master-Speicherbudget **800 000 Byte** statt „etwa 740 000“ des Konzepts, mit Begründung in `docs/assumptions.md` | die Authentifizierung kostet etwa 60 KB; Rückweg: `computer_space_limit` anheben oder Planer/Setup-Werkzeuge auf die Panel-Rolle verlagern, Entscheidung in P10 mit Messwerten |
+| E6 | Alles, was nur das Spiel zeigt (Mod-APIs, Create-Verhalten, Rechenzeit), steht in `docs/INGAME_TESTS.md` und bleibt **NOT_RUN**, bis es im Spiel gelaufen ist | Kap. 20: BLOCKED ist kein PASS; kein Offline-Test ersetzt einen Pflichtfall |
+
+## Pakete (Kap. 19)
+
+| Paket | Inhalt | Stand |
+|---|---|---|
+| P0 API-Labor | Mod-API-Matrix im Spiel | nur im Spiel möglich: `docs/INGAME_TESTS.md`, Werkzeuge `scripts/` (Peripheral-Inspektor, Schedule-Test) vorhanden |
+| P1 Trust + Protokoll | Authentifizierung, Schlüssel, Sitzungen, Replay-Schutz, Framing | **umgesetzt (offline)**, siehe unten |
+| P2 Persistenz | Journal mit Commit-Indizes, Snapshots, Testabstürze, Idempotenz | offen |
+| P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | offen |
+| P4 Dual-Commit | Sicherheitszustandsautomat auf beiden Mastern | offen |
+| P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | offen |
+| P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | offen |
+| P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | offen |
+| P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | offen |
+| P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | offen |
+| P10 Integration | 112 Einzeltests + E2E, 300/400 Signale, Freigabestufen | offen |
+
+## P1: was umgesetzt ist
+
+| Anforderung (Konzept) | Wo | Test |
+|---|---|---|
+| Kap. 12.1: keine Identität aus Computer-ID/Absenderangabe | `src/shared/auth.lua`, `keyring.lua`, `net.lua` | `tests/test_auth.lua` (F-01, F-02) |
+| Kap. 12.1: physisch bestätigte Erstregistrierung, lokale Schlüsselübergabe | `src/setup/keys_tool.lua`, `scripts/keys.lua`, `docs/KEYS.md` | `tests/test_keys_tool.lua` |
+| Kap. 12.1: Defekte Nodes: alte Identität sperren, neuer Schlüssel | `keystore.revoke/issue`, Schlüsselnummer, Liste `state/crn_trust.json` | `test_keystore.lua`, `test_auth.lua` (F-08) |
+| Kap. 12.1 Entwurfsstandard: MAC-gesicherte Nachrichten, HMAC-SHA-256 | `src/shared/sha256.lua` (FIPS/RFC-Vektoren, vier Bit-Backends) | `tests/test_sha256.lua` |
+| Kap. 12.1: Pure-Lua-Kryptografie nur mit Benchmark | `scripts/auth_bench.lua`, `src/setup/auth_bench.lua` | `test_auth_setup.lua`, im Spiel 0bj |
+| Kap. 12.2: authentication_tag, sequence, session_id, message_id | Umschlag `at`, `sq`, `ss`, `ch`, `ke` (Protokoll Revision 5) | `test_auth.lua`, `docs/protocol.md` |
+| Kap. 12.2: Größen validieren, bevor teure Kryptografie läuft | `fields_sane` vor Prüfbudget vor MAC | `test_auth.lua` (F-10) |
+| Kap. 12.2: Replay-Schutz, authentifizierte neue Sitzungen nach Neustart | Sitzung mit Aufforderung, Fenster von 256 | `test_auth.lua` (F-04) |
+| Kap. 12.2: begrenzte Verarbeitung, sicherer Fehlerbetrieb unter Überlast | Prüfbudget 400/s, Sperrfrist je Absender | `test_auth.lua` (F-10) |
+| Kap. 12.1: Schlüssel nie im Klartext-Log | Schlüssel erscheinen nur in `keys.lua issue` ohne Laufwerk, sonst nur Prüfsummen | `test_keys_tool.lua` |
+| Kap. 12.1: Sicherheitsnetze trennen und im Spiel testen (F-09) | **nur Spiel**: `docs/INGAME_TESTS.md` 0bk | NOT_RUN |
+
+Noch nicht Teil von P1: Nachrichten zwischen zwei Nodes (Kap. 12.3, kommt mit P7 über Tickets der Master), Rollenrechte je Befehl an den Empfängern (Kap. 11.4/F-05/F-06, P8),
+`election_epoch` / `reservation_commit_proof` in Masterbefehlen (P3/P4), Quittierung von Prüffehlern im Panel (P8).
+
+## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
+
+Die Fälle A-01 bis J-10 und E2E-01 bis E2E-08 werden in P10 einzeln auf Tests und Spielzeilen abgebildet. Bis dahin gilt: kein Fall ist PASS, solange er nicht im Spiel gelaufen ist.
+Offline belegbar sind Fehlerfälle der Logik (Authentifizierung F-01 bis F-04, F-08, F-10; später E-01 bis E-12 im Simulator).

@@ -67,6 +67,17 @@ function keyring.master(opts)
   local masters = id_set(opts.masters, opts.id)
   local master_key = opts.master_key
   local trust = opts.trust or { nodes = {} }
+  -- derived keys are kept (a derivation is as much work as checking a message); a new trust list empties the table
+  local derived = {}
+  local function node_key(peer, entry_epoch)
+    local name = peer .. "|" .. entry_epoch
+    local key = derived[name]
+    if not key then
+      key = keyring.derive_node_key(master_key, peer, entry_epoch)
+      derived[name] = key
+    end
+    return key
+  end
 
   function self.epoch_for(peer)
     local entry = trust.nodes and trust.nodes[peer]
@@ -75,7 +86,7 @@ function keyring.master(opts)
   function self.has_key() return valid_key(master_key) end
 
   -- the trust list is replaced as a whole when the operator issues or revokes a key
-  function self.set_trust(new_trust) trust = new_trust or { nodes = {} } end
+  function self.set_trust(new_trust) trust = new_trust or { nodes = {} }; derived = {} end
   function self.entry(id) return trust.nodes and trust.nodes[id] end
 
   function self.pair_key(src, dst, message_epoch)
@@ -85,12 +96,16 @@ function keyring.master(opts)
     elseif dst == self.id or dst == "broadcast" then peer = src
     else return nil, "not_mine" end
     if peer == "broadcast" or peer == self.id then return nil, "unknown_peer" end
-    if masters[peer] then return keyring.derive_link_key(master_key, self.id, peer) end
+    if masters[peer] then
+      local link = "link|" .. peer
+      derived[link] = derived[link] or keyring.derive_link_key(master_key, self.id, peer)
+      return derived[link]
+    end
     local entry = trust.nodes and trust.nodes[peer]
     if type(entry) ~= "table" then return nil, "unknown_peer" end
     if entry.status ~= "active" then return nil, "revoked" end
     if message_epoch ~= nil and message_epoch ~= entry.epoch then return nil, "stale_key" end
-    return keyring.derive_node_key(master_key, peer, entry.epoch)
+    return node_key(peer, entry.epoch)
   end
   return self
 end

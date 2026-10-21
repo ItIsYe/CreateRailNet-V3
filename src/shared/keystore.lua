@@ -2,7 +2,7 @@
 Purpose: Key files of a computer and the operations on them: generate the master key, issue and revoke a computer's key, hand a key over (Kap. 12.1).
 Public API: NODE_PATH, MASTER_PATH, TRUST_PATH; load_node(path) / save_node(record, path), load_master(path) / save_master(record, path),
   load_trust(path) / save_trust(trust, path), new_master_key(entropy_text) -> hex, issue(trust, master_key, id, role, now) -> node record,
-  revoke(trust, id) -> ok, err, node_body(record) -> json text, parse_node_body(text, expect_id) -> record | nil, err, find_disk_files(fs, peripheral, id) -> list.
+  revoke(trust, id) -> ok, err, node_body(record) -> json text, parse_node_body(text, expect_id) -> record | nil, err, drive_mounts(peripheral) -> list of mount paths, find_disk_files(fs, peripheral, id) -> list of key files on disks.
 Notes: files are written with shared.safe_write. A key is never logged: callers print fingerprints (keyring.fingerprint), not keys.
   Records: node { id, key (64 hex), epoch, issuer (fingerprint of the master key) }; master { key (64 hex) }; trust { rev, nodes = { [id] = { epoch, status, role, issued } } }.
   The trust list is shared by both masters (the operator hands it over together with the master key, later the dual-commit replicates it).
@@ -129,23 +129,31 @@ function keystore.revoke(trust, id)
   return true
 end
 
--- key files on disks in attached drives (the way a key travels from the master to a computer): <mount>/crn_key_<id>.json or <mount>/crn_key.json
-function keystore.find_disk_files(fsys, peripheral_api, id)
-  local found = {}
-  if not (fsys and peripheral_api and peripheral_api.getNames) then return found end
+-- mount paths of the disks in attached drives, in the order of the drive names
+function keystore.drive_mounts(peripheral_api)
+  local mounts = {}
+  if not (peripheral_api and peripheral_api.getNames) then return mounts end
   local ok, names = pcall(peripheral_api.getNames)
-  if not ok or type(names) ~= "table" then return found end
+  if not ok or type(names) ~= "table" then return mounts end
   table.sort(names)
   for _, name in ipairs(names) do
     local type_ok, kind = pcall(peripheral_api.getType, name)
     if type_ok and kind == "drive" then
       local mount_ok, mount = pcall(peripheral_api.call, name, "getMountPath")
-      if mount_ok and type(mount) == "string" then
-        for _, file in ipairs({ "crn_key_" .. tostring(id) .. ".json", "crn_key.json" }) do
-          local path = mount .. "/" .. file
-          if fsys.exists(path) then found[#found + 1] = path end
-        end
-      end
+      if mount_ok and type(mount) == "string" and mount ~= "" then mounts[#mounts + 1] = mount end
+    end
+  end
+  return mounts
+end
+
+-- key files on disks in attached drives (the way a key travels from the master to a computer): <mount>/crn_key_<id>.json or <mount>/crn_key.json
+function keystore.find_disk_files(fsys, peripheral_api, id)
+  local found = {}
+  if not fsys then return found end
+  for _, mount in ipairs(keystore.drive_mounts(peripheral_api)) do
+    for _, file in ipairs({ "crn_key_" .. tostring(id) .. ".json", "crn_key.json" }) do
+      local path = mount .. "/" .. file
+      if fsys.exists(path) then found[#found + 1] = path end
     end
   end
   return found

@@ -67,6 +67,11 @@ local dbg = require("src.tools.debug_events")
 dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 ```
 
+## Keys
+
+`scripts/keys.lua` handles the keys of the message authentication (`docs/KEYS.md`): `init`, `issue <id>`, `revoke <id>`, `list`, `export-master`, `import-master`, `install --id <id>`, `status`.
+Keys travel on a disk in a disk drive or are typed; the tool names a fingerprint on both sides and never prints a key unless asked to (issue without a disk).
+
 ## Scripts
 
 | Script | Purpose |

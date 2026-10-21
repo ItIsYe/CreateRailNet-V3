@@ -58,6 +58,26 @@ function auth_setup.build(config, node_id, opts)
     open_events = auth_setup.OPEN_EVENTS, open_cmds = auth_setup.OPEN_CMDS
   })
   instance.keyring_kind = ring.kind
+  -- a master picks up a changed list of keys (issued / revoked with scripts/keys.lua) without a restart; a list that cannot be read changes nothing
+  if opts.master and ring.set_trust then
+    local known_rev = nil
+    local current = (opts.load_trust and opts.load_trust()) or keystore.load_trust(paths.trust, { fs = opts.fs })
+    if current then known_rev = current.rev end
+    function instance.reload_trust()
+      local trust, err
+      if opts.load_trust then trust, err = opts.load_trust() else trust, err = keystore.load_trust(paths.trust, { fs = opts.fs }) end
+      if not trust then
+        if logger and known_rev ~= "error" then logger.error("authentication: trust list unreadable, the old one stays", { error = err }) end
+        known_rev = "error"
+        return false
+      end
+      if trust.rev == known_rev then return false end
+      ring.set_trust(trust)
+      known_rev = trust.rev
+      if logger then logger.info("authentication: trust list reloaded", { rev = trust.rev }) end
+      return true
+    end
+  end
   return instance
 end
 

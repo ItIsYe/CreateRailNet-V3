@@ -20,7 +20,7 @@ local manifest_builder = {}
 local VERSION = 1
 
 -- every computer: the OTA recovery that startup.lua runs, the setup wizard and the startup upgrade
-local COMMON_ENTRIES = { "src.shared.ota_recovery", "scripts/setup.lua", "scripts/upgrade_startup.lua" }
+local COMMON_ENTRIES = { "src.shared.ota_recovery", "scripts/setup.lua", "scripts/upgrade_startup.lua", "scripts/keys.lua", "scripts/auth_bench.lua" }
 
 local TEMPLATES = {
   "configs/templates/network.example.json",

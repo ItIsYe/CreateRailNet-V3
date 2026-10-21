@@ -73,6 +73,7 @@ What cannot be tested offline is listed in `docs/INGAME_TESTS.md` — please run
 | operating the master, repairs, traces | `docs/OPERATIONS.md` |
 | updates and rollback | `docs/OTA.md` |
 | messages | `docs/protocol.md` |
+| keys and message authentication | `docs/KEYS.md` |
 | installation | `docs/INSTALL.md` |
 | in-game setup and tests | `docs/INGAME_SETUP.md`, `docs/INGAME_TESTS.md` |
 

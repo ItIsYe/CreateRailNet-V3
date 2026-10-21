@@ -640,6 +640,8 @@ function master_runtime.new(context)
 
   runtime.check_timeouts = check_timeouts
   runtime.ticker.every("timeouts", 1, function() runtime.check_timeouts() end)
+  -- keys issued or revoked with scripts/keys.lua count within seconds (the list of keys is read again when it changed)
+  if runtime.network.auth and runtime.network.auth.reload_trust then runtime.ticker.every("trust", 5, function() runtime.network.auth.reload_trust() end) end
 
   -- Blocks that faulted because a node went silent are cleared again once the node is back and the detectors show the
   -- track free (config auto_clear_faults = false switches this off). See Dispatcher.auto_clear_faults for the rules.
