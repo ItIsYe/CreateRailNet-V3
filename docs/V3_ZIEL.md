@@ -24,7 +24,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 |---|---|---|
 | P0 API-Labor | Mod-API-Matrix im Spiel | nur im Spiel möglich: `docs/INGAME_TESTS.md`, Werkzeuge `scripts/` (Peripheral-Inspektor, Schedule-Test) vorhanden |
 | P1 Trust + Protokoll | Authentifizierung, Schlüssel, Sitzungen, Replay-Schutz, Framing | **umgesetzt (offline)**, siehe unten |
-| P2 Persistenz | Journal mit Commit-Indizes, Snapshots, Testabstürze, Idempotenz | offen |
+| P2 Persistenz | Journal mit Commit-Indizes, Snapshots, Testabstürze, Idempotenz | **umgesetzt (offline)**, siehe unten |
 | P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | offen |
 | P4 Dual-Commit | Sicherheitszustandsautomat auf beiden Mastern | offen |
 | P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | offen |
@@ -52,6 +52,19 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 
 Noch nicht Teil von P1: Nachrichten zwischen zwei Nodes (Kap. 12.3, kommt mit P7 über Tickets der Master), Rollenrechte je Befehl an den Empfängern (Kap. 11.4/F-05/F-06, P8),
 `election_epoch` / `reservation_commit_proof` in Masterbefehlen (P3/P4), Quittierung von Prüffehlern im Panel (P8).
+
+## P2: was umgesetzt ist
+
+| Anforderung (Konzept) | Wo | Test |
+|---|---|---|
+| Kap. 5.2: monoton geordnete Sequenzen, unveränderliche Einträge, Prüfsummen, explizite Commit-Indizes, Snapshots | `src/shared/journal.lua`, `docs/JOURNAL.md` | `tests/test_journal.lua` |
+| Kap. 5.2/5.4: Journalbeschädigung, Lücken, Diskfehler sperren betroffene Freigaben | Zustände `corrupt` (gesperrt) und `failed`, `writable` | `test_journal.lua` |
+| Kap. 20 E-06/E-07 (Absturz in jedem Schritt): Journal bleibt ein Präfix des Geschriebenen, bestätigte Einträge bleiben | Absturz an jeder Dateioperation | `test_journal.lua` (ein Absturz an jeder Operation) |
+| Kap. 12.2: dauerhafte Befehls-ID, deterministische Idempotenz, sichere Behandlung unklarer Vorzustände | `src/shared/idempotency.lua`, Einbindung in `common_node` | `test_idempotency.lua`, `test_node_ledger.lua` |
+| Kap. 7.3: Fahrplanübergabe genau einmal, unklarer Ausgang: nicht blind wiederholen | `uncertain` bei Neustart zwischen Eintrag und Aktion | `test_node_ledger.lua` |
+| Kap. 15/16, J-07/J-08/J-09: Journal-/Speichergrenzen, Plattenvoll, Rotation | `max_entries`, `max_bytes`, vier-fache Obergrenze, Selbstverdichtung | `test_journal.lua` |
+
+Noch nicht Teil von P2: das Journal der Reservierungen des Masters (P4), Dual-Commit mit dem zweiten Master (P3/P4), Statusanzeige der Journale im Panel (P8).
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

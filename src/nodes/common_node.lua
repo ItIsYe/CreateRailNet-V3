@@ -14,6 +14,8 @@ local once_log = require("src.shared.once_log")
 local log_forwarder = require("src.shared.log_forwarder")
 local setup_status = require("src.shared.setup_status")
 local auth_setup = require("src.shared.auth_setup")
+local journal_module = require("src.shared.journal")
+local idempotency = require("src.shared.idempotency")
 
 local common_node = {}
 
@@ -24,6 +26,10 @@ local function read_version()
   end
   return "unknown"
 end
+
+-- commands with an effect in the world that must not happen twice (a retry after a restart of this computer carries the same message id)
+local DURABLE_COMMANDS = { set_schedule = true, depart_authorized = true, dispatch_train = true }
+local LEDGER_PATH = "state/node_commands.log"
 
 local OTA_COMMANDS = { ota_offer = "offer", ota_chunk = "chunk", ota_commit = "commit", ota_abort = "abort", ota_update = "apply" }
 
@@ -42,6 +48,33 @@ function common_node.new(opts)
   -- opts.auth is for tests; otherwise config.auth_mode (off / monitor / enforce) and the key file of this computer decide
   node.auth = opts.auth or auth_setup.build(node.config, node.id, { logger = node.logger, fs = opts.auth_fs, paths = opts.auth_paths })
   node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time, { auth = node.auth })
+
+  -- durable exactly-once bookkeeping for the commands above: on in the game (config.durable_commands = false switches it off), off in offline tests unless asked for
+  -- (opts.ledger = false / true, opts.journal_fs for a test filesystem). The journal sits in state/ and compacts itself.
+  do
+    local wanted
+    if opts.ledger ~= nil then wanted = opts.ledger ~= false
+    elseif node.config.durable_commands ~= nil then wanted = node.config.durable_commands == true
+    else wanted = rawget(_G, "_HOST") ~= nil end
+    if wanted then
+      local ledger
+      local commands_journal = journal_module.new(opts.journal_path or LEDGER_PATH, {
+        fs = opts.journal_fs, max_entries = 200, max_bytes = 16384,
+        state_fn = function() return { ledger = ledger and ledger.to_state() or {} } end
+      })
+      ledger = idempotency.new({ journal = commands_journal, ttl_s = 3600, max = 400 })
+      local status, info = commands_journal.open()
+      if status == "corrupt" or status == "failed" then
+        node.logger.error("command journal unusable: critical commands are refused", { status = status, reason = info and info.reason })
+      else
+        local recovered = commands_journal.recovered()
+        if recovered.state and recovered.state.ledger then ledger.load_state(recovered.state.ledger) end
+        ledger.recover(recovered.entries)
+        if status == "tail_repaired" then node.logger.warn("command journal: torn end cut off") end
+      end
+      node.ledger, node.commands_journal = ledger, commands_journal
+    end
+  end
 
   node.ticker = ticker.new({
     clock = opts.clock,
@@ -203,10 +236,31 @@ function common_node.new(opts)
       return status
     end
 
+    -- a command that changes the world: a durable record first, the action second, the outcome third
+    local ledger_key
+    if node.ledger and DURABLE_COMMANDS[payload.cmd] then
+      ledger_key = tostring(msg.src) .. "/" .. tostring(msg.id)
+      local state, detail = node.ledger.begin(ledger_key)
+      if state == nil then
+        answer(msg, false, "no durable record, command refused: " .. tostring(detail))
+        return status
+      elseif state == "done" then
+        answer(msg, detail == "ok", detail ~= "ok" and detail or nil)
+        return status
+      elseif state == "uncertain" then
+        source_log.warn("uncertain:" .. ledger_key, "command from before a restart: outcome unknown, not repeated", { cmd = payload.cmd, id = msg.id })
+        answer(msg, false, "uncertain after restart")
+        return status
+      elseif state == "started" then
+        return status
+      end
+    end
+
     local ok, err = true, nil
     if node.handlers.on_cmd then
       ok, err = node.handlers.on_cmd(payload, msg)
     end
+    if ledger_key then node.ledger.finish(ledger_key, ok ~= false and "ok" or tostring(err)) end
 
     remember_outcome(msg, ok, err)
     answer(msg, ok, err)

@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "0591fc57",
+  id = "b9d41613",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -84,7 +84,7 @@ return {
     ["src/master/ui/ui_core.lua"] = { 5043, 424764006 },
     ["src/master/ui/ui_utils.lua"] = { 5579, 4201732426 },
     ["src/nodes/bootstrap.lua"] = { 1373, 1686360057 },
-    ["src/nodes/common_node.lua"] = { 10781, 3966757821 },
+    ["src/nodes/common_node.lua"] = { 13724, 3406935716 },
     ["src/nodes/depot_node.lua"] = { 11222, 1035012545 },
     ["src/nodes/panel_node.lua"] = { 4828, 1202026134 },
     ["src/nodes/panel_renderer.lua"] = { 8545, 1542778863 },
@@ -115,6 +115,8 @@ return {
     ["src/shared/checksum.lua"] = { 1141, 2035443065 },
     ["src/shared/config.lua"] = { 1575, 734461489 },
     ["src/shared/error_codes.lua"] = { 777, 3299076147 },
+    ["src/shared/idempotency.lua"] = { 5128, 4064050768 },
+    ["src/shared/journal.lua"] = { 12742, 3488303360 },
     ["src/shared/json.lua"] = { 4877, 2767429068 },
     ["src/shared/keyring.lua"] = { 5258, 4069324715 },
     ["src/shared/keystore.lua"] = { 7966, 3035864161 },
@@ -136,7 +138,7 @@ return {
     ["src/shared/time.lua"] = { 1343, 3352934955 },
     ["src/shared/updater.lua"] = { 16190, 2710238811 },
     ["src/shared/util.lua"] = { 798, 2748318960 },
-    ["src/shared/validate.lua"] = { 20312, 873090888 },
+    ["src/shared/validate.lua"] = { 20332, 2082494056 },
     ["src/shared/window_buffer.lua"] = { 2162, 3666070542 },
   },
   seed = {
@@ -217,6 +219,8 @@ return {
       "src/nodes/bootstrap.lua",
       "src/nodes/common_node.lua",
       "src/nodes/depot_node.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
     master = {
@@ -288,6 +292,8 @@ return {
       "src/nodes/common_node.lua",
       "src/nodes/panel_node.lua",
       "src/nodes/panel_renderer.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
     sensor = {
@@ -295,6 +301,8 @@ return {
       "src/nodes/bootstrap.lua",
       "src/nodes/common_node.lua",
       "src/nodes/sensor_node.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
     signal = {
@@ -302,6 +310,8 @@ return {
       "src/nodes/bootstrap.lua",
       "src/nodes/common_node.lua",
       "src/nodes/signal_node.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
     station = {
@@ -309,6 +319,8 @@ return {
       "src/nodes/bootstrap.lua",
       "src/nodes/common_node.lua",
       "src/nodes/station_node.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
     switch = {
@@ -316,6 +328,8 @@ return {
       "src/nodes/bootstrap.lua",
       "src/nodes/common_node.lua",
       "src/nodes/switch_node.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
     train = {
@@ -324,6 +338,8 @@ return {
       "src/nodes/bootstrap.lua",
       "src/nodes/common_node.lua",
       "src/nodes/train_node.lua",
+      "src/shared/idempotency.lua",
+      "src/shared/journal.lua",
       "src/shared/log_forwarder.lua",
     },
   },

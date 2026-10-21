@@ -42,7 +42,7 @@ local function validate_inner(cfg, errors)
     local value = cfg[key]
     if value ~= nil and (type(value) ~= "number" or value < 0) then add(errors, key, "must be a number >= 0") end
   end
-  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward", "require_release" }) do
+  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward", "require_release", "durable_commands" }) do
     if cfg[key] ~= nil and type(cfg[key]) ~= "boolean" then add(errors, key, "must be true or false") end
   end
 
