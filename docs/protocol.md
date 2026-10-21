@@ -139,6 +139,12 @@ A command of a master to any other computer carries `election_epoch` (the term o
 a lower epoch than the highest it has seen (`state/crn_epoch.json`) and, in a plan with two masters, a command without an epoch. `pair_state` may carry `masters` and `arbiter`: the topology a
 computer with a short plan learns from its master. Details: `docs/HA.md`.
 
+**State replication between the masters (dual commit).** The leader sends the standby the change of its dispatcher state as `cmd` messages with `cmd = "repl"` and `kind`:
+`entry` (`idx`, `term`, `prev_idx`, `prev_term`, `delta`), `ack` / `nack` (the standby holds the entry durably / lacks the one before), `commit` (`idx`), `ping`, `sync` (a full copy of the state when the
+standby is too far behind) and `part` (a body over 2800 bytes is split; each part carries a checksum of the whole). Only the other master is heard. A command that gives movement (route, departure, schedule,
+a signal that is not red) is sent to a node only after the standby has acknowledged the entry it depends on; it then carries `command_id = "<idx>.<n>"`, and a node carries a command with the same
+`election_epoch` and `command_id` out once, whatever the message id. A restrictive command (red, stop) never waits. Details: `docs/HA.md`.
+
 ## Reliability
 
 `send_reliable` adds the message to a pending table. `tick()` retries with exponential backoff:

@@ -22,7 +22,7 @@ local function make_node(fs, opts)
   }
   local node = common_node.new({
     id = "T-1", role = "train", config = { channel = 1, master_id = "M", durable_commands = opts.durable }, modem = modem, logger = quiet,
-    ledger = opts.ledger, journal_fs = fs,
+    ledger = opts.ledger, journal_fs = fs, fence_fs = fs,
     handlers = { on_cmd = function(payload)
       ran[#ran + 1] = payload.cmd
       if payload.fail then return false, "schedule failed" end
@@ -51,6 +51,21 @@ return {
     again.handle_message(command("M.boot1.7", "set_schedule"))
     assert(#ran2 == 0, "the schedule must not be set a second time")
     assert(last_answer(sent2).type == "ack" and last_answer(sent2).payload.applied == true, "but the sender gets its answer")
+  end,
+
+  -- the command_id of the commit barrier names the command itself: a resend with a new message id (or from the other master) is the same command
+  test_the_same_command_id_is_carried_out_once_whatever_the_message_id = function()
+    local fs = memfs.new()
+    local node, _, ran = make_node(fs, { ledger = true })
+    node.handle_message(command("M.boot1.7", "depart_authorized", { command_id = "12.1", election_epoch = 3, election_leader = "M" }))
+    local again, sent2, ran2 = make_node(fs, { ledger = true })
+    again.handle_message(command("M.boot2.1", "depart_authorized", { command_id = "12.1", election_epoch = 3, election_leader = "M" }))
+    assert(#ran == 1 and #ran2 == 0, "carried out once")
+    assert(last_answer(sent2).type == "ack" and last_answer(sent2).payload.applied == true)
+    again.handle_message(command("M.boot2.2", "depart_authorized", { command_id = "12.1", election_epoch = 4, election_leader = "M" }))
+    assert(#ran2 == 1, "the same index in another epoch is another command")
+    again.handle_message(command("M.boot2.3", "depart_authorized", { command_id = "12.2", election_epoch = 4, election_leader = "M" }))
+    assert(#ran2 == 2)
   end,
 
   test_a_failed_command_is_answered_with_the_same_error_after_a_restart = function()

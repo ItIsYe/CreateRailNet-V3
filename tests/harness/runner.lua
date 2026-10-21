@@ -114,6 +114,7 @@ local tests = {
   "tests/test_journal.lua",
   "tests/test_state_delta.lua",
   "tests/test_replica.lua",
+  "tests/test_dual_commit.lua",
   "tests/test_idempotency.lua",
   "tests/test_node_ledger.lua",
   "tests/test_election.lua",

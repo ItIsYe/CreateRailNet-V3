@@ -26,7 +26,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P1 Trust + Protokoll | Authentifizierung, Schlüssel, Sitzungen, Replay-Schutz, Framing | **umgesetzt (offline)**, siehe unten |
 | P2 Persistenz | Journal mit Commit-Indizes, Snapshots, Testabstürze, Idempotenz | **umgesetzt (offline)**, siehe unten |
 | P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | **umgesetzt (offline)**, siehe unten |
-| P4 Dual-Commit | Sicherheitszustandsautomat auf beiden Mastern | offen |
+| P4 Dual-Commit | Zustandsreplikation auf beide Master, Sperre für Freigaben bis zur Bestätigung | **umgesetzt (offline)**, siehe unten |
 | P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | offen |
 | P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | offen |
 | P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | offen |
@@ -80,6 +80,22 @@ Noch nicht Teil von P2: das Journal der Reservierungen des Masters (P4), Dual-Co
 
 Noch nicht Teil von P3: der gemeinsame dauerhafte Zustand beider Master und die Bestätigung beider (P4), die Erkennung der Ist-Lage nach dem Wechsel (P4/P5), die Anzeige des Führungszustands im Panel
 (P8). Die Pacht beruht auf der Uhr der Computer (`docs/HA.md`, Annahmen): ob das auf dem Zielserver unter Last hält, zeigt nur Spieltest 0bx.
+
+## P4 Dual-Commit
+
+Entscheidung: es wird der **Zustand** des Dispatchers repliziert (Differenzen, `state_delta`), nicht die Folge der Operationen; ein Eintrag ist erst mit der dauerhaften Quittung des zweiten Masters bestätigt.
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| 5.2 / S-02 / S-03: Freigabe nur nach Bestätigung beider | `replica.lua`, Sperre `barrier.lua`, Adapter `guarded_adapters.lua`, Verdrahtung `ha_wiring.lua` | `test_dual_commit.lua` |
+| E-02: zweiter Master aus, nichts wird freigegeben | Reservierung bleibt, Signal rot, Warteschlange begrenzt | `test_e02_...`, `test_the_waiting_queue_is_bounded_...` |
+| E-07: auf beiden vorbereitet, auf keinem bestätigt, Wechsel | Beförderung schneidet den unbestätigten Rest, `recovery.required` | `test_e07_...` |
+| E-08: bestätigt, Signal nicht gesetzt, Wechsel | der neue Führende setzt die Signale neu | `test_e08_...` |
+| Absturz an jeder Dateioperation von Führendem und Standby | Journal mit Prüfsummen, `rcommit`-Einträge | `test_replica.lua` |
+| Wiederholung beim Node | `command_id` je Epoche im Befehlsjournal | `test_node_ledger.lua` |
+
+Noch nicht Teil von P4: die Bestätigung des Betreibers im Panel (P8), die Prüfung der Ist-Lage nach dem Wechsel gegen die Sensoren (P5), das Stellen der Signale über Signal-Nodes im Netz statt über die Peripherie
+des Masters (P6). Der Platzbedarf des Masters ist auf 900000 Bytes gewachsen (Konzept: etwa 740000); die Entscheidung fällt in P10.
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

@@ -41,6 +41,18 @@ höchste Periode, die er von einem Master gesehen hat (`state/crn_epoch.json`), 
 nichts mehr stellen, auch wenn er sich noch für den Führenden hält. In einem Plan mit zwei Mastern ohne Periode ist ein Befehl eines Masters abgelehnt („no_epoch“). Den Beweis der Mehrheit
 können die Nodes nicht prüfen (sie haben nur Schlüssel für die Master); den prüfen der andere Master und der Schiedsrichter, indem sie ihre Stimme geben.
 
+## Bestätigung beider Master (Dual-Commit, P4)
+
+Der Führende schreibt jede Änderung des Dispatcher-Zustands (Reservierungen, Züge, Weichen, Fahrplan) als Eintrag in sein Journal (`master_journal_file`) und schickt ihn dem anderen Master. Der legt ihn
+ebenfalls dauerhaft ab und quittiert; erst dann gilt der Eintrag als **bestätigt**. Was Bewegung freigibt (Route, Abfahrt, Fahrplan, Signal nicht-rot, Weichenstellung davor) geht erst nach der
+Bestätigung des Eintrags hinaus, von dem es abhängt, und zwar in der Reihenfolge, in der es entstand (die Weiche vor dem grünen Signal). **Rot und Halt warten nie.** Fällt der zweite Master aus,
+bleibt der Führende am Leben, reserviert weiter, gibt aber nichts Neues frei; die Warteschlange ist begrenzt und das Panel zeigt Länge und Alter. Verliert der Führende die Führung, wird alles
+Wartende verworfen und nie nachgeholt.
+
+Bei einem Wechsel schneidet der neue Führende alles ab, was nicht bestätigt war (E-07), stellt den bestätigten Zustand wieder her, setzt die Signale einer bestätigten, aber nicht ausgeführten
+Reservierung neu (E-08) und verlangt eine Bestätigung des Betreibers, ehe wieder Routen vergeben werden (`recovery.required`). Die Aktoren sperren den alten Führenden über die Epoche (Fencing); ein Befehl
+trägt `command_id`, und ein Node führt ihn je Epoche nur einmal aus. Tests: `tests/test_replica.lua`, `tests/test_dual_commit.lua`.
+
 ## Was passiert wann (Ausfallmatrix, Kap. 5.3)
 
 | Fehler | Führung | Neue Freigaben | Bestehende Fahrt |

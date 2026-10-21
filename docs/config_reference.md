@@ -58,6 +58,7 @@ order, the old file stays as `<file>.prev`); a plan that is a bundled template (
 | `arbiter` | none | id of the node with role `arbiter`: the third voice of the election. Only with `masters` |
 | `election_lease_ms` / `election_beat_ms` | 3000 / 1000 | how long a leader stays valid after the last acknowledged beat / how often it beats; the follower waits longer (lease + 1 s margin, then 5 s for A, 8 s for B) |
 | `election_state_file` | `state/election.json` | term and vote of this master (written before every answer) |
+| `master_journal_file` | `state/master_journal.log` | journal of the master state (`docs/JOURNAL.md`): every change of the dispatcher is written here before any command that depends on it is sent; the standby keeps its own copy (`docs/HA.md`, dual commit) |
 | `auto_clear_faults` | `true` | blocks that went FAULT because a node timed out clear themselves (`docs/OPERATIONS.md`); `false` = operator only |
 | `auto_clear_stable_s` | 15 | how long every node of the cause has to be back before the block may clear |
 | `auto_clear_max_age_s` | 10 | oldest detector report that still counts as "free" |

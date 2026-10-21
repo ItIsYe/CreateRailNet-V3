@@ -304,7 +304,11 @@ function common_node.new(opts)
     -- a command that changes the world: a durable record first, the action second, the outcome third
     local ledger_key
     if node.ledger and DURABLE_COMMANDS[payload.cmd] then
-      ledger_key = tostring(msg.src) .. "/" .. tostring(msg.id)
+      if payload.command_id then
+        ledger_key = "cid:" .. tostring(payload.election_epoch) .. "/" .. tostring(payload.command_id)
+      else
+        ledger_key = tostring(msg.src) .. "/" .. tostring(msg.id)
+      end
       local state, detail = node.ledger.begin(ledger_key)
       if state == nil then
         answer(msg, false, "no durable record, command refused: " .. tostring(detail))

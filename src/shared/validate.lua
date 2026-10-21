@@ -126,6 +126,7 @@ local function validate_inner(cfg, errors)
     if cfg[key] ~= nil and (type(cfg[key]) ~= "number" or cfg[key] <= 0) then add(errors, key, "must be a number > 0") end
   end
   if cfg.election_state_file ~= nil and not nonempty(cfg.election_state_file) then add(errors, "election_state_file", "must be non-empty string") end
+  if cfg.master_journal_file ~= nil and not nonempty(cfg.master_journal_file) then add(errors, "master_journal_file", "must be non-empty string") end
   if cfg.arbiter ~= nil and not nonempty(cfg.arbiter) then add(errors, "arbiter", "must be non-empty string") end
   if type(cfg.masters) == "table" and #cfg.masters >= 1 then
     if #cfg.masters ~= 2 then add(errors, "masters", "must list exactly two masters (or be left out for a plan with one)") end
