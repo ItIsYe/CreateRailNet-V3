@@ -6,6 +6,8 @@ Public API: new(path, opts) -> journal. opts: fs, max_entries (2000), max_bytes 
   journal.commit(seq) -> ok, err                       marks every entry up to seq as committed (a marker entry of its own)
   journal.committed() / journal.last_seq() / journal.base_seq() / journal.snapshot_seq()
   journal.recovered() -> { state, snapshot_seq, entries = { { seq, kind, data } }, committed }  what is needed to rebuild: the last snapshot and everything after it
+  journal.install_snapshot(seq, state, committed) -> ok, err   replaces everything by a state and a number (a follower catching up)
+  journal.truncate_to(seq) -> ok, err                  cuts the uncommitted tail (never below committed or the snapshot), then marks the commit point again
   journal.snapshot(state) -> ok, err                   writes state as the snapshot at last_seq, then starts a new journal file after it
   journal.entries_after(seq) -> list                   journal.status() -> { state, locked, failed, entries, bytes, last_seq, committed, last_error }
   journal.reopen() -> status                           after a write failure or a repair by the operator: read everything again
@@ -263,6 +265,38 @@ function journal.new(path, opts)
     if not size then return fail(rerr) end
     snapshot_seq, snapshot_state, base, bytes, entries = last, new_state, last, size, {}
     failed, full = false, false
+    return true
+  end
+
+  -- takes over the state and the numbering of another journal (a follower that fell behind or diverged): snapshot at seq, empty journal after it
+  function self.install_snapshot(seq, new_state, new_committed)
+    if locked then return nil, "journal is locked (" .. state .. ")" end
+    if type(seq) ~= "number" or seq < 0 then return nil, "bad sequence number" end
+    local body = json.encode({ v = SNAPSHOT_VERSION, seq = seq, committed = new_committed or seq, saved_at = now(), state = new_state })
+    local ok, err = safe_write.write(snap_path, body, io_opts)
+    if not ok then return fail(err) end
+    local size, rerr = rewrite_journal(seq, {})
+    if not size then return fail(rerr) end
+    snapshot_seq, snapshot_state, base, last, committed, bytes, entries = seq, new_state, seq, seq, new_committed or seq, size, {}
+    failed, full = false, false
+    return true
+  end
+
+  -- drops every entry after seq (only entries that were never committed): a follower whose newest entries came from a leader that was replaced
+  function self.truncate_to(seq)
+    if locked then return nil, "journal is locked (" .. state .. ")" end
+    if type(seq) ~= "number" or seq > last or seq < committed or seq < snapshot_seq then return nil, "cannot cut below the committed entries" end
+    if seq == last then return true end
+    local kept = {}
+    for _, entry in ipairs(entries) do if entry.seq <= seq then kept[#kept + 1] = entry end end
+    local size, err = rewrite_journal(base, kept)
+    if not size then return fail(err) end
+    entries, last, bytes = kept, seq, size
+    -- the commit marker that was cut with the tail is written again, so "committed" survives a reopen
+    if committed > 0 then
+      local marked, merr = self.append("commit", { upto = committed })
+      if not marked then return nil, merr end
+    end
     return true
   end
 

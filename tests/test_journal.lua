@@ -311,4 +311,22 @@ return {
     assert(again.append("event", { n = 2 }) == 2)
     assert(open(fs).last_seq() == 2, "the next entry starts on a line of its own")
   end,
+
+  test_the_uncommitted_tail_can_be_cut_and_the_committed_part_cannot = function()
+    local fs = memfs.new()
+    local j = open(fs)
+    for i = 1, 6 do j.append("event", { n = i }) end
+    assert(j.commit(3))
+    assert(j.last_seq() == 7)
+    local ok, err = j.truncate_to(2)
+    assert(ok == nil and err:find("committed", 1, true), "never below what is committed")
+    assert(j.truncate_to(3) == true)
+    assert(j.last_seq() == 4 and j.committed() == 3, "the commit point is marked again after the cut")
+    assert(j.append("event", { n = 99 }) == 5, "numbering goes on after the cut")
+    local again, status = open(fs)
+    assert(status == "ok" and again.last_seq() == 5 and again.committed() == 3, "committed survives a reopen")
+    assert(again.recovered().entries[5].data.n == 99)
+    assert(again.truncate_to(5) == true, "cutting at the end is nothing")
+    assert(again.truncate_to(99) == nil)
+  end,
 }

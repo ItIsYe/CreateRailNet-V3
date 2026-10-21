@@ -37,6 +37,7 @@ function master_runtime.new(context)
     pairing = context.pairing,
     plan_service = context.plan_service,
     restart = context.restart,
+    replica = context.replica, barrier = context.barrier,  -- dual commit with the other master (src/master/replica.lua, barrier.lua)
     ha = context.ha,          -- election with the other master and the arbiter (src/shared/ha.lua); nil in a plan with one master
     restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
     -- config require_release: until the operator releases the operation no train starts a journey (a restart takes the release back)
@@ -613,6 +614,7 @@ function master_runtime.new(context)
 
   handlers.cmd = function(msg)
     if runtime.ha and runtime.ha.handle(msg) then return true end
+    if runtime.replica and runtime.replica.handle(msg) then return true end
     runtime.ui.mark_dirty()
     return true
   end
@@ -667,20 +669,46 @@ function master_runtime.new(context)
   -- the election: twice a second; a change of leadership is written to the audit log and raises an alert for the operator
   if runtime.ha then
     local was_active = false
+    local function raise(key, text) if runtime.alerts then runtime.alerts.raise(key, "YELLOW", text, nil, { ttl_s = 300 }) end end
     runtime.ticker.every("election", 0.5, function()
       runtime.ha.tick()
       local active = runtime.ha.is_leader()
       if active ~= was_active then
         was_active = active
         audit(active and "leader_gained" or "leader_lost", { term = runtime.ha.term() })
-        if runtime.alerts then
-          if active then runtime.alerts.raise("ha:leader", "YELLOW", "Dieser Master fuehrt jetzt (Periode " .. tostring(runtime.ha.term()) .. ")", nil, { ttl_s = 300 })
-          else runtime.alerts.raise("ha:leader", "YELLOW", "Dieser Master fuehrt nicht (mehr)", nil, { ttl_s = 300 }) end
+        if active then
+          raise("ha:leader", "Dieser Master fuehrt jetzt (Periode " .. tostring(runtime.ha.term()) .. ")")
+          -- the state that both masters confirmed is the state this leader starts from; what was only prepared is cut (replica.promote)
+          if runtime.replica then
+            local state = runtime.replica.promote()
+            if type(state) == "table" and next(state) ~= nil and runtime.dispatcher.restore then
+              local restored, restore_err = runtime.dispatcher.restore(state)
+              audit("failover_restored", { ok = restored == true, error = restore_err, committed_idx = runtime.replica.committed_idx() })
+              if restored then
+                -- trains and blocks as the dead master left them: the operator confirms what the track shows before new routes are given
+                runtime.recovery.restored, runtime.recovery.required, runtime.recovery.confirmed = true, true, false
+                if runtime.dispatcher.refresh_signals then pcall(runtime.dispatcher.refresh_signals) end
+              end
+            end
+          end
+        else
+          raise("ha:leader", "Dieser Master fuehrt nicht (mehr)")
+          if runtime.replica then runtime.replica.demote() end
+          if runtime.barrier then runtime.barrier.discard("leadership lost") end
         end
         runtime.ui.mark_dirty()
       end
+      if runtime.replica and active then
+        if runtime.replica.peer_ok() then
+          if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("ha:partner") end
+        else
+          raise("ha:partner", "Zweiter Master antwortet nicht: keine neuen Freigaben")
+        end
+      end
     end)
+    if runtime.replica then runtime.ticker.every("replica", 0.5, function() runtime.replica.tick() end) end
   end
+
   runtime.ticker.every("timeouts", 1, function() runtime.check_timeouts() end)
   -- keys issued or revoked with scripts/keys.lua count within seconds (the list of keys is read again when it changed)
   if runtime.network.auth and runtime.network.auth.reload_trust then runtime.ticker.every("trust", 5, function() runtime.network.auth.reload_trust() end) end
@@ -789,6 +817,20 @@ function master_runtime.new(context)
     -- after the message: a queued heartbeat must be counted before the timeout job looks at last_seen
     runtime.ticker.handle_event(event)
     runtime.network.tick()
+    runtime.sync_step()
+  end
+
+  -- dual commit: what this step changed in the state is written, sent to the other master and, once it confirmed, the actuations that depend on it are carried out
+  function runtime.sync_step()
+    if not runtime.replica or not runtime.barrier then return end
+    if runtime.ha and runtime.ha.is_leader() then
+      local idx = runtime.replica.capture()
+      -- a change that could not be written is never confirmed: whatever it produced waits (and is dropped when the leadership goes)
+      runtime.barrier.tag(idx or math.huge)
+      runtime.barrier.release(function(need) return runtime.replica.confirmed(need) end)
+    else
+      runtime.barrier.discard("not the leader")
+    end
   end
 
   function runtime.run() runtime.start(); while true do runtime.handle_event({ runtime.pull_event() }) end end

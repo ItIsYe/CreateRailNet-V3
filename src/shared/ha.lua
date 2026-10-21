@@ -4,7 +4,8 @@ Public API: new(opts) -> ha. opts: id, config (masters, master_id, arbiter), net
   ha.tick()                       call about twice a second: runs the election and sends what it wants to say
   ha.handle(msg) -> true          a "cmd" with cmd = "election" from a voter; returns false for any other message
   ha.is_leader() / ha.term() / ha.leader() / ha.status()
-  ha.gate(msg_type, dst, payload) -> ok, reason       installed in the net: only a valid leader sends commands to computers that are not voters (election and pairing answers are free)
+  ha.dual_commit = { permissive = fn(payload), writable = fn }   (set by the master: with it, movement-giving commands of the leader are held for the dual commit, see src/master/barrier.lua)
+  ha.gate(msg_type, dst, payload) -> ok | "hold", reason       installed in the net: only a valid leader sends commands to computers that are not voters (election and pairing answers are free)
   ha.stamp(msg_type, dst, payload)                     installed in the net: puts election_epoch / election_leader / election_proof into those commands
   EXEMPT_CMDS, is_ha(config) -> true when the plan names two masters
 Notes: the voters are the masters and the arbiter of the plan. Election messages are plain "cmd" messages (cmd = "election", kind and fields of src/domain/election.lua), sent without retry:
@@ -102,8 +103,13 @@ function ha.new(opts)
     if msg_type ~= "cmd" or type(payload) ~= "table" then return true end
     if ha.EXEMPT_CMDS[payload.cmd] then return true end
     if is_voter[dst] then return true end
-    if core.is_leader() then return true end
-    return false, "not the active leader"
+    if not core.is_leader() then return false, "not the active leader" end
+    -- a leader with a replica: movement-giving commands wait for the dual commit
+    if self.dual_commit and self.dual_commit.permissive(payload) then
+      if self.dual_commit.writable and not self.dual_commit.writable() then return false, "journal not writable" end
+      return "hold"
+    end
+    return true
   end
 
   function self.stamp(msg_type, dst, payload)

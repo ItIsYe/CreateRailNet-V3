@@ -47,6 +47,10 @@ local net = require("src.shared.net")
 local auth_setup = require("src.shared.auth_setup")
 local ha_module = require("src.shared.ha")
 local election_store = require("src.shared.election_store")
+local barrier_module = require("src.master.barrier")
+local guarded_adapters = require("src.master.guarded_adapters")
+local replica_module = require("src.master.replica")
+local journal_module = require("src.shared.journal")
 local ota_manager = require("src.master.ota_manager")
 local cargo_module = require("src.domain.cargo")
 local startup_guard = require("src.shared.startup_guard")
@@ -79,10 +83,18 @@ function app.new(args)
     error("master modem open failed: " .. tostring(err))
   end
 
-  local disp = dispatcher.new(cfg, {
-    signals = create_signals.new(peri, { hardware = hw }),
-    switches = create_switches.new(peri, { hardware = hw })
-  })
+  -- two masters: actuations that give movement wait in a barrier for the dual commit, and a master that does not lead touches no hardware (the leader is known only once the net exists:
+  -- the guards ask through a reference that is filled in below)
+  local barrier, leader_ref
+  local signal_adapter = create_signals.new(peri, { hardware = hw })
+  local switch_adapter = create_switches.new(peri, { hardware = hw })
+  if ha_module.is_ha(cfg) then
+    barrier = barrier_module.new({ now_ms = require("src.shared.time").now_ms, logger = logger })
+    leader_ref = { is_leader = function() return leader_ref.ha ~= nil and leader_ref.ha.is_leader() end }
+    signal_adapter = guarded_adapters.guard(signal_adapter, { barrier = barrier, ha = leader_ref, kind = "signals" })
+    switch_adapter = guarded_adapters.guard(switch_adapter, { barrier = barrier, ha = leader_ref, kind = "switches" })
+  end
+  local disp = dispatcher.new(cfg, { signals = signal_adapter, switches = switch_adapter })
 
   -- the last dispatcher calls are kept for replay offline (traces/*.json, scripts/replay_trace.lua)
   local trace = trace_recorder.new({ capacity = cfg.trace_capacity or 500 })
@@ -99,6 +111,24 @@ function app.new(args)
       lease_ms = cfg.election_lease_ms, beat_ms = cfg.election_beat_ms
     })
     network.gate, network.stamp = ha.gate, ha.stamp
+    leader_ref.ha = ha
+  end
+  -- the replicated state: the dispatcher's snapshot, in a journal of its own; the other master gets every change and has to confirm it before movement is given
+  local replica
+  if ha then
+    local partner
+    for _, id in ipairs(cfg.masters) do if id ~= (parsed.id or cfg.master_id) then partner = id end end
+    local journal = journal_module.new(cfg.master_journal_file or "state/master_journal.log", { max_entries = 1000, max_bytes = 300000 })
+    local journal_state, journal_info = journal.open()
+    if journal_state == "corrupt" or journal_state == "failed" then
+      logger.error("master journal unusable: no dual commit, no movement is given", { status = journal_state, reason = journal_info and journal_info.reason })
+    end
+    replica = replica_module.new({
+      id = parsed.id or cfg.master_id, peer = partner, network = network, journal = journal, ha = ha, logger = logger,
+      now_ms = require("src.shared.time").now_ms, snapshot_fn = function() return disp.snapshot() end
+    })
+    ha.dual_commit = { permissive = barrier_module.permissive_cmd, writable = replica.writable }
+    network.hold = barrier.hold
   end
   -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
   network.on_drop = function(msg)
@@ -161,7 +191,7 @@ function app.new(args)
   ui.set_panel("status")
 
   context = {
-    ha = ha,
+    ha = ha, replica = replica, barrier = barrier,
     config = cfg,
     logger = logger,
     registry = reg,
