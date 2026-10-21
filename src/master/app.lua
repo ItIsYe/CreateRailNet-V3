@@ -44,6 +44,7 @@ local create_signals = require("src.adapter.create_signals")
 local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
+local auth_setup = require("src.shared.auth_setup")
 local ota_manager = require("src.master.ota_manager")
 local cargo_module = require("src.domain.cargo")
 local startup_guard = require("src.shared.startup_guard")
@@ -85,7 +86,8 @@ function app.new(args)
   local trace = trace_recorder.new({ capacity = cfg.trace_capacity or 500 })
   trace.attach(disp)
 
-  local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger)
+  local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger, nil,
+    { auth = auth_setup.build(cfg, parsed.id or cfg.master_id, { master = true, logger = logger }) })
   -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
   network.on_drop = function(msg)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })

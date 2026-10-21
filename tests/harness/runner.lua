@@ -105,6 +105,8 @@ local tests = {
   "tests/test_protocol.lua",
   "tests/test_net_chaos.lua",
   "tests/test_net_ids.lua",
+  "tests/test_sha256.lua",
+  "tests/test_auth.lua",
   "tests/test_timer_loss.lua",
   "tests/test_trains_panel_touch.lua",
   "tests/test_recovery_safe_mode.lua",

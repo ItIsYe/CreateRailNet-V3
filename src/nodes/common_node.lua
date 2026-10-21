@@ -13,6 +13,7 @@ local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local log_forwarder = require("src.shared.log_forwarder")
 local setup_status = require("src.shared.setup_status")
+local auth_setup = require("src.shared.auth_setup")
 
 local common_node = {}
 
@@ -38,7 +39,9 @@ function common_node.new(opts)
     heartbeat_ms = opts.heartbeat_ms or 2000
   }
 
-  node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time)
+  -- opts.auth is for tests; otherwise config.auth_mode (off / monitor / enforce) and the key file of this computer decide
+  node.auth = opts.auth or auth_setup.build(node.config, node.id, { logger = node.logger, fs = opts.auth_fs, paths = opts.auth_paths })
+  node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time, { auth = node.auth })
 
   node.ticker = ticker.new({
     clock = opts.clock,

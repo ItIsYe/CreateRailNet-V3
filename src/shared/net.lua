@@ -5,6 +5,9 @@ Public API: new(modem, channel, node_id, logger, time_mod), validate(msg) -> ok,
 Envelope: v is the major version and must match; pv is the revision (additive changes only, older nodes send none and count as 1).
 Receivers reject malformed envelopes (wrong types, oversize ids, unknown message types) instead of guessing.
 An ack says "delivered"; ack_for(msg, true) adds applied = true: the receiver also did what the message asked.
+Authentication (revision 5, optional per computer): net.new(..., { auth = auth }) signs every message and checks every message it receives (src/shared/auth.lua):
+a message that fails is not "ok" ("auth_failed", reason as second result); "challenge" / "auth" are the session handshake after a restart. After receive,
+msg.authenticated is true only for a message whose MAC was valid (it is always overwritten, whatever the sender wrote).
 Message ids are "<node>.<boot nonce>.<n>": every computer counts from 1 after a boot, so bare numbers collide between nodes and
 between two boots of one node. Duplicates are recognised by sender and id.
 ]]
@@ -14,12 +17,12 @@ local time = require("src.shared.time")
 local net = {}
 
 net.PROTOCOL_VERSION = 1
-net.PROTOCOL_REVISION = 4
+net.PROTOCOL_REVISION = 5
 
 local MAX_ID_LENGTH = 160
 local MAX_NODE_LENGTH = 64
 local MAX_PEERS = 1024
-local VALID_TYPES = { register = true, heartbeat = true, cmd = true, event = true, ack = true, err = true }
+local VALID_TYPES = { register = true, heartbeat = true, cmd = true, event = true, ack = true, err = true, auth = true }
 
 function net.validate(msg)
   if type(msg) ~= "table" then return false, "not a table" end
@@ -31,6 +34,11 @@ function net.validate(msg)
   if msg.payload ~= nil and type(msg.payload) ~= "table" then return false, "payload is not a table" end
   if msg.ts ~= nil and type(msg.ts) ~= "number" then return false, "bad ts" end
   if msg.pv ~= nil and type(msg.pv) ~= "number" then return false, "bad pv" end
+  if msg.at ~= nil and type(msg.at) ~= "string" then return false, "bad at" end
+  if msg.ss ~= nil and type(msg.ss) ~= "string" then return false, "bad ss" end
+  if msg.ch ~= nil and type(msg.ch) ~= "string" then return false, "bad ch" end
+  if msg.sq ~= nil and type(msg.sq) ~= "number" then return false, "bad sq" end
+  if msg.ke ~= nil and type(msg.ke) ~= "number" then return false, "bad ke" end
   return true
 end
 
@@ -49,8 +57,9 @@ local function now_ms(time_mod)
   return (time_mod and time_mod.now_ms or time.now_ms)()
 end
 
-function net.new(modem, channel, node_id, logger, time_mod)
+function net.new(modem, channel, node_id, logger, time_mod, opts)
   local self = {
+    auth = opts and opts.auth,
     modem = modem,
     channel = channel,
     node_id = node_id,
@@ -85,6 +94,7 @@ function net.new(modem, channel, node_id, logger, time_mod)
 
   function self.send(msg_type, dst, payload)
     local msg = { v = net.PROTOCOL_VERSION, pv = net.PROTOCOL_REVISION, type = msg_type, id = next_id(), src = self.node_id, dst = dst, ts = now_ms(time_mod), payload = payload or {} }
+    if self.auth then self.auth.sign(msg) end
     local ok, err = send_raw(msg)
     if ok == false then return nil, err end
     return msg
@@ -108,6 +118,34 @@ function net.new(modem, channel, node_id, logger, time_mod)
   function self.receive(msg)
     if not net.validate(msg) then return "invalid" end
     if msg.dst ~= self.node_id and msg.dst ~= "broadcast" then return "not_for_me" end
+    if self.auth and self.auth.mode ~= "off" then
+      msg.authenticated = false
+      local verdict, detail, extra = self.auth.verify(msg)
+      if verdict == "challenge" then
+        -- valid MAC, unknown session: hand out a nonce instead of processing; the sender repeats what it sent with it
+        self.send("auth", msg.src, { kind = "challenge", for_ss = msg.ss, nonce = detail, ss = self.auth.session })
+        return "challenge"
+      elseif verdict == "duplicate" then
+        msg.authenticated = true
+        return "duplicate"
+      elseif verdict == "challenge_accepted" then
+        -- the other side now gets a challenge of ours too (its session is in the one it sent), so its answers are not lost either
+        local nonce = self.auth.counter_challenge(msg.src, extra)
+        if nonce then self.send("auth", msg.src, { kind = "challenge", for_ss = extra, nonce = nonce }) end
+        local waiting = {}
+        for id, entry in pairs(self.pending) do if entry.msg.dst == msg.src then waiting[#waiting + 1] = id end end
+        table.sort(waiting, function(a, b) return self.pending[a].seq < self.pending[b].seq end)
+        for _, id in ipairs(waiting) do
+          local entry = self.pending[id]
+          self.auth.resign(entry.msg)
+          send_raw(entry.msg)
+        end
+        return "auth"
+      elseif verdict == "reject" then
+        return "auth_failed", detail
+      end
+      msg.authenticated = verdict == "ok"
+    end
     local known = self.peers[msg.src] ~= nil
     if known or peer_count < MAX_PEERS then
       if not known then peer_count = peer_count + 1 end
