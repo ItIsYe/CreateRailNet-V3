@@ -133,7 +133,7 @@ return {
       return ok, table.concat(errors or {}, "\n")
     end
     assert(check(function(c) c.auth_mode = "enforce" end))
-    assert(check(function(c) c.auth_mode = "monitor"; c.masters = { "MA", "MB" } end))
+    assert(check(function(c) c.auth_mode = "monitor" end))
     local ok, text = check(function(c) c.auth_mode = "strict" end)
     assert(not ok and text:find("auth_mode", 1, true))
     ok, text = check(function(c) c.masters = "MA" end)

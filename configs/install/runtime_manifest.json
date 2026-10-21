@@ -12,6 +12,7 @@
     "scripts/start_switch.lua",
     "scripts/start_station.lua",
     "scripts/start_depot.lua",
+    "scripts/start_arbiter.lua",
     "scripts/ota_push.lua",
     "scripts/upgrade_startup.lua",
     "scripts/keys.lua",

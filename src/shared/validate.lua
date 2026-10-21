@@ -5,7 +5,7 @@ Public API: validate_config(cfg) -> ok, errors.
 
 local validate = {}
 
-local roles = { master = true, signal = true, sensor = true, switch = true, station = true, depot = true, panel = true, train = true }
+local roles = { master = true, signal = true, sensor = true, switch = true, station = true, depot = true, panel = true, train = true, arbiter = true }
 local station_types = { passenger = true, freight = true, mixed = true }
 local depot_types = { storage = true, staging = true, mixed = true }
 local route_kinds = { passenger = true, freight = true, mixed = true, depot = true }
@@ -120,6 +120,28 @@ local function validate_inner(cfg, errors)
   end
 
   if cfg.master_id and node_roles[cfg.master_id] ~= "master" then add(errors, "master_id", "must reference node with role master") end
+
+  -- two masters and an arbiter (docs/HA.md): the masters are nodes of the plan, the arbiter is one more node, and master_id is the one that is preferred
+  for _, key in ipairs({ "election_lease_ms", "election_beat_ms" }) do
+    if cfg[key] ~= nil and (type(cfg[key]) ~= "number" or cfg[key] <= 0) then add(errors, key, "must be a number > 0") end
+  end
+  if cfg.election_state_file ~= nil and not nonempty(cfg.election_state_file) then add(errors, "election_state_file", "must be non-empty string") end
+  if cfg.arbiter ~= nil and not nonempty(cfg.arbiter) then add(errors, "arbiter", "must be non-empty string") end
+  if type(cfg.masters) == "table" and #cfg.masters >= 1 then
+    if #cfg.masters ~= 2 then add(errors, "masters", "must list exactly two masters (or be left out for a plan with one)") end
+    local listed_primary = false
+    for i, id in ipairs(cfg.masters) do
+      if nonempty(id) then
+        if node_roles[id] ~= "master" then add(errors, "masters[" .. i .. "]", "must reference node with role master") end
+        if id == cfg.master_id then listed_primary = true end
+      end
+    end
+    if cfg.master_id and not listed_primary then add(errors, "masters", "must contain master_id") end
+    if not nonempty(cfg.arbiter) then add(errors, "arbiter", "two masters need an arbiter: the id of a node with role arbiter")
+    elseif node_roles[cfg.arbiter] ~= "arbiter" then add(errors, "arbiter", "must reference node with role arbiter") end
+  elseif cfg.arbiter ~= nil then
+    add(errors, "arbiter", "an arbiter only makes sense with two masters (masters)")
+  end
 
   for i, block in ipairs(cfg.blocks or {}) do
     local path = "blocks[" .. i .. "]"

@@ -5,6 +5,9 @@ Public API: new(modem, channel, node_id, logger, time_mod), validate(msg) -> ok,
 Envelope: v is the major version and must match; pv is the revision (additive changes only, older nodes send none and count as 1).
 Receivers reject malformed envelopes (wrong types, oversize ids, unknown message types) instead of guessing.
 An ack says "delivered"; ack_for(msg, true) adds applied = true: the receiver also did what the message asked.
+Gate and stamp (high availability): net.new(..., { gate = fn(type, dst, payload) -> ok, reason, stamp = fn(type, dst, payload), mirrors = { [primary] = { other ids } } }).
+A message the gate refuses is not sent (send returns nil, reason) and a pending message it refuses at retry time is dropped without on_drop; stamp adds fields to the payload before it is signed.
+Mirrors: a register / heartbeat / event sent to a primary id goes to the other ids as well, each as a message of its own (a node reports to both masters).
 Authentication (revision 5, optional per computer): net.new(..., { auth = auth }) signs every message and checks every message it receives (src/shared/auth.lua):
 a message that fails is not "ok" ("auth_failed", reason as second result); "challenge" / "auth" are the session handshake after a restart. After receive,
 msg.authenticated is true only for a message whose MAC was valid (it is always overwritten, whatever the sender wrote).
@@ -60,6 +63,8 @@ end
 function net.new(modem, channel, node_id, logger, time_mod, opts)
   local self = {
     auth = opts and opts.auth,
+    gate = opts and opts.gate,
+    stamp = opts and opts.stamp,
     modem = modem,
     channel = channel,
     node_id = node_id,
@@ -92,7 +97,12 @@ function net.new(modem, channel, node_id, logger, time_mod, opts)
     return self.modem:send(self.channel, msg.dst, msg)
   end
 
-  function self.send(msg_type, dst, payload)
+  local function send_one(msg_type, dst, payload)
+    if self.gate then
+      local allowed, why = self.gate(msg_type, dst, payload or {})
+      if not allowed then return nil, why or "refused by the gate" end
+    end
+    if self.stamp then self.stamp(msg_type, dst, payload or {}) end
     local msg = { v = net.PROTOCOL_VERSION, pv = net.PROTOCOL_REVISION, type = msg_type, id = next_id(), src = self.node_id, dst = dst, ts = now_ms(time_mod), payload = payload or {} }
     if self.auth then self.auth.sign(msg) end
     local ok, err = send_raw(msg)
@@ -100,13 +110,42 @@ function net.new(modem, channel, node_id, logger, time_mod, opts)
     return msg
   end
 
-  function self.send_reliable(msg_type, dst, payload)
-    local msg, err = self.send(msg_type, dst, payload)
-    if not msg then return nil, err end
+  local MIRRORED_TYPES = { register = true, heartbeat = true, event = true }
+
+  function self.send(msg_type, dst, payload)
+    local msg, err = send_one(msg_type, dst, payload)
+    local others = opts and opts.mirrors and MIRRORED_TYPES[msg_type] and opts.mirrors[dst]
+    if others then
+      for _, other in ipairs(others) do
+        -- a copy of the payload: stamping or signing one message must not change the other
+        local copy = {}
+        for k, v in pairs(payload or {}) do copy[k] = v end
+        send_one(msg_type, other, copy)
+      end
+    end
+    return msg, err
+  end
+
+  local function track(msg)
     sequence_sent = sequence_sent + 1
     local entry = { msg = msg, retry = 0, next_ts = now_ms(time_mod) + self.retry_min, seq = sequence_sent }
     self.pending[msg.id] = entry
     if entry.next_ts < min_due then min_due = entry.next_ts end
+  end
+
+  function self.send_reliable(msg_type, dst, payload)
+    local msg, err = send_one(msg_type, dst, payload)
+    if msg then track(msg) end
+    local others = opts and opts.mirrors and MIRRORED_TYPES[msg_type] and opts.mirrors[dst]
+    if others then
+      for _, other in ipairs(others) do
+        local copy = {}
+        for k, v in pairs(payload or {}) do copy[k] = v end
+        local mirrored = send_one(msg_type, other, copy)
+        if mirrored then track(mirrored) end
+      end
+    end
+    if not msg then return nil, err end
     return msg
   end
 
@@ -180,7 +219,10 @@ function net.new(modem, channel, node_id, logger, time_mod, opts)
     for _, id in ipairs(due) do
       local entry = self.pending[id]
       if entry then
-        if entry.retry >= self.max_retries then
+        if self.gate and not self.gate(entry.msg.type, entry.msg.dst, entry.msg.payload or {}) then
+          -- a command queued while this computer was the leader is not sent on after it stopped being one
+          self.pending[id] = nil
+        elseif entry.retry >= self.max_retries then
           self.pending[id] = nil
           if self.logger then self.logger.error("net max retries exceeded", { id = id, type = entry.msg.type, dst = entry.msg.dst }) end
           -- Fire on_drop callback so callers can react (e.g. mark node down)

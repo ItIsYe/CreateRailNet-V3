@@ -242,7 +242,7 @@ return {
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     local result = world.run({}, { "x", "99", "2", "", "", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
-    assert(world.text():find("Bitte eine Zahl von 1 bis 8", 1, true))
+    assert(world.text():find("Bitte eine Zahl von 1 bis 9", 1, true))
     assert(world.text():find("[Rolle]  Netzplan  Name  Hardware  Pruefen", 1, true), "the trail shows where you are")
     assert(world.text():find("Netzplan  Name  Hardware  [Pruefen]", 1, true))
   end,

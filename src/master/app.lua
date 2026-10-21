@@ -45,6 +45,8 @@ local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
 local auth_setup = require("src.shared.auth_setup")
+local ha_module = require("src.shared.ha")
+local election_store = require("src.shared.election_store")
 local ota_manager = require("src.master.ota_manager")
 local cargo_module = require("src.domain.cargo")
 local startup_guard = require("src.shared.startup_guard")
@@ -88,6 +90,16 @@ function app.new(args)
 
   local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger, nil,
     { auth = auth_setup.build(cfg, parsed.id or cfg.master_id, { master = true, logger = logger }) })
+  -- two masters (config.masters) and an arbiter: the election decides who commands; a master that is not the leader sends no command (gate) and the others stamp theirs
+  local ha
+  if ha_module.is_ha(cfg) then
+    ha = ha_module.new({
+      id = parsed.id or cfg.master_id, config = cfg, network = network, now_ms = require("src.shared.time").now_ms, logger = logger,
+      store = election_store.new(cfg.election_state_file),
+      lease_ms = cfg.election_lease_ms, beat_ms = cfg.election_beat_ms
+    })
+    network.gate, network.stamp = ha.gate, ha.stamp
+  end
   -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
   network.on_drop = function(msg)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
@@ -149,6 +161,7 @@ function app.new(args)
   ui.set_panel("status")
 
   context = {
+    ha = ha,
     config = cfg,
     logger = logger,
     registry = reg,

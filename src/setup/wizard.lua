@@ -45,6 +45,7 @@ wizard.ROLES = {
   { key = "depot",   label = "Depot",   text = "Abstellbereich / Depot" },
   { key = "train",   label = "Zug",     text = "Bordcomputer im Zug" },
   { key = "panel",   label = "Monitor", text = "Bedien-Monitor (Panel)" },
+  { key = "arbiter", label = "Schiedsrichter", text = "dritte Stimme der Masterwahl" },
 }
 
 local BACK = {}

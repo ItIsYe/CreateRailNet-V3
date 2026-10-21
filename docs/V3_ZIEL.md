@@ -15,7 +15,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | E2 | Der **Schiedsrichter ist ein eigener CC-Computer** (Rolle `arbiter`), kein Nebenjob eines Nodes | Kap. 2: dritte Stimme, nur Wahldaten; ein Nebenjob würde Ausfälle koppeln |
 | E3 | Schlüssel: ein Master-Schlüssel (beide Master), je Computer ein abgeleiteter Schlüssel mit Nummer; **Übergabe per Diskette oder Eingabe** am Gerät | Kap. 12.1 verlangt physisch bestätigte Erstregistrierung mit lokaler Schlüsselübergabe |
 | E4 | Authentifizierung ist je Computer schaltbar (`auth_mode` off / monitor / enforce); `off` bleibt der Standard bis zur Einführung | bestehende Netze laufen weiter; der Betrieb nach dem Konzept verlangt `enforce` |
-| E5 | Master-Speicherbudget **800 000 Byte** statt „etwa 740 000“ des Konzepts, mit Begründung in `docs/assumptions.md` | die Authentifizierung kostet etwa 60 KB; Rückweg: `computer_space_limit` anheben oder Planer/Setup-Werkzeuge auf die Panel-Rolle verlagern, Entscheidung in P10 mit Messwerten |
+| E5 | Master-Speicherbudget **900 000 Byte** statt „etwa 740 000“ des Konzepts, mit Begründung in `docs/assumptions.md` | Authentifizierung (P1) und Masterwahl (P3) kosten zusammen etwa 100 KB; ein Master dieser Größe braucht `computer_space_limit` von 2 MB oder mehr; Rückweg: `computer_space_limit` anheben oder Planer/Setup-Werkzeuge auf die Panel-Rolle verlagern, Entscheidung in P10 mit Messwerten |
 | E6 | Alles, was nur das Spiel zeigt (Mod-APIs, Create-Verhalten, Rechenzeit), steht in `docs/INGAME_TESTS.md` und bleibt **NOT_RUN**, bis es im Spiel gelaufen ist | Kap. 20: BLOCKED ist kein PASS; kein Offline-Test ersetzt einen Pflichtfall |
 
 ## Pakete (Kap. 19)
@@ -25,7 +25,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P0 API-Labor | Mod-API-Matrix im Spiel | nur im Spiel möglich: `docs/INGAME_TESTS.md`, Werkzeuge `scripts/` (Peripheral-Inspektor, Schedule-Test) vorhanden |
 | P1 Trust + Protokoll | Authentifizierung, Schlüssel, Sitzungen, Replay-Schutz, Framing | **umgesetzt (offline)**, siehe unten |
 | P2 Persistenz | Journal mit Commit-Indizes, Snapshots, Testabstürze, Idempotenz | **umgesetzt (offline)**, siehe unten |
-| P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | offen |
+| P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | **umgesetzt (offline)**, siehe unten |
 | P4 Dual-Commit | Sicherheitszustandsautomat auf beiden Mastern | offen |
 | P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | offen |
 | P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | offen |
@@ -65,6 +65,21 @@ Noch nicht Teil von P1: Nachrichten zwischen zwei Nodes (Kap. 12.3, kommt mit P7
 | Kap. 15/16, J-07/J-08/J-09: Journal-/Speichergrenzen, Plattenvoll, Rotation | `max_entries`, `max_bytes`, vier-fache Obergrenze, Selbstverdichtung | `test_journal.lua` |
 
 Noch nicht Teil von P2: das Journal der Reservierungen des Masters (P4), Dual-Commit mit dem zweiten Master (P3/P4), Statusanzeige der Journale im Panel (P8).
+
+## P3: was umgesetzt ist
+
+| Anforderung (Konzept) | Wo | Test |
+|---|---|---|
+| Kap. 2/5.1: Master A, Master B, Schiedsrichter als dritte Stimme, 2 von 3 | `src/domain/election.lua`, `src/nodes/arbiter_node.lua`, Rolle `arbiter` | `tests/test_election.lua` |
+| S-01: nur der gültig gewählte aktive Master erteilt Befehle | Gate im Net (`src/shared/ha.lua`), Standby fasst den Dispatcher nicht an | `test_ha_integration.lua`, `test_master_standby.lua` |
+| S-02: Wahlmehrheit ersetzt nicht die Bestätigung beider Master | Dokumentiert, Dual-Commit folgt in P4 | `docs/HA.md` |
+| S-09: alte Master-Epochen werden abgewiesen | `src/shared/fence.lua` am Aktor, dauerhaft | `test_fence.lua`, `test_ha_integration.lua` (E-10) |
+| 5.1: Führungsperiode, Term-Nachweis in Masterbefehlen | `election_epoch`, `election_leader`, `election_proof` | `test_ha_integration.lua` |
+| 5.3: Ausfallmatrix (A, B, Schiedsrichter, A-B-Link, Partition, Quorumverlust, Neustart) | Wahl mit Vorab-Frage, Pacht, dauerhafte Stimme | `test_election.lua` (E-01 bis E-05 und 40 Zufallsläufe: nie zwei Führende gleichzeitig) |
+| 8.1/2: Nodes sprechen mit beiden Mastern | Spiegel im Net, Topologie vom Master gelernt | `test_ha_integration.lua`, `test_fence.lua` |
+
+Noch nicht Teil von P3: der gemeinsame dauerhafte Zustand beider Master und die Bestätigung beider (P4), die Erkennung der Ist-Lage nach dem Wechsel (P4/P5), die Anzeige des Führungszustands im Panel
+(P8). Die Pacht beruht auf der Uhr der Computer (`docs/HA.md`, Annahmen): ob das auf dem Zielserver unter Last hält, zeigt nur Spieltest 0bx.
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

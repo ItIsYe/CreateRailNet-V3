@@ -16,6 +16,9 @@ local setup_status = require("src.shared.setup_status")
 local auth_setup = require("src.shared.auth_setup")
 local journal_module = require("src.shared.journal")
 local idempotency = require("src.shared.idempotency")
+local fence_module = require("src.shared.fence")
+local ha_module = require("src.shared.ha")
+local ha_topology = require("src.shared.ha_topology")
 
 local common_node = {}
 
@@ -47,7 +50,44 @@ function common_node.new(opts)
 
   -- opts.auth is for tests; otherwise config.auth_mode (off / monitor / enforce) and the key file of this computer decide
   node.auth = opts.auth or auth_setup.build(node.config, node.id, { logger = node.logger, fs = opts.auth_fs, paths = opts.auth_paths })
-  node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time, { auth = node.auth })
+  -- a plan with two masters: the node reports to both (the standby needs liveness and observations to take over) and takes commands only from the newest leadership.
+  -- A node with a short plan learns the masters from its master (pair_state) and remembers them (state/crn_ha.json).
+  if node.config.masters == nil then
+    local known = ha_topology.load(opts.topology_path, { fs = opts.topology_fs })
+    if known and ha_topology.sane(known.masters, known.arbiter, node.config.master_id) then
+      node.config.masters, node.config.arbiter = known.masters, known.arbiter
+    end
+  end
+  local mirrors = {}
+  local function refresh_mirrors()
+    for key in pairs(mirrors) do mirrors[key] = nil end
+    local list = node.config.masters or {}
+    if #list > 1 and node.config.master_id then
+      local others = {}
+      for _, id in ipairs(list) do if id ~= node.config.master_id then others[#others + 1] = id end end
+      mirrors[node.config.master_id] = others
+    end
+  end
+  refresh_mirrors()
+  node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time, { auth = node.auth, mirrors = mirrors })
+  node.fence = fence_module.new({ masters = node.config.masters, required = ha_module.is_ha(node.config), fs = opts.fence_fs, path = opts.fence_path })
+
+  -- the master tells which computers are the masters and the arbiter: remembered, and applied at once
+  function node.apply_topology(masters, arbiter)
+    local ok, why = ha_topology.sane(masters, arbiter, node.config.master_id)
+    if not ok then return false, why end
+    local same = node.config.masters ~= nil and #node.config.masters == #masters and node.config.arbiter == arbiter
+    if same then for i, id in ipairs(masters) do if node.config.masters[i] ~= id then same = false end end end
+    if same then return true end
+    local saved, err = ha_topology.save(masters, arbiter, opts.topology_path, { fs = opts.topology_fs })
+    if not saved then node.logger.warn("high availability: topology not stored", { error = err }) end
+    node.config.masters, node.config.arbiter = masters, arbiter
+    refresh_mirrors()
+    node.fence.set_topology(masters, true)
+    node.logger.info("high availability: masters and arbiter learned from the master", { masters = table.concat(masters, ","), arbiter = arbiter })
+    if node.on_topology then node.on_topology() end
+    return true
+  end
 
   -- durable exactly-once bookkeeping for the commands above: on in the game (config.durable_commands = false switches it off), off in offline tests unless asked for
   -- (opts.ledger = false / true, opts.journal_fs for a test filesystem). The journal sits in state/ and compacts itself.
@@ -186,6 +226,7 @@ function common_node.new(opts)
   local function command_allowed(msg, payload)
     if OTA_COMMANDS[payload.cmd] then return true end
     if msg.src == node.config.master_id then return true end
+    for _, id in ipairs(node.config.masters or {}) do if id == msg.src then return true end end
     for _, id in ipairs(node.config.cmd_sources or {}) do if id == msg.src then return true end end
     return false
   end
@@ -209,6 +250,26 @@ function common_node.new(opts)
       return status
     end
 
+    -- the election between the masters and the arbiter (only a role that takes part has node.ha)
+    if payload.cmd == "election" then
+      if node.ha then node.ha.handle(msg) end
+      return status
+    end
+
+    -- fencing: a command of a master carries the epoch of its leadership; a lower epoch than the highest seen comes from a leader that was replaced
+    if not ha_module.EXEMPT_CMDS[payload.cmd] then
+      local is_master = msg.src == node.config.master_id
+      for _, id in ipairs(node.config.masters or {}) do if id == msg.src then is_master = true end end
+      if is_master then
+        local fenced, why = node.fence.check(payload, msg.src)
+        if not fenced then
+          source_log.warn("fence:" .. tostring(msg.src) .. ":" .. tostring(why), "command refused by the epoch check", { src = msg.src, cmd = payload.cmd, reason = why, epoch = payload.election_epoch, highest = node.fence.epoch() })
+          answer(msg, false, "fenced: " .. tostring(why))
+          return status
+        end
+      end
+    end
+
     -- OTA: offer / chunk / commit / abort, or the single-message update of older senders
     local ota_step = OTA_COMMANDS[payload.cmd]
     if ota_step then
@@ -229,6 +290,10 @@ function common_node.new(opts)
     if payload.cmd == "pair_state" then
       remember_outcome(msg, true)
       node.net.ack_for(msg, true)
+      -- the masters and the arbiter, from the master of this computer; believed only when the message is authenticated (or authentication is off)
+      if type(payload.masters) == "table" and (not node.auth or node.auth.mode == "off" or msg.authenticated == true) then
+        node.apply_topology(payload.masters, type(payload.arbiter) == "string" and payload.arbiter or nil)
+      end
       if type(payload.state) == "string" and node.pair.state ~= payload.state then
         node.pair.state = payload.state
         node.logger.info("pairing", { state = payload.state, detail = payload.detail })

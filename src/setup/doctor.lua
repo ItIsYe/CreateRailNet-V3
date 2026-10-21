@@ -26,7 +26,7 @@ local keystore = require("src.shared.keystore")
 local doctor = {}
 
 local ROLE_LABEL = {
-  master = "Master", signal = "Signal", sensor = "Melder", switch = "Weiche", station = "Bahnhof", depot = "Depot", train = "Zug", panel = "Monitor",
+  master = "Master", signal = "Signal", sensor = "Melder", switch = "Weiche", station = "Bahnhof", depot = "Depot", train = "Zug", panel = "Monitor", arbiter = "Schiedsrichter",
 }
 local DEVICE = {
   signal = { class = "create_signal", label = "Create-Signal" },

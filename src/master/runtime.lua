@@ -37,6 +37,7 @@ function master_runtime.new(context)
     pairing = context.pairing,
     plan_service = context.plan_service,
     restart = context.restart,
+    ha = context.ha,          -- election with the other master and the arbiter (src/shared/ha.lua); nil in a plan with one master
     restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
     -- config require_release: until the operator releases the operation no train starts a journey (a restart takes the release back)
     release = { required = type(context.config) == "table" and context.config.require_release == true, released = false },
@@ -51,6 +52,8 @@ function master_runtime.new(context)
     heartbeat_timeout_s = context.heartbeat_timeout_s or (type((context.config or {}).heartbeat_timeout_s) == "number" and context.config.heartbeat_timeout_s > 0 and context.config.heartbeat_timeout_s) or 6,
     sensor_levels = {}  -- sensor_id -> { occupied, at }: what the detector shows right now, from heartbeats and events
   }
+  -- with two masters only the leader of the newest term decides; the other one keeps the registry and the pairing, and does not touch the dispatcher
+  function runtime.active() return runtime.ha == nil or runtime.ha.is_leader() end
   local ui_once = once_log.new(context.logger)
   local signal_once = once_log.new(context.logger)
   local event_once = once_log.new(context.logger)
@@ -100,6 +103,10 @@ function master_runtime.new(context)
     if probe_id == nil and pair_sent[dst] == state then return end
     pair_sent[dst] = state
     local payload = { cmd = "pair_state", state = state, detail = detail, probe_id = probe_id }
+    -- the masters and the arbiter: a computer with a short plan learns them here
+    if type(runtime.config) == "table" and type(runtime.config.masters) == "table" and #runtime.config.masters >= 2 then
+      payload.masters, payload.arbiter = runtime.config.masters, runtime.config.arbiter
+    end
     if probe_id ~= nil and type(echo) == "number" and echo >= 1 and echo <= MAX_ECHO_BYTES then payload.pad = string.rep("x", math.floor(echo)) end
     if network.send_reliable then network.send_reliable("cmd", dst, payload) elseif network.send then network.send("cmd", dst, payload) end
   end
@@ -564,8 +571,20 @@ function master_runtime.new(context)
     return nil
   end
 
+  -- observations and requests that the dispatcher would act on: the standby master takes them in (acknowledges them) and leaves the decision to the leader
+  local STANDBY_EVENTS = {
+    sensor = true, train_status = true, request_departure = true, arrived = true, schedule_applied = true, train_fault = true,
+    station_status = true, station_ready_departure = true, station_fault = true, platform_status = true, train_arrived_station = true, train_left_station = true,
+    depot_status = true, depot_track_status = true, depot_train_ready = true, depot_request_dispatch = true, depot_train_arrived = true, depot_train_left = true, depot_fault = true,
+    manual_control = true,
+  }
+
   handlers.event = function(msg)
     local ptype = msg.payload and tostring(msg.payload.type) or ""
+    if runtime.ha and STANDBY_EVENTS[ptype] and not runtime.active() then
+      runtime.network.ack_for(msg, true)
+      return true
+    end
     local problem, in_plan = event_sender_problem(msg, ptype)
     if problem then
       if in_plan then
@@ -592,7 +611,11 @@ function master_runtime.new(context)
     return true
   end
 
-  handlers.cmd = function() runtime.ui.mark_dirty(); return true end
+  handlers.cmd = function(msg)
+    if runtime.ha and runtime.ha.handle(msg) then return true end
+    runtime.ui.mark_dirty()
+    return true
+  end
   handlers.ack = function() runtime.ui.mark_dirty(); return true end
   handlers.err = function(msg) audit("node_error", { src = msg.src, payload = msg.payload }); if runtime.logger then runtime.logger.warn("node error", msg.payload or {}) end; runtime.ui.mark_dirty(); return true end
 
@@ -605,8 +628,10 @@ function master_runtime.new(context)
       -- once per outage: a node that is down already was dealt with (timeout_node, audit, state save)
       if not updating and tostring(node_state.status):upper() ~= "DOWN" and now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id)
-        local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
-        if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
+        if runtime.active() then
+          local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
+          if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
+        end
         audit("node_timeout", { node_id = node_id, role = node_state.role })
         if runtime.train_registry and node_state.role == "train" then runtime.train_registry.mark_offline(node_id) end
         if runtime.station_registry and node_state.role == "station" then runtime.station_registry.mark_offline(node_id) end
@@ -628,7 +653,7 @@ function master_runtime.new(context)
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
     end
     -- whatever the signals showed before the master came up: RED everywhere, GREEN for the trains that wait
-    if runtime.dispatcher.refresh_signals and (runtime.config or {}).signal_refresh_per_s ~= 0 then
+    if runtime.dispatcher.refresh_signals and (runtime.config or {}).signal_refresh_per_s ~= 0 and runtime.active() then
       local ok_refresh, refreshed = pcall(runtime.dispatcher.refresh_signals)
       if ok_refresh then note_signal_result(refreshed, "start") elseif runtime.logger then runtime.logger.warn("signal refresh error on start", { error = tostring(refreshed) }) end
     end
@@ -639,6 +664,23 @@ function master_runtime.new(context)
   end
 
   runtime.check_timeouts = check_timeouts
+  -- the election: twice a second; a change of leadership is written to the audit log and raises an alert for the operator
+  if runtime.ha then
+    local was_active = false
+    runtime.ticker.every("election", 0.5, function()
+      runtime.ha.tick()
+      local active = runtime.ha.is_leader()
+      if active ~= was_active then
+        was_active = active
+        audit(active and "leader_gained" or "leader_lost", { term = runtime.ha.term() })
+        if runtime.alerts then
+          if active then runtime.alerts.raise("ha:leader", "YELLOW", "Dieser Master fuehrt jetzt (Periode " .. tostring(runtime.ha.term()) .. ")", nil, { ttl_s = 300 })
+          else runtime.alerts.raise("ha:leader", "YELLOW", "Dieser Master fuehrt nicht (mehr)", nil, { ttl_s = 300 }) end
+        end
+        runtime.ui.mark_dirty()
+      end
+    end)
+  end
   runtime.ticker.every("timeouts", 1, function() runtime.check_timeouts() end)
   -- keys issued or revoked with scripts/keys.lua count within seconds (the list of keys is read again when it changed)
   if runtime.network.auth and runtime.network.auth.reload_trust then runtime.ticker.every("trust", 5, function() runtime.network.auth.reload_trust() end) end
@@ -669,7 +711,7 @@ function master_runtime.new(context)
     end
     return cleared
   end
-  runtime.ticker.every("auto_clear", 2, function() runtime.auto_clear_faults() end)
+  runtime.ticker.every("auto_clear", 2, function() if runtime.active() then runtime.auto_clear_faults() end end)
 
   -- Rolling signal refresh: a few blocks per second, so a signal that lost its state (node reboot, chunk reload, lost
   -- command) is corrected within one round. config signal_refresh_per_s = 0 turns it off.
@@ -681,10 +723,10 @@ function master_runtime.new(context)
     note_signal_result(result, "refresh")
     return result
   end
-  runtime.ticker.every("signals", 1, function() runtime.refresh_signals() end)
+  runtime.ticker.every("signals", 1, function() if runtime.active() then runtime.refresh_signals() end end)
 
   runtime.ticker.every("dwell", 1, function()
-    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() and not release_locked() then
+    if runtime.route_integration and runtime.active() and not maintenance_enabled() and not recovery_locked() and not release_locked() then
       runtime.route_integration.process_due()
       save_after("dwell")
     end

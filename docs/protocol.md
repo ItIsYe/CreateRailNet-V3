@@ -131,6 +131,14 @@ answers are checked by what they carry). A broadcast is never accepted as authen
 
 **Load limit.** At most 400 MAC checks per second for all senders together, and 5 per second for a sender that failed ten checks in the last ten seconds.
 
+## Two masters and the arbiter (high availability)
+
+The election between master A, master B and the arbiter is carried by plain `cmd` messages with `cmd = "election"`, `kind` (`pre_vote_request`, `pre_vote_reply`, `vote_request`, `vote_reply`, `lead_beat`,
+`lead_ack`) and the fields of `src/domain/election.lua`; they are sent without retry (the election repeats itself). Only the computers named in `config.masters` and `config.arbiter` are heard.
+A command of a master to any other computer carries `election_epoch` (the term of its leadership), `election_leader` (its id) and `election_proof` (the voters that elected it). The receiver refuses
+a lower epoch than the highest it has seen (`state/crn_epoch.json`) and, in a plan with two masters, a command without an epoch. `pair_state` may carry `masters` and `arbiter`: the topology a
+computer with a short plan learns from its master. Details: `docs/HA.md`.
+
 ## Reliability
 
 `send_reliable` adds the message to a pending table. `tick()` retries with exponential backoff:

@@ -38,7 +38,7 @@ local INSTALL_GUARD_LINES = {
   "",
 }
 
-local ROLES = { "master", "signal", "sensor", "switch", "train", "station", "depot", "panel" }
+local ROLES = { "master", "signal", "sensor", "switch", "train", "station", "depot", "panel", "arbiter" }
 
 local function is_role(role)
   for _, r in ipairs(ROLES) do if r == role then return true end end
@@ -68,6 +68,7 @@ function startup_template.render(opts)
     '  train   = "src.nodes.train_node",',
     '  station = "src.nodes.station_node",',
     '  depot   = "src.nodes.depot_node",',
+    '  arbiter = "src.nodes.arbiter_node",',
     '  panel   = "src.nodes.panel_node",',
     "}",
     "",
