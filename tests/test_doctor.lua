@@ -437,7 +437,7 @@ return {
   test_a_red_check_is_shown_on_two_pages_recorded_and_does_not_restart_on_enter = function()
     local world = setup_world.new({ peripherals = { MODEM } })
     -- a signal with a Create device chosen by hand that is not there: plan, channel, master, id, how=Create, name, summary, then the doctor
-    local result = world.run({ "--role", "signal" }, { "", "", "", "", "1", "Create_Signal_9", "", "", "", "" })
+    local result = world.run({ "--role", "signal" }, { "", "", "", "", "", "1", "Create_Signal_9", "", "", "", "" })
     assert(result.ok and result.report.fails >= 1 and world.rebooted == 0, "Enter does not restart a computer the doctor finds red")
     local status = setup_status.read(world.fs)
     assert(status.state == "PRUEFUNG_OFFEN" and status.fail >= 1)
@@ -480,7 +480,7 @@ return {
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     local asked = {}
     world.link = function(opts) asked[#asked + 1] = opts; return { state = "known" } end
-    local result = world.run({ "--role", "signal" }, enters(7))
+    local result = world.run({ "--role", "signal" }, enters(8))
     assert(result.ok and world.rebooted == 1, "the master knows it: nothing to copy, Enter restarts")
     assert(#asked == 1 and asked[1].id == "SIG-1" and asked[1].role == "signal" and asked[1].master_id == "MASTER-1" and asked[1].channel == 777)
     assert(asked[1].entry.peripheral == "Create_Signal_0" and asked[1].setup.state == "KONFIGURIERT")
@@ -494,7 +494,7 @@ return {
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     world.link = function() return { state = "pending" } end
     -- the doctor has an amber point (master does not know it yet): two pages, then the restart question
-    local result = world.run({ "--role", "signal" }, enters(8, { "j" }))
+    local result = world.run({ "--role", "signal" }, enters(9, { "j" }))
     assert(result.ok and result.report.fails == 0 and result.report.warns >= 1)
     local text = world.text()
     assert(text:find("Master kennt SIG-1 noch nicht", 1, true))
@@ -506,7 +506,7 @@ return {
   test_no_answer_from_the_master_is_an_amber_hint_not_a_stop = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     world.link = function() return { state = "no_answer" } end
-    local result = world.run({ "--role", "signal" }, enters(8, { "j" }))
+    local result = world.run({ "--role", "signal" }, enters(9, { "j" }))
     assert(result.ok and result.report.fails == 0)
     assert(world.text():find("Master antwortet nicht", 1, true))
     assert(setup_status.read(world.fs).state == "GEPRUEFT", "amber does not turn the record red")

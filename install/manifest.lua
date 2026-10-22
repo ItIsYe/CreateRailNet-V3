@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "1497dbc4",
+  id = "38aadbf7",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -153,7 +153,7 @@ return {
     ["src/setup/plan_fetch.lua"] = { 5762, 2833771047 },
     ["src/setup/signal_tool.lua"] = { 7619, 625294052 },
     ["src/setup/terminal.lua"] = { 3642, 1098311971 },
-    ["src/setup/wizard.lua"] = { 65764, 385716374 },
+    ["src/setup/wizard.lua"] = { 65798, 1190435782 },
     ["src/shared/args.lua"] = { 709, 2720987407 },
     ["src/shared/auth.lua"] = { 8042, 3901034331 },
     ["src/shared/auth_setup.lua"] = { 2823, 3878885374 },

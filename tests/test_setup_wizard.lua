@@ -54,7 +54,7 @@ return {
   test_signal_with_a_create_device_gets_a_short_valid_plan = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     -- plan, channel, master, id, "this device?", summary, restart (a node with a line to carry over asks the restart with no as the suggestion)
-    local result = world.run({ "--role", "signal" }, enters(6, { "j" }))
+    local result = world.run({ "--role", "signal" }, enters(7, { "j" }))
     assert_done(world, result, "signal", "SIG-1")
     local cfg = plan_of(world)
     assert(cfg.channel == 777 and cfg.master_id == "MASTER-1" and #cfg.nodes == 2)
@@ -162,7 +162,7 @@ return {
     })
     local world = setup_world.new({ files = { [netplan.PATH] = plan } })
     -- plan (default: keep), identity: SIG-1 exists, "other id" is the last entry; then the redstone question
-    local result = world.run({ "--role", "signal" }, { "", "2", "SIG-2", "", "", "", "j" })
+    local result = world.run({ "--role", "signal" }, { "", "2", "SIG-2", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-2")
     local cfg = plan_of(world)
     assert(cfg.channel == 800 and cfg.master_id == "M-1" and #cfg.nodes == 3, "channel and master come from the plan, the entry is added")
@@ -211,6 +211,23 @@ return {
     assert(entry.peripheral == nil and entry.adapter == nil, "no single device is written for a computer with several signals")
     assert(world.text():find("Signale", 1, true) and world.text():find("bind_signals", 1, true), "the summary says what comes next: bind them one by one")
     assert(not world.text():find("Welches gehoert zu", 1, true), "the single-device questions are not asked")
+  end,
+
+  test_several_signals_can_be_chosen_when_none_or_only_one_device_shows_up = function()
+    -- signals behind a cable modem that is not switched on yet do not show up: the question is asked anyway
+    for _, attached in ipairs({ 0, 1 }) do
+      local peripherals = { MODEM }
+      for i = 1, attached do peripherals[#peripherals + 1] = { name = "Create_Signal_" .. (i - 1), type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" } } end
+      local world = setup_world.new({ peripherals = peripherals })
+      local result = world.run({ "--role", "signal" }, function(page)
+        if page:find("Namen der Signale", 1, true) then return "S-A, S-B, S-C, S-D" end
+        if page:find("Wie viele Signale", 1, true) then return "2" end
+        return ""
+      end)
+      assert(result.ok, attached .. " devices: " .. tostring(result.error) .. "\n" .. world.last_page_text())
+      local entry = node(plan_of(world), "SIG-1")
+      assert(entry.signals and #entry.signals == 4 and entry.peripheral == nil, attached .. " devices attached")
+    end
   end,
 
   test_one_signal_is_still_one_signal_when_the_choice_is_one = function()
@@ -281,7 +298,7 @@ return {
 
   test_input_is_checked_where_it_is_given = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
-    local result = world.run({ "--role", "signal" }, { "", "99999", "abc", "888", "MASTER 1", "MASTER-1", "SIG 1", "sig-ä", "MASTER-1", "SIG-4", "", "", "j" })
+    local result = world.run({ "--role", "signal" }, { "", "99999", "abc", "888", "MASTER 1", "MASTER-1", "SIG 1", "sig-ä", "MASTER-1", "SIG-4", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-4", nil, true)
     local text = world.text()
     assert(text:find("Eine ganze Zahl von 1 bis 65535", 1, true))
@@ -301,7 +318,7 @@ return {
   test_back_goes_one_step_and_keeps_the_answers = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     -- channel 900, master MASTER-1, id: "<" back to the master question, "<" back to the channel (still 900), then on
-    local result = world.run({ "--role", "signal" }, { "", "900", "", "<", "<", "", "", "", "", "", "j" })
+    local result = world.run({ "--role", "signal" }, { "", "900", "", "<", "<", "", "", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
     assert(plan_of(world).channel == 900, "the channel answer survived going back")
   end,
@@ -309,14 +326,14 @@ return {
   test_changing_a_step_from_the_summary = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     -- summary: n -> change step 2 (name; the menu lists plan, name, hardware) -> new id -> hardware again (defaults) -> summary -> write
-    local result = world.run({ "--role", "signal" }, { "", "", "", "", "", "n", "2", "SIG-77", "", "", "j" })
+    local result = world.run({ "--role", "signal" }, { "", "", "", "", "", "", "n", "2", "SIG-77", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-77")
     assert(netplan.find_node(plan_of(world), "SIG-77") and not netplan.find_node(plan_of(world), "SIG-1"))
   end,
 
   test_the_role_menu_when_the_installer_did_not_choose = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
-    local result = world.run({}, { "x", "99", "2", "", "", "", "", "", "", "j" })
+    local result = world.run({}, { "x", "99", "2", "", "", "", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
     assert(world.text():find("Bitte eine Zahl von 1 bis 10", 1, true))
     assert(world.text():find("[Rolle]  Netzplan  Name  Hardware  Pruefen", 1, true), "the trail shows where you are")
@@ -325,7 +342,7 @@ return {
 
   test_a_wrong_role_argument_is_ignored_and_the_menu_asks = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
-    local result = world.run({ "--role", "wizard" }, { "2", "", "", "", "", "", "", "j" })
+    local result = world.run({ "--role", "wizard" }, { "2", "", "", "", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
   end,
 
@@ -358,7 +375,7 @@ return {
   test_the_installer_chosen_role_skips_the_question_for_a_computer_that_changes_its_role = function()
     local startup = startup_template.render({ role = "sensor", id = "SEN-1", config = "configs/network.json" })
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL }, files = { ["startup.lua"] = startup } })
-    local result = world.run({ "--role", "signal" }, enters(6, { "j" }))
+    local result = world.run({ "--role", "signal" }, enters(7, { "j" }))
     assert_done(world, result, "signal", "SIG-1")
     assert(not world.text():find("schon eingerichtet", 1, true))
   end,
@@ -559,7 +576,7 @@ return {
   test_one_attached_device_is_confirmed_in_one_question_and_no_leads_to_the_other_ways = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     -- plan, channel, master, id, "this device?" -> no, "how?" -> redstone, side, summary, restart
-    local result = world.run({ "--role", "signal" }, { "", "", "", "", "n", "2", "3", "", "j" })
+    local result = world.run({ "--role", "signal" }, { "", "", "", "", "", "n", "2", "3", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
     local entry = node(plan_of(world), "SIG-1")
     assert(entry.adapter == "redstone" and entry.side == "front", "no: the other way is offered")
@@ -567,7 +584,7 @@ return {
     assert(text:find("Create-Signal erkannt: Create_Signal_0", 1, true))
     assert(not text:find("Welches gehoert zu diesem Computer", 1, true), "no list with one line")
     local yes = setup_world.new({ peripherals = { MODEM, SIGNAL } })
-    local ok = yes.run({ "--role", "signal" }, enters(6, { "j" }))
+    local ok = yes.run({ "--role", "signal" }, enters(7, { "j" }))
     assert_done(yes, ok, "signal", "SIG-1")
     assert(not yes.text():find("Wie steuert dieser Computer", 1, true), "yes: nothing more to ask about the connection")
   end,
@@ -582,7 +599,7 @@ return {
 
   test_two_modems_ask_which_one_and_the_name_goes_into_the_plan = function()
     local world = setup_world.new({ peripherals = { MODEM, MODEM2, SIGNAL } })
-    local result = world.run({ "--role", "signal" }, { "", "", "", "", "1", "", "", "j" })
+    local result = world.run({ "--role", "signal" }, { "", "", "", "", "1", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
     assert(node(plan_of(world), "SIG-1").modem == "modem_1")
     assert(world.text():find("modem_1 (festgelegt)", 1, true), "the summary says which modem")
@@ -591,7 +608,7 @@ return {
 
   test_one_modem_is_found_by_itself_and_not_written = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
-    local result = world.run({ "--role", "signal" }, enters(6, { "j" }))
+    local result = world.run({ "--role", "signal" }, enters(7, { "j" }))
     assert_done(world, result, "signal", "SIG-1")
     assert(node(plan_of(world), "SIG-1").modem == nil)
     assert(world.text():find("top (automatisch)", 1, true))
@@ -636,7 +653,7 @@ return {
 
   test_a_node_with_a_line_to_carry_over_does_not_restart_on_a_plain_enter = function()
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
-    local result = world.run({ "--role", "signal" }, enters(7))
+    local result = world.run({ "--role", "signal" }, enters(8))
     assert(result.ok and world.rebooted == 0 and not result.rebooted, "Enter answers the restart question with no")
     assert(world.last_page_text():find('"id": "SIG-1"', 1, true), "the line is still on the screen")
     assert(world.last_page_text():find("steht auch in configs/network.json", 1, true))
