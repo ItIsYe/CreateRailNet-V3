@@ -29,7 +29,11 @@ end
 
 -- the entry the wizard would write for this role (plus whatever the role needs), as a short plan on the disk of the computer
 local function plan_file(role, entry)
+  -- computers the entry refers to (a platform names its sensor): `plan_nodes` are added to the short plan and are no part of the entry itself
+  local more = entry.plan_nodes
+  entry.plan_nodes = nil
   local cfg = netplan.short_plan(role, entry, 777, "MASTER-1")
+  for _, extra in ipairs(more or {}) do cfg = netplan.add_node(cfg, extra) end
   cfg.startup_autoupgrade = false
   local path = os.tmpname()
   write_file(path, netplan.encode(cfg))
@@ -226,6 +230,47 @@ return {
     end)
   end,
 
+  -- a freight platform with a chest next to the track: the station measures when the train arrives and when it leaves, and tells the fleet pair the difference
+  test_a_loading_platform_reports_what_left_the_chest_to_the_fleet_and_a_failed_reading_books_nothing = function()
+    local observer = train_observer()
+    observer.name = "Fracht 1"
+    local chest = { stacks = { { name = "minecraft:coal", count = 100 } } }
+    function chest.list() local out = {} for i, st in ipairs(chest.stacks) do out[i] = { name = st.name, count = st.count } end return out end
+    local entry = { id = "ST-1", role = "station", station_type = "freight", create_station_name = "Fracht Nord", plan_nodes = { { id = "SEN-P1", role = "sensor", adapter = "peripheral" } }, cargo_report_to = { "FLEET-A", "FLEET-B" },
+      platforms = { { id = "P1", kind = "freight", sensor_id = "SEN-P1", dwell_seconds = 1, cargo = { inventory = "chest_0", item = "minecraft:coal", kind = "loaded" } } } }
+    with_node("station", entry, {
+      ["SEN-P1"] = { type = "Create_TrainObserver", methods = { "isTrainPassing", "getPassingTrainName" }, object = observer },
+      chest_0 = { type = "minecraft:chest", methods = { "list" }, object = chest } }, function(world)
+      world.advance(1, 3)
+      observer.passing = true
+      world.advance(1, 3)
+      chest.stacks = { { name = "minecraft:coal", count = 40 } }
+      observer.passing = false
+      world.advance(1, 3)
+      local reports = {}
+      for _, t in ipairs(world.modem.transmitted) do
+        local p = t.payload.payload
+        if t.payload.type == "event" and p and p.type == "fleet_event" and p.ev.type == "cargo_measure" then reports[#reports + 1] = { dst = t.payload.dst, ev = p.ev } end
+      end
+      assert(#reports == 2 and reports[1].dst == "FLEET-A" and reports[2].dst == "FLEET-B", #reports)
+      local ev = reports[1].ev
+      assert(ev.qty == 60 and ev.kind == "loaded" and ev.quality == "AUTO_INVENTORY" and ev.station == "ST-1" and ev.platform == "P1" and ev.train_id == "Fracht 1" and ev.ref and not ev.failed, tostring(ev.qty))
+      -- the chest is gone when the next train arrives: a failed reading, no quantity
+      chest.list = function() error("gone") end
+      observer.passing = true
+      world.advance(1, 3)
+      observer.passing = false
+      world.advance(1, 3)
+      local failed, failures = nil, 0
+      for _, t in ipairs(world.modem.transmitted) do
+        local p = t.payload.payload
+        if t.payload.type == "event" and p and p.type == "fleet_event" and p.ev.type == "cargo_measure" and p.ev.failed and t.payload.dst == "FLEET-A" then failed = failed or p.ev; failures = failures + 1 end
+      end
+      assert(failures == 1, "one report of the failure, not a second vaguer one: " .. failures)
+      assert(failed and failed.qty == nil and failed.reason:find("cannot be read", 1, true), failed and tostring(failed.reason))
+    end)
+  end,
+
   test_a_node_sets_the_text_scale_of_its_entry_on_its_monitor = function()
     with_node("depot", { id = "DEPOT-1", role = "depot", display_name = "Depot 1", depot_type = "mixed", monitor_scale = 0.5 }, nil, function(world)
       assert(world.monitor.surface.scale == 0.5, tostring(world.monitor.surface.scale))
@@ -260,6 +305,49 @@ return {
     with_node("panel", { id = "PANEL-1", role = "panel" }, nil, function(world)
       assert_alive(world)
       assert_clean(world)
+    end)
+  end,
+
+  test_a_panel_without_the_level_sends_no_critical_action_and_asks_twice_for_one_it_may_send = function()
+    local entry = { id = "PANEL-1", role = "panel", permission = "operate", pages = { "manual" }, manual_actions = { { label = "Halt", action = "hold_train", train_id = "T1" }, { label = "Freigabe", action = "release_train", train_id = "T1" } } }
+    with_node("panel", entry, nil, function(world)
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      local function touch(row) world.node.handle_event({ "monitor_touch", "monitor_0", 5, row }) end
+      touch(7)
+      assert(#world.sent("manual_control") == 1, "operate may hold a train at once")
+      touch(8); touch(8)
+      assert(#world.sent("manual_control") == 1, "admin action is not sent by an operate panel")
+    end)
+    entry.permission = "admin"
+    with_node("panel", entry, nil, function(world)
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      local function touch(row) world.node.handle_event({ "monitor_touch", "monitor_0", 5, row }) end
+      touch(8)
+      assert(#world.sent("manual_control") == 0, "a critical action waits for the second touch")
+      touch(8)
+      local sent = world.sent("manual_control")
+      assert(#sent == 1 and sent[1].confirm == true and sent[1].action == "release_train", "second touch sends with confirm")
+      touch(8)
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.advance(5); world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.advance(5); world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.advance(5); world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      touch(8)
+      assert(#world.sent("manual_control") == 1, "a second touch after the window starts over and sends nothing")
+    end)
+  end,
+
+  test_a_panel_that_has_not_heard_its_master_sends_no_manual_action = function()
+    local entry = { id = "PANEL-1", role = "panel", pages = { "manual" }, manual_actions = { { label = "Halt", action = "hold_train", train_id = "T1" } } }
+    with_node("panel", entry, nil, function(world)
+      world.node.handle_event({ "monitor_touch", "monitor_0", 5, 7 })
+      assert(#world.sent("manual_control") == 0, "offline: nothing is sent")
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.node.handle_event({ "monitor_touch", "monitor_0", 5, 7 })
+      assert(#world.sent("manual_control") == 1, "online again")
+      world.advance(11)
+      world.node.handle_event({ "monitor_touch", "monitor_0", 5, 7 })
+      assert(#world.sent("manual_control") == 1, "silent master: offline again")
     end)
   end,
 

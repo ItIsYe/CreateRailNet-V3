@@ -2,7 +2,7 @@
 Purpose: The installation journal. While it exists, an installation is unfinished: startup.lua does not start the role but resumes it.
 Public API: new(env) -> journal
   env: fs, safe_write
-  journal.write(state, data) -> true | false, err    state "PREPARED" | "INSTALLING"; data: ref, role, id, files
+  journal.write(state, data) -> true | false, err    state "PREPARED" | "INSTALLING"; data: ref, role, id, files, bundle (the setup bundle is part of it)
   journal.read() -> table | nil
   journal.clear()                                      installation finished (removes the journal and its backup copies)
 Notes: lives next to startup.lua, outside of everything the installer replaces. Written with src/shared/safe_write.lua (backup copy),
@@ -25,6 +25,7 @@ function journal.new(env)
       "  ref = " .. string.format("%q", tostring(d.ref)) .. ",\n",
       "  role = " .. string.format("%q", tostring(d.role)) .. ",\n",
       "  id = " .. string.format("%q", tostring(d.id)) .. ",\n",
+      "  bundle = " .. tostring(d.bundle == true) .. ",\n",
       "  files = {\n",
     }
     for _, path in ipairs(d.files or {}) do lines[#lines + 1] = "    " .. string.format("%q", path) .. ",\n" end

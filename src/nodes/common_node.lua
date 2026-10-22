@@ -9,10 +9,18 @@ local net = require("src.shared.net")
 local log = require("src.shared.log")
 local time = require("src.shared.time")
 local updater = require("src.shared.updater")
+local update_trust = require("src.shared.update_trust")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local log_forwarder = require("src.shared.log_forwarder")
 local setup_status = require("src.shared.setup_status")
+local auth_setup = require("src.shared.auth_setup")
+local journal_module = require("src.shared.journal")
+local storage_budget = require("src.shared.storage_budget")
+local idempotency = require("src.shared.idempotency")
+local fence_module = require("src.shared.fence")
+local ha_module = require("src.shared.ha")
+local ha_topology = require("src.shared.ha_topology")
 
 local common_node = {}
 
@@ -23,6 +31,10 @@ local function read_version()
   end
   return "unknown"
 end
+
+-- commands with an effect in the world that must not happen twice (a retry after a restart of this computer carries the same message id)
+local DURABLE_COMMANDS = { set_schedule = true, depart_authorized = true, dispatch_train = true, apply_schedule = true }
+local LEDGER_PATH = "state/node_commands.log"
 
 local OTA_COMMANDS = { ota_offer = "offer", ota_chunk = "chunk", ota_commit = "commit", ota_abort = "abort", ota_update = "apply" }
 
@@ -38,7 +50,73 @@ function common_node.new(opts)
     heartbeat_ms = opts.heartbeat_ms or 2000
   }
 
-  node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time)
+  -- opts.auth is for tests; otherwise config.auth_mode (off / monitor / enforce) and the key file of this computer decide
+  node.auth = opts.auth or auth_setup.build(node.config, node.id, { logger = node.logger, fs = opts.auth_fs, paths = opts.auth_paths })
+  -- a plan with two masters: the node reports to both (the standby needs liveness and observations to take over) and takes commands only from the newest leadership.
+  -- A node with a short plan learns the masters from its master (pair_state) and remembers them (state/crn_ha.json).
+  if node.config.masters == nil then
+    local known = ha_topology.load(opts.topology_path, { fs = opts.topology_fs })
+    if known and ha_topology.sane(known.masters, known.arbiter, node.config.master_id) then
+      node.config.masters, node.config.arbiter = known.masters, known.arbiter
+    end
+  end
+  local mirrors = {}
+  local function refresh_mirrors()
+    for key in pairs(mirrors) do mirrors[key] = nil end
+    local list = node.config.masters or {}
+    if #list > 1 and node.config.master_id then
+      local others = {}
+      for _, id in ipairs(list) do if id ~= node.config.master_id then others[#others + 1] = id end end
+      mirrors[node.config.master_id] = others
+    end
+  end
+  refresh_mirrors()
+  node.net = net.new(node.modem, node.config.channel, node.id, node.logger, time, { auth = node.auth, mirrors = mirrors })
+  node.fence = fence_module.new({ masters = node.config.masters, required = ha_module.is_ha(node.config), fs = opts.fence_fs, path = opts.fence_path })
+
+  -- the master tells which computers are the masters and the arbiter: remembered, and applied at once
+  function node.apply_topology(masters, arbiter)
+    local ok, why = ha_topology.sane(masters, arbiter, node.config.master_id)
+    if not ok then return false, why end
+    local same = node.config.masters ~= nil and #node.config.masters == #masters and node.config.arbiter == arbiter
+    if same then for i, id in ipairs(masters) do if node.config.masters[i] ~= id then same = false end end end
+    if same then return true end
+    local saved, err = ha_topology.save(masters, arbiter, opts.topology_path, { fs = opts.topology_fs })
+    if not saved then node.logger.warn("high availability: topology not stored", { error = err }) end
+    node.config.masters, node.config.arbiter = masters, arbiter
+    refresh_mirrors()
+    node.fence.set_topology(masters, true)
+    node.logger.info("high availability: masters and arbiter learned from the master", { masters = table.concat(masters, ","), arbiter = arbiter })
+    if node.on_topology then node.on_topology() end
+    return true
+  end
+
+  -- durable exactly-once bookkeeping for the commands above: on in the game (config.durable_commands = false switches it off), off in offline tests unless asked for
+  -- (opts.ledger = false / true, opts.journal_fs for a test filesystem). The journal sits in state/ and compacts itself.
+  do
+    local wanted
+    if opts.ledger ~= nil then wanted = opts.ledger ~= false
+    elseif node.config.durable_commands ~= nil then wanted = node.config.durable_commands == true
+    else wanted = rawget(_G, "_HOST") ~= nil end
+    if wanted then
+      local ledger
+      local commands_journal = journal_module.new(opts.journal_path or LEDGER_PATH, {
+        fs = opts.journal_fs, max_entries = storage_budget.JOURNAL.node.max_entries, max_bytes = storage_budget.JOURNAL.node.max_bytes, max_snapshot_bytes = storage_budget.SNAPSHOT_MAX_BYTES,
+        state_fn = function() return { ledger = ledger and ledger.to_state() or {} } end
+      })
+      ledger = idempotency.new({ journal = commands_journal, ttl_s = 3600, max = 250 })
+      local status, info = commands_journal.open()
+      if status == "corrupt" or status == "failed" then
+        node.logger.error("command journal unusable: critical commands are refused", { status = status, reason = info and info.reason })
+      else
+        local recovered = commands_journal.recovered()
+        if recovered.state and recovered.state.ledger then ledger.load_state(recovered.state.ledger) end
+        ledger.recover(recovered.entries)
+        if status == "tail_repaired" then node.logger.warn("command journal: torn end cut off") end
+      end
+      node.ledger, node.commands_journal = ledger, commands_journal
+    end
+  end
 
   node.ticker = ticker.new({
     clock = opts.clock,
@@ -102,8 +180,21 @@ function common_node.new(opts)
       local sources = { node.config.master_id }
       for _, id in ipairs(node.config.ota_sources or { "OTA-TOOL" }) do sources[#sources + 1] = id end
       local ota = opts.ota or {}
+      -- with a key the node checks the signed package of an offer; the plan can demand one (ota_require_package), enforced authentication does by default
+      local fsys = ota.fs or _G.fs
+      local require_package = node.config.ota_require_package
+      if require_package == nil then require_package = node.auth ~= nil and node.auth.mode == "enforce" end
+      local verify = ota.verify_package
+      if not verify and node.auth and node.auth.keyring then
+        verify = update_trust.verifier({
+          keyring = node.auth.keyring, master_id = node.config.master_id, node_id = node.id, role = node.role, protocol = net.PROTOCOL_REVISION,
+          free_space = fsys and fsys.getFreeSpace and function() return fsys.getFreeSpace("/") end or nil, require = require_package
+        })
+      elseif not verify and require_package then
+        verify = function(package) if package == nil then return false, "no_package", "this computer takes only signed update packages" end return false, "no_key", "this computer has no key" end
+      end
       node_updater = updater.new(node.net, node.id, node.logger, {
-        fs = ota.fs, reboot = ota.reboot, sleep = ota.sleep, sources = sources,
+        fs = ota.fs, reboot = ota.reboot, sleep = ota.sleep, sources = sources, verify_package = verify,
         -- roles put their outputs into a known state before the files are swapped (signals: RED)
         quiesce = function()
           if node.handlers.on_quiesce then return node.handlers.on_quiesce() end
@@ -150,6 +241,7 @@ function common_node.new(opts)
   local function command_allowed(msg, payload)
     if OTA_COMMANDS[payload.cmd] then return true end
     if msg.src == node.config.master_id then return true end
+    for _, id in ipairs(node.config.masters or {}) do if id == msg.src then return true end end
     for _, id in ipairs(node.config.cmd_sources or {}) do if id == msg.src then return true end end
     return false
   end
@@ -173,6 +265,26 @@ function common_node.new(opts)
       return status
     end
 
+    -- the election between the masters and the arbiter (only a role that takes part has node.ha)
+    if payload.cmd == "election" then
+      if node.ha then node.ha.handle(msg) end
+      return status
+    end
+
+    -- fencing: a command of a master carries the epoch of its leadership; a lower epoch than the highest seen comes from a leader that was replaced
+    if not ha_module.EXEMPT_CMDS[payload.cmd] then
+      local is_master = msg.src == node.config.master_id
+      for _, id in ipairs(node.config.masters or {}) do if id == msg.src then is_master = true end end
+      if is_master then
+        local fenced, why = node.fence.check(payload, msg.src)
+        if not fenced then
+          source_log.warn("fence:" .. tostring(msg.src) .. ":" .. tostring(why), "command refused by the epoch check", { src = msg.src, cmd = payload.cmd, reason = why, epoch = payload.election_epoch, highest = node.fence.epoch() })
+          answer(msg, false, "fenced: " .. tostring(why))
+          return status
+        end
+      end
+    end
+
     -- OTA: offer / chunk / commit / abort, or the single-message update of older senders
     local ota_step = OTA_COMMANDS[payload.cmd]
     if ota_step then
@@ -193,6 +305,10 @@ function common_node.new(opts)
     if payload.cmd == "pair_state" then
       remember_outcome(msg, true)
       node.net.ack_for(msg, true)
+      -- the masters and the arbiter, from the master of this computer; believed only when the message is authenticated (or authentication is off)
+      if type(payload.masters) == "table" and (not node.auth or node.auth.mode == "off" or msg.authenticated == true) then
+        node.apply_topology(payload.masters, type(payload.arbiter) == "string" and payload.arbiter or nil)
+      end
       if type(payload.state) == "string" and node.pair.state ~= payload.state then
         node.pair.state = payload.state
         node.logger.info("pairing", { state = payload.state, detail = payload.detail })
@@ -200,10 +316,35 @@ function common_node.new(opts)
       return status
     end
 
+    -- a command that changes the world: a durable record first, the action second, the outcome third
+    local ledger_key
+    if node.ledger and DURABLE_COMMANDS[payload.cmd] then
+      if payload.command_id then
+        ledger_key = "cid:" .. tostring(payload.election_epoch) .. "/" .. tostring(payload.command_id)
+      else
+        ledger_key = tostring(msg.src) .. "/" .. tostring(msg.id)
+      end
+      local state, detail = node.ledger.begin(ledger_key)
+      if state == nil then
+        answer(msg, false, "no durable record, command refused: " .. tostring(detail))
+        return status
+      elseif state == "done" then
+        answer(msg, detail == "ok", detail ~= "ok" and detail or nil)
+        return status
+      elseif state == "uncertain" then
+        source_log.warn("uncertain:" .. ledger_key, "command from before a restart: outcome unknown, not repeated", { cmd = payload.cmd, id = msg.id })
+        answer(msg, false, "uncertain after restart")
+        return status
+      elseif state == "started" then
+        return status
+      end
+    end
+
     local ok, err = true, nil
     if node.handlers.on_cmd then
       ok, err = node.handlers.on_cmd(payload, msg)
     end
+    if ledger_key then node.ledger.finish(ledger_key, ok ~= false and "ok" or tostring(err)) end
 
     remember_outcome(msg, ok, err)
     answer(msg, ok, err)

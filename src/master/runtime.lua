@@ -5,6 +5,9 @@ Public API: new(context) -> runtime with handle_event(event), run(), save_recove
 ]]
 
 local time = require("src.shared.time")
+local permissions = require("src.panel.permissions")
+local op_state = require("src.domain.op_state")
+local safety_graph = require("src.domain.safety_graph")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local status_model = require("src.domain.status_model")
@@ -34,9 +37,16 @@ function master_runtime.new(context)
     audit_log = context.audit_log,
     maintenance = context.maintenance,
     ota = context.ota,
+    update_control = context.update_control,
+    aux = context.aux,
+    replacement = context.replacement,
+    signal_reports = {},
+    fleet_reports = {}, fleet_results = {}, fleet_result_order = {},
     pairing = context.pairing,
     plan_service = context.plan_service,
     restart = context.restart,
+    replica = context.replica, barrier = context.barrier, fleet_bridge = context.fleet_bridge,  -- dual commit with the other master (src/master/replica.lua, barrier.lua)
+    ha = context.ha,          -- election with the other master and the arbiter (src/shared/ha.lua); nil in a plan with one master
     restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
     -- config require_release: until the operator releases the operation no train starts a journey (a restart takes the release back)
     release = { required = type(context.config) == "table" and context.config.require_release == true, released = false },
@@ -51,6 +61,9 @@ function master_runtime.new(context)
     heartbeat_timeout_s = context.heartbeat_timeout_s or (type((context.config or {}).heartbeat_timeout_s) == "number" and context.config.heartbeat_timeout_s > 0 and context.config.heartbeat_timeout_s) or 6,
     sensor_levels = {}  -- sensor_id -> { occupied, at }: what the detector shows right now, from heartbeats and events
   }
+  -- with two masters only the leader of the newest term decides; the other one keeps the registry and the pairing, and does not touch the dispatcher
+  function runtime.signal_report(node_id) return runtime.signal_reports[node_id] end
+  function runtime.active() return runtime.ha == nil or runtime.ha.is_leader() end
   local ui_once = once_log.new(context.logger)
   local signal_once = once_log.new(context.logger)
   local event_once = once_log.new(context.logger)
@@ -100,6 +113,10 @@ function master_runtime.new(context)
     if probe_id == nil and pair_sent[dst] == state then return end
     pair_sent[dst] = state
     local payload = { cmd = "pair_state", state = state, detail = detail, probe_id = probe_id }
+    -- the masters and the arbiter: a computer with a short plan learns them here
+    if type(runtime.config) == "table" and type(runtime.config.masters) == "table" and #runtime.config.masters >= 2 then
+      payload.masters, payload.arbiter = runtime.config.masters, runtime.config.arbiter
+    end
     if probe_id ~= nil and type(echo) == "number" and echo >= 1 and echo <= MAX_ECHO_BYTES then payload.pad = string.rep("x", math.floor(echo)) end
     if network.send_reliable then network.send_reliable("cmd", dst, payload) elseif network.send then network.send("cmd", dst, payload) end
   end
@@ -285,6 +302,56 @@ function master_runtime.new(context)
     local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or (release_locked() and "NICHT_FREIGEGEBEN" or "ONLINE"))
     local built = { cmd = "panel_update", master_state = master_state, overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
     built.diagnostics.recovery = runtime.recovery
+    local locks = runtime.update_control and runtime.update_control.locks() or {}
+    local faulty = {}
+    for _, lock in ipairs(locks) do faulty[#faulty + 1] = lock.node_id end
+    local both_masters -- nil in a plan with one master; with two a leader whose lease holds has the majority
+    if runtime.ha then both_masters = runtime.ha.is_leader() end
+    local commit_clear = true
+    if runtime.dispatcher and runtime.dispatcher.commit_pending and runtime.ha then commit_clear = #runtime.dispatcher.commit_pending() == 0 end
+    built.op_state, built.op_reason = op_state.derive({
+      setup_done = true, recovery = recovery_locked(), maintenance = maintenance_enabled(), local_faults = faulty,
+      both_masters = both_masters, commit_clear = commit_clear
+    })
+    built.op_text = op_state.describe(built.op_state)
+    built.diagnostics.update_locks = locks
+    -- the panel draws the track diagram of the topology the master runs: it announces the version and the panel fetches the plan
+    if not runtime.topology_version and runtime.config and runtime.config.blocks then
+      local built_ok, graph = pcall(safety_graph.build, runtime.config)
+      runtime.topology_version = built_ok and graph.version or false
+    end
+    built.topology_version = runtime.topology_version or nil
+    built.signals = runtime.signal_states and runtime.signal_states() or nil
+    local faults = {}
+    for _, entry in ipairs(runtime.alerts and runtime.alerts.list({ active_only = false, limit = 40 }) or {}) do
+      faults[#faults + 1] = { key = entry.key, severity = entry.severity, text = entry.text, acked = entry.acked, acked_by = entry.acked_by, state = entry.state }
+    end
+    built.faults = faults
+    local node_list = {}
+    for id, node in pairs(runtime.registry and runtime.registry.all and runtime.registry.all() or {}) do node_list[id] = { role = node.role, status = node.status } end
+    built.nodes = node_list
+    -- the fleet pairs as they last reported: a report older than 20 s is told so (the panel labels stale data)
+    local fleet = { lines = {}, trips = {}, pairs = {}, results = runtime.fleet_results }
+    local cargo = {}
+    for pair_id, entry in pairs(runtime.fleet_reports) do
+      fleet.pairs[pair_id] = { healthy = entry.healthy, age_s = time.now_s() - entry.at, node = entry.node }
+      for id, line in pairs(entry.report.lines or {}) do line.pair_id = pair_id; fleet.lines[id] = line end
+      for id, trip in pairs(entry.report.trips or {}) do trip.pair_id = pair_id; fleet.trips[id] = trip end
+      for id, order in pairs(entry.report.cargo or {}) do cargo[id] = order end
+      fleet.train_pair = fleet.train_pair or {}
+      for _, train_id in ipairs(entry.report.trains or {}) do fleet.train_pair[train_id] = pair_id end
+      fleet.depots = fleet.depots or {}
+      for _, depot_id in ipairs(entry.report.depots or {}) do fleet.depots[depot_id] = pair_id end
+    end
+    built.fleet, built.cargo = fleet, cargo
+    if runtime.replacement then
+      local list = {}
+      for _, node in ipairs((runtime.config or {}).nodes or {}) do
+        local state = runtime.replacement.wizard.state_of(node.id)
+        if state then list[node.id] = state end
+      end
+      built.replacements = list
+    end
     built.diagnostics.loop = runtime.ticker.stats()
     return built
   end
@@ -344,6 +411,20 @@ function master_runtime.new(context)
     if announced_role == "sensor" and type(msg.payload) == "table" and type(msg.payload.occupied) == "boolean" then
       runtime.sensor_levels[msg.src] = { occupied = msg.payload.occupied, at = time.now_s() }
     end
+    -- a multi-signal node tells which of its signals it can use: one that is missing, of another type or unknown to the master takes its blocks out of service
+    if announced_role == "signal" and type(msg.payload) == "table" and type(msg.payload.signals) == "table" then
+      local report = {}
+      for signal_id, state in pairs(msg.payload.signals) do if type(signal_id) == "string" then report[signal_id] = tostring(state) end end
+      runtime.signal_reports[msg.src] = { signals = report, at = time.now_s() }
+    end
+    if announced_role == "signal" and type(msg.payload) == "table" and type(msg.payload.signals) == "table" and runtime.dispatcher.signal_failed and runtime.active() then
+      for signal_id, state in pairs(msg.payload.signals) do
+        if state ~= "OK" and type(signal_id) == "string" then
+          local changed = runtime.dispatcher.signal_failed(signal_id, "node " .. tostring(msg.src) .. " reports " .. tostring(state))
+          if #changed > 0 then audit("signal_unusable", { node_id = msg.src, signal_id = signal_id, state = state, blocks = changed }); runtime.ui.mark_dirty() end
+        end
+      end
+    end
     if not known and announced_role and runtime.registry.register then
       -- after a master restart the nodes keep heartbeating but never register again: adopt them
       runtime.registry.register(msg.src, announced_role, nil)
@@ -394,6 +475,8 @@ function master_runtime.new(context)
     if not runtime.station_registry then runtime.network.ack_for(msg, true); return end
     local payload = msg.payload or {}; local station_id = payload.station_id or msg.src
     audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
+    -- the fleet is told which train stands in which station (the train it waits for)
+    if runtime.fleet_bridge and runtime.active() and (payload.type == "train_arrived_station" or payload.type == "train_left_station") then runtime.fleet_bridge.on_station_event(payload, station_id) end
     if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "station_ready_departure" then return reject_recovery(msg, payload.type) end
     if release_locked() and payload.type == "station_ready_departure" then return reject_release(msg, payload.type) end
@@ -426,6 +509,15 @@ function master_runtime.new(context)
   local function handle_panel_event(msg)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg, true)
     elseif msg.payload and msg.payload.type == "manual_control" then
+      -- the decisive permission check is here, at the receiver: what the panel hides from its screen protects nothing (Kap. 11.4)
+      local allowed, why = permissions.check(runtime.config, msg.src, msg.payload.action, msg.payload)
+      if not allowed then
+        audit("panel_denied", { src = msg.src, action = msg.payload.action, reason = why })
+        if runtime.logger then runtime.logger.warn("manual control denied", { src = msg.src, action = msg.payload.action, reason = why }) end
+        if runtime.alerts then runtime.alerts.raise("panel_denied:" .. tostring(msg.src), "YELLOW", "Bedienung abgelehnt: " .. tostring(why), nil, { ttl_s = 120 }) end
+        runtime.network.ack_for(msg, true)
+        return true
+      end
       if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg, true); return true end
       if msg.payload.action == "release_operation" then runtime.release_operation(msg.src); runtime.network.ack_for(msg, true); return true end
       local ok, err = false, "manual control unavailable"
@@ -466,6 +558,11 @@ function master_runtime.new(context)
     runtime.ui.mark_dirty()
   end
 
+  local function handle_fleet_event(msg)
+    if runtime.fleet_bridge then runtime.fleet_bridge.handle(msg); runtime.ui.mark_dirty() end
+    runtime.network.ack_for(msg, true)
+  end
+
   -- Explicit event type routing table — no fragile prefix matching
   local event_routes = {
     sensor                   = handle_sensor_event,
@@ -493,6 +590,30 @@ function master_runtime.new(context)
     -- panel events
     panel_request_snapshot   = handle_panel_event,
     manual_control           = handle_panel_event,
+    -- the fleet pair asks for routes and is told what became of them (src/master/fleet_bridge.lua)
+    -- what the fleet pairs report for the panels (lines, trips, cargo) and the answers to the operator commands that were forwarded to them
+    fleet_status             = function(msg)
+      local payload = msg.payload or {}
+      if type(payload.pair_id) == "string" and type(payload.report) == "table" then
+        runtime.fleet_reports[payload.pair_id] = { report = payload.report, healthy = payload.healthy == true, at = time.now_s(), node = msg.src }
+      end
+      runtime.network.ack_for(msg, true)
+    end,
+    fleet_admin_result       = function(msg)
+      local payload = msg.payload or {}
+      if type(payload.request_id) == "string" then
+        runtime.fleet_results[payload.request_id] = { ok = payload.ok == true, reason = payload.reason, problems = payload.problems, version = payload.version, line_id = payload.line_id, conflict = payload.conflict == true, pair_id = payload.pair_id, at = time.now_s() }
+        runtime.fleet_result_order[#runtime.fleet_result_order + 1] = payload.request_id
+        while #runtime.fleet_result_order > 12 do runtime.fleet_results[table.remove(runtime.fleet_result_order, 1)] = nil end
+        audit("fleet_admin_result", { request_id = payload.request_id, pair_id = payload.pair_id, ok = payload.ok == true, reason = payload.reason })
+      end
+      runtime.network.ack_for(msg, true)
+    end,
+    fleet_route              = handle_fleet_event,
+    fleet_release            = handle_fleet_event,
+    fleet_hold               = handle_fleet_event,
+    fleet_reconstruct        = handle_fleet_event,
+    fleet_complete           = handle_fleet_event,
     -- OTA update results
     ota_result               = handle_ota_result,
     ota_need                 = handle_ota_need,
@@ -514,7 +635,7 @@ function master_runtime.new(context)
       if not runtime.plan_service then reply = { ok = false, state = "refused", reason = "unavailable" }
       elseif not role then reply = { ok = false, state = "refused", reason = "not_in_plan" }
       elseif payload.role ~= nil and payload.role ~= role then reply = { ok = false, state = "refused", reason = "conflict" }
-      elseif role ~= "station" and role ~= "depot" then reply = { ok = false, state = "refused", reason = "role" }
+      elseif role ~= "station" and role ~= "depot" and role ~= "panel" then reply = { ok = false, state = "refused", reason = "role" }
       else
         reply = runtime.plan_service.part(payload.index, payload.version)
         if reply.ok and reply.index == 1 then audit("plan_served", { node_id = msg.src, version = reply.version, parts = reply.total }) end
@@ -544,6 +665,7 @@ function master_runtime.new(context)
     depot_status = "depot", depot_track_status = "depot", depot_train_ready = "depot", depot_request_dispatch = "depot",
     depot_train_arrived = "depot", depot_train_left = "depot", depot_fault = "depot",
     panel_request_snapshot = "panel", manual_control = "panel",
+    fleet_route = "fleet", fleet_release = "fleet", fleet_hold = "fleet", fleet_reconstruct = "fleet", fleet_complete = "fleet",
   }
 
   -- returns nil when the sender may send this event, else the reason and whether the sender is a computer of the plan at all
@@ -564,8 +686,21 @@ function master_runtime.new(context)
     return nil
   end
 
+  -- observations and requests that the dispatcher would act on: the standby master takes them in (acknowledges them) and leaves the decision to the leader
+  local STANDBY_EVENTS = {
+    sensor = true, train_status = true, request_departure = true, arrived = true, schedule_applied = true, train_fault = true,
+    station_status = true, station_ready_departure = true, station_fault = true, platform_status = true, train_arrived_station = true, train_left_station = true,
+    depot_status = true, depot_track_status = true, depot_train_ready = true, depot_request_dispatch = true, depot_train_arrived = true, depot_train_left = true, depot_fault = true,
+    manual_control = true,
+    fleet_route = true, fleet_release = true, fleet_hold = true, fleet_reconstruct = true, fleet_complete = true,
+  }
+
   handlers.event = function(msg)
     local ptype = msg.payload and tostring(msg.payload.type) or ""
+    if runtime.ha and STANDBY_EVENTS[ptype] and not runtime.active() then
+      runtime.network.ack_for(msg, true)
+      return true
+    end
     local problem, in_plan = event_sender_problem(msg, ptype)
     if problem then
       if in_plan then
@@ -592,7 +727,12 @@ function master_runtime.new(context)
     return true
   end
 
-  handlers.cmd = function() runtime.ui.mark_dirty(); return true end
+  handlers.cmd = function(msg)
+    if runtime.ha and runtime.ha.handle(msg) then return true end
+    if runtime.replica and runtime.replica.handle(msg) then return true end
+    runtime.ui.mark_dirty()
+    return true
+  end
   handlers.ack = function() runtime.ui.mark_dirty(); return true end
   handlers.err = function(msg) audit("node_error", { src = msg.src, payload = msg.payload }); if runtime.logger then runtime.logger.warn("node error", msg.payload or {}) end; runtime.ui.mark_dirty(); return true end
 
@@ -605,8 +745,10 @@ function master_runtime.new(context)
       -- once per outage: a node that is down already was dealt with (timeout_node, audit, state save)
       if not updating and tostring(node_state.status):upper() ~= "DOWN" and now - node_state.last_seen > runtime.heartbeat_timeout_s then
         runtime.registry.mark_down(node_id)
-        local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
-        if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
+        if runtime.active() then
+          local ok, err = pcall(runtime.dispatcher.timeout_node, node_id)
+          if not ok and runtime.logger then runtime.logger.warn("timeout_node error", { node_id = node_id, error = tostring(err) }) end
+        end
         audit("node_timeout", { node_id = node_id, role = node_state.role })
         if runtime.train_registry and node_state.role == "train" then runtime.train_registry.mark_offline(node_id) end
         if runtime.station_registry and node_state.role == "station" then runtime.station_registry.mark_offline(node_id) end
@@ -628,7 +770,7 @@ function master_runtime.new(context)
       runtime.logger.warn("state restore error on start", { error = tostring(restore_err) })
     end
     -- whatever the signals showed before the master came up: RED everywhere, GREEN for the trains that wait
-    if runtime.dispatcher.refresh_signals and (runtime.config or {}).signal_refresh_per_s ~= 0 then
+    if runtime.dispatcher.refresh_signals and (runtime.config or {}).signal_refresh_per_s ~= 0 and runtime.active() then
       local ok_refresh, refreshed = pcall(runtime.dispatcher.refresh_signals)
       if ok_refresh then note_signal_result(refreshed, "start") elseif runtime.logger then runtime.logger.warn("signal refresh error on start", { error = tostring(refreshed) }) end
     end
@@ -639,7 +781,56 @@ function master_runtime.new(context)
   end
 
   runtime.check_timeouts = check_timeouts
+  -- the election: twice a second; a change of leadership is written to the audit log and raises an alert for the operator
+  if runtime.ha then
+    local was_active = false
+    local function raise(key, text) if runtime.alerts then runtime.alerts.raise(key, "YELLOW", text, nil, { ttl_s = 300 }) end end
+    -- noticed by whichever comes first: the election job, or the end of a message step (a vote can make this master the leader in the middle of a message);
+    -- the state it starts from is taken before anything of its own is written
+    function runtime.check_leadership()
+      local active = runtime.ha.is_leader()
+      if active == was_active then return end
+      was_active = active
+      audit(active and "leader_gained" or "leader_lost", { term = runtime.ha.term() })
+      if active then
+        raise("ha:leader", "Dieser Master fuehrt jetzt (Periode " .. tostring(runtime.ha.term()) .. ")")
+        -- the state that both masters confirmed is the state this leader starts from; what was only prepared is cut (replica.promote)
+        if runtime.replica then
+          local state = runtime.replica.promote()
+          if type(state) == "table" and next(state) ~= nil and runtime.dispatcher.restore then
+            local restored, restore_err = runtime.dispatcher.restore(state)
+            audit("failover_restored", { ok = restored == true, error = restore_err, committed_idx = runtime.replica.committed_idx() })
+            if restored then
+              -- trains and blocks as the dead master left them: the operator confirms what the track shows before new routes are given
+              runtime.recovery.restored, runtime.recovery.required, runtime.recovery.confirmed = true, true, false
+              if runtime.dispatcher.refresh_signals then pcall(runtime.dispatcher.refresh_signals) end
+            end
+          end
+        end
+      else
+        raise("ha:leader", "Dieser Master fuehrt nicht (mehr)")
+        if runtime.replica then runtime.replica.demote() end
+        if runtime.barrier then runtime.barrier.discard("leadership lost") end
+      end
+      runtime.ui.mark_dirty()
+    end
+    runtime.ticker.every("election", 0.5, function()
+      runtime.ha.tick()
+      runtime.check_leadership()
+      if runtime.replica and runtime.ha.is_leader() then
+        if runtime.replica.peer_ok() then
+          if runtime.alerts and runtime.alerts.clear then runtime.alerts.clear("ha:partner") end
+        else
+          raise("ha:partner", "Zweiter Master antwortet nicht: keine neuen Freigaben")
+        end
+      end
+    end)
+    if runtime.replica then runtime.ticker.every("replica", 0.5, function() runtime.replica.tick() end) end
+  end
+
   runtime.ticker.every("timeouts", 1, function() runtime.check_timeouts() end)
+  -- keys issued or revoked with scripts/keys.lua count within seconds (the list of keys is read again when it changed)
+  if runtime.network.auth and runtime.network.auth.reload_trust then runtime.ticker.every("trust", 5, function() runtime.network.auth.reload_trust() end) end
 
   -- Blocks that faulted because a node went silent are cleared again once the node is back and the detectors show the
   -- track free (config auto_clear_faults = false switches this off). See Dispatcher.auto_clear_faults for the rules.
@@ -667,7 +858,30 @@ function master_runtime.new(context)
     end
     return cleared
   end
-  runtime.ticker.every("auto_clear", 2, function() runtime.auto_clear_faults() end)
+  runtime.ticker.every("auto_clear", 2, function() if runtime.active() then runtime.auto_clear_faults() end end)
+
+  -- Blocks nobody holds are proven free by fresh detector levels (every sensor of the block says free); with config.occupancy_proof = "on" a route is only given over such blocks.
+  function runtime.prove_free_blocks()
+    if not runtime.dispatcher.prove_free_from_sensors or maintenance_enabled() or recovery_locked() then return {} end
+    local cfg = runtime.config or {}
+    local proven = runtime.dispatcher.prove_free_from_sensors({
+      now = time.now_s(), max_age_s = cfg.auto_clear_max_age_s,
+      sensor_level = function(sensor_id)
+        local level = runtime.sensor_levels[sensor_id]
+        if not level then return nil, nil end
+        return level.occupied, level.at
+      end
+    })
+    if #proven > 0 then
+      if runtime.route_integration then runtime.route_integration.process_queue() end
+      runtime.ui.mark_dirty()
+    end
+    return proven
+  end
+  -- the fleet pair hears what became of its routes and which blocks can be reserved
+  runtime.ticker.every("fleet_bridge", 1, function() if runtime.fleet_bridge and runtime.active() then runtime.fleet_bridge.poll() end end)
+  runtime.ticker.every("fleet_blocks", 2, function() if runtime.fleet_bridge and runtime.active() then runtime.fleet_bridge.report_blocks() end end)
+  runtime.ticker.every("prove_free", 2, function() if runtime.active() then runtime.prove_free_blocks() end end)
 
   -- Rolling signal refresh: a few blocks per second, so a signal that lost its state (node reboot, chunk reload, lost
   -- command) is corrected within one round. config signal_refresh_per_s = 0 turns it off.
@@ -679,10 +893,10 @@ function master_runtime.new(context)
     note_signal_result(result, "refresh")
     return result
   end
-  runtime.ticker.every("signals", 1, function() runtime.refresh_signals() end)
+  runtime.ticker.every("signals", 1, function() if runtime.active() then runtime.refresh_signals() end end)
 
   runtime.ticker.every("dwell", 1, function()
-    if runtime.route_integration and not maintenance_enabled() and not recovery_locked() and not release_locked() then
+    if runtime.route_integration and runtime.active() and not maintenance_enabled() and not recovery_locked() and not release_locked() then
       runtime.route_integration.process_due()
       save_after("dwell")
     end
@@ -690,6 +904,9 @@ function master_runtime.new(context)
   end)
 
   if runtime.ota and runtime.ota.tick then runtime.ticker.every("ota", 1, runtime.ota.tick) end
+
+  -- Master-AUX: a reduced error view on a monitor of its own, drawn under pcall so that nothing in it can stop the master
+  if runtime.aux then runtime.ticker.every("aux", 2, function() pcall(runtime.aux.draw) end) end
 
   -- the list of alerts follows the state of the network; one pass over nodes and blocks every 2 s
   if runtime.alerts then
@@ -745,6 +962,26 @@ function master_runtime.new(context)
     -- after the message: a queued heartbeat must be counted before the timeout job looks at last_seen
     runtime.ticker.handle_event(event)
     runtime.network.tick()
+    runtime.sync_step()
+  end
+
+  -- dual commit: what this step changed in the state is written, sent to the other master and, once it confirmed, the actuations that depend on it are carried out
+  function runtime.sync_step()
+    if not runtime.replica or not runtime.barrier then return end
+    if runtime.check_leadership then runtime.check_leadership() end
+    if runtime.ha and runtime.ha.is_leader() then
+      local idx = runtime.replica.capture()
+      -- the reservations of this change are PREPARED when the standby holds them and COMMITTED when both have committed; only then the dispatcher gives a signal for them
+      if idx and runtime.dispatcher.tag_commit then
+        runtime.dispatcher.tag_commit(idx)
+        runtime.dispatcher.advance_commits(runtime.replica.prepared_idx(), runtime.replica.committed_idx())
+      end
+      -- a change that could not be written is never confirmed: whatever it produced waits (and is dropped when the leadership goes)
+      runtime.barrier.tag(idx or math.huge)
+      runtime.barrier.release(function(need) return runtime.replica.confirmed(need) end)
+    else
+      runtime.barrier.discard("not the leader")
+    end
   end
 
   function runtime.run() runtime.start(); while true do runtime.handle_event({ runtime.pull_event() }) end end

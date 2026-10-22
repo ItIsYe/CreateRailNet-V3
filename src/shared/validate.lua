@@ -5,7 +5,7 @@ Public API: validate_config(cfg) -> ok, errors.
 
 local validate = {}
 
-local roles = { master = true, signal = true, sensor = true, switch = true, station = true, depot = true, panel = true, train = true }
+local roles = { master = true, signal = true, sensor = true, switch = true, station = true, depot = true, panel = true, train = true, arbiter = true, fleet = true }
 local station_types = { passenger = true, freight = true, mixed = true }
 local depot_types = { storage = true, staging = true, mixed = true }
 local route_kinds = { passenger = true, freight = true, mixed = true, depot = true }
@@ -42,14 +42,30 @@ local function validate_inner(cfg, errors)
     local value = cfg[key]
     if value ~= nil and (type(value) ~= "number" or value < 0) then add(errors, key, "must be a number >= 0") end
   end
-  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward", "require_release" }) do
+  for _, key in ipairs({ "auto_clear_faults", "signal_red_on_stop", "startup_autoupgrade", "log_forward", "require_release", "durable_commands" }) do
     if cfg[key] ~= nil and type(cfg[key]) ~= "boolean" then add(errors, key, "must be true or false") end
+  end
+
+  -- authentication of the messages (docs/KEYS.md): off | monitor | enforce, and the ids of the master computers
+  if cfg.auth_mode ~= nil and cfg.auth_mode ~= "off" and cfg.auth_mode ~= "monitor" and cfg.auth_mode ~= "enforce" then add(errors, "auth_mode", "must be \"off\", \"monitor\" or \"enforce\"") end
+  if cfg.masters ~= nil then
+    if type(cfg.masters) ~= "table" then
+      add(errors, "masters", "must be an array of node ids")
+    else
+      local seen_masters = {}
+      for i, id in ipairs(cfg.masters) do
+        if not nonempty(id) then add(errors, "masters[" .. i .. "]", "must be non-empty string")
+        elseif seen_masters[id] then add(errors, "masters[" .. i .. "]", "master id listed twice")
+        else seen_masters[id] = true end
+      end
+    end
   end
 
   local node_ids, block_ids, route_ids, node_roles = {}, {}, {}, {}
   local train_ids, service_plan_ids = {}, {}
   local station_ids, depot_ids = {}, {}
   local signal_ids, sensor_ids, switch_ids = {}, {}, {}
+  local hosted_signal_owner = {}
 
   for i, node in ipairs(cfg.nodes or {}) do
     local path = "nodes[" .. i .. "]"
@@ -60,6 +76,20 @@ local function validate_inner(cfg, errors)
     if node.monitor ~= nil and not nonempty(node.monitor) then add(errors, path .. ".monitor", "must be non-empty string") end
     if node.monitor_scale ~= nil and not valid_text_scale(node.monitor_scale) then add(errors, path .. ".monitor_scale", "must be a number from 0.5 to 5 in steps of 0.5") end
 
+    -- several signals on one computer: the logical signal ids it hosts
+    if node.signals ~= nil then
+      if node.role ~= "signal" then
+        add(errors, path .. ".signals", "only a signal node hosts signals")
+      elseif type(node.signals) ~= "table" or #node.signals == 0 then
+        add(errors, path .. ".signals", "must be a non-empty list of signal ids")
+      else
+        for j, signal_id in ipairs(node.signals) do
+          if not nonempty(signal_id) then add(errors, path .. ".signals[" .. j .. "]", "must be non-empty string")
+          elseif hosted_signal_owner[signal_id] then add(errors, path .. ".signals[" .. j .. "]", "signal " .. signal_id .. " is already hosted by " .. hosted_signal_owner[signal_id])
+          else hosted_signal_owner[signal_id] = node.id end
+        end
+      end
+    end
     if node.role == "train" then
       local train_id = node_train_id(node)
       mark_unique(errors, train_ids, train_id, path .. ".train_id", "train_id")
@@ -76,6 +106,20 @@ local function validate_inner(cfg, errors)
         mark_unique(errors, platform_ids, platform_id, ppath .. ".id", "platform id")
         local kind = platform.kind or platform.type or station_type
         if not station_types[kind] then add(errors, ppath .. ".kind", "must be passenger, freight, or mixed") end
+        -- a loading point: the inventory next to the track and whether the train is loaded or unloaded here (src/domain/cargo_meter.lua)
+        if platform.cargo ~= nil then
+          local cargo = platform.cargo
+          if type(cargo) ~= "table" then add(errors, ppath .. ".cargo", "must be a table { inventory, item, kind }")
+          else
+            if not nonempty(cargo.inventory) then add(errors, ppath .. ".cargo.inventory", "needs the name of the inventory peripheral") end
+            if cargo.item ~= nil and not nonempty(cargo.item) then add(errors, ppath .. ".cargo.item", "must be a non-empty item name") end
+            if cargo.kind ~= "loaded" and cargo.kind ~= "unloaded" then add(errors, ppath .. ".cargo.kind", "must be loaded or unloaded") end
+          end
+        end
+      end
+      if node.cargo_report_to ~= nil then
+        if type(node.cargo_report_to) ~= "table" then add(errors, path .. ".cargo_report_to", "must be a list of fleet node ids")
+        else for j, target in ipairs(node.cargo_report_to) do if not nonempty(target) then add(errors, path .. ".cargo_report_to[" .. j .. "]", "must be a fleet node id") end end end
       end
     elseif node.role == "depot" then
       local depot_id = node_depot_id(node)
@@ -91,8 +135,11 @@ local function validate_inner(cfg, errors)
         if not depot_types[kind] then add(errors, tpath .. ".kind", "must be storage, staging, or mixed") end
       end
     elseif node.role == "panel" then
+      if node.permission ~= nil and node.permission ~= "view" and node.permission ~= "operate" and node.permission ~= "admin" then add(errors, path .. ".permission", "must be view, operate or admin") end
       for j, page in ipairs(node.pages or {}) do if not nonempty(page) then add(errors, path .. ".pages[" .. j .. "]", "must be non-empty string") end end
-    elseif node.role == "signal" then signal_ids[node.id] = true
+    elseif node.role == "signal" then
+      signal_ids[node.id] = true
+      if type(node.signals) == "table" then for _, hosted_id in ipairs(node.signals) do if type(hosted_id) == "string" then signal_ids[hosted_id] = true end end end
     elseif node.role == "sensor" then sensor_ids[node.id] = true
     elseif node.role == "switch" then
       switch_ids[node.id] = true
@@ -105,6 +152,132 @@ local function validate_inner(cfg, errors)
   end
 
   if cfg.master_id and node_roles[cfg.master_id] ~= "master" then add(errors, "master_id", "must reference node with role master") end
+
+  -- two masters and an arbiter (docs/HA.md): the masters are nodes of the plan, the arbiter is one more node, and master_id is the one that is preferred
+  for _, key in ipairs({ "election_lease_ms", "election_beat_ms" }) do
+    if cfg[key] ~= nil and (type(cfg[key]) ~= "number" or cfg[key] <= 0) then add(errors, key, "must be a number > 0") end
+  end
+  if cfg.election_state_file ~= nil and not nonempty(cfg.election_state_file) then add(errors, "election_state_file", "must be non-empty string") end
+  -- the fleet: pairs of fleet nodes, train profiles, lines, platforms (docs/FLEET.md)
+  if cfg.fleet ~= nil then
+    if type(cfg.fleet) ~= "table" then
+      add(errors, "fleet", "must be a table")
+    else
+      local fleet_nodes = {}
+      for _, node in ipairs(cfg.nodes or {}) do if node.role == "fleet" then fleet_nodes[#fleet_nodes + 1] = node.id end end
+      local _, pair_problems = require("src.fleet.pairs").new({ nodes = fleet_nodes, pairs = cfg.fleet.pairs or {} })
+      for _, text in ipairs(pair_problems) do add(errors, "fleet.pairs", text) end
+      local profiles = require("src.fleet.profile").new({})
+      local known_trains = {}
+      for i, spec in ipairs(cfg.fleet.train_profiles or {}) do
+        local ok, err = profiles.register(spec, { operator = "plan", confirmed = true })
+        if not ok then add(errors, "fleet.train_profiles[" .. i .. "]", tostring(err)) else known_trains[spec.immutable_id] = true end
+      end
+      for i, pair in ipairs(cfg.fleet.pairs or {}) do
+        for _, train_id in ipairs(pair.trains or {}) do
+          if not known_trains[train_id] then add(errors, "fleet.pairs[" .. i .. "].trains", "train " .. tostring(train_id) .. " has no profile in fleet.train_profiles") end
+        end
+      end
+      local timetable = require("src.fleet.timetable")
+      local line_ids = {}
+      for i, line in ipairs(cfg.fleet.lines or {}) do
+        for _, text in ipairs(timetable.validate(line)) do add(errors, "fleet.lines[" .. i .. "]", text) end
+        if type(line) == "table" and line.id then
+          if line_ids[line.id] then add(errors, "fleet.lines[" .. i .. "].id", "line " .. tostring(line.id) .. " is defined twice") end
+          line_ids[line.id] = true
+        end
+      end
+      local station_nodes = {}
+      for _, node in ipairs(cfg.nodes or {}) do if node.role == "station" then station_nodes[node.id] = true end end
+      for station, node_id in pairs(cfg.fleet.stations or {}) do
+        if not station_nodes[node_id] then add(errors, "fleet.stations." .. tostring(station), "must reference a node with role station") end
+      end
+      -- the depots a train may be sent to: tracks with their block, and the route from each station that serves them
+      local depot_nodes = {}
+      for _, node in ipairs(cfg.nodes or {}) do if node.role == "depot" then depot_nodes[node.depot_id or node.id] = true end end
+      for depot, def in pairs(cfg.fleet.depots or {}) do
+        local dpath = "fleet.depots." .. tostring(depot)
+        if not depot_nodes[depot] then add(errors, dpath, "must be the id of a node with role depot") end
+        local seen = {}
+        for j, track in ipairs((type(def) == "table" and (def.tracks or def)) or {}) do
+          local tpath = dpath .. ".tracks[" .. j .. "]"
+          if not nonempty(track.id) then add(errors, tpath .. ".id", "must be non-empty string") elseif seen[track.id] then add(errors, tpath .. ".id", "track " .. track.id .. " is defined twice") else seen[track.id] = true end
+          if not nonempty(track.block) then add(errors, tpath .. ".block", "needs the id of its block") end
+          if track.routes ~= nil and type(track.routes) ~= "table" then add(errors, tpath .. ".routes", "must map a station to the route that leads to the track") end
+        end
+      end
+      for station, list in pairs(cfg.fleet.platforms or {}) do
+        local seen = {}
+        for j, platform in ipairs(list) do
+          local path = "fleet.platforms." .. tostring(station) .. "[" .. j .. "]"
+          if not nonempty(platform.id) then add(errors, path .. ".id", "must be non-empty string") elseif seen[platform.id] then add(errors, path .. ".id", "platform " .. platform.id .. " is defined twice") else seen[platform.id] = true end
+          if not nonempty(platform.block) then add(errors, path .. ".block", "needs the id of its block") end
+        end
+      end
+    end
+  end
+  -- how the signals are commanded (docs/SIGNAL_NODES.md)
+  if cfg.signal_transport ~= nil and cfg.signal_transport ~= "local" and cfg.signal_transport ~= "network" then add(errors, "signal_transport", "must be \"local\" or \"network\"") end
+  if cfg.signal_transport == "network" then
+    local hosted = {}
+    for _, node in ipairs(cfg.nodes or {}) do
+      if node.role == "signal" then
+        if type(node.signals) == "table" and #node.signals > 0 then for _, id in ipairs(node.signals) do hosted[id] = true end else hosted[node.id] = true end
+      end
+    end
+    for i, block in ipairs(cfg.blocks or {}) do
+      for _, key in ipairs({ "entry_signal", "exit_signal" }) do
+        if block[key] ~= nil and not hosted[block[key]] then add(errors, "blocks[" .. i .. "]." .. key, "signal " .. tostring(block[key]) .. " is hosted by no signal node (signal_transport = network)") end
+      end
+    end
+  end
+  -- proof of occupancy and safe stops (docs/PROOF.md)
+  if cfg.occupancy_proof ~= nil and cfg.occupancy_proof ~= "on" and cfg.occupancy_proof ~= "off" then add(errors, "occupancy_proof", "must be \"on\" or \"off\"") end
+  if cfg.safe_stops ~= nil then
+    if type(cfg.safe_stops) ~= "table" then
+      add(errors, "safe_stops", "must be a list")
+    else
+      local known = {}
+      for _, block in ipairs(cfg.blocks or {}) do known[block.id] = true end
+      for i, stop in ipairs(cfg.safe_stops) do
+        local path = "safe_stops[" .. i .. "]"
+        if type(stop) ~= "table" or not nonempty(stop.block) then add(errors, path, "needs a block id")
+        elseif not known[stop.block] then add(errors, path .. ".block", "unknown block " .. tostring(stop.block)) end
+        if type(stop) == "table" then
+          if stop.length ~= nil and (type(stop.length) ~= "number" or stop.length <= 0) then add(errors, path .. ".length", "must be a number > 0") end
+          if stop.proven ~= nil and type(stop.proven) ~= "boolean" then add(errors, path .. ".proven", "must be true or false") end
+        end
+      end
+    end
+  end
+  if cfg.occupancy_proof == "on" then
+    local graph = require("src.domain.safety_graph").build(cfg)
+    for _, problem in ipairs(graph.problems) do
+      if problem.severity == "error" then add(errors, "safety_graph." .. tostring(problem.code), problem.text) end
+    end
+  end
+  if cfg.master_journal_file ~= nil and not nonempty(cfg.master_journal_file) then add(errors, "master_journal_file", "must be non-empty string") end
+  if cfg.ota_require_package ~= nil and type(cfg.ota_require_package) ~= "boolean" then add(errors, "ota_require_package", "must be true or false") end
+  if cfg.aux_monitor ~= nil and not nonempty(cfg.aux_monitor) then add(errors, "aux_monitor", "must be the name of a monitor peripheral") end
+  if cfg.aux_monitor_scale ~= nil and (type(cfg.aux_monitor_scale) ~= "number" or cfg.aux_monitor_scale < 0.5 or cfg.aux_monitor_scale > 5 or (cfg.aux_monitor_scale * 2) % 1 ~= 0) then add(errors, "aux_monitor_scale", "must be 0.5 to 5 in steps of 0.5") end
+  if cfg.maintenance_file ~= nil and not nonempty(cfg.maintenance_file) then add(errors, "maintenance_file", "must be non-empty string") end
+  if cfg.update_plan_file ~= nil and not nonempty(cfg.update_plan_file) then add(errors, "update_plan_file", "must be non-empty string") end
+  if cfg.arbiter ~= nil and not nonempty(cfg.arbiter) then add(errors, "arbiter", "must be non-empty string") end
+  if type(cfg.masters) == "table" and #cfg.masters >= 1 then
+    if #cfg.masters ~= 2 then add(errors, "masters", "must list exactly two masters (or be left out for a plan with one)") end
+    local listed_primary = false
+    for i, id in ipairs(cfg.masters) do
+      if nonempty(id) then
+        if node_roles[id] ~= "master" then add(errors, "masters[" .. i .. "]", "must reference node with role master") end
+        if id == cfg.master_id then listed_primary = true end
+      end
+    end
+    if cfg.master_id and not listed_primary then add(errors, "masters", "must contain master_id") end
+    if not nonempty(cfg.arbiter) then add(errors, "arbiter", "two masters need an arbiter: the id of a node with role arbiter")
+    elseif node_roles[cfg.arbiter] ~= "arbiter" then add(errors, "arbiter", "must reference node with role arbiter") end
+  elseif cfg.arbiter ~= nil then
+    add(errors, "arbiter", "an arbiter only makes sense with two masters (masters)")
+  end
 
   for i, block in ipairs(cfg.blocks or {}) do
     local path = "blocks[" .. i .. "]"

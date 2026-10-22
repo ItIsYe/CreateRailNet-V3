@@ -13,19 +13,21 @@ Public API:
   status(report, opts) -> status for src/shared/setup_status.lua      opts: version, now
 Notes: the checks, in order: installation complete, startup.lua, network plan (and its errors), the entry of this computer in it, the modem,
   the devices of the role (Create device or redstone side, platforms of a station, blocks of a master), the monitor, free space, the file
-  state, the OTA recovery in startup.lua, and the answer of the master. A failure means the computer cannot do its job; a warning means it
+  state, the keys (only with auth_mode monitor / enforce), the OTA recovery in startup.lua, and the answer of the master. A failure means the computer cannot do its job; a warning means it
   can but something is probably not as meant. Nothing here switches a signal or a turnout.
 ]]
 
+local storage_budget = require("src.shared.storage_budget")
 local hardware = require("src.setup.hardware")
 local netplan = require("src.setup.netplan")
 local terminal = require("src.setup.terminal")
 local startup_template = require("src.shared.startup_template")
+local keystore = require("src.shared.keystore")
 
 local doctor = {}
 
 local ROLE_LABEL = {
-  master = "Master", signal = "Signal", sensor = "Melder", switch = "Weiche", station = "Bahnhof", depot = "Depot", train = "Zug", panel = "Monitor",
+  master = "Master", signal = "Signal", sensor = "Melder", switch = "Weiche", station = "Bahnhof", depot = "Depot", train = "Zug", panel = "Monitor", arbiter = "Schiedsrichter", fleet = "Flotte",
 }
 local DEVICE = {
   signal = { class = "create_signal", label = "Create-Signal" },
@@ -266,12 +268,28 @@ function doctor.run(opts)
     if ok and type(free) == "string" then free = free:lower() == "unlimited" and math.huge or tonumber(free) end
     if ok and type(free) == "number" and free ~= math.huge and free >= 0 then
       if free < 8000 then
-        add("space", "fail", "Speicher fast voll: " .. kb(free) .. " KB frei", "Platz schaffen (Logs und Spuren loeschen) oder 'computer_space_limit' erhoehen: Zustandsdateien brauchen Platz.")
+        add("space", "fail", "Speicher fast voll: " .. kb(free) .. " KB frei", "Platz schaffen (Logs und Spuren loeschen): Zustandsdateien brauchen Platz. Der Computer fasst fest 1 MB.")
       elseif free < 30000 then
-        add("space", "warn", "Wenig Speicher: " .. kb(free) .. " KB frei", "Platz schaffen oder 'computer_space_limit' erhoehen, damit Updates und Zustandsdateien Platz haben.")
+        add("space", "warn", "Wenig Speicher: " .. kb(free) .. " KB frei", "Platz schaffen, damit Updates und Zustandsdateien Platz haben. Der Computer fasst fest 1 MB.")
       else
         add("space", "ok", "Speicher: " .. kb(free) .. " KB frei")
       end
+    end
+  end
+
+  -- 8b. a computer holds a fixed 1 MB: after the program and the state files an update still needs room for the staged copies and the backups (src/shared/storage_budget.lua).
+  -- The setup files (this tool is one of them) leave the computer when the tool is done: their bytes count as free.
+  do
+    local okf, free = pcall(function() return fs_api and fs_api.getFreeSpace and fs_api.getFreeSpace("/") end)
+    local record = read("crn_install.lua")
+    local bundle_block = record and record:match("bundle_files%s*=%s*(%b{})") or ""
+    for path in bundle_block:gmatch('"([^"]+)"') do
+      local body = read(path)
+      if body and okf and type(free) == "number" then free = free + math.max(#body, storage_budget.MIN_FILE_COST) end
+    end
+    if okf and type(free) == "number" and free ~= math.huge and free >= 8000 and free < storage_budget.OTA_HEADROOM then
+      add("space_ota", "warn", "Fuer ein Update bleibt nur " .. kb(free) .. " KB",
+        "Ein Update braucht Platz fuer neue Dateien und Sicherungen. Logs und Spuren loeschen, sonst den Installer verwenden (er ersetzt Datei fuer Datei).")
     end
   end
 
@@ -282,6 +300,37 @@ function doctor.run(opts)
       add("version", "ok", "Dateistand " .. version:match("^%s*(%S+)"))
     else
       add("version", "warn", "Kein Dateistand bekannt", "Der Installer legt crn_version.txt an: einmal 'installer' ausfuehren.")
+    end
+  end
+
+  -- 9b. keys for the authentication of the messages (only when the plan switches it on: auth_mode monitor / enforce)
+  do
+    local mode = ctx.cfg and ctx.cfg.auth_mode
+    if (mode == "monitor" or mode == "enforce" or (mode ~= nil and mode ~= "off")) and ctx.role and ctx.id then
+      local strict = mode ~= "monitor"
+      local missing = strict and "fail" or "warn"
+      if ctx.role == "master" then
+        local master_key = keystore.load_master(nil, { fs = fs_api })
+        local trust, trust_err = keystore.load_trust(nil, { fs = fs_api })
+        if not master_key then
+          add("keys", missing, "Kein Master-Schluessel", "Am ersten Master: scripts/keys.lua init. Am zweiten Master: keys import-master (docs/KEYS.md).")
+        elseif not trust then
+          add("keys", "fail", "Liste der Schluessel beschaedigt (" .. tostring(trust_err) .. ")", "Die Datei state/crn_trust.json wiederherstellen (state/crn_trust.json.prev) oder neu ausgeben (docs/KEYS.md).")
+        else
+          add("keys", mode == "monitor" and "warn" or "ok", "Schluessel: Master-Schluessel und Liste vorhanden" .. (mode == "monitor" and ", Pruefmodus (nichts wird abgelehnt)" or ""),
+            mode == "monitor" and "Wenn alle Computer ihren Schluessel haben: im Netzplan auth_mode auf \"enforce\" stellen." or nil)
+        end
+      else
+        local record, err = keystore.load_node(nil, { fs = fs_api })
+        if not record then
+          add("keys", missing, "Kein Schluessel fuer diesen Computer", "Am Master: scripts/keys.lua issue " .. tostring(ctx.id) .. "; hier: scripts/keys.lua install --id " .. tostring(ctx.id) .. " (docs/KEYS.md).")
+        elseif record.id ~= ctx.id then
+          add("keys", missing, "Der Schluessel gehoert zu " .. record.id, "Den richtigen Schluessel einrichten: scripts/keys.lua install --id " .. tostring(ctx.id) .. ".")
+        else
+          add("keys", mode == "monitor" and "warn" or "ok", "Schluessel Nummer " .. record.epoch .. " vorhanden" .. (mode == "monitor" and ", Pruefmodus (nichts wird abgelehnt)" or ""),
+            mode == "monitor" and "Wenn alle Computer ihren Schluessel haben: im Netzplan auth_mode auf \"enforce\" stellen." or nil)
+        end
+      end
     end
   end
 

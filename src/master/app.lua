@@ -15,6 +15,11 @@ local audit_log = require("src.domain.audit_log")
 local maintenance_mode = require("src.domain.maintenance")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
+local update_control_module = require("src.master.update_control")
+local aux_display_module = require("src.master.aux_display")
+local op_state_module = require("src.domain.op_state")
+local update_trust = require("src.shared.update_trust")
+local replacement_setup_module = require("src.master.replacement_setup")
 local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
@@ -41,9 +46,13 @@ local restart_module = require("src.master.restart")
 local setup_panel = require("src.master.ui.panels.setup")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
+local net_signals = require("src.master.net_signals")
+local fleet_bridge_module = require("src.master.fleet_bridge")
 local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
+local auth_setup = require("src.shared.auth_setup")
+local ha_wiring = require("src.master.ha_wiring")
 local ota_manager = require("src.master.ota_manager")
 local cargo_module = require("src.domain.cargo")
 local startup_guard = require("src.shared.startup_guard")
@@ -66,7 +75,9 @@ function app.new(args)
   local service_plan_registry = service_plans.new(cfg)
   local resolver = route_resolver.new(cfg.routes or {})
   local audits = audit_log.new(300)
-  local maintenance = maintenance_mode.new()
+  local maintenance = maintenance_mode.new({ path = cfg.maintenance_file or "state/maintenance.json", fs = _G.fs })
+  local maintenance_load, maintenance_why = maintenance.load()
+  if maintenance_load == "corrupt" then logger.error("maintenance file unreadable: lock stays on", { error = maintenance_why }) end
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.for_node(cfg, parsed.id or cfg.master_id)
@@ -76,21 +87,46 @@ function app.new(args)
     error("master modem open failed: " .. tostring(err))
   end
 
-  local disp = dispatcher.new(cfg, {
-    signals = create_signals.new(peri, { hardware = hw }),
-    switches = create_switches.new(peri, { hardware = hw })
-  })
+  -- two masters: actuations that give movement wait in a barrier for the dual commit, and a master that does not lead touches no hardware (src/master/ha_wiring.lua)
+  local my_id = parsed.id or cfg.master_id
+  local ha_prep = ha_wiring.prepare(cfg, my_id, { now_ms = require("src.shared.time").now_ms, logger = logger })
+  -- signal_transport = "network": the signals are commanded over the network, the signal nodes (their own peripherals, their own bindings) set them; the default is the master's own wired peripherals
+  local network_ref, disp_ref, net_signal_adapter = {}, {}, nil
+  local signal_adapter
+  if cfg.signal_transport == "network" then
+    net_signal_adapter = net_signals.new({
+      network = { send_reliable = function(...) return network_ref.net.send_reliable(...) end },
+      config = cfg, logger = logger,
+      on_failure = function(signal_id, _, reason) if disp_ref.d then disp_ref.d.signal_failed(signal_id, reason) end end
+    })
+    signal_adapter = net_signal_adapter
+  else
+    signal_adapter = create_signals.new(peri, { hardware = hw })
+  end
+  local switch_adapter = create_switches.new(peri, { hardware = hw })
+  if ha_prep then signal_adapter, switch_adapter = ha_prep.signals(signal_adapter), ha_prep.switches(switch_adapter) end
+  local disp = dispatcher.new(cfg, { signals = signal_adapter, switches = switch_adapter })
+  disp_ref.d = disp
 
   -- the last dispatcher calls are kept for replay offline (traces/*.json, scripts/replay_trace.lua)
   local trace = trace_recorder.new({ capacity = cfg.trace_capacity or 500 })
   trace.attach(disp)
 
-  local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger)
+  local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger, nil,
+    { auth = auth_setup.build(cfg, parsed.id or cfg.master_id, { master = true, logger = logger }) })
+  network_ref.net = network
+  -- two masters (config.masters) and an arbiter: the election decides who commands, the replica gives the standby every change and the commit barrier holds back what gives movement until it confirmed
+  local ha, replica, barrier
+  if ha_prep then
+    local wired = ha_wiring.finish(ha_prep, { network = network, dispatcher = disp, logger = logger, now_ms = require("src.shared.time").now_ms })
+    ha, replica, barrier = wired.ha, wired.replica, wired.barrier
+  end
   -- When a reliable message exceeds max retries, log and mark the destination node as potentially down
   network.on_drop = function(msg)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
+  if net_signal_adapter then net_signal_adapter.install(network) end
   local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor, hw.value(parsed.id or cfg.master_id, "monitor_scale") or cfg.monitor_scale)
   if monitor_note then logger.warn("master monitor", { note = monitor_note, using = monitor_found and "first monitor found" or "none (no display)" }) end
   local monitor = monitor_found or fallback_monitor()
@@ -146,7 +182,16 @@ function app.new(args)
   -- Wire manual_control into interactive panels once context is built (below)
   ui.set_panel("status")
 
+  -- a plan with a fleet pair: the bridge turns the route requests of the fleet nodes into reservations and tells them what became of them
+  local fleet_bridge
+  if cfg.fleet and cfg.fleet.pairs then
+    local lengths = {}
+    for _, spec in ipairs(cfg.fleet.train_profiles or {}) do lengths[spec.immutable_id] = spec.length end
+    fleet_bridge = fleet_bridge_module.new({ dispatcher = disp, network = network, config = cfg, logger = logger, now = require("src.shared.time").now_s, train_length = function(id) return lengths[id] end })
+  end
+
   context = {
+    ha = ha, replica = replica, barrier = barrier, fleet_bridge = fleet_bridge,
     config = cfg,
     logger = logger,
     registry = reg,
@@ -166,7 +211,99 @@ function app.new(args)
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
-  context.ota = ota_manager.new(network, reg, logger)
+  context.ota = ota_manager.new(network, reg, logger, {
+    sign_package = network.auth and network.auth.keyring and update_trust.signer({ keyring = network.auth.keyring, my_id = parsed.id or cfg.master_id, config = cfg, protocol = net.PROTOCOL_REVISION }) or nil
+  })
+  -- updates: operator confirmation, release of critical nodes, order for masters/arbiter/fleet partners; locks outlive a restart
+  local fleet_pairs_view = {
+    pair_of = function(node_id) for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do for _, id in ipairs(pair.nodes or {}) do if id == node_id then return pair.id end end end end,
+    partner_of = function(node_id) for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do for index, id in ipairs(pair.nodes or {}) do if id == node_id then return pair.nodes[3 - index] end end end end,
+    status = function(pair_id)
+      for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do
+        if pair.id == pair_id then
+          for _, id in ipairs(pair.nodes or {}) do local node = reg.get(id); if not node or node.status ~= "UP" then return { alive = false } end end
+        end
+      end
+      return { alive = true }
+    end
+  }
+  context.update_control = update_control_module.new({
+    fs = _G.fs, path = cfg.update_plan_file or "state/update_plan.json", now = require("src.shared.time").now_s, config = cfg, logger = logger,
+    busy = function(node_id)
+      local role
+      for _, node in ipairs(cfg.nodes or {}) do if node.id == node_id then role = node.role end end
+      if role ~= "signal" and role ~= "switch" and role ~= "sensor" and role ~= "station" and role ~= "depot" then return false end
+      for _, train in pairs(disp.get_trains()) do if train.holds_route then return true end end
+      return false
+    end,
+    ha = function()
+      if not ha then return {} end
+      local status = ha.status()
+      return { leads = ha.is_leader(), both_masters_healthy = ha.is_leader() and (status.fresh or 0) >= 3 }
+    end,
+    fleet_pairs = fleet_pairs_view,
+    -- the blocks that depend on a node that was updated and failed (or rolled back) are not trusted again: they go FAULT like after a node timeout and come back by the normal proof
+    on_lock = function(node_id, reason) logger.warn("update lock", { node = node_id, reason = reason }); if disp.timeout_node then disp.timeout_node(node_id) end end
+  })
+  context.update_control.load()
+  -- Master-AUX (config aux_monitor = peripheral name of a monitor that is no other page's): reads the state directly, not through the panels
+  if cfg.aux_monitor then
+    local aux_monitor = peri.wrap(cfg.aux_monitor)
+    if not aux_monitor then
+      logger.warn("aux monitor not found", { monitor = cfg.aux_monitor })
+    else
+      pcall(function() if aux_monitor.setTextScale then aux_monitor.setTextScale(cfg.aux_monitor_scale or 1) end end)
+      context.aux = aux_display_module.new({
+        monitor = aux_monitor, id = parsed.id or cfg.master_id, now = os.clock,
+        sources = {
+          role = function() if not ha then return "single" end return ha.is_leader() and "leader" or "standby" end,
+          op = function()
+            local locks = context.update_control.locks()
+            local faulty = {}
+            for _, lock in ipairs(locks) do faulty[#faulty + 1] = lock.node_id end
+            return op_state_module.derive({ setup_done = true, maintenance = maintenance.is_locked(), local_faults = faulty, both_masters = ha and ha.is_leader() or nil })
+          end,
+          blocks = function()
+            local counts = { free = 0, unknown = 0, fault = 0, reserved = 0 }
+            for id, block in pairs(disp.get_overview()) do
+              local state = block.state
+              if state == "FAULT" then counts.fault = counts.fault + 1
+              elseif state == "FREE" then counts.free = counts.free + 1
+              elseif state == "RESERVED" or state == "OCCUPIED" then counts.reserved = counts.reserved + 1 end
+              local occupancy = disp.get_occupancy and disp.get_occupancy(id)
+              if occupancy and occupancy.state == "UNKNOWN" and disp.proof_mode and disp.proof_mode() then counts.unknown = counts.unknown + 1 end
+            end
+            return counts
+          end,
+          nodes = function()
+            local up, down, down_ids = 0, 0, {}
+            for id, node in pairs(reg.all()) do
+              if node.status == "UP" then up = up + 1 else down = down + 1; down_ids[#down_ids + 1] = id end
+            end
+            table.sort(down_ids)
+            return { up = up, down = down, down_ids = down_ids }
+          end,
+          locks = function() return context.update_control.locks() end,
+          alerts = function() return alerts.list({ active_only = true }) end,
+          journal = function()
+            if not replica then return true end
+            if replica.writable and not replica.writable() then return false, "nicht beschreibbar" end
+            return true
+          end,
+          space = function() return _G.fs and _G.fs.getFreeSpace and _G.fs.getFreeSpace("/") or nil end
+        }
+      })
+    end
+  end
+  -- a computer that is exchanged: new key on a disk, signals bound again, a test (docs/UPDATE.md); only with authentication set up
+  context.replacement = replacement_setup_module.build({
+    config = cfg, fs = _G.fs, peripheral = _G.peripheral, now = require("src.shared.time").now_s,
+    on_hold = function(node_id)
+      if disp.timeout_node then disp.timeout_node(node_id) end
+      alerts.raise("replace:" .. node_id, "RED", "Computer " .. node_id .. " wird ersetzt: seine Bloecke sind gesperrt")
+    end,
+    on_release = function(node_id) alerts.clear("replace:" .. node_id) end
+  })
   context.pairing = pairing
   -- the controlled restart (setup page): signals to RED like on a stop, then the reboot
   context.restart = restart_module.build({ dispatcher = disp, red = cfg.signal_red_on_stop ~= false, logger = logger, reboot = function() if os.reboot then os.reboot() end end })

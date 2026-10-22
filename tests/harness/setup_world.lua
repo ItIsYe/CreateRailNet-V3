@@ -105,6 +105,7 @@ function setup_world.new(opts)
       fetch = world.fetch,
       redstone = world.redstone,
       sleep = world.sleep,
+      before_reboot = world.before_reboot,
     }
     local result = wizard.run({ args = argv or {}, env = env })
     world.unused = #queue

@@ -50,6 +50,7 @@ local function with_master(opts, run)
     top = { type = "modem", methods = { "open", "close", "isOpen", "transmit" }, object = modem },
     monitor_0 = { type = "monitor", methods = { "write", "setCursorPos", "getSize", "clear", "isColor", "setTextColor", "setBackgroundColor" }, object = monitor },
   }
+  for name, device in pairs(o.devices or {}) do devices[name] = device end
   local restore = strict_cc.install({ peripheral = strict_cc.peripheral(devices), window = o.no_window and nil or strict_cc.window_api(), redstone = redstone })
   local world = { modem = modem, monitor = monitor, redstone = redstone }
   local ok, err = pcall(function()
@@ -106,6 +107,31 @@ return {
     with_master({}, function(world)
       assert(world.modem.opened[777], "the channel is open")
       assert(#world.modem.violations == 0, table.concat(world.modem.violations, "; "))
+    end)
+  end,
+
+  test_the_master_aux_view_draws_on_its_own_monitor_from_the_state_and_has_a_job_of_its_own = function()
+    local aux_monitor = strict_cc.monitor(40, 12)
+    local devices = { monitor_1 = { type = "monitor", methods = { "write", "setCursorPos", "getSize", "clear", "isColor", "setTextColor", "setBackgroundColor", "setTextScale" }, object = aux_monitor } }
+    with_master({ devices = devices, patch = function(text) return (text:gsub('"v": 1,', '"v": 1, "aux_monitor": "monitor_1",', 1)) end }, function(world)
+      local context = world.instance.context
+      assert(context.aux, "the AUX is built from the plan")
+      every_node_online(world)
+      assert(context.aux.draw() == true)
+      local text = aux_monitor.text()
+      assert(text:find("MASTER-AUX  MASTER-1  single", 1, true) and text:find("Zustand: NORMAL", 1, true) and text:find("Knoten:", 1, true) and text:find("Journal: ok", 1, true), text)
+      assert(#aux_monitor.violations == 0, table.concat(aux_monitor.violations, "; "))
+      assert(world.instance.runtime.ticker.stats().jobs.aux ~= nil, "drawn by a job of its own")
+      assert(world.monitor.text() ~= text, "the monitor of the pages is another one")
+    end)
+  end,
+
+  test_a_missing_aux_monitor_is_a_warning_and_not_an_error_of_the_master = function()
+    with_master({ patch = function(text) return (text:gsub('"v": 1,', '"v": 1, "aux_monitor": "monitor_9",', 1)) end }, function(world)
+      assert(world.instance.context.aux == nil)
+      local found = false
+      for _, entry in ipairs(world.instance.context.logger.get_buffer()) do if entry.msg == "aux monitor not found" then found = true end end
+      assert(found)
     end)
   end,
 

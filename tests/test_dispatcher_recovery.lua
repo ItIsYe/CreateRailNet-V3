@@ -78,11 +78,23 @@ return {
     assert(queue[1].route_id == "R1")
   end,
 
+  test_a_train_that_lost_its_node_keeps_its_conflict_groups_over_a_restore = function()
+    local d1 = dispatcher.new(cfg(), adapters())
+    assert(d1.reserve_route("TRAIN-1", "R1"))
+    d1.timeout_node("TRAIN-1")
+    local held = d1.get_conflicts()
+    assert(next(held), "the faulty train still holds its route")
+    local d2 = dispatcher.new(cfg(), adapters())
+    assert(d2.restore(d1.snapshot()))
+    for group in pairs(held) do assert(d2.get_conflicts()[group], "lost over the restore: " .. group) end
+    assert(not d2.reserve_route("TRAIN-2", "R1R"), "the corridor is still claimed")
+  end,
+
   test_restore_preserves_conflict_groups = function()
     local d1 = dispatcher.new(cfg(), adapters())
     assert(d1.reserve_route("TRAIN-1", "R1"))
     local snap = d1.snapshot()
-    assert(snap.active_conflicts["opp:ST-A<->ST-B"])
+    assert(snap.active_conflicts == nil, "the groups are not stored twice: the trains carry their routes")
     local d2 = dispatcher.new(cfg(), adapters())
     assert(d2.restore(snap))
     assert(d2.get_conflicts()["opp:ST-A<->ST-B"])

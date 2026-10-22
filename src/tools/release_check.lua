@@ -46,6 +46,7 @@ function release_check.run(o)
     { "syntax51", "Syntax (Lua 5.1)", lua51 .. " scripts/check_syntax.lua", lua51 },
     { "configs", "Konfigurationen", lua .. " scripts/check_configs.lua", lua },
     { "registry", "Testregister", lua .. " scripts/check_test_registry.lua", lua },
+    { "dist", "Verkleinerte Dateien (dist/)", lua .. " scripts/build_dist.lua --check", lua },
     { "manifest", "Manifest des Installers", lua .. " scripts/manifest_sync.lua --check", lua },
     { "parse", "CC-Parser-Wache (Lua 5.1)", lua51 .. " scripts/cc_parse_guard.lua", lua51 },
     { "tests", "Tests (Lua 5.4)", lua .. " scripts/run_tests.lua", lua },

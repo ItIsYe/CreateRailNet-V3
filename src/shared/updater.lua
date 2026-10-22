@@ -2,7 +2,7 @@
 Purpose: Node side of the over-the-air (OTA) update: offer/need/chunk/commit transfer, verification, swap with rollback.
 Public API:
   new(network, node_id, logger, opts) -> updater
-    opts: fs, sources (list of allowed sender ids), quiesce() -> ok, err, reboot(), sleep(seconds), max_files, max_bytes
+    opts: verify_package(package, offer) -> true | false, code, detail (optional: src/shared/update_package.lua), fs, sources (list of allowed sender ids), quiesce() -> ok, err, reboot(), sleep(seconds), max_files, max_bytes
   updater.offer(payload, src)    manifest of the new version -> true | false, err; answers with ota_need (or ota_result when current)
   updater.chunk(payload, src)    one piece of a needed file -> true | false, err (a damaged file is answered with ota_need, true)
   updater.commit(payload, src)   all pieces staged: quiesce, swap, trial boot journal, reboot -> true | false, err
@@ -27,6 +27,8 @@ local checksum = require("src.shared.checksum")
 local safe_write = require("src.shared.safe_write")
 local ota_recovery = require("src.shared.ota_recovery")
 local sleep_guard = require("src.shared.sleep_guard")
+local sha256 = require("src.shared.sha256")
+local update_package = require("src.shared.update_package")
 
 local updater = {}
 
@@ -35,6 +37,9 @@ local MAX_FILE_BYTES = 200000
 local MAX_TOTAL_BYTES = 3000000
 local MAX_PARTS = 64
 local VERSION_FILE = "crn_version.txt"
+-- a computer holds a fixed 1 000 000 bytes (CC:Tweaked counts every file at least 500): an update needs the staged copy and the backup of every file it replaces
+local MIN_FILE_COST = 500
+local FREE_RESERVE = 8000
 
 local ALLOWED_PREFIXES = { "src/", "scripts/", "configs/templates/" }
 -- startup.lua is not listed: it holds the role, id and config of each computer and must never be replaced remotely
@@ -82,6 +87,17 @@ function updater.new(network, node_id, logger, opts)
 
   local function log(level, text, data)
     if logger and logger[level] then logger[level](text, data) end
+  end
+
+  -- true when `bytes` more fit on the computer with FREE_RESERVE left for the state files; an unknown free space does not block
+  local function has_room(bytes)
+    local ok, free = pcall(function() return fsys.getFreeSpace and fsys.getFreeSpace("/") end)
+    if ok and type(free) == "string" then free = tonumber(free) end
+    if not ok or type(free) ~= "number" then return true end
+    if free < bytes + FREE_RESERVE then
+      return false, "no room: the update needs " .. (bytes + FREE_RESERVE) .. " bytes (staged copies and backups), " .. free .. " free"
+    end
+    return true
   end
 
   local function allowed_source(src)
@@ -145,13 +161,34 @@ function updater.new(network, node_id, logger, opts)
       fail(src, payload.update_id, { err })
       return false, err
     end
+    -- a node that holds the key checks the origin proof, role, protocol, schema and space of the package before it asks for a single file,
+    -- and that the files of the offer are the ones the proof covers (their SHA-256 is checked again when the commit comes)
+    if options.verify_package then
+      local package_ok, code, detail = options.verify_package(payload.package, payload)
+      if package_ok and type(payload.package) == "table" then
+        package_ok, detail = update_package.covers(payload.package, payload.files)
+        code = "not_covered"
+      end
+      if not package_ok then
+        fail(src, payload.update_id, { "package refused: " .. tostring(code) .. (detail and (" (" .. tostring(detail) .. ")") or "") })
+        return false, "package refused: " .. tostring(code)
+      end
+    end
 
-    local need = {}
+    local need, cost = {}, 0
     for path, want in pairs(manifest) do
       local current = read(path)
-      if not (current and #current == want.size and checksum.adler32(current) == want.adler) then need[#need + 1] = path end
+      if not (current and #current == want.size and checksum.adler32(current) == want.adler) then
+        need[#need + 1] = path
+        cost = cost + math.max(want.size, MIN_FILE_COST) + (current and math.max(#current, MIN_FILE_COST) or 0)
+      end
     end
     table.sort(need)
+    local room, room_err = has_room(cost)
+    if #need > 0 and not room then
+      fail(src, payload.update_id, { room_err })
+      return false, room_err
+    end
 
     if #need == 0 then
       session = nil
@@ -159,7 +196,7 @@ function updater.new(network, node_id, logger, opts)
       return true
     end
 
-    session = { id = payload.update_id, version = tostring(payload.version or "unknown"), src = src, manifest = manifest, need = need, staged = {}, parts = {} }
+    session = { id = payload.update_id, version = tostring(payload.version or "unknown"), src = src, manifest = manifest, need = need, staged = {}, parts = {}, package = type(payload.package) == "table" and options.verify_package and payload.package or nil }
     for _, path in ipairs(need) do session.staged[path] = false end
     local listed = {}
     for _, path in ipairs(need) do listed[#listed + 1] = path end
@@ -276,6 +313,21 @@ function updater.new(network, node_id, logger, opts)
       send(session.src, "ota_need", { update_id = session.id, need = missing, reason = "commit before all files arrived" })
       return false, "incomplete: " .. #missing .. " files missing"
     end
+    -- the files that were staged are the ones the package proves: SHA-256 against the list of the signed package
+    if session.package then
+      local listed = {}
+      for _, file in ipairs(session.package.files or {}) do listed[file.path] = file end
+      for _, path in ipairs(session.need) do
+        local body = read(staged_path(path))
+        local file = listed[path]
+        if not (body and file and #body == file.size and sha256.hex(body) == file.sha256) then
+          local src_id, update_id = session.src, session.id
+          drop_session()
+          fail(src_id, update_id, { "package refused: bad_file (" .. tostring(path) .. " does not match the signed package)" })
+          return false, "package refused: bad_file"
+        end
+      end
+    end
     return run_commit(session.src, session.id, session.need, session.version)
   end
 
@@ -307,6 +359,13 @@ function updater.new(network, node_id, logger, opts)
     local manifest, err = validate_manifest(manifest_list, max_files, max_bytes)
     if not manifest then fail(src, update_id, { err }); return false, err end
     if update_pending() then fail(src, update_id, { "an earlier update is not confirmed yet" }); return false, "earlier update pending" end
+    local direct_cost = 0
+    for _, item in ipairs(manifest_list) do
+      local current = read(item.path)
+      direct_cost = direct_cost + math.max(item.size, MIN_FILE_COST) + (current and math.max(#current, MIN_FILE_COST) or 0)
+    end
+    local direct_room, direct_err = has_room(direct_cost)
+    if not direct_room then fail(src, update_id, { direct_err }); return false, direct_err end
 
     if session then drop_session() end
     session = { id = update_id, version = tostring(payload.version or "unknown"), src = src, manifest = manifest, need = {}, staged = {}, parts = {} }

@@ -3,7 +3,7 @@ Purpose: The master hands out its network plan, in parts, to a station or depot 
   computer: "Plan vom Master holen"). Those two roles read their platforms / tracks from their own plan, and a plan is more than one modem
   message holds.
 Public API: new(opts) -> service
-    opts: plan_path (the plan file of this master), fs, chunk_size (3000 bytes per part), max_bytes (200000), cache_s (60), now_s()
+    opts: plan_path (the plan file of this master), fs, chunk_size (3000 bytes per part), max_bytes (35000, src/shared/storage_budget.lua), cache_s (60), now_s()
   service.part(index, expect_version) -> reply
     reply on success: { ok = true, index, total, version, size, data }     version = Adler-32 of the whole text (8 hex characters)
     reply on failure: { ok = false, state = "changed" | "error", reason }   changed: the plan is not the one the asker began with
@@ -13,6 +13,7 @@ Notes: the file is read as it lies on the disk now and is handed out only when i
   seconds), so a plan of many parts is read and checked once. If the text changed in between, the asker is told "changed" and starts over.
 ]]
 
+local storage_budget = require("src.shared.storage_budget")
 local checksum = require("src.shared.checksum")
 local netplan = require("src.setup.netplan")
 local time = require("src.shared.time")
@@ -23,7 +24,7 @@ function plan_service.new(opts)
   local o = opts or {}
   local fs_api = o.fs or _G.fs
   local chunk_size = o.chunk_size or 3000
-  local max_bytes = o.max_bytes or 200000
+  local max_bytes = o.max_bytes or storage_budget.PLAN_MAX_BYTES
   local cache_s = o.cache_s or 60
   local now = o.now_s or time.now_s
   local self = {}

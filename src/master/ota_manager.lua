@@ -2,7 +2,7 @@
 Purpose: Master side of the over-the-air update. Rolls a new file set out to many nodes in small, verified steps.
 Public API:
   new(network, registry, logger, opts) -> manager
-    opts: now_ms(), chunk_size (8192), window (chunks in flight per node, 4), max_parallel (nodes at once, 4),
+    opts: sign_package(node_id, update) -> package | nil (src/shared/update_trust.lua), now_ms(), chunk_size (8192), window (chunks in flight per node, 4), max_parallel (nodes at once, 4),
           offer_timeout_ms (8000), offer_retries (3), stall_timeout_ms (30000), result_timeout_ms (30000),
           confirm_timeout_ms (120000), reboot_grace_ms (60000), read_file(path) -> body, list_runtime_files() -> paths
   manager.start(files, { nodes, version, discover }) -> update | nil, err      files = { {path, content} }
@@ -144,7 +144,9 @@ function ota_manager.new(network, registry, logger, opts)
   end
 
   local function offer(update, session, now)
-    local msg = send_cmd(session.node_id, "ota_offer", { update_id = update.id, version = update.version, files = update.manifest })
+    -- with keys: the package is signed for this node (src/shared/update_package.lua), so the node can tell that the content comes from this master and is whole
+    local package = options.sign_package and options.sign_package(session.node_id, update) or nil
+    local msg = send_cmd(session.node_id, "ota_offer", { update_id = update.id, version = update.version, files = update.manifest, package = package })
     session.state = "OFFERED"
     session.offered_at = now
     session.tries = session.tries + 1

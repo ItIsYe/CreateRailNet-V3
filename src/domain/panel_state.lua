@@ -41,6 +41,10 @@ function panel_state.new(config, panel_id)
     if payload.service_plans then state.service_plans = copy_table(payload.service_plans) end
     if payload.diagnostics then state.diagnostics = copy_table(payload.diagnostics) end
     if payload.manual_actions then state.manual_actions = copy_table(payload.manual_actions) end
+    -- the fields of the larger views (track diagram, fault center, fleet, operating state); a snapshot without them leaves the old ones as they are
+    for _, key in ipairs({ "signals", "fleet", "cargo", "faults", "nodes", "replacements", "op_state", "op_text", "op_reason", "topology_version" }) do
+      if payload[key] ~= nil then state[key] = type(payload[key]) == "table" and copy_table(payload[key]) or payload[key] end
+    end
   end
 
   function self.set_page(page)

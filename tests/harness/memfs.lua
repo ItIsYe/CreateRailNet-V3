@@ -1,7 +1,7 @@
 --[[
 Purpose: In-memory filesystem with CC:Tweaked semantics (fs.move onto an existing file fails) and crash injection.
 Public API: new() -> fs with open/exists/isDir/list/delete/move/makeDir/getFreeSpace plus files, ops, crash_at, fail, capacity, snapshot(), set(path, body).
-Notes: crash_at = n raises "crash" instead of performing the n-th mutating operation (a write that crashes leaves half
+Notes: mode "a" appends (a crash leaves half of the new text after the old); crash_at = n raises "crash" instead of performing the n-th mutating operation (a write that crashes leaves half
   the content behind). With sticky_crash every later mutating operation raises too, even where code catches the error, until
   the test sets crashed = false (the reboot). fail.move_for = path makes the next fs.move to that destination silently do nothing (one shot).
 ]]
@@ -10,6 +10,7 @@ local memfs = {}
 
 function memfs.new()
   local f = { files = {}, ops = 0, crash_at = nil, fail = {} }
+  local used
 
   local function mutate(partial)
     -- sticky_crash: once the computer crashed it stays dead until the test reboots it (f.crashed = false)
@@ -53,16 +54,21 @@ function memfs.new()
       return { readAll = function() return f.files[path] end, readLine = function() return (f.files[path] or ""):match("^[^\n]*") end, close = function() end }
     end
     if f.fail.open == path then return nil end
+    local append = mode == "a"
     local buffer = {}
     return {
       write = function(text) buffer[#buffer + 1] = tostring(text) end,
+      writeLine = function(text) buffer[#buffer + 1] = tostring(text) .. "\n" end,
+      flush = function() end,
       close = function()
         local body = table.concat(buffer)
+        local before = append and f.files[path] or ""
         local previous = f.files[path] and #f.files[path] or 0
-        if f.capacity and used() - previous + #body > f.capacity then error("Out of space", 0) end
-        mutate(function() f.files[path] = body:sub(1, math.floor(#body / 2)) end)
+        if f.capacity and used() - previous + #before + #body > f.capacity then error("Out of space", 0) end
+        -- a crash in the middle of a write leaves half of the new text behind (after the old text when appending)
+        mutate(function() f.files[path] = before .. body:sub(1, math.floor(#body / 2)) end)
         if f.fail.truncate then body = body:sub(1, f.fail.truncate) end
-        f.files[path] = body
+        f.files[path] = before .. body
       end
     }
   end
@@ -84,12 +90,14 @@ function memfs.new()
   f.makeDir = function() end
 
   -- capacity (bytes) nil = no limit; a write that does not fit raises like CC:Tweaked does and stores nothing
-  local function used()
+  -- CC:Tweaked counts every file at least 500 bytes
+  used = function()
     local total = 0
-    for _, body in pairs(f.files) do total = total + #body end
+    for _, body in pairs(f.files) do total = total + math.max(#body, 500) end
     return total
   end
   f.used = used
+  f.getCapacity = function() return f.capacity end -- nil = no limit
   f.getFreeSpace = function()
     if not f.capacity then return "unlimited" end
     return math.max(0, f.capacity - used())

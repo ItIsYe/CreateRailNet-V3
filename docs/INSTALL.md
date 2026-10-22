@@ -73,14 +73,19 @@ Die Dateien einer Rolle sind der Abschluss der `require`-Abhängigkeiten ihres E
 `configs/install/runtime_manifest.json` bleibt die Instanz dafür, was den Rechner überhaupt erreichen darf: nichts aus `tests/`, `docs/`, `src/sim/`,
 `src/tools/`, `.github/` und keine Entwicklungsskripte.
 
-| Rolle | Dateien (mit Vorlagen und `scripts/`) | Größe |
+| Rolle | laufend | mit Einrichtungs-Dateien (nur beim Einrichten) |
 |---|---|---|
-| master | ca. 93 | ca. 550 KB |
-| signal, sensor, switch | ca. 42 | ca. 235 KB |
-| train, station, depot, panel | ca. 41-43 | ca. 245 KB |
+| master | ca. 557 KB | ca. 717 KB |
+| panel, fleet | ca. 282 / 270 KB | ca. 426 / 416 KB |
+| signal, sensor, switch, train, station, depot, arbiter | ca. 207-229 KB | ca. 352-371 KB |
 
-Die genaue Liste steht in `install/manifest.lua` (erzeugt, nicht von Hand ändern). Ein Computer braucht dafür freien Speicher in dieser Größe
-(`computer_space_limit` in `computercraft-server.toml`); der Installer prüft das vorher.
+Jede Datei zählt mindestens 500 Byte. **Einrichtungs-Dateien:** Assistent, Doctor, Schlüsselwerkzeug, Funktionstest, Planer (`--layout`) und ihre Hilfsmodule liegen
+nur auf dem Computer, solange er eingerichtet wird oder ein Werkzeug läuft. `scripts/setup.lua`, `scripts/keys.lua` und `scripts/auth_bench.lua` sind kleine Rümpfe: fehlen die
+Einrichtungs-Dateien, holen sie diese mit `installer --setup` (derselbe Stand, `--ref` aus `crn_install.lua`; ein anderer Stand wird abgelehnt), führen das Werkzeug aus und
+entfernen sie mit `installer --slim` wieder (auch vor dem Neustart des Assistenten). Das braucht also http und den `installer` auf dem Computer. Von Hand: `installer --setup` / `installer --slim`.
+Ein Update lässt einen schlanken Computer schlank und hält einen vollen voll.
+
+Die genaue Liste steht in `install/manifest.lua` (erzeugt, nicht von Hand ändern). Ein Computer fasst fest 1 MB (das Limit wird nicht angehoben); die Dateien sind kleingeschrieben (`dist/`, ohne Kommentare, gleiche Zeilennummern), damit Programm, Zustand und ein Update Platz haben (`docs/assumptions.md`, Space budget). Der Installer prüft den Platz vorher.
 
 **Eigene Dateien bleiben.** Konfigurationsvorlagen (`configs/templates/*.json`, dort liegt die Welt-Konfiguration) und `scripts/start_*.lua`
 sind „Seed"-Dateien: sie werden nur angelegt, wenn sie fehlen, und nie ersetzt oder gelöscht. Ebenso unberührt: `configs/network.json` und alles, was der
@@ -118,7 +123,7 @@ und die Dateien unter `configs/templates/` verteilt, nie ein Netzplan.
 | `install/http.lua konnte nicht geladen werden (Ref ...)` | Zweig oder Tag gibt es nicht (Tippfehler?) oder GitHub ist nicht erreichbar |
 | `Ungueltiger Ref` | Zweignamen dürfen nur Buchstaben, Ziffern und `. _ - /` enthalten |
 | `Manifest ungueltig` | der Ref enthält kein passendes `install/manifest.lua` (zu alter Stand) |
-| `Der Speicher dieses Computers reicht nicht` | nichts wurde verändert; `computer_space_limit` erhöhen oder einen größeren Computer nehmen |
+| `Der Speicher dieses Computers reicht nicht` | nichts wurde verändert; Platz schaffen (Logs und Spuren löschen, fremde Dateien entfernen), das Limit von 1 MB steht fest |
 | `Installation abgebrochen bei <datei>` | Download oder Prüfung ist mehrfach gescheitert; `installer --resume` setzt fort |
 | `Installation unvollstaendig.` beim Start | das Journal einer abgebrochenen Installation liegt noch da; `startup.lua` führt `installer --resume` aus |
 | `Die Rolle dieses Computers ist unbekannt` | mit `--yes` ohne installierte Rolle: `--role <rolle>` angeben |

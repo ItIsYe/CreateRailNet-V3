@@ -5,7 +5,7 @@ Public API:
   load_data(body, name) -> value | nil, err        runs a data file without globals
   parse_manifest(body) -> manifest | nil, err
   validate(manifest) -> true | false, err
-  files_for_role(manifest, role) -> { [path] = { size, adler, seed } } | nil, err
+  files_for_role(manifest, role, with_bundle) -> { [path] = { size, adler, seed } } | nil, err
   total_bytes(files) -> number
   diff(files, read_local, adler32, exists) -> todo (paths, largest first), unchanged (count)
   ref_kind(ref) -> "fixed" | "branch"     a version tag (v1.2.0, 1.4) or a commit id (7 to 40 hex digits) stays what it is; every other name is a
@@ -25,6 +25,8 @@ plan.ROLES = {
   { key = "depot",   label = "Depot",   text = "Abstellbereich / Depot" },
   { key = "train",   label = "Zug",     text = "Bordcomputer im Zug" },
   { key = "panel",   label = "Monitor", text = "Bedien-Monitor (Panel)" },
+  { key = "arbiter", label = "Schiedsrichter", text = "dritte Stimme der Masterwahl" },
+  { key = "fleet", label = "Flotte", text = "Zuege, Fahrplaene, Auftraege" },
 }
 
 local MAX_FILES = 400
@@ -91,10 +93,16 @@ function plan.validate(manifest)
     ok, err = check_list(list, "role " .. tostring(role))
     if not ok then return false, err end
   end
+  if type(manifest.bundle) ~= "table" then return false, "manifest has no setup bundle" end
+  for role, list in pairs(manifest.bundle) do
+    if type(list) ~= "table" or not manifest.roles[role] then return false, "bundle of an unknown role: " .. tostring(role) end
+    ok, err = check_list(list, "bundle " .. tostring(role))
+    if not ok then return false, err end
+  end
   return true
 end
 
-function plan.files_for_role(manifest, role)
+function plan.files_for_role(manifest, role, with_bundle)
   local extra = manifest.roles and manifest.roles[role]
   if not extra then return nil, "unknown role: " .. tostring(role) end
   local files = {}
@@ -103,6 +111,10 @@ function plan.files_for_role(manifest, role)
   local function add(path) files[path] = { size = manifest.files[path][1], adler = manifest.files[path][2], seed = seed[path] == true } end
   for _, path in ipairs(manifest.base) do add(path) end
   for _, path in ipairs(extra) do add(path) end
+  -- the setup bundle (wizard, doctor, key tool ...) is on a computer only while it is being set up or a tool runs
+  if with_bundle then
+    for _, path in ipairs(manifest.bundle and manifest.bundle[role] or {}) do add(path) end
+  end
   return files
 end
 

@@ -1,6 +1,7 @@
 --[[
 Purpose: Render external panel state to a CC:Tweaked monitor.
 Public API: render(monitor, state), render_header(monitor, state).
+Notes: lists are drawn in the order of their ids (the same on every draw, so a touch row means the same entry); with state._hits (a list) set, the rows of trains and stations are appended to it as { x1, x2, y, key, value }.
 ]]
 
 local panel_renderer = {}
@@ -11,9 +12,30 @@ local function count_table(t)
   return count
 end
 
+local function sorted_ids(t)
+  local out = {}
+  for id in pairs(t or {}) do out[#out + 1] = id end
+  table.sort(out, function(a, b) return tostring(a) < tostring(b) end)
+  return out
+end
+
+-- a row the touch can select: state._hits (a list) is filled by the caller when it wants them
+local function hit(state, row, key, value)
+  if state._hits then state._hits[#state._hits + 1] = { x1 = 1, x2 = 999, y = row, key = key, value = value } end
+end
+
+-- the text is cut to the width of the monitor (a small monitor must not get wider lines than it has columns)
+local function width_of(monitor)
+  if monitor and monitor.getSize then
+    local ok, w = pcall(monitor.getSize)
+    if ok and type(w) == "number" then return w end
+  end
+  return 51
+end
+
 local function line(monitor, row, text)
   monitor.setCursorPos(1, row)
-  monitor.write(tostring(text))
+  monitor.write(tostring(text):sub(1, width_of(monitor)))
 end
 
 local function short(text, max_len)
@@ -40,10 +62,11 @@ function panel_renderer.render_header(monitor, state)
     pcall(monitor.setCursorPos, 1, 1)
     pcall(monitor.write, string.rep(" ", w))
     pcall(monitor.setCursorPos, 1, 1)
-    pcall(monitor.write, " CreateRailNet  " .. tostring(state.display_name or state.panel_id):sub(1,15))
     local page_str = tostring(state.page or "overview"):upper()
-    pcall(monitor.setCursorPos, w - #page_str, 1)
-    pcall(monitor.write, page_str)
+    local left = (" CreateRailNet  " .. tostring(state.display_name or state.panel_id):sub(1, 15)):sub(1, math.max(0, w - #page_str - 1))
+    pcall(monitor.write, left)
+    pcall(monitor.setCursorPos, math.max(#left + 1, w - #page_str), 1)
+    pcall(monitor.write, page_str:sub(1, w - #left))
   end
   if has_color then
     pcall(monitor.setBackgroundColor, 32768)  -- black
@@ -57,13 +80,15 @@ local function render_overview(monitor, state)
   line(monitor, 5, "Overview")
   line(monitor, 6, "Blocks: " .. tostring(count_table(state.overview)))
   local row = 8
-  for block_id, block in pairs(state.overview or {}) do line(monitor, row, block_id .. " " .. tostring(block.state or "-")); row = row + 1 end
+  for _, block_id in ipairs(sorted_ids(state.overview)) do local block = state.overview[block_id]; line(monitor, row, block_id .. " " .. tostring(block.state or "-")); row = row + 1 end
 end
 
 local function render_trains(monitor, state)
   line(monitor, 5, "Trains")
   local row = 7
-  for train_id, train in pairs(state.trains or {}) do
+  for _, train_id in ipairs(sorted_ids(state.trains)) do
+    local train = state.trains[train_id]
+    hit(state, row, "train", train_id)
     line(monitor, row, train_id .. " " .. tostring(train.state or "-") .. " Sch " .. tostring(train.schedule_state or "-")); row = row + 1
     line(monitor, row, "  Route " .. tostring(train.route_id or "-") .. " Dest " .. tostring(train.destination or "-")); row = row + 1
     line(monitor, row, "  Plan " .. tostring(train.service_plan or "-") .. " Stop " .. tostring(train.service_stop_index or "-")); row = row + 1
@@ -74,7 +99,9 @@ end
 local function render_stations(monitor, state)
   line(monitor, 5, "Stations")
   local row = 7
-  for station_id, station in pairs(state.stations or {}) do
+  for _, station_id in ipairs(sorted_ids(state.stations)) do
+    local station = state.stations[station_id]
+    hit(state, row, "station", station_id)
     line(monitor, row, station_id .. " " .. tostring(station.station_type or "mixed") .. " " .. tostring(station.state or "-")); row = row + 1
     for platform_id, platform in pairs(station.platforms or {}) do line(monitor, row, "  " .. platform_id .. " " .. tostring(platform.kind or "mixed") .. " " .. tostring(platform.state or "-") .. " " .. tostring(platform.train_name or platform.train_id or "")); row = row + 1 end
   end

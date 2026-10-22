@@ -1,0 +1,84 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+local auth=require("src.shared.auth")
+local keyring=require("src.shared.keyring")
+local keystore=require("src.shared.keystore")
+local time=require("src.shared.time")
+
+local auth_setup={}
+
+auth_setup.OPEN_EVENTS={pair_announce=true,pair_probe=true,plan_get=true}
+auth_setup.OPEN_CMDS={pair_state=true,plan_part=true}
+
+local MODES={off=true,monitor=true,enforce=true}
+auth_setup.MODES=MODES
+
+function auth_setup.build(config,node_id,opts)
+opts=opts or{}
+local mode=config and config.auth_mode or "off"
+if not MODES[mode] then mode="enforce" end
+if mode=="off" then return nil end
+local logger=opts.logger
+local paths=opts.paths or{}
+local masters={}
+for _,id in ipairs(config.masters or{})do masters[#masters+1]=id end
+if config.master_id then masters[#masters+1]=config.master_id end
+local ring
+if opts.master then
+local master_record,master_err=keystore.load_master(paths.master,{fs=opts.fs})
+local trust,trust_err
+if opts.load_trust then trust,trust_err=opts.load_trust()else trust,trust_err=keystore.load_trust(paths.trust,{fs=opts.fs})end
+if master_record and trust then
+ring=keyring.master({id=node_id,master_key=master_record.key,trust=trust,masters=masters})
+elseif logger then
+logger.error("authentication: master key or trust list unusable",{master=master_err,trust=trust_err})
+end
+else
+local record,err=keystore.load_node(paths.node,{fs=opts.fs})
+if record and record.id==node_id then
+ring=keyring.node({id=node_id,key=record.key,epoch=record.epoch,masters=masters})
+elseif logger then
+logger.warn("authentication: no usable key file for this computer",{error=err or "key file belongs to " .. tostring(record and record.id)})
+end
+end
+ring=ring or(opts.master and keyring.master({id=node_id,master_key=nil,trust={nodes={}},masters=masters})or keyring.node({id=node_id,masters=masters}))
+local instance=auth.new({
+node_id=node_id,mode=mode,keyring=ring,now_ms=opts.now_ms or time.now_ms,entropy=opts.entropy,logger=logger,
+open_events=auth_setup.OPEN_EVENTS,open_cmds=auth_setup.OPEN_CMDS
+})
+instance.keyring_kind=ring.kind
+
+if opts.master and ring.set_trust then
+local known_rev=nil
+local current=(opts.load_trust and opts.load_trust())or keystore.load_trust(paths.trust,{fs=opts.fs})
+if current then known_rev=current.rev end
+function instance.reload_trust()
+local trust,err
+if opts.load_trust then trust,err=opts.load_trust()else trust,err=keystore.load_trust(paths.trust,{fs=opts.fs})end
+if not trust then
+if logger and known_rev~="error" then logger.error("authentication: trust list unreadable, the old one stays",{error=err})end
+known_rev="error"
+return false
+end
+if trust.rev==known_rev then return false end
+ring.set_trust(trust)
+known_rev=trust.rev
+if logger then logger.info("authentication: trust list reloaded",{rev=trust.rev})end
+return true
+end
+end
+return instance
+end
+
+return auth_setup

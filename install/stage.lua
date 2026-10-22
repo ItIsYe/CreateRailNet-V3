@@ -14,6 +14,9 @@ Notes: a file is written to <path>.tmp, read back, and moved over the old one (s
 
 local stage = {}
 
+-- the installer ships the minified copies in dist/ (scripts/build_dist.lua); size and checksum in the manifest are those of dist/
+stage.REMOTE_PREFIX = "dist/"
+
 -- journal, version file and a little more than the files themselves: a check that passes barely is worth nothing
 stage.SPACE_HEADROOM_BYTES = 12 * 1024
 local FETCH_ATTEMPTS = 4
@@ -45,7 +48,7 @@ function stage.new(env)
     local function kb(bytes) return math.ceil(bytes / 1000) end
     return false, string.format(
       "Der Speicher dieses Computers reicht nicht: gebraucht %d KB, frei %d KB (es fehlen %d KB). Nichts wurde veraendert. "
-        .. "Abhilfe: 'computer_space_limit' in der Serverkonfiguration erhoehen oder einen Computer mit mehr Platz nehmen.",
+        .. "Abhilfe: Platz schaffen (Logs und Spuren loeschen, andere Dateien entfernen). Ein Computer fasst fest 1 MB.",
       kb(needed), kb(available), kb(needed - available))
   end
 
@@ -76,7 +79,7 @@ function stage.new(env)
   function self.fetch(ref, path, entry)
     local last_err
     for attempt = 1, FETCH_ATTEMPTS do
-      local body, err = env.http.download_file(ref, path)
+      local body, err = env.http.download_file(ref, stage.REMOTE_PREFIX .. path)
       if not body then
         last_err = err
       else

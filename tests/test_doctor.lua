@@ -12,6 +12,7 @@ local prng = require("tests.harness.prng")
 local doctor = require("src.setup.doctor")
 local netplan = require("src.setup.netplan")
 local setup_status = require("src.shared.setup_status")
+local keystore = require("src.shared.keystore")
 local startup_template = require("src.shared.startup_template")
 local wizard = require("src.setup.wizard")
 
@@ -252,6 +253,29 @@ return {
     assert(level(report, "space") == "ok" or level(report, "space") == nil, "no limit: nothing to say")
   end,
 
+  test_nothing_asks_for_a_bigger_computer_but_a_short_update_room_is_said = function()
+    local master = { role = "master", id = "MASTER-1", devices = { MODEM, MONITOR } }
+    local c = computer(master)
+    c.fs.capacity = 1000000
+    local report = doctor.run({ fs = c.fs, peripheral = c.peripheral })
+    assert(level(report, "space_limit") == nil, "the limit of 1 MB is fixed: no advice to raise it")
+    for _, check in ipairs(report.checks or {}) do
+      local text = (check.title or "") .. (check.fix or "") .. (check.hint or "")
+      assert(not text:find("computer_space_limit", 1, true), check.id)
+    end
+    -- room for the files and the state, but not for an update
+    c.fs.set("filler.bin", string.rep("x", 1000000 - 500 - c.fs.used() - 20000 + 500))
+    local lvl = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota")
+    assert(lvl == "warn", tostring(lvl))
+    -- the setup files (the doctor itself is one) leave the computer when the tool is done: their bytes count as free
+    c.fs.set("src/setup/wizard.lua", string.rep("w", 90000))
+    c.fs.files["filler.bin"] = nil
+    c.fs.set("filler.bin", string.rep("x", 1000000 - c.fs.used() - 30000))
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota") == "warn", "without the record the wizard counts as program")
+    c.fs.set("crn_install.lua", 'return {\n  bundle = true,\n  bundle_files = {\n    "src/setup/wizard.lua",\n  },\n  files = {},\n}\n')
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota") == nil, "with the record the 90 KB are free after the tool")
+  end,
+
   test_a_startup_without_the_recovery_is_called_out = function()
     local spec = healthy_signal()
     spec.startup = 'local CRN_ROLE = "signal"\nlocal CRN_ID = "SIG-1"\nlocal CRN_CONFIG = "configs/network.json"\n'
@@ -488,5 +512,55 @@ return {
       worlds = worlds + 1
     end
     assert(worlds == 300)
+  end,
+
+  -- the keys of the message authentication ---------------------------------------------------------------------------
+
+  test_without_auth_mode_there_is_no_key_check_at_all = function()
+    local report = run(healthy_signal())
+    assert(level(report, "keys") == nil)
+    local spec = healthy_signal()
+    local cfg = netplan.short_plan(spec.role, { id = spec.id, role = spec.role, adapter = "peripheral", peripheral = "Create_Signal_0" }, 777, "MASTER-1")
+    cfg.auth_mode = "off"
+    spec.cfg = cfg
+    assert(level(run(spec), "keys") == nil)
+  end,
+
+  test_a_computer_in_enforce_mode_needs_its_key = function()
+    local function with_mode(mode, files)
+      local spec = healthy_signal()
+      local cfg = netplan.short_plan(spec.role, { id = spec.id, role = spec.role, adapter = "peripheral", peripheral = "Create_Signal_0" }, 777, "MASTER-1")
+      cfg.auth_mode = mode
+      spec.cfg = cfg
+      spec.files = files
+      return run(spec)
+    end
+    local lvl, check = level(with_mode("enforce"), "keys")
+    assert(lvl == "fail" and check.fix:find("keys.lua issue SIG-1", 1, true), "no key file in enforce mode must fail")
+    assert(level(with_mode("monitor"), "keys") == "warn")
+    local trust = { rev = 0, nodes = {} }
+    local record = keystore.issue(trust, string.rep("ab", 32), "SIG-1", "signal", 1)
+    local files = { [keystore.NODE_PATH] = keystore.node_body(record) }
+    assert(level(with_mode("enforce", files), "keys") == "ok")
+    lvl, check = level(with_mode("monitor", files), "keys")
+    assert(lvl == "warn" and check.fix:find("enforce", 1, true), "monitor mode says when to switch to enforce")
+    local other = keystore.issue(trust, string.rep("ab", 32), "SIG-9", "signal", 1)
+    lvl, check = level(with_mode("enforce", { [keystore.NODE_PATH] = keystore.node_body(other) }), "keys")
+    assert(lvl == "fail" and check.title:find("SIG-9", 1, true), "the key of another computer is a failure")
+  end,
+
+  test_a_master_in_enforce_mode_needs_master_key_and_a_readable_list = function()
+    local function master_with(files)
+      local cfg = netplan.short_plan("master", { id = "MASTER-1", role = "master" }, 777, "MASTER-1")
+      cfg.auth_mode = "enforce"
+      return run({ role = "master", id = "MASTER-1", cfg = cfg, files = files, devices = { MODEM, MONITOR } })
+    end
+    local lvl, check = level(master_with({}), "keys")
+    assert(lvl == "fail" and check.fix:find("keys.lua init", 1, true))
+    local files = { [keystore.MASTER_PATH] = '{"v":1,"key":"' .. string.rep("ab", 32) .. '"}' }
+    assert(level(master_with(files), "keys") == "ok", "a missing list is an empty list")
+    files[keystore.TRUST_PATH] = "garbage"
+    lvl, check = level(master_with(files), "keys")
+    assert(lvl == "fail" and check.title:find("beschaedigt", 1, true))
   end,
 }

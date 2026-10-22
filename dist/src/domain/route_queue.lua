@@ -1,0 +1,114 @@
+
+
+
+
+
+local time=require("src.shared.time")
+
+local route_queue={}
+
+function route_queue.new()
+local items={}
+local seq=0
+local self={}
+
+function self.push(request)
+seq=seq+1
+local item={
+seq=request.seq or seq,
+train_id=request.train_id,
+route_id=request.route_id,
+from=request.from,
+to=request.to,
+direction=request.direction,
+conflict_group=request.conflict_group,
+priority=request.priority or 0,
+base_priority=request.base_priority or request.priority or 0,
+attempts=(request.attempts or 0),
+blocked_by=request.blocked_by,
+queued_at=request.queued_at or time.now_s(),
+state="QUEUED",
+reason=request.reason,
+length=request.length
+}
+table.insert(items,item)
+return item
+end
+
+local last_reprioritize=0
+local REPRIORITIZE_INTERVAL=10
+
+function self.reprioritize(now,aging_step_s,aging_bonus)
+local clock=now or time.now_s()
+local step=aging_step_s or 30
+local bonus=aging_bonus or 1
+last_reprioritize=clock
+for _,item in ipairs(items)do
+local age_steps=math.floor((clock -(item.queued_at or clock))/step)
+item.priority=(item.base_priority or item.priority or 0)+(age_steps*bonus)+(item.attempts or 0)
+end
+end
+
+function self.pop()
+if#items==0 then return nil end
+local now=time.now_s()
+if now - last_reprioritize>=REPRIORITIZE_INTERVAL then
+self.reprioritize(now)
+end
+local best_index=1
+for i=2,#items do
+local best=items[best_index]
+local candidate=items[i]
+if candidate.priority>best.priority or(candidate.priority==best.priority and candidate.seq<best.seq)then best_index=i end
+end
+return table.remove(items,best_index)
+end
+
+function self.size()
+return#items
+end
+
+
+function self.remove_train(train_id)
+local removed=0
+for i=#items,1,-1 do
+if items[i].train_id==train_id then table.remove(items,i);removed=removed+1 end
+end
+return removed
+end
+
+
+function self.find(train_id,route_id)
+for _,item in ipairs(items)do
+if item.train_id==train_id and item.route_id==route_id then return item end
+end
+return nil
+end
+
+function self.list()
+local out={}
+for i,item in ipairs(items)do
+out[i]={
+seq=item.seq,
+train_id=item.train_id,
+route_id=item.route_id,
+from=item.from,
+to=item.to,
+direction=item.direction,
+conflict_group=item.conflict_group,
+priority=item.priority,
+base_priority=item.base_priority,
+attempts=item.attempts,
+blocked_by=item.blocked_by,
+queued_at=item.queued_at,
+state=item.state,
+reason=item.reason
+}
+end
+return out
+end
+
+return self
+end
+
+return route_queue

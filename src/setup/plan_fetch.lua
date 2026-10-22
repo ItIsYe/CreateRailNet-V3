@@ -15,6 +15,7 @@ Notes: everything that comes back is checked before it is used: the sender must 
   is fetched again (restarts); anything else that goes wrong is reported, never raised.
 ]]
 
+local storage_budget = require("src.shared.storage_budget")
 local cc_modem = require("src.adapter.cc_modem")
 local checksum = require("src.shared.checksum")
 local net = require("src.shared.net")
@@ -23,7 +24,7 @@ local netplan = require("src.setup.netplan")
 local plan_fetch = {}
 
 local MAX_PARTS = 60
-local MAX_BYTES = 200000
+local MAX_BYTES = storage_budget.PLAN_MAX_BYTES
 local MAX_PART_BYTES = 8192
 local DEFAULT_WAIT_S = 5
 local DEFAULT_ATTEMPTS = 3

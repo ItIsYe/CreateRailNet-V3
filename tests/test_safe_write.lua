@@ -123,5 +123,54 @@ return {
     assert(safe_write.read(path) == "beta")
     assert(safe_write.read(safe_write.backup_path(path)) == "alpha")
     os.remove(path); os.remove(path .. ".prev"); os.remove(path .. ".tmp")
-  end
+  end,
+
+  test_the_old_generation_gives_way_when_the_new_copy_would_not_fit = function()
+    local f = memfs()
+    local capacity = 2800
+    local function used(except, extra)
+      local total = extra or 0
+      for name, body in pairs(f.files) do if name ~= except then total = total + math.max(#body, 500) end end
+      return total
+    end
+    f.getFreeSpace = function() return math.max(0, capacity - used()) end
+    -- like CC:Tweaked: a write that does not fit raises and stores nothing
+    local plain_open = f.open
+    f.open = function(p, mode)
+      local handle = plain_open(p, mode)
+      if mode ~= "r" and handle then
+        local close = handle.close
+        local buf = {}
+        local write = handle.write
+        handle.write = function(s) buf[#buf + 1] = s; write(s) end
+        handle.close = function()
+          local size = #table.concat(buf)
+          if used(p, math.max(size, 500)) > capacity then f.files[p] = nil; error("Out of space", 0) end
+          close()
+        end
+      end
+      return handle
+    end
+    local old = string.rep("a", 1000)
+    f.files["state/x.json"], f.files["state/x.json.prev"] = old, string.rep("b", 1000)
+    -- free: 1000; a new copy of 900 bytes fits next to the current one only without .prev
+    local new = string.rep("c", 900)
+    assert(safe_write.write("state/x.json", new, { fs = f }))
+    assert(f.files["state/x.json"] == new)
+    assert(f.files["state/x.json.prev"] == nil, "no backup generation while the space is short: the peak is two files, not three")
+    assert(f.files["state/x.json.tmp"] == nil)
+    -- with room the backup is the one that was current
+    capacity = 5000
+    f.files["state/x.json"], f.files["state/x.json.prev"] = old, nil
+    assert(safe_write.write("state/x.json", new, { fs = f }))
+    assert(f.files["state/x.json.prev"] == old)
+  end,
+
+  test_with_room_enough_both_generations_stay = function()
+    local f = memfs()
+    f.getFreeSpace = function() return 900000 end
+    f.files["state/x.json"], f.files["state/x.json.prev"] = "one", "zero"
+    assert(safe_write.write("state/x.json", "two", { fs = f }))
+    assert(f.files["state/x.json.prev"] == "one")
+  end,
 }

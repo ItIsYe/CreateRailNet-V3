@@ -67,11 +67,18 @@ local dbg = require("src.tools.debug_events")
 dbg.run({ kind = "train_arrived", train_id = "TRAIN-1", station = "ST-B" })
 ```
 
+## Keys
+
+`scripts/keys.lua` handles the keys of the message authentication (`docs/KEYS.md`): `init`, `issue <id>`, `revoke <id>`, `list`, `export-master`, `import-master`, `install --id <id>`, `status`.
+Keys travel on a disk in a disk drive or are typed; the tool names a fingerprint on both sides and never prints a key unless asked to (issue without a disk).
+
 ## Scripts
 
 | Script | Purpose |
 |---|---|
 | `installer` | one-line installer: `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer` (`docs/INSTALL.md`) |
+| `installer --setup` / `installer --slim` | fetches / removes the setup bundle (wizard, doctor, key tool, planner); `scripts/setup.lua`, `keys.lua` and `auth_bench.lua` do it by themselves |
+| `scripts/build_dist.lua --write\|--check` | writes / checks `dist/`, the minified copy of every installed file (run before `manifest_sync.lua`) |
 | `scripts/manifest_sync.lua --write\|--check` | regenerates / checks `install/manifest.lua`, the installer's file list (after changing any installed file) |
 | `scripts/setup.lua [--role R]` | the setup wizard of one computer: role, network plan (`configs/network.json`), id, hardware, summary; writes `startup.lua` (`docs/INGAME_SETUP.md`) |
 | `scripts/setup.lua --check [file]` | checks a network plan (default `configs/network.json`) on the computer and names every problem; changes nothing |
