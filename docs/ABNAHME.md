@@ -3,7 +3,7 @@
 Erzeugt von `lua5.4 scripts/acceptance_report.lua --write` aus `tests/acceptance/matrix.lua`; nicht von Hand bearbeiten.
 
 Stand: 120 Faelle, davon NOT_RUN 120, PASS 0, FAIL 0, BLOCKED 0.
-Offline belegt (Logik): 72, teilweise: 42, nur im Spiel: 6. **Offline belegt heisst nicht bestanden:** jeder Fall braucht den Lauf im Spiel mit Nachweis.
+Offline belegt (Logik): 77, teilweise: 38, nur im Spiel: 5. **Offline belegt heisst nicht bestanden:** jeder Fall braucht den Lauf im Spiel mit Nachweis.
 Erreichte Freigabestufe: **NONE** (G1 not reached: 10 case(s) not PASS (A-01=NOT_RUN, A-02=NOT_RUN, A-03=NOT_RUN, A-04=NOT_RUN, A-05=NOT_RUN, ...)).
 
 ## Freigabestufen
@@ -60,7 +60,7 @@ Erreichte Freigabestufe: **NONE** (G1 not reached: 10 case(s) not PASS (A-01=NOT
 | D-07 | Takt plus fixe Abfahrten | Keine doppelte Fahrt-ID | OFFLINE | test_fleet_timetable.lua, test_fleet_engine.lua | NOT_RUN |
 | D-08 | Verpasste Starts nach Downtime | Keine unkontrollierten Nachholfahrten | OFFLINE | test_fleet_timetable.lua | NOT_RUN |
 | D-09 | Alle sechs Prioritaetsklassen | Richtige Reihenfolge und FIFO/Anti-Starvation | OFFLINE | test_fleet_priority.lua | NOT_RUN |
-| D-10 | Laufenden Fahrplan aendern | Wechsel nur am sicheren programmierbaren Punkt | PARTIAL | test_fleet_timetable.lua | NOT_RUN |
+| D-10 | Laufenden Fahrplan aendern | Wechsel nur am sicheren programmierbaren Punkt | PARTIAL | test_fleet_timetable.lua, test_fleet_admin.lua | NOT_RUN |
 | E-01 | Fuehrenden Master abschalten | Gueltige Neuwahl, keine alte Berechtigung | OFFLINE | test_election.lua, test_ha_integration.lua | NOT_RUN |
 | E-02 | Standby-Master abschalten | Keine neuen freigabewirksamen Dual-Commit-Operationen | OFFLINE | test_dual_commit.lua | NOT_RUN |
 | E-03 | Schiedsrichter abschalten | Fuehrung A+B moeglich, wenn beide bereit | OFFLINE | test_election.lua | NOT_RUN |
@@ -86,19 +86,19 @@ Erreichte Freigabestufe: **NONE** (G1 not reached: 10 case(s) not PASS (A-01=NOT
 | G-01 | Mehrere Train Stations pro Bahnhof | Eindeutige gleisgenaue Zuordnung | PARTIAL | test_station_apply_schedule.lua | NOT_RUN |
 | G-02 | Alternatives Bahnhofsgleis | Nur bestaetigte passende Einfahrt | OFFLINE | test_dispatcher_proof.lua | NOT_RUN |
 | G-03 | Zwei Zuege, ein Depotgleis | Exklusive Belegung/Reservierung | OFFLINE | test_track_choice.lua | NOT_RUN |
-| G-04 | Depot vollstaendig belegt | Kein planmaessiger Zufahrtsstau | OFFLINE | test_track_choice.lua | NOT_RUN |
-| G-05 | Vollbeladungsregel | Fracht tatsaechlich bestaetigt | OFFLINE | test_fleet_cargo.lua | NOT_RUN |
+| G-04 | Depot vollstaendig belegt | Kein planmaessiger Zufahrtsstau | OFFLINE | test_track_choice.lua, test_fleet_engine.lua | NOT_RUN |
+| G-05 | Vollbeladungsregel | Fracht tatsaechlich bestaetigt | OFFLINE | test_fleet_cargo.lua, test_cargo_meter.lua | NOT_RUN |
 | G-06 | Mindestteilmenge | Schwelle tatsaechlich bestaetigt | OFFLINE | test_fleet_cargo.lua | NOT_RUN |
 | G-07 | Zeitgesteuerte Abfahrt ohne Warenbeweis | Unbekannte Ladung nicht gutgeschrieben | OFFLINE | test_fleet_cargo.lua | NOT_RUN |
 | G-08 | Teilentladung | Nur tatsaechlich nachgewiesene Menge geliefert | OFFLINE | test_fleet_cargo.lua | NOT_RUN |
 | G-09 | Doppelte Warenmeldung | Keine doppelte Buchung | OFFLINE | test_fleet_cargo.lua | NOT_RUN |
-| G-10 | Ladestellenausfall | Kein fingierter Ladestatus | PARTIAL | test_fleet_cargo.lua | NOT_RUN |
+| G-10 | Ladestellenausfall | Kein fingierter Ladestatus | OFFLINE | test_fleet_cargo.lua, test_cargo_meter.lua, test_fleet_engine.lua | NOT_RUN |
 | G-11 | Abbruch mit bereits geladener Fracht | Rest und Standort nachvollziehbar | PARTIAL | test_fleet_cargo.lua | NOT_RUN |
-| G-12 | Depotfahrt | Geeignetes Abstellgleis und Masterfreigabe | PARTIAL | test_track_choice.lua | NOT_RUN |
-| H-01 | Mehrere Monitore am Panel-PC | Unterschiedliche Ansichten gleichzeitig | PARTIAL | test_panel_monitors.lua | NOT_RUN |
-| H-02 | Verknuepfte Monitorgruppe | Gemeinsame Auswahl ohne extra Steuerung | OFFLINE | test_panel_monitors.lua | NOT_RUN |
+| G-12 | Depotfahrt | Geeignetes Abstellgleis und Masterfreigabe | OFFLINE | test_track_choice.lua, test_fleet_engine.lua | NOT_RUN |
+| H-01 | Mehrere Monitore am Panel-PC | Unterschiedliche Ansichten gleichzeitig | PARTIAL | test_panel_display.lua, test_panel_node_multi.lua | NOT_RUN |
+| H-02 | Verknuepfte Monitorgruppe | Gemeinsame Auswahl ohne extra Steuerung | OFFLINE | test_panel_monitors.lua, test_panel_display.lua | NOT_RUN |
 | H-03 | Unabhaengiger Monitor | Keine ungewollte Gruppenkopplung | OFFLINE | test_panel_monitors.lua | NOT_RUN |
-| H-04 | Verschiedene Monitorgroessen | Bedienung, Zeichnung und Touch korrekt | GAME | - | NOT_RUN |
+| H-04 | Verschiedene Monitorgroessen | Bedienung, Zeichnung und Touch korrekt | PARTIAL | test_panel_display.lua | NOT_RUN |
 | H-05 | Halbautomatisch erzeugtes Gleisbild | Nur bestaetigte Topologieobjekte | OFFLINE | test_panel_diagram.lua | NOT_RUN |
 | H-06 | Layout manuell bearbeiten | Sicherheitsgraph bleibt unveraendert | OFFLINE | test_panel_diagram.lua | NOT_RUN |
 | H-07 | Layoutentwurf speichern | Laufende Anzeige unveraendert | OFFLINE | test_panel_diagram.lua | NOT_RUN |
@@ -106,12 +106,12 @@ Erreichte Freigabestufe: **NONE** (G1 not reached: 10 case(s) not PASS (A-01=NOT
 | H-09 | Offline Gleisbild/Fahrplan bearbeiten | Entwurf lokal gespeichert | OFFLINE | test_panel_offline.lua | NOT_RUN |
 | H-10 | Reconnect nach Offline-Aenderung | Versionspruefung, Rechte und erneute Bestaetigung | OFFLINE | test_panel_offline.lua | NOT_RUN |
 | H-11 | Master-Daten veraltet | Kein Anzeige-Freibeweis | OFFLINE | test_panel_offline.lua, test_panel_fault_center.lua | NOT_RUN |
-| H-12 | Gleichzeitige Bedienung zweier Panels | Versionskonflikt erkannt, kein Doppelauftrag | PARTIAL | test_fleet_engine.lua | NOT_RUN |
-| H-13 | 300+ Signalobjekte zeichnen | Keine fehlerhaften Zustands-/ID-Verknuepfungen | PARTIAL | test_load_signals.lua | NOT_RUN |
-| H-14 | Monitor im Betrieb entfernen | Andere Anzeigen und Betrieb bleiben funktionsfaehig | PARTIAL | test_panel_monitors.lua | NOT_RUN |
+| H-12 | Gleichzeitige Bedienung zweier Panels | Versionskonflikt erkannt, kein Doppelauftrag | OFFLINE | test_fleet_admin.lua, test_panel_node_multi.lua | NOT_RUN |
+| H-13 | 300+ Signalobjekte zeichnen | Keine fehlerhaften Zustands-/ID-Verknuepfungen | PARTIAL | test_load_signals.lua, test_panel_display.lua | NOT_RUN |
+| H-14 | Monitor im Betrieb entfernen | Andere Anzeigen und Betrieb bleiben funktionsfaehig | OFFLINE | test_panel_monitors.lua, test_panel_display.lua | NOT_RUN |
 | I-01 | Update automatisch vorbereiten | Aktivierung verlangt ausdrueckliche Bestaetigung | OFFLINE | test_update_control.lua | NOT_RUN |
-| I-02 | Unberechtigte Updateanforderung | Empfangende Node lehnt ab | OFFLINE | test_update_package.lua, test_updater.lua | NOT_RUN |
-| I-03 | Manipuliertes Paket | Authentizitaet/Integritaet scheitert | OFFLINE | test_update_package.lua | NOT_RUN |
+| I-02 | Unberechtigte Updateanforderung | Empfangende Node lehnt ab | OFFLINE | test_update_package.lua, test_updater.lua, test_update_trust.lua | NOT_RUN |
+| I-03 | Manipuliertes Paket | Authentizitaet/Integritaet scheitert | OFFLINE | test_update_package.lua, test_update_trust.lua | NOT_RUN |
 | I-04 | Update bei betroffener aktiver Fahrt | Unzulaessiger Neustart verhindert | OFFLINE | test_update_control.lua | NOT_RUN |
 | I-05 | Master-A/B einzeln aktualisieren | Keine Freigabe ohne vorgeschriebene Bestaetigung | OFFLINE | test_update_control.lua | NOT_RUN |
 | I-06 | Flottenpartner aktualisieren | Kein Doppelauftrag, kein Partnerwechsel | OFFLINE | test_update_control.lua | NOT_RUN |
@@ -119,7 +119,7 @@ Erreichte Freigabestufe: **NONE** (G1 not reached: 10 case(s) not PASS (A-01=NOT
 | I-08 | Fehler nach Update, Rollback | Kein altes Sicherheitsjournal blind eingespielt | OFFLINE | test_update_control.lua | NOT_RUN |
 | I-09 | Inkompatible Schema-Migration | Kein automatischer Betrieb | OFFLINE | test_update_package.lua | NOT_RUN |
 | I-10 | Wartungssperre ueber Neustart | Sperre bleibt wirksam | OFFLINE | test_op_state.lua | NOT_RUN |
-| I-11 | Signalcontroller tauschen | Neue physische Zuordnung/Identitaet bestaetigt | OFFLINE | test_replacement.lua | NOT_RUN |
+| I-11 | Signalcontroller tauschen | Neue physische Zuordnung/Identitaet bestaetigt | OFFLINE | test_replacement.lua, test_replacement_flow.lua | NOT_RUN |
 | I-12 | Panel-Node aktualisieren | Andere Nodes unabhaengig funktionsfaehig | OFFLINE | test_update_control.lua | NOT_RUN |
 | J-01 | 300+ Signale aktiv | Keine falschen Zuordnungen oder Fahrfreigaben | PARTIAL | test_load_signals.lua | NOT_RUN |
 | J-02 | 400 Signale im Stresstest | Queue-/Speichergrenzen eingehalten | PARTIAL | test_load_signals.lua | NOT_RUN |
@@ -133,9 +133,9 @@ Erreichte Freigabestufe: **NONE** (G1 not reached: 10 case(s) not PASS (A-01=NOT
 | J-10 | Serverneustart unter Last | Kein Doppelbefehl oder Phantom-Raeumungsnachweis | PARTIAL | test_fleet_engine.lua, test_dispatcher_proof.lua | NOT_RUN |
 | E2E-01 | Manuelle Personenfahrt nach Bahnhof Sued | Ohne verfruehte Freigabe, Doppelausfuehrung oder unbestaetigte Blockraeumung | PARTIAL | test_fleet_e2e.lua | NOT_RUN |
 | E2E-02 | Zwei konkurrierende Personenfahrten, Zielbahnhof belegt | Halt an bestaetigter Warteposition, spaeter Freigabe, keine Deadlock-Kollision | PARTIAL | test_plan_builder_sim.lua, test_deadlock.lua | NOT_RUN |
-| E2E-03 | Gueterzug mit Teilbeladung, Zeitfenster, Masterausfall, Teilentladung | Nur nachgewiesene Menge buchen, offene Mengen erhalten | PARTIAL | test_fleet_cargo.lua, test_fleet_engine.lua | NOT_RUN |
+| E2E-03 | Gueterzug mit Teilbeladung, Zeitfenster, Masterausfall, Teilentladung | Nur nachgewiesene Menge buchen, offene Mengen erhalten | PARTIAL | test_fleet_cargo.lua, test_fleet_engine.lua, test_fleet_engine.lua | NOT_RUN |
 | E2E-04 | Master A faellt nach Reservierungscommit vor bestaetigtem setSchedule aus | Nach Wiederherstellung kein doppelter Fahrplan- oder Reservierungsbefehl | PARTIAL | test_fleet_engine.lua, test_dual_commit.lua | NOT_RUN |
-| E2E-05 | Panel offline, parallele Fahrplanaenderung, Entwurf, Reconnect | Konfliktpruefung und bewusste Neuveroeffentlichung ohne unkontrollierte Fahrt | PARTIAL | test_panel_offline.lua, test_panel_offline.lua | NOT_RUN |
+| E2E-05 | Panel offline, parallele Fahrplanaenderung, Entwurf, Reconnect | Konfliktpruefung und bewusste Neuveroeffentlichung ohne unkontrollierte Fahrt | OFFLINE | test_panel_node_multi.lua, test_fleet_admin.lua, test_panel_offline.lua, test_panel_offline.lua | NOT_RUN |
 | E2E-06 | Neue Signal-Node/Bahnhofseinmuendung im Betrieb | Unabhaengige Bereiche nur bei globaler Bereitschaft aktiv; geaenderter Bereich gesperrt bis Abnahme | PARTIAL | test_occupancy.lua, test_op_state.lua | NOT_RUN |
 | E2E-07 | Rollen-/Schluesselwechsel und Update einer Signal-Node | Fremdcomputer ohne Peripheralzugriff; Update nach Bestaetigung; Recovery | PARTIAL | test_replacement.lua, test_update_control.lua | NOT_RUN |
 | E2E-08 | Komplettneustart aller Computer mit mehreren Zuegen in der Welt | Keine alte Befehlswiederholung; offene Reservierungen und unbekannte Teilstrecken geschuetzt | PARTIAL | test_e2e_offline.lua, test_dispatcher_proof.lua | NOT_RUN |

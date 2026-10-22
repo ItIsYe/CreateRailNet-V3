@@ -135,6 +135,28 @@ return {
     assert(not w.devices.monitor_0.text():find("[Halten]", 1, true))
   end,
 
+  test_a_train_of_a_pair_can_be_sent_to_a_depot_of_that_pair_from_the_train_detail = function()
+    local w = world({ monitor_0 = { 51, 19 } })
+    bind(w, "A", "monitor_0", "trains")
+    local state = {}
+    for k, v in pairs(STATE) do state[k] = v end
+    state.fleet = { train_pair = { T1 = "P1" }, depots = { DEP1 = "P1", DEP9 = "P2" }, lines = {}, trips = {}, pairs = {}, results = {} }
+    local d = multi_display.new({ registry = w.registry, model = function() return state end, level = "operate", now = function() return 105 end })
+    d.refresh(); d.touch("monitor_0", 3, 7)
+    d.set_view("A", "train_detail"); d.refresh()
+    local text = w.devices.monitor_0.text()
+    assert(text:find("[In Depot DEP1]", 1, true) and not text:find("DEP9", 1, true), (text:gsub("\n", "|")))
+    local x, y
+    for row = 1, 19 do local found = (w.devices.monitor_0.rows[row] or ""):find("[In Depot DEP1]", 1, true); if found then x, y = found, row end end
+    local result = d.touch("monitor_0", x + 2, y)
+    assert(result.action.action == "depot_run" and result.action.pair_id == "P1" and result.action.train_id == "T1" and result.action.depot == "DEP1")
+    local viewer = multi_display.new({ registry = w.registry, model = function() return state end, level = "view", now = function() return 105 end })
+    viewer.set_view("A", "trains"); viewer.refresh(); viewer.touch("monitor_0", 3, 7)
+    viewer.set_view("A", "train_detail"); viewer.refresh()
+    assert(w.devices.monitor_0.text():find("Zug T1", 1, true), "the viewer has the train selected")
+    assert(not w.devices.monitor_0.text():find("In Depot", 1, true))
+  end,
+
   test_a_monitor_that_is_removed_or_breaks_does_not_stop_the_others = function()
     local w = world({ monitor_0 = { 51, 19 }, monitor_1 = { 51, 19 } })
     bind(w, "A", "monitor_0", "overview"); bind(w, "B", "monitor_1", "overview")
@@ -145,6 +167,7 @@ return {
     w.devices.monitor_1.broken = true
     local again = d.refresh()
     assert(#again.drawn == 0 and #again.missing == 2, "a monitor that fails while drawing is reported, not thrown")
+    assert(again.errors.B:find("monitor gone", 1, true), "and the reason is kept")
   end,
 
   test_views_above_the_level_are_refused_and_not_drawn = function()
@@ -156,6 +179,35 @@ return {
     local m = monitor(51, 19)
     views.render("maintenance", m, { state = STATE, level = "view", age_s = 1 })
     assert(m.text():find("fehlt das Recht", 1, true) and not m.text():find("Reason", 1, true))
+  end,
+
+  test_a_monitor_falls_back_to_the_overview_when_the_level_drops_and_audit_is_for_admin_only = function()
+    local w = world({ monitor_0 = { 51, 19 } })
+    bind(w, "A", "monitor_0", "audit")
+    local level = "admin"
+    local d = multi_display.new({ registry = w.registry, model = function() return STATE end, level = function() return level end, now = function() return 105 end })
+    d.refresh()
+    assert(d.view_of("A") == "audit" and w.devices.monitor_0.text():find("AUDIT", 1, true))
+    level = "operate"
+    d.refresh()
+    assert(d.view_of("A") == "overview", "the level dropped: the monitor shows what the level allows")
+    local m = monitor(51, 19)
+    views.render("audit", m, { state = STATE, level = "operate", age_s = 1 })
+    assert(m.text():find("fehlt das Recht (admin)", 1, true), "the page table decides for the views that have no check of their own")
+  end,
+
+  test_a_monitor_in_a_group_keeps_the_line_of_the_timetable_to_itself = function()
+    local w = world({ monitor_0 = { 51, 19 }, monitor_1 = { 51, 19 } })
+    bind(w, "A", "monitor_0", "timetable"); bind(w, "B", "monitor_1", "timetable")
+    assert(w.registry.define_group("G", { "A", "B" }))
+    local state = {}
+    for k, v in pairs(STATE) do state[k] = v end
+    state.fleet = { lines = { L1 = { version = 1, kind = "PASSENGER", headway_min = 10, window = { from = "06:00", to = "22:00" }, pair_id = "P1" } }, trips = {}, pairs = {}, results = {} }
+    local d = multi_display.new({ registry = w.registry, model = function() return state end, level = "view", now = function() return 105 end })
+    d.refresh()
+    local result = d.touch("monitor_0", 3, 4)
+    assert(result.selected and result.selected.key == "line")
+    assert(d.selection_of("A", "line") == "L1" and d.selection_of("B", "line") == nil, "a group shares train, station and section, not the line")
   end,
 
   test_old_data_is_labelled_and_never_drawn_as_current = function()

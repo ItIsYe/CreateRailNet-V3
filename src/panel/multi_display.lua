@@ -1,7 +1,7 @@
 --[[
 Purpose: Draws the views on every monitor of a panel computer and handles their touches (Gesamtkonzept Kap. 11.1, Pruefplan H-01 bis H-04, H-14).
 Public API: new({ registry, model () -> state, level, layout () -> layout | nil, faults () -> list, editor () -> the timetable editor, op_text () -> text, now, stale_after_s, fallback }) -> display.
-  display.refresh() -> report { drawn = {ids}, missing = {ids} }       draws every bound monitor; one that is gone or fails is reported and skipped, the others go on (H-14)
+  display.refresh() -> report { drawn = {ids}, missing = {ids}, errors = { id -> text of the error } }       draws every bound monitor; one that is gone or fails is reported and skipped, the others go on (H-14)
   display.touch(peripheral_name, x, y) -> result | nil        result = { monitor, view = nil | name, selected = nil | { key, value }, edit = nil | { cmd, field, delta ... } (a button of the timetable editor), action = nil | { action, ... the parameters of the button (train_id, node_id, matches) } }; the top three rows change the view, a row of a list selects its entry
   display.view_of(id) / display.set_view(id, view) -> ok, err        the view of one monitor; an unknown view or one above the level of the panel is refused
   display.selection_of(id, key)        the selection of the group of that monitor, or the own one of a monitor that is in no group (no coupling, H-03)
@@ -46,7 +46,7 @@ function multi_display.new(opts)
   end
 
   function self.refresh()
-    local report = { drawn = {}, missing = {} }
+    local report = { drawn = {}, missing = {}, errors = {} }
     local state = opts.model()
     local age = state.last_update and state.last_update > 0 and (now() - state.last_update) or nil
     for _, record in ipairs(registry.list()) do
@@ -69,6 +69,7 @@ function multi_display.new(opts)
           report.drawn[#report.drawn + 1] = record.logical_id
         else
           report.missing[#report.missing + 1] = record.logical_id
+          report.errors[record.logical_id] = tostring(hits)     -- a monitor that went away and a view with a bug look the same from outside: the text tells them apart
           s.hits = {}
         end
       end

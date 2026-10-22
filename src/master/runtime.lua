@@ -38,6 +38,7 @@ function master_runtime.new(context)
     maintenance = context.maintenance,
     ota = context.ota,
     update_control = context.update_control,
+    aux = context.aux,
     replacement = context.replacement,
     signal_reports = {},
     fleet_reports = {}, fleet_results = {}, fleet_result_order = {},
@@ -337,6 +338,10 @@ function master_runtime.new(context)
       for id, line in pairs(entry.report.lines or {}) do line.pair_id = pair_id; fleet.lines[id] = line end
       for id, trip in pairs(entry.report.trips or {}) do trip.pair_id = pair_id; fleet.trips[id] = trip end
       for id, order in pairs(entry.report.cargo or {}) do cargo[id] = order end
+      fleet.train_pair = fleet.train_pair or {}
+      for _, train_id in ipairs(entry.report.trains or {}) do fleet.train_pair[train_id] = pair_id end
+      fleet.depots = fleet.depots or {}
+      for _, depot_id in ipairs(entry.report.depots or {}) do fleet.depots[depot_id] = pair_id end
     end
     built.fleet, built.cargo = fleet, cargo
     if runtime.replacement then
@@ -899,6 +904,9 @@ function master_runtime.new(context)
   end)
 
   if runtime.ota and runtime.ota.tick then runtime.ticker.every("ota", 1, runtime.ota.tick) end
+
+  -- Master-AUX: a reduced error view on a monitor of its own, drawn under pcall so that nothing in it can stop the master
+  if runtime.aux then runtime.ticker.every("aux", 2, function() pcall(runtime.aux.draw) end) end
 
   -- the list of alerts follows the state of the network; one pass over nodes and blocks every 2 s
   if runtime.alerts then

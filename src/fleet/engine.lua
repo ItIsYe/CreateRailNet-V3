@@ -1,14 +1,15 @@
 --[[
 Purpose: The fleet engine: orders become trips, a trip goes from the request to the proven clearance of the tail, and nothing moves without the proofs of Gesamtkonzept Kap. 24.1.
-Public API: new(opts) -> engine. opts: id, pair_id, profiles, timetable, pairs, now() (seconds), ids_prefix, platforms (station -> list of platform records of src/domain/track_choice.lua), is_free(block),
+Public API: new(opts) -> engine. opts: id, pair_id, profiles, timetable, pairs, now() (seconds), ids_prefix, platforms (station -> list of platform records of src/domain/track_choice.lua), depots (depot -> { tracks = { { id, block, length, confirmed, preferred, routes = { origin station -> route id } } } }), depot_circuit (an approved circuit route), is_free(block),
   route_timeout_s (120), apply_timeout_s (30), depart_timeout_s (120), retry_s (30), max_refusals (5), cargo_may_check(person).
   engine.tick()                          advance the clock: timetable -> orders, orders -> trips, trips -> next step, timeouts
   engine.event(ev)                       what the world says (see below)
   engine.take_outbox() -> messages       what the fleet asks the world to do (the node sends them reliably)
   engine.request(spec) -> ok, trip_id    a manual request: a wish in NEW_REQUEST, handled like every other order
-  engine.cancel(trip_id, who), engine.create_cargo_order(spec), engine.cargo_summary(order_id), engine.trip(id), engine.trips(), engine.trip_for_order(order_id), engine.queue_size(), engine.status(), engine.report()
+  engine.request_depot(spec) -> ok, trip_id    a train goes to a depot: the track is chosen by src/domain/track_choice.lua (full depot -> another depot -> approved circuit -> hold and report)
+  engine.cancel(trip_id, who), engine.station_of(train_id), engine.cargo_measure(ev), engine.unmatched_measures(), engine.create_cargo_order(spec), engine.cargo_summary(order_id), engine.trip(id), engine.trips(), engine.trip_for_order(order_id), engine.queue_size(), engine.status(), engine.report()
   engine.snapshot() / engine.restore(snapshot)
-Events in: station_train, route_committed, route_eligible, route_refused, schedule_applied, departure_observed, position, arrival_observed, tail_clear, safe_stop_reached, reconstruction, cargo.
+Events in: cargo_measure (a loading point measured), station_train, route_committed, route_eligible, route_refused, schedule_applied, departure_observed, position, arrival_observed, tail_clear, safe_stop_reached, reconstruction, cargo.
 Messages out: route_request, apply_schedule, hold_at_waiting_point, reconstruct_request, release_reservation, trip_complete.
 Notes: new automatic activity needs a healthy pair (src/fleet/pairs.lua); the orders wait in their queue. The schedule is applied exactly once per trip: a lost answer makes the trip UNCERTAIN and is
   reconstructed from observations, never repeated blindly. A route that is refused makes the trip wait and ask again with a new command id, and after max_refusals the trip is a fault. A restored
@@ -37,6 +38,7 @@ function engine.new(opts)
   local ids = trip_module.ids({ prefix = opts.ids_prefix or "F" })
   local cargo = cargo_ledger.new({ may_check = opts.cargo_may_check })
   local trips, by_id = {}, {}
+  local at_station = {}      -- train id -> the station it was last seen standing at (not kept over a restart: a train that is not seen again is not guessed)
   local outbox = {}
   local auto_blocked = nil
   local route_timeout, apply_timeout, depart_timeout = opts.route_timeout_s or 120, opts.apply_timeout_s or 30, opts.depart_timeout_s or 120
@@ -160,6 +162,45 @@ function engine.new(opts)
         return
       end
     end
+    if state == "STATION_CONFIRMED" and t.goal_kind == "depot" then
+      -- a depot run: the track is chosen like a platform, a full depot leads to another one, then to an approved circuit, else the train waits at a safe waiting point and the fault is reported
+      local profile = profiles.get(t.assigned_train)
+      local depots = {}
+      for id, depot in pairs(opts.depots or {}) do depots[#depots + 1] = { id = id, tracks = depot.tracks or depot } end
+      local choice = track_choice.choose_depot(depots, { length = profile and profile.length, direction = t.direction, prefer = t.depot_wanted or t.goal, circuit = opts.depot_circuit }, { is_free = opts.is_free })
+      if choice.kind == "TRACK" then
+        local track
+        for _, depot in ipairs(depots) do
+          if depot.id == choice.depot then for _, candidate in ipairs(depot.tracks) do if candidate.id == choice.track then track = candidate end end end
+        end
+        local route = track and track.routes and track.routes[t.origin]
+        if not route then
+          trip_module.fault(t, "no route from " .. tostring(t.origin) .. " to track " .. tostring(choice.track) .. " of depot " .. tostring(choice.depot))
+          return
+        end
+        t.depot_wanted = t.depot_wanted or t.goal
+        t.goal, t.platform, t.platform_block, t.route_id = choice.depot, choice.track, track.block, route
+        t.depot_alternative = choice.alternative
+        t.hold_reason = nil
+        trip_module.advance(t, "TARGET_PLATFORM_ASSIGNED")
+        state = t.state
+      elseif choice.kind == "SAFE_ROUTE" then
+        t.route_id = choice.route
+        t.hold_reason = "every depot is full: the approved circuit " .. tostring(choice.route) .. " is used"
+        trip_module.advance(t, "TARGET_PLATFORM_ASSIGNED")
+        state = t.state
+      else
+        t.hold_reason = choice.reason
+        if tostring(choice.reason):find("no track in any depot fits", 1, true) then
+          trip_module.fault(t, choice.reason)
+        else
+          trip_module.wait(t, choice.reason)
+          t.retry_at = now() + retry_s
+          send({ type = "hold_at_waiting_point", trip_id = t.trip_id, train_id = t.assigned_train, station = t.origin, reason = choice.reason })
+        end
+        return
+      end
+    end
     if state == "STATION_CONFIRMED" then
       local profile = profiles.get(t.assigned_train)
       local best, _, _, wait = track_choice.choose_platform((opts.platforms or {})[t.goal] or {}, { length = profile and profile.length, train_type = t.train_class, direction = t.direction }, { is_free = opts.is_free })
@@ -226,7 +267,11 @@ function engine.new(opts)
       profiles.seen(ev.create_name or ev.train_id)
       return
     end
-    if not ev.present then return end
+    if not ev.present then
+      if at_station[profile.immutable_id] == ev.station then at_station[profile.immutable_id] = nil end
+      return
+    end
+    at_station[profile.immutable_id] = ev.station
     for _, t in ipairs(trips) do
       if t.state == "TRAIN_CANDIDATE" and t.assigned_train == profile.immutable_id and t.origin == ev.station then trip_module.advance(t, "STATION_CONFIRMED") end
     end
@@ -303,12 +348,36 @@ function engine.new(opts)
       cargo.report({ order_id = ev.order_id, shipment_id = ev.shipment_id, kind = ev.kind, qty = ev.qty, quality = ev.quality, ref = ev.ref, by = ev.by })
       return
     end
+    if ev.type == "cargo_measure" then return self.cargo_measure(ev) end
     local handler = handlers[ev.type]
     if not handler then return end
     if ev.type == "station_train" then return handler(ev) end
     local t = ev.trip_id and by_id[ev.trip_id]
     if t then handler(ev, t) end
   end
+
+  -- a loading point reports what it measured (src/domain/cargo_meter.lua): it is booked on the trip of the train that stood there, with the quality of the measurement, or kept as unmatched; a failed
+  -- measurement books nothing and holds the trip with the reason (a loading point that fails is not a loaded train)
+  local unmatched = {}
+  function self.cargo_measure(ev)
+    local match
+    for _, t in ipairs(trips) do
+      if t.cargo_order_id and not trip_module.is_final(t.state) and t.assigned_train == ev.train_id then match = t end
+    end
+    if not match then
+      unmatched[#unmatched + 1] = { station = ev.station, platform = ev.platform, train_id = ev.train_id, kind = ev.kind, qty = ev.qty, reason = ev.reason }
+      if #unmatched > 10 then table.remove(unmatched, 1) end
+      return false, "no trip with cargo for the train " .. tostring(ev.train_id)
+    end
+    if ev.failed then
+      match.hold_reason = "Ladestelle " .. tostring(ev.station) .. ": " .. tostring(ev.reason)
+      return false, match.hold_reason
+    end
+    if type(ev.qty) ~= "number" or ev.qty <= 0 then return true, "nothing moved" end
+    local ok, err = cargo.report({ order_id = match.cargo_order_id, shipment_id = match.trip_id, kind = ev.kind, qty = ev.qty, quality = ev.quality, ref = ev.ref, by = ev.by })
+    return ok, err
+  end
+  function self.unmatched_measures() return unmatched end
 
   function self.take_outbox()
     local out = outbox
@@ -326,6 +395,22 @@ function engine.new(opts)
     if not ok then return false, err end
     return true, trip_id, t
   end
+
+  -- a train goes to a depot (or leaves it): an order of its own, handled by the same checks as every trip. spec: { train_id, origin (the station it stands at), depot (the depot it should go to) }
+  function self.request_depot(spec)
+    if type(spec) ~= "table" or not spec.train_id or not spec.depot then return false, "a depot run needs train_id and depot" end
+    spec.origin = spec.origin or at_station[spec.train_id]
+    if not spec.origin then return false, "the station of the train " .. tostring(spec.train_id) .. " is not known: it has to stand at a station that reported it" end
+    if not (opts.depots or {})[spec.depot] then return false, "depot " .. tostring(spec.depot) .. " is not in the plan" end
+    local order_id, trip_id = ids.order(), ids.trip()
+    local t = add_trip({ trip_id = trip_id, order_id = order_id, origin = spec.origin, goal = spec.depot, goal_kind = "depot", direction = spec.direction, priority_class = "EXTRA_PASSENGER",
+      train_class = spec.train_class, origin_kind = "depot_run", requested_by = spec.requested_by, committed_owner_pair = opts.pair_id })
+    local ok, err = queue.push({ id = "ORD-" .. trip_id, kind = "EXTRA_PASSENGER", spec = { train_id = spec.train_id, origin = spec.origin, goal = spec.depot, direction = spec.direction, train_class = spec.train_class, requested_by = spec.requested_by }, order_id = order_id, trip_id = trip_id, manual = true })
+    if not ok then return false, err end
+    return true, trip_id, t
+  end
+
+  function self.station_of(train_id) return at_station[train_id] end
 
   function self.cancel(trip_id, who)
     local t = by_id[trip_id]
@@ -355,7 +440,13 @@ function engine.new(opts)
   function self.queue_size() return queue.size() end
   -- what the panel shows: the lines (published version, drafts), the running trips and the cargo orders, small enough for one message
   function self.report()
-    local r = { lines = {}, trips = {}, cargo = {}, queued = queue.size(), blocked = auto_blocked }
+    local r = { lines = {}, trips = {}, cargo = {}, depots = {}, trains = {}, queued = queue.size(), blocked = auto_blocked }
+    for id in pairs(opts.depots or {}) do r.depots[#r.depots + 1] = id end
+    table.sort(r.depots)
+    for _, p in ipairs(profiles.list({ lifecycle = "ACTIVE" })) do
+      if pairs_.owner_of_train(p.immutable_id) == opts.pair_id then r.trains[#r.trains + 1] = p.immutable_id end
+    end
+    table.sort(r.trains)
     for _, entry in ipairs(timetable.list()) do
       local published = timetable.published(entry.id)
       local drafts = {}

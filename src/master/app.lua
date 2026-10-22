@@ -16,6 +16,8 @@ local maintenance_mode = require("src.domain.maintenance")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
 local update_control_module = require("src.master.update_control")
+local aux_display_module = require("src.master.aux_display")
+local op_state_module = require("src.domain.op_state")
 local update_trust = require("src.shared.update_trust")
 local replacement_setup_module = require("src.master.replacement_setup")
 local manual_control = require("src.master.manual_control")
@@ -244,6 +246,55 @@ function app.new(args)
     on_lock = function(node_id, reason) logger.warn("update lock", { node = node_id, reason = reason }); if disp.timeout_node then disp.timeout_node(node_id) end end
   })
   context.update_control.load()
+  -- Master-AUX (config aux_monitor = peripheral name of a monitor that is no other page's): reads the state directly, not through the panels
+  if cfg.aux_monitor then
+    local aux_monitor = peri.wrap(cfg.aux_monitor)
+    if not aux_monitor then
+      logger.warn("aux monitor not found", { monitor = cfg.aux_monitor })
+    else
+      pcall(function() if aux_monitor.setTextScale then aux_monitor.setTextScale(cfg.aux_monitor_scale or 1) end end)
+      context.aux = aux_display_module.new({
+        monitor = aux_monitor, id = parsed.id or cfg.master_id, now = os.clock,
+        sources = {
+          role = function() if not ha then return "single" end return ha.is_leader() and "leader" or "standby" end,
+          op = function()
+            local locks = context.update_control.locks()
+            local faulty = {}
+            for _, lock in ipairs(locks) do faulty[#faulty + 1] = lock.node_id end
+            return op_state_module.derive({ setup_done = true, maintenance = maintenance.is_locked(), local_faults = faulty, both_masters = ha and ha.is_leader() or nil })
+          end,
+          blocks = function()
+            local counts = { free = 0, unknown = 0, fault = 0, reserved = 0 }
+            for id, block in pairs(disp.get_overview()) do
+              local state = block.state
+              if state == "FAULT" then counts.fault = counts.fault + 1
+              elseif state == "FREE" then counts.free = counts.free + 1
+              elseif state == "RESERVED" or state == "OCCUPIED" then counts.reserved = counts.reserved + 1 end
+              local occupancy = disp.get_occupancy and disp.get_occupancy(id)
+              if occupancy and occupancy.state == "UNKNOWN" and disp.proof_mode and disp.proof_mode() then counts.unknown = counts.unknown + 1 end
+            end
+            return counts
+          end,
+          nodes = function()
+            local up, down, down_ids = 0, 0, {}
+            for id, node in pairs(reg.all()) do
+              if node.status == "UP" then up = up + 1 else down = down + 1; down_ids[#down_ids + 1] = id end
+            end
+            table.sort(down_ids)
+            return { up = up, down = down, down_ids = down_ids }
+          end,
+          locks = function() return context.update_control.locks() end,
+          alerts = function() return alerts.list({ active_only = true }) end,
+          journal = function()
+            if not replica then return true end
+            if replica.writable and not replica.writable() then return false, "nicht beschreibbar" end
+            return true
+          end,
+          space = function() return _G.fs and _G.fs.getFreeSpace and _G.fs.getFreeSpace("/") or nil end
+        }
+      })
+    end
+  end
   -- a computer that is exchanged: new key on a disk, signals bound again, a test (docs/UPDATE.md); only with authentication set up
   context.replacement = replacement_setup_module.build({
     config = cfg, fs = _G.fs, peripheral = _G.peripheral, now = require("src.shared.time").now_s,

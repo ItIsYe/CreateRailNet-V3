@@ -8,7 +8,7 @@ local errors = require("src.shared.error_codes")
 local manual_control = {}
 
 -- updates run in maintenance: their own checks (src/master/update_control.lua) decide, the maintenance lock does not block them
-local SAFE_ACTIONS = { enter_maintenance = true, exit_maintenance = true, hold_train = true, emergency_stop = true, ota_push = true, update_release = true, update_unlock = true, replace_begin = true, replace_adopt = true, replace_key = true, replace_bindings = true, replace_finish = true, timetable_draft = true, timetable_publish = true, trip_cancel = true }
+local SAFE_ACTIONS = { enter_maintenance = true, exit_maintenance = true, hold_train = true, emergency_stop = true, ota_push = true, update_release = true, update_unlock = true, replace_begin = true, replace_adopt = true, replace_key = true, replace_bindings = true, replace_finish = true, timetable_draft = true, timetable_publish = true, trip_cancel = true, cargo_report = true, depot_run = true }
 
 local function send_cmd(network, dst, cmd, payload)
   local body = payload or {}
@@ -218,7 +218,7 @@ function manual_control.new(context)
       audit(cmd.action, { node_id = node_id, ok = ok == true, by = operator, reason = (ok == nil) and result or nil })
       if ok == nil then return false, result end
       return true, result
-    elseif cmd.action == "timetable_draft" or cmd.action == "timetable_publish" or cmd.action == "trip_cancel" then
+    elseif cmd.action == "timetable_draft" or cmd.action == "timetable_publish" or cmd.action == "trip_cancel" or cmd.action == "cargo_report" or cmd.action == "depot_run" then
       -- what the operator changes in the fleet is forwarded to the active node of the pair (src/nodes/fleet_node.lua checks and answers); the answer comes back as fleet_admin_result
       local pair
       for _, candidate in ipairs((self.config and self.config.fleet and self.config.fleet.pairs) or {}) do
@@ -230,7 +230,7 @@ function manual_control.new(context)
       local request_id = "REQ-" .. tostring(self.admin_sequence) .. "-" .. tostring(cmd.pair_id)
       if type(cmd.request_id) == "string" and #cmd.request_id <= 48 and cmd.request_id:match("^[%w%-_]+$") then request_id = cmd.request_id end
       local sent = send_cmd(self.network, pair.nodes[1], "fleet_admin", {
-        request_id = request_id, op = cmd.action, line = cmd.line, line_id = cmd.line_id, version = cmd.version, base_version = cmd.base_version, trip_id = cmd.trip_id, who = cmd.operator or src
+        request_id = request_id, op = cmd.action, line = cmd.line, line_id = cmd.line_id, version = cmd.version, base_version = cmd.base_version, trip_id = cmd.trip_id, who = cmd.operator or src, kind = cmd.kind, qty = cmd.qty, station = cmd.station, train_id = cmd.train_id, origin = cmd.origin, depot = cmd.depot
       })
       audit(cmd.action, { pair_id = cmd.pair_id, request_id = request_id, by = cmd.operator or src, line_id = cmd.line_id or (cmd.line and cmd.line.id), trip_id = cmd.trip_id })
       if not sent then return false, "the fleet node cannot be reached" end

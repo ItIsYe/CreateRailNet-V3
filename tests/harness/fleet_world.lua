@@ -33,6 +33,8 @@ local function plan(opts)
         stops = { { station = "NORD" }, { station = "SUED" } }, routes = { EAST = "R-NS" }, origin = "NORD", goal = "SUED", direction = "EAST" } },
       platforms = { SUED = { { id = "P1", block = "BP1", direction = "EAST", length = 8, confirmed = true, preferred = 1 }, { id = "P2", block = "BP2", direction = "EAST", length = 8, confirmed = true, preferred = 2 } } },
       stations = { NORD = STATION },
+      depots = opts.depots,
+      cargo_checkers = { "ED" },
       route_timeout_s = 120, apply_timeout_s = opts.apply_timeout_s or 30, depart_timeout_s = 120, pair_timeout_s = 15
     }
   }

@@ -96,7 +96,7 @@ local function render_gleisbild(monitor, ctx)
 end
 
 local function render_train_detail(monitor, ctx)
-  local w = size(monitor)
+  local w, h = size(monitor)
   header(monitor, ctx, "ZUGDETAIL")
   local id = ctx.selection and ctx.selection.train
   if not id then put(monitor, w, 1, 4, "Zug auf der Seite ZUEGE antippen."); return {} end
@@ -121,6 +121,19 @@ local function render_train_detail(monitor, ctx)
     end
   end
   button("Halten", "hold_train")
+  -- a train of a fleet pair can be sent to a depot of that pair (the station it stands at is known to the pair)
+  local fleet = ctx.state.fleet or {}
+  local pair = (fleet.train_pair or {})[id]
+  if pair and permissions.check({ nodes = { { id = "x", role = "panel", permission = level } } }, "x", "depot_run", {}) then
+    for _, depot_id in ipairs(sorted_keys(fleet.depots)) do
+      if fleet.depots[depot_id] == pair and row < h - 1 then
+        local label = "In Depot " .. depot_id
+        put(monitor, w, 1, row, "[" .. label .. "]")
+        hits[#hits + 1] = { x1 = 1, x2 = #label + 2, y = row, key = "action", value = "depot_run", params = { pair_id = pair, train_id = id, depot = depot_id } }
+        row = row + 1
+      end
+    end
+  end
   button("NOTHALT", "emergency_stop")
   button("Freigeben (Bestaetigung)", "release_train")
   return hits

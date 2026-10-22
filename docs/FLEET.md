@@ -40,7 +40,13 @@ Flotte -> Master (Event): `fleet_route`, `fleet_release`, `fleet_hold`, `fleet_r
 
 ## Grenzen
 
-- Der Fahrplaneditor im Panel (Entwuerfe, Veroeffentlichung am Bildschirm) kommt mit P8; bis dahin steht die Flotte im Netzplan, ihre Linien werden beim Start entworfen und mit Zustimmung beider Partner veroeffentlicht.
-- Ladestellen-Nodes mit Mengenmeldungen gibt es noch nicht; die Fracht-Ereignisse (`cargo`) sind der Vertrag, die Quellen kommen ueber authentifizierte Meldungen oder die manuelle Kontrolle.
-- Depotwahl und Umlaufrouten liegen als Logik vor (`src/domain/track_choice.lua`), der Ablauf der Flotte nutzt bisher die Gleiswahl der Bahnhoefe; Depotfahrten kommen im naechsten Schritt.
 - Ob Create den Zug nach `setSchedule` wirklich so faehrt, zeigen nur die Spieltests 0ci bis 0cm.
+
+## Bedienung vom Panel, Ladestellen und Depotfahrten
+- **Panel -> Flotte:** der Master leitet Befehle des Panels an den aktiven Knoten des Paars weiter (cmd `fleet_admin`, Antwort als Ereignis `fleet_admin_result`): `timetable_draft` (neuer Entwurf, laeuft noch nicht), `timetable_publish` (gegen die Basisversion, nur bei gesundem Paar und wenn der Partner den Entwurf dauerhaft hat), `trip_cancel`, `cargo_report`, `depot_run`.
+  Der aktive Knoten meldet alle 5 s `fleet_status` (Linien, Fahrten, Fracht, Depots, Zuege) an den Master, der es den Panels im Snapshot gibt (`fleet`, `cargo`).
+- **Ladestellen:** ein Bahnsteig mit `cargo = { inventory, item, kind }` misst das Inventar neben dem Gleis, wenn der Zug ankommt und wenn er abfaehrt (zwei gleiche Lesungen hintereinander), und meldet die Differenz an die Knoten in `cargo_report_to`
+  (`cargo_measure`, Qualitaet AUTO_INVENTORY). Die Flotte bucht sie auf die Fahrt des Zuges. Eine Lesung, die nicht geht, bucht nichts und haelt die Fahrt mit dem Grund; Menge null bucht nichts. Eine Kontrolle durch eine Person (`cargo_report`, MANUAL_AUTH)
+  gilt nur fuer Namen aus `fleet.cargo_checkers` und nur, wenn der Auftrag diese Qualitaet zulaesst.
+- **Depotfahrten:** `fleet.depots = { DEP1 = { tracks = { { id, block, length, confirmed, preferred, routes = { <Station> = <Route> } } } } }`. Die Gleiswahl ist die von `src/domain/track_choice.lua`: bevorzugtes Depot und Gleis, sonst das naechste passende;
+  voll -> anderes Depot -> genehmigter Umlauf (`fleet.depot_circuit`) -> der Zug wartet vor dem Bahnhof und es wird gemeldet. Die Fahrt laeuft durch dieselbe Kette (beide Master, Zeitplan genau einmal). Der Zug muss an einem Bahnhof gesehen worden sein.

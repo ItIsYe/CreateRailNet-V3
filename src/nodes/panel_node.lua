@@ -128,7 +128,12 @@ function panel_node.new_runtime(args_or_context)
     after_results()
     if display then
       local report = display.refresh()
-      if #report.missing > 0 then context.logger.warn("panel monitors missing", { monitors = table.concat(report.missing, ",") }) end
+      if #report.missing > 0 then
+        local why = {}
+        for id, text in pairs(report.errors) do why[#why + 1] = id .. ": " .. text end
+        table.sort(why)
+        context.logger.warn("panel monitors missing", { monitors = table.concat(report.missing, ","), errors = table.concat(why, "; ") })
+      end
     else
       panel_node.render_status(monitor, state_model.snapshot())
     end

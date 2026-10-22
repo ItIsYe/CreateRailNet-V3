@@ -81,16 +81,20 @@ return {
     assert(w.sync.state() == "WAITING")
   end,
 
-  test_a_damaged_transfer_is_failed_and_junk_is_ignored = function()
+  test_a_damaged_transfer_is_failed_even_when_it_would_still_read_and_junk_is_ignored = function()
     local w = world(plan(), 100000)
     w.sync.announce(w.version)
     w.sync.tick()
     local question = w.sent[#w.sent]
     local reply = w.service.part(1, nil)
     reply.question = question.id
-    reply.data = reply.data:sub(1, -2) .. "?"
+    -- one character changed, the text is still a plan: only the checksum can tell
+    local damaged = reply.data:gsub('"B1"', '"BX"', 1)
+    assert(#damaged == #reply.data and damaged ~= reply.data)
+    reply.data = damaged
     assert(w.sync.on_part(reply) == false)
-    assert(w.sync.state() == "FAILED")
+    local state, why = w.sync.state()
+    assert(state == "FAILED" and why:find("damaged", 1, true), tostring(why))
     assert(w.sync.on_part("junk") == false and w.sync.on_part(nil) == false)
   end,
 

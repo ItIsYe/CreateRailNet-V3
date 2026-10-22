@@ -113,6 +113,16 @@ return {
     end)
   end,
 
+  test_a_computer_that_is_not_a_master_gets_no_operator_command_through_even_when_it_reached_the_handler = function()
+    with_world({}, function(w)
+      w.run(20000)
+      local handler = w.nodes[A].handlers.on_cmd
+      local ok, why = handler({ cmd = "fleet_admin", request_id = "x", op = "timetable_draft", line = line() }, { src = "STATION-N" })
+      assert(ok == false and why:find("only the master", 1, true), tostring(why))
+      assert(#w.nodes[A].engine.report().lines.L1.drafts == 0)
+    end)
+  end,
+
   test_the_active_node_reports_lines_trips_and_cargo_to_the_master = function()
     with_world({}, function(w)
       w.run(20000)
@@ -167,5 +177,47 @@ return {
     assert(not permissions.check(cfg, "OP", "timetable_draft", {}) and permissions.check(cfg, "AD", "timetable_draft", {}))
     assert(not permissions.check(cfg, "AD", "timetable_publish", {}) and permissions.check(cfg, "AD", "timetable_publish", { confirm = true }))
     assert(permissions.check(cfg, "OP", "trip_cancel", {}), "an operator may cancel a trip")
+  end,
+
+  test_a_person_may_report_goods_from_the_panel_only_when_the_plan_lists_him_and_only_what_the_order_accepts = function()
+    with_world({}, function(w)
+      w.run(20000)
+      local engine = w.nodes[A].engine
+      assert(engine.create_cargo_order({ id = "C1", cargo_type = "item", unit = "stack", target_qty = 100, departure_rule = "FULL", proof_mode = "MANUAL_AUTH",
+        source = "MINE", destination = "HUB", origin = "NORD", goal = "SUED", route_id = "R-NS", direction = "EAST", train_class = "PASSENGER" }))
+      w.run(3000)
+      local trip = engine.trip_for_order("C1")
+      assert(trip, "the order made a trip")
+      w.master.send_admin({ request_id = "m1", op = "cargo_report", trip_id = trip.trip_id, kind = "loaded", qty = 80, who = "MALLORY" })
+      w.run(2000)
+      local refused = results(w)[1]
+      assert(refused and refused.ok == false and refused.reason:find("not allowed", 1, true), refused and tostring(refused.reason))
+      assert(engine.cargo_summary("C1").loaded == 0)
+      w.master.send_admin({ request_id = "m2", op = "cargo_report", trip_id = trip.trip_id, kind = "loaded", qty = 80, who = "ED" })
+      w.run(2000)
+      assert(results(w)[2].ok == true and engine.cargo_summary("C1").loaded == 80)
+      w.master.send_admin({ request_id = "m2", op = "cargo_report", trip_id = trip.trip_id, kind = "loaded", qty = 80, who = "ED" })
+      w.run(2000)
+      assert(engine.cargo_summary("C1").loaded == 80, "the same request twice books once")
+      w.master.send_admin({ request_id = "m3", op = "cargo_report", trip_id = "NOPE", kind = "loaded", qty = 1, who = "ED" })
+      w.run(2000)
+      assert(results(w)[#results(w)].ok == false)
+    end)
+  end,
+
+  test_a_depot_run_from_the_panel_becomes_a_trip_of_the_pair = function()
+    local depots = { DEP1 = { tracks = { { id = "T1", block = "BD1", length = 12, confirmed = true, routes = { NORD = "R-D1T1" } } } } }
+    with_world({ depots = depots }, function(w)
+      w.run(20000)
+      w.master.send_admin({ request_id = "dr", op = "depot_run", train_id = "TRAIN-1", origin = "NORD", depot = "DEP1", who = "PANEL-1" })
+      w.run(3000)
+      local r = results(w)[1]
+      assert(r and r.ok == true and r.trip_id, r and tostring(r.reason))
+      local trip = w.nodes[A].engine.trip(r.trip_id)
+      assert(trip and trip.goal == "DEP1" and trip.goal_kind == "depot")
+      w.master.send_admin({ request_id = "dr2", op = "depot_run", train_id = "TRAIN-1", origin = "NORD", depot = "NOWHERE" })
+      w.run(3000)
+      assert(results(w)[2].ok == false and results(w)[2].reason:find("not in the plan", 1, true))
+    end)
   end
 }

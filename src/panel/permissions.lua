@@ -16,7 +16,7 @@ local ACTION_LEVEL = {
   request_route = "operate", hold_train = "operate", emergency_stop = "operate", authorize_train = "operate", ack_alert = "operate",
   cargo_order = "operate", cargo_assign = "operate", cargo_loaded = "operate", cargo_delivered = "operate", cargo_cancel = "operate",
   enter_maintenance = "admin", exit_maintenance = "admin", clear_fault = "admin", set_signal = "admin", set_switch = "admin", ota_push = "admin", update_release = "admin", update_unlock = "admin",
-  timetable_draft = "admin", timetable_publish = "admin", trip_cancel = "operate",
+  timetable_draft = "admin", cargo_report = "admin", timetable_publish = "admin", trip_cancel = "operate", depot_run = "operate",
   replace_begin = "admin", replace_adopt = "admin", replace_key = "admin", replace_bindings = "admin", replace_finish = "admin",
   release_train = "admin", confirm_recovery = "admin", release_operation = "admin"
 }

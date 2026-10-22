@@ -72,5 +72,17 @@ return {
     assert(w.setup.wizard.state_of("SIG-1") == nil, "no replacement was started")
     assert(w.trust().nodes["SIG-1"].status == "active", "the disk and the memory agree")
     assert(#w.held == 0)
+  end,
+
+  test_a_key_that_could_not_be_written_down_does_not_count_the_epoch_up = function()
+    local w = world(true)
+    assert(w.setup.wizard.begin("SIG-1", "ED"))
+    w.fs.fail.open = "state/crn_trust.json.tmp"
+    local record, err = w.setup.wizard.adopt("SIG-1", "ED")
+    assert(record == nil and err:find("could not be written", 1, true), tostring(err))
+    w.fs.fail.open = nil
+    local again = w.setup.wizard.adopt("SIG-1", "ED")
+    assert(again and again.epoch == 2, "the failed attempt left no trace in memory: " .. tostring(again and again.epoch))
+    assert(w.trust().nodes["SIG-1"].epoch == 2)
   end
 }

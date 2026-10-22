@@ -163,9 +163,8 @@ Einzelheiten `docs/PANEL.md`. Code unter `src/panel/`, Anbindung in `src/nodes/p
 | 11.5 Offline: Entwuerfe ja, Befehle/Veroeffentlichung nein, alte Wuensche verfallen, Rueckkehr mit Pruefung und neuer Bestaetigung | `panel/offline.lua`, `panel_node.lua` | `test_panel_offline.lua`, `test_node_apps.lua` |
 | 11.2 Stoerungszentrale (Quittung loescht keine Ursache, S-11), Seitentabelle mit Mindestrecht und Frischemarke | `panel/fault_center.lua`, `panel/pages.lua` | `test_panel_fault_center.lua` |
 
-Noch nicht Teil von P8: das Zeichnen der Seiten auf mehreren Monitoren gleichzeitig durch `panel_node.lua` (der Knoten bedient weiter einen Monitor; Registry, Gruppen, Gleisbildmodell und Seitentabelle sind fertig und getestet,
-aber noch nicht an den Renderer gehaengt), das Werkzeug zum Binden der Monitore am Computer, der Fahrplaneditor am Bildschirm, das Eintragen der Stoerungszentrale in die Master-Alarme.
-Wie die Monitore im Spiel aussehen und reagieren, bleibt Spieltest (0cn bis 0cs).
+Nachtrag (Verdrahtungsrunde, siehe unten): `panel_node.lua` zeichnet jeden gebundenen Monitor mit eigener Ansicht (`panel/multi_display.lua`, `panel/views.lua`), das Binden macht `scripts/bind_monitors.lua`,
+das Gleisbild kommt vom Master (`panel/topology_sync.lua`), die Stoerungszentrale folgt den Meldungen des Masters, der Fahrplaneditor arbeitet am Bildschirm. Wie die Monitore im Spiel aussehen und reagieren, bleibt Spieltest (0cn bis 0cs, 0db bis 0dh).
 
 ## P9 OTA und Wartung
 
@@ -181,8 +180,8 @@ Einzelheiten `docs/UPDATE.md`. Der verifizierte Ablauf (Angebot, Teile, Tausch, 
 | 14 Ersatzhardware: neue Identitaet, neue Zuordnung, Test | `master/replacement.lua` | `test_replacement.lua` (I-11) |
 
 Abweichungen und Grenzen: Die "A/B-Programmslots" sind auf ComputerCraft dateiweise ausgefuehrt (Stage `.ota_new`, Sicherung `.ota_bak`, Journal, Probestart), der kleine verifizierte Bootloader ist der Wiederherstellungsblock in `startup.lua`.
-Das Panel hat noch keine Seite fuer den Austauschassistenten (das Modul ist fertig, die Aktionen `replace_*` sind nicht in `manual_control` eingehaengt). `verify_package` ist als Haken im Updater vorhanden, wird aber noch nicht aus
-der Knotenkonfiguration verdrahtet; bis dahin schuetzen die Absenderliste (`sources`), die P1-Authentisierung und die Dateiprüfsummen des Angebots. Der Master wird weiter durch den Installer aktualisiert (nicht ueber OTA).
+Nachtrag: Der Austauschassistent haengt in `manual_control` (`replace_*`) und hat seine Knoepfe auf der Wartungsseite des Panels; `verify_package` wird aus der Knotenkonfiguration verdrahtet (`shared/update_trust.lua`, signierte Pakete,
+`ota_require_package`). Der Master wird weiter durch den Installer aktualisiert (nicht ueber OTA).
 Was Create und die Welt beim Neustart eines Signal-Computers tun, bleibt Spieltest (0ct bis 0cx).
 
 ## P10 Integration und Abnahme
@@ -202,7 +201,29 @@ Funde dieses Pakets: (1) `active_conflicts` wurde im Delta als Ganzes ersetzt un
 
 Stand der Abnahme: **kein Fall ist PASS, es wurde kein Fall im Spiel gelaufen; erreichte Stufe: keine.** Die Matrix zeigt je Fall, was offline belegt ist; das ersetzt keinen Spiellauf. Nicht offline pruefbar: Zeiten und Latenzen unter Serverlast,
 TPS, Speicher, Verhalten von Create und CC:Tweaked, die Dauerlaeufe (2 h Mischbetrieb, danach 8 h, Kap. 20.1, vorher Obergrenzen festlegen) und alles unter "Spiel" in `docs/ABNAHME.md`.
-Offene Verdrahtungen aus P8/P9, die vor G4 geschlossen werden muessen: Mehrmonitor-Zeichnen im Panel-Node, Bindewerkzeug fuer Monitore, Panel-Seite und `manual_control`-Aktionen des Austauschassistenten, `verify_package` aus der Knotenkonfiguration.
+Die Verdrahtungen aus P8/P9 (Mehrmonitor-Zeichnen, Bindewerkzeug, Austauschassistent, `verify_package`) sowie Fahrplaneditor, Ladestellen, Depotfahrten und Master-AUX sind in der Verdrahtungsrunde geschlossen worden (naechster Abschnitt).
+
+## Verdrahtungsrunde (nach P10)
+
+Alles, was in P8 bis P10 als "noch nicht angeschlossen" stand, ist code-seitig fertig. Offline getestet; wie es im Spiel aussieht und sich anfuehlt, zeigen die Spieltests 0db bis 0dh.
+
+| Bereich | Umsetzung | Test |
+|---|---|---|
+| Mehrere Monitore je Panel, eigene Ansicht je Monitor, Gruppen teilen nur Zug/Station/Abschnitt, Monitor weg stoppt die anderen nicht | `panel/views.lua`, `panel/multi_display.lua`, `panel_node.lua` | `test_panel_display.lua`, `test_panel_node_multi.lua` |
+| Monitore binden (grosse Nummer, Bestaetigung, Ersatz, Gruppen) | `setup/monitor_tool.lua`, `scripts/bind_monitors.lua` | `test_monitor_tool.lua` |
+| Gleisbild aus der Topologie des Masters, nur wenn es die ist, die der Master faehrt | `panel/topology_sync.lua`, `plan_get` fuer die Rolle panel | `test_panel_topology.lua`, `test_panel_node_multi.lua` |
+| Stoerungszentrale folgt dem Master; Quittieren loescht keine Ursache | `panel/fault_center.sync`, `faults` im Snapshot | `test_panel_fault_center.lua`, `test_release.lua` |
+| Austauschassistent (Schluessel nur auf Diskette, Pruefsumme, Signale vom Heartbeat, Test) | `master/replacement_setup.lua`, `manual_control` `replace_*`, Wartungsseite | `test_replacement_setup.lua`, `test_replacement_flow.lua` |
+| Signierte Update-Pakete, Pruefung am Knoten, SHA-256 beim Commit | `shared/update_trust.lua`, `updater.lua`, `ota_manager.lua`, `ota_require_package` | `test_update_trust.lua` |
+| Fahrplaneditor am Bildschirm (Entwurf, Vorschau, Veroeffentlichung gegen die Basisversion, Konflikt, Offline-Entwurf) | `panel/timetable_editor.lua`, `fleet_admin` im Flottenknoten, `fleet_status` zum Master | `test_panel_timetable_editor.lua`, `test_fleet_admin.lua`, `test_panel_node_multi.lua` |
+| Ladestellen melden nachgewiesene Mengen (Inventar vorher/nachher, Fehlmessung bucht nichts), manuelle Kontrolle nur durch Berechtigte | `domain/cargo_meter.lua`, `station_node.lua` (`platform.cargo`), `engine.cargo_measure`, `cargo_report` | `test_cargo_meter.lua`, `test_fleet_engine.lua`, `test_node_apps.lua`, `test_fleet_admin.lua` |
+| Depotfahrten (Gleiswahl, volles Depot -> anderes Depot -> Umlauf -> Halt und Meldung) im Ablauf der Flotte | `engine.request_depot`, `fleet.depots`, `destination_name` fuer Depots, Knopf im Zugdetail | `test_fleet_engine.lua`, `test_station_apply_schedule.lua`, `test_fleet_admin.lua` |
+| Master-AUX: reduzierte, unabhaengige Fehlersicht auf eigenem Monitor | `master/aux_display.lua`, `aux_monitor` | `test_aux_display.lua`, `test_master_app.lua` |
+
+Funde dieser Runde: (1) Ein neu gestarteter Flottenpartner wurde als "widerspruechlich" gesperrt, weil die Pruefsumme des Zustands von der Reihenfolge der Tabellenschluessel abhing (jetzt kanonischer Text, `shared/canon.lua`).
+(2) Die Entwurfsanzeige des Fahrplaneditors hielt einen unveraenderten Entwurf fuer veraendert, aus demselben Grund. (3) Ein Fehler in einer Ansicht wurde als "Monitor fehlt" gemeldet; der Text des Fehlers wird jetzt mitgeliefert.
+
+Weiterhin nur im Spiel pruefbar: das Aussehen und Ansprechen der Monitore, ob ein Inventar neben dem Gleis so zu lesen ist wie angenommen (Create-Verlader, Kisten, Faesser), und alles aus `docs/ABNAHME.md`.
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

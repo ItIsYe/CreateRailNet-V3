@@ -106,6 +106,20 @@ local function validate_inner(cfg, errors)
         mark_unique(errors, platform_ids, platform_id, ppath .. ".id", "platform id")
         local kind = platform.kind or platform.type or station_type
         if not station_types[kind] then add(errors, ppath .. ".kind", "must be passenger, freight, or mixed") end
+        -- a loading point: the inventory next to the track and whether the train is loaded or unloaded here (src/domain/cargo_meter.lua)
+        if platform.cargo ~= nil then
+          local cargo = platform.cargo
+          if type(cargo) ~= "table" then add(errors, ppath .. ".cargo", "must be a table { inventory, item, kind }")
+          else
+            if not nonempty(cargo.inventory) then add(errors, ppath .. ".cargo.inventory", "needs the name of the inventory peripheral") end
+            if cargo.item ~= nil and not nonempty(cargo.item) then add(errors, ppath .. ".cargo.item", "must be a non-empty item name") end
+            if cargo.kind ~= "loaded" and cargo.kind ~= "unloaded" then add(errors, ppath .. ".cargo.kind", "must be loaded or unloaded") end
+          end
+        end
+      end
+      if node.cargo_report_to ~= nil then
+        if type(node.cargo_report_to) ~= "table" then add(errors, path .. ".cargo_report_to", "must be a list of fleet node ids")
+        else for j, target in ipairs(node.cargo_report_to) do if not nonempty(target) then add(errors, path .. ".cargo_report_to[" .. j .. "]", "must be a fleet node id") end end end
       end
     elseif node.role == "depot" then
       local depot_id = node_depot_id(node)
@@ -178,6 +192,20 @@ local function validate_inner(cfg, errors)
       for station, node_id in pairs(cfg.fleet.stations or {}) do
         if not station_nodes[node_id] then add(errors, "fleet.stations." .. tostring(station), "must reference a node with role station") end
       end
+      -- the depots a train may be sent to: tracks with their block, and the route from each station that serves them
+      local depot_nodes = {}
+      for _, node in ipairs(cfg.nodes or {}) do if node.role == "depot" then depot_nodes[node.depot_id or node.id] = true end end
+      for depot, def in pairs(cfg.fleet.depots or {}) do
+        local dpath = "fleet.depots." .. tostring(depot)
+        if not depot_nodes[depot] then add(errors, dpath, "must be the id of a node with role depot") end
+        local seen = {}
+        for j, track in ipairs((type(def) == "table" and (def.tracks or def)) or {}) do
+          local tpath = dpath .. ".tracks[" .. j .. "]"
+          if not nonempty(track.id) then add(errors, tpath .. ".id", "must be non-empty string") elseif seen[track.id] then add(errors, tpath .. ".id", "track " .. track.id .. " is defined twice") else seen[track.id] = true end
+          if not nonempty(track.block) then add(errors, tpath .. ".block", "needs the id of its block") end
+          if track.routes ~= nil and type(track.routes) ~= "table" then add(errors, tpath .. ".routes", "must map a station to the route that leads to the track") end
+        end
+      end
       for station, list in pairs(cfg.fleet.platforms or {}) do
         local seen = {}
         for j, platform in ipairs(list) do
@@ -230,6 +258,8 @@ local function validate_inner(cfg, errors)
   end
   if cfg.master_journal_file ~= nil and not nonempty(cfg.master_journal_file) then add(errors, "master_journal_file", "must be non-empty string") end
   if cfg.ota_require_package ~= nil and type(cfg.ota_require_package) ~= "boolean" then add(errors, "ota_require_package", "must be true or false") end
+  if cfg.aux_monitor ~= nil and not nonempty(cfg.aux_monitor) then add(errors, "aux_monitor", "must be the name of a monitor peripheral") end
+  if cfg.aux_monitor_scale ~= nil and (type(cfg.aux_monitor_scale) ~= "number" or cfg.aux_monitor_scale < 0.5 or cfg.aux_monitor_scale > 5 or (cfg.aux_monitor_scale * 2) % 1 ~= 0) then add(errors, "aux_monitor_scale", "must be 0.5 to 5 in steps of 0.5") end
   if cfg.maintenance_file ~= nil and not nonempty(cfg.maintenance_file) then add(errors, "maintenance_file", "must be non-empty string") end
   if cfg.update_plan_file ~= nil and not nonempty(cfg.update_plan_file) then add(errors, "update_plan_file", "must be non-empty string") end
   if cfg.arbiter ~= nil and not nonempty(cfg.arbiter) then add(errors, "arbiter", "must be non-empty string") end

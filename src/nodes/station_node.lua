@@ -14,6 +14,7 @@ local create_train_schedule = require("src.adapter.create_train_schedule")
 local cc_modem = require("src.adapter.cc_modem")
 local common_node = require("src.nodes.common_node")
 local once_log = require("src.shared.once_log")
+local cargo_meter_mod = require("src.domain.cargo_meter")
 local bootstrap = require("src.nodes.bootstrap")
 
 local station_node = {}
@@ -21,6 +22,13 @@ local station_node = {}
 -- the Create name of the destination of a schedule: the platform's own Create station when the plan names it, else the station's, else the id
 local function destination_name(cfg, station_id, platform_id)
   for _, node in ipairs(cfg.nodes or {}) do
+    -- a depot run: the Create name of the track of the depot (or of the depot) is the destination
+    if node.role == "depot" and (node.depot_id or node.id) == station_id then
+      for _, track in ipairs(node.tracks or node.slots or {}) do
+        if (track.id or track.track_id or track.name) == platform_id and (track.create_station_name or track.create_destination) then return track.create_station_name or track.create_destination end
+      end
+      return node.create_station_name or node.create_destination or station_id
+    end
     if node.role == "station" and (node.station_id or node.id) == station_id then
       for _, platform in ipairs(node.platforms or node.tracks or {}) do
         if (platform.id or platform.track_id or platform.name) == platform_id and (platform.create_station_name or platform.create_destination) then return platform.create_station_name or platform.create_destination end
@@ -53,7 +61,7 @@ function station_node.build_platform_map(station_config)
   local platforms = {}
   for _, platform in ipairs(station_config.platforms or station_config.tracks or {}) do
     local id = platform.id or platform.track_id or platform.name
-    if id then platforms[id] = { id = id, track_id = platform.track_id or id, kind = platform.kind or platform.type or station_config.station_type or "mixed", sensor_id = platform.sensor_id, block_id = platform.block_id, create_station = platform.create_station, dwell_seconds = platform.dwell_seconds or station_config.dwell_seconds or 15, state = platform.state or PLATFORM_EMPTY, train_id = platform.train_id, train_name = platform.train_name, occupied_since = nil, last_occupied = false } end
+    if id then platforms[id] = { id = id, track_id = platform.track_id or id, kind = platform.kind or platform.type or station_config.station_type or "mixed", sensor_id = platform.sensor_id, block_id = platform.block_id, create_station = platform.create_station, dwell_seconds = platform.dwell_seconds or station_config.dwell_seconds or 15, cargo = platform.cargo, state = platform.state or PLATFORM_EMPTY, train_id = platform.train_id, train_name = platform.train_name, occupied_since = nil, last_occupied = false } end
   end
   return platforms
 end
@@ -132,6 +140,17 @@ function station_node.new_runtime(args_or_context)
     return platform.train_name or platform.train_id
   end
 
+  -- loading points: platforms with `cargo = { inventory, item, kind }` measure the inventory next to the track when the train arrives and when it leaves, and report the
+  -- difference to the fleet pair (event fleet_event / cargo_measure); a reading that fails is reported as failed and books nothing
+  local meter = cargo_meter_mod.new({ peripheral = context.peripheral_api or _G.peripheral, now = function() return (context.clock or os.clock)() end })
+  local function report_cargo(platform, result, train_id)
+    local targets = (find_station_config(context.config, context.id).cargo_report_to) or {}
+    local ev = { type = "cargo_measure", station = station_id, platform = platform.id, train_id = train_id, kind = platform.cargo.kind }
+    if result.ok then ev.qty, ev.quality, ev.ref = result.qty, result.quality, result.ref else ev.failed, ev.reason = true, result.reason end
+    for _, target in ipairs(targets) do node.net.send_reliable("event", target, { type = "fleet_event", ev = ev }) end
+    if not result.ok then context.logger.warn("loading point: no measurement", { platform = platform.id, reason = result.reason }) end
+  end
+
   -- a sensor that stays broken is reported when it breaks and every 30 s, not twice a second
   local fault_once = once_log.new(context.logger, { repeat_ms = 30000 })
 
@@ -152,9 +171,17 @@ function station_node.new_runtime(args_or_context)
             if occupied then
               platform.train_name = read_train_name(platform); platform.train_id = platform.train_id or platform.train_name; platform.state = PLATFORM_DWELLING; platform.occupied_since = os.clock()
               node.net.send_reliable("event", context.config.master_id, { type = "train_arrived_station", station_id = station_id, platform_id = platform.id, train_id = platform.train_id, train_name = platform.train_name, block_id = platform.block_id })
+              if platform.cargo then
+                local started, why = meter.begin(station_id .. "/" .. platform.id, platform.cargo.inventory, platform.cargo.item)
+                if not started then report_cargo(platform, { ok = false, reason = why }, platform.train_id) end
+              end
             else
               local leaving_train_id = platform.train_id; local leaving_train_name = platform.train_name
               node.net.send_reliable("event", context.config.master_id, { type = "train_left_station", station_id = station_id, platform_id = platform.id, train_id = leaving_train_id, train_name = leaving_train_name, block_id = platform.block_id })
+              -- no start reading means the arrival already reported why (the chest could not be read): no second, vaguer report
+              if platform.cargo and meter.pending(station_id .. "/" .. platform.id) then
+                report_cargo(platform, meter.finish(station_id .. "/" .. platform.id, platform.cargo.kind), leaving_train_id or leaving_train_name)
+              end
               platform.state = PLATFORM_EMPTY; platform.train_id = nil; platform.train_name = nil; platform.occupied_since = nil
             end
             send_platform(platform)

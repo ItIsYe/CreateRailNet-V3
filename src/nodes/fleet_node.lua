@@ -81,13 +81,16 @@ function fleet_node.new_runtime(args_or_context)
     time = context.game_time or { real = function() return os.time and os.time() or 0 end, ingame = function() return (os.day and os.day("ingame")) or 0, (os.time and os.time("ingame")) or 0 end },
     tz_offset_min = fleet_cfg.tz_offset_min
   })
+  local checkers = {}
+  for _, person in ipairs(fleet_cfg.cargo_checkers or {}) do checkers[person] = true end
   local pair_set = pairs_module.new({ nodes = fleet_ids(cfg), pairs = fleet_cfg.pairs, now = clock_s, timeout_s = fleet_cfg.pair_timeout_s })
   local free_blocks = {}   -- block -> time it was reported proven free
   node.pair_set = pair_set
   node.engine = engine_module.new({
     id = context.id, pair_id = my_pair.id, profiles = profiles, timetable = timetable, pairs = pair_set, now = clock_s, ids_prefix = my_pair.id,
-    platforms = fleet_cfg.platforms,
+    platforms = fleet_cfg.platforms, depots = fleet_cfg.depots, depot_circuit = fleet_cfg.depot_circuit,
     is_free = function(block) local at = free_blocks[block]; return at ~= nil and (clock_s() - at) <= FREE_FRESH_S end,
+    cargo_may_check = function(person) return checkers[person] == true end,
     route_timeout_s = fleet_cfg.route_timeout_s, apply_timeout_s = fleet_cfg.apply_timeout_s, depart_timeout_s = fleet_cfg.depart_timeout_s
   })
   local engine = node.engine
@@ -259,6 +262,17 @@ function fleet_node.new_runtime(args_or_context)
       if not timetable.get(tostring(payload.line_id), payload.version) then answer(request_id, false, { reason = "no such draft" }); return true end
       local idx = replica.capture()
       publishing[#publishing + 1] = { request_id = request_id, line_id = payload.line_id, version = payload.version, idx = idx or math.huge, base = current }
+    elseif op == "cargo_report" then
+      -- the check of a person (quality MANUAL_AUTH): only who the plan lists in fleet.cargo_checkers, the ledger asks for the name
+      local trip = engine.trip(payload.trip_id)
+      if not trip or not trip.cargo_order_id then answer(request_id, false, { reason = "no trip with cargo " .. tostring(payload.trip_id) }); return true end
+      local ok, err = engine.cargo_measure({ station = payload.station, train_id = trip.assigned_train, kind = payload.kind, qty = payload.qty, quality = "MANUAL_AUTH", by = payload.who, ref = "manual:" .. tostring(request_id) })
+      node.flush()
+      answer(request_id, ok == true, { op = op, reason = err })
+    elseif op == "depot_run" then
+      local ok, trip_id = engine.request_depot({ train_id = payload.train_id, origin = payload.origin, depot = payload.depot, requested_by = payload.who })
+      node.flush()
+      answer(request_id, ok, { op = op, trip_id = ok and trip_id or nil, reason = (not ok) and trip_id or nil })
     elseif op == "trip_cancel" then
       local ok, err = engine.cancel(payload.trip_id, payload.who or "operator")
       node.flush()

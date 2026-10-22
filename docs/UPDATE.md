@@ -21,7 +21,11 @@ Das Panel bekommt `op_state` und `op_text` im Snapshot, die Sperren der Updates 
 
 ## Austauschassistent (`src/master/replacement.lua`)
 Alter Schluessel wird ungueltig, der neue Computer bekommt einen neuen Schluessel (Abgleich des Fingerabdrucks mit dem Bildschirm), jedes Signal des alten Computers muss am neuen von einer Person neu bestaetigt werden,
-erst ein bestandener Test mit Quelle beendet die Haltung. Noch nicht in die Panel-Aktionen eingehaengt.
+erst ein bestandener Test mit Quelle beendet die Haltung. Auf dem Panel: Wartungsseite (`docs/PANEL.md`). Der Schluessel geht nur auf eine Diskette, die Signale liest der Master aus dem Heartbeat des neuen Computers.
 
 ## Grenzen
-Siehe `docs/V3_ZIEL.md` (P9): Programmslots dateiweise, `verify_package` noch nicht aus der Knotenkonfiguration verdrahtet, Master-Update ueber den Installer. Spieltests 0ct bis 0cx.
+Siehe `docs/V3_ZIEL.md` (P9): Programmslots dateiweise, Master-Update ueber den Installer. Spieltests 0ct bis 0cx.
+
+## Signierte Pakete
+Mit Schluesseln signiert der Master jedes Angebot fuer den Knoten (`src/shared/update_trust.lua`): Herkunftsnachweis mit dem Paarschluessel, Zielrolle, Protokoll, Datenschema, Platz, SHA-256 jeder Datei, Rueckfallziel. Der Knoten prueft das vor der ersten
+Dateianforderung, die Dateien des Angebots muessen genau die des Pakets sein, und beim Commit werden die gespeicherten Dateien gegen die SHA-256 des Pakets geprueft. `ota_require_package` (Standard an bei `auth_mode = "enforce"`) verlangt ein Paket.

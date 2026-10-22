@@ -22,6 +22,35 @@ Identitaet, Versionen und Rechte und verlangt eine neue Bestaetigung. Alte Daten
 ## Stoerungszentrale (`src/panel/fault_center.lua`)
 Quittieren heisst nur "gesehen". Der Eintrag bleibt sichtbar, die Sperre bleibt bestehen; nur ein Nachweis (Art und Quelle) beendet die Ursache.
 
+## Mehrere Monitore (`src/panel/multi_display.lua`, `src/panel/views.lua`)
+Ist mindestens ein Monitor gebunden (`state/panel_monitors.json`), zeichnet der Panel-Node jeden mit seiner eigenen Ansicht (13 Ansichten: Uebersicht, Gleisbild, Zuege, Zugdetail, Fahrtassistent, Stationen, Depots, Fahrplan, Fracht,
+Stoerungen, Knoten, Wartung, Protokoll). Ohne Bindung zeichnet er wie frueher den einen Monitor des Plans. Ein Tipp auf die oberen drei Zeilen blaettert die Ansichten (nur die, die die Stufe erlaubt), ein Tipp auf eine Zeile einer
+Liste waehlt den Eintrag. Eine Gruppe teilt die Auswahl von Zug, Station und Abschnitt, nie einen Befehl und nie die Ansicht; die gewaehlte Fahrplanlinie ist Sache des einzelnen Monitors. Faellt ein Monitor aus, werden die anderen
+weiter gezeichnet (Meldung im Log mit dem Grund). Jede Ansicht endet mit einer Zeile "Daten: aktuell / veraltet / keine Daten".
+
+Binden: `scripts/bind_monitors.lua bind <ID> [Ansicht] [Skala]` zeigt auf jedem freien Monitor eine grosse Nummer; man waehlt die Nummer des richtigen und bestaetigt. `check` meldet fehlende Monitore (nichts wird von selbst umgebunden), `replace <ID>`
+bindet einen ersetzten Monitor neu, `group`/`ungroup`, `label`, `scale`, `view`, `unbind`.
+
+## Gleisbild
+Das Panel holt die Topologie vom Master (`plan_get` fuer die Rolle panel, in Teilen, waehrend es laeuft) und zeichnet sie nur, wenn sie die ist, die der Master gerade faehrt (Versionsvergleich); der Stand wird in `state/panel_topology.json` und
+das bestaetigte Layout in `state/panel_layout.json` gehalten. Eine neue Topologie behaelt die Plaetze der unveraenderten Bloecke. Buchstaben: `.` frei bewiesen, `?` unklar, `R` reserviert, `O` besetzt, `T` Zug (nur wo bewiesen), `X` Stoerung, `f` veraltet.
+
+## Fahrplaneditor (Ansicht Fahrplan, Recht admin)
+Eine Linie antippen oeffnet sie als Entwurf auf diesem Panel. Knoepfe: Takt, Haltezeit, Fenster von/bis, alle Abfahrten verschieben. Aenderungen werden aufgelistet und geprueft. `Entwurf senden` schickt den Entwurf ueber den Master an den
+aktiven Knoten des Flottenpaars (neue Version, laeuft noch nicht); `Veroeffentlichen` (zweiter Tipp noetig) gilt gegen die Basisversion: hat sich die Linie inzwischen geaendert, ist es ein Konflikt, und der Flottenknoten veroeffentlicht erst, wenn das
+Paar gesund ist und der Partner den Entwurf dauerhaft hat. Der Entwurf liegt in `state/panel_timetable_draft.json` und ueberlebt einen Neustart; offline wird weiter bearbeitet, aber nichts gesendet. Bei einem Konflikt entscheidet eine Person:
+`Neu laden` oder `Stand uebernehmen` (die Aenderungen auf die neue Version legen).
+
+## Wartung und Austausch
+Die Wartungsseite zeigt die Sperre, die Sperren der Updates und den Austausch eines Computers: `Computer ersetzen` sperrt den Knoten und widerruft den alten Schluessel, `Schluessel ausgeben` schreibt den neuen auf die Diskette im Laufwerk des Masters
+(nie in eine Nachricht) und zeigt die Pruefsumme, `Pruefsumme stimmt` / `stimmt NICHT`, `Signale pruefen` (liest die Meldung des neuen Computers), `Test bestanden`. Alle Schritte brauchen admin und die zweite Bestaetigung.
+
+## Zugdetail
+Knoepfe nach Stufe: Halten, NOTHALT, Freigeben (admin, zweite Bestaetigung) und fuer Zuege eines Flottenpaars `In Depot <ID>`.
+
+## Master-AUX
+`aux_monitor = "monitor_3"` im Plan des Masters: ein eigener Monitor mit einer reduzierten Fehlersicht (Betriebszustand, Bloecke, Knoten, Sperren, Journal, Platz, rote ungesehene Meldungen), direkt aus dem Zustand gelesen und unabhaengig von den Seiten.
+Eine Quelle, die ausfaellt, zeigt `?`; der Rest bleibt.
+
 ## Stand
-Fertig und offline getestet: Rechte (mit Master-Pruefung), Registry, Gleisbildmodell, Offline-Zustand, Stoerungszentrale, Seitentabelle, Panel-Node mit Rechten/Offline/Bestaetigung.
-Noch nicht angeschlossen: Zeichnen auf mehreren Monitoren, Bindewerkzeug, Fahrplaneditor. Spieltests `docs/INGAME_TESTS.md` 0cn bis 0cs.
+Fertig und offline getestet: alles oben. Zu pruefen im Spiel: Spieltests `docs/INGAME_TESTS.md` 0cn bis 0cs und 0db bis 0dh.

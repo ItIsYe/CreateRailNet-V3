@@ -29,8 +29,12 @@ local function world(extra)
   w.engine = engine_module.new({
     id = "FLEET-A", pair_id = "P1", profiles = profiles, timetable = tt, pairs = pairs_, now = function() return w.t end, ids_prefix = "FA",
     platforms = { SUED = { { id = "P1", block = "BP1", direction = "EAST", length = 12, confirmed = true, preferred = 1 }, { id = "P2", block = "BP2", direction = "EAST", length = 12, confirmed = true, preferred = 2 } } },
-    is_free = function(block) return w.free[block == "BP1" and "P1" or "P2"] == true end,
+    is_free = function(block)
+      if w.free_blocks and w.free_blocks[block] ~= nil then return w.free_blocks[block] end
+      return w.free[block == "BP1" and "P1" or "P2"] == true
+    end,
     depart_timeout_s = 60, route_timeout_s = 120, apply_timeout_s = 30,
+    depots = extra.depots, depot_circuit = extra.depot_circuit,
     cargo_may_check = function() return true end
   })
   w.profiles, w.pairs, w.tt = profiles, pairs_, tt
@@ -307,5 +311,145 @@ return {
     w.event({ type = "cargo", order_id = "FR-1", shipment_id = "S1", kind = "unloaded", qty = 650, quality = "AUTO_INVENTORY", ref = "inv-2" })
     local s = w.engine.cargo_summary("FR-1")
     assert(s.delivered == 650 and s.open == 350 and s.in_transit_or_unresolved == 50)
+  end,
+
+  test_a_loading_point_that_measured_books_the_quantity_on_the_trip_of_that_train_and_nothing_else = function()
+    local w = world({ freight = true })
+    assert(w.engine.create_cargo_order({ id = "FR-1", cargo_type = "item", unit = "stack", target_qty = 1000, min_load = 600, departure_rule = "MIN_PARTIAL", proof_mode = "AUTO_INVENTORY",
+      source = "MINE", destination = "HUB", origin = "NORD", goal = "SUED", route_id = "R-NS", direction = "EAST", train_class = "FREIGHT" }))
+    w.tick(1)
+    local trip = w.engine.trip_for_order("FR-1")
+    w.event({ type = "station_train", train_id = "FREIGHT-1", station = "NORD", present = true })
+    -- the loading point measured 700 stacks for the train FREIGHT-1
+    local ok = w.engine.cargo_measure({ type = "cargo_measure", station = "NORD", platform = "P1", train_id = "FREIGHT-1", kind = "loaded", qty = 700, quality = "AUTO_INVENTORY", ref = "NORD/P1#1" })
+    assert(ok == true)
+    assert(w.engine.cargo_summary("FR-1").loaded == 700)
+    assert(w.engine.cargo_measure({ station = "NORD", train_id = "FREIGHT-1", kind = "loaded", qty = 700, quality = "AUTO_INVENTORY", ref = "NORD/P1#1" }) == true, "the same report twice")
+    assert(w.engine.cargo_summary("FR-1").loaded == 700, "is booked once")
+    -- through the event door as the node sends it
+    w.event({ type = "cargo_measure", station = "SUED", platform = "P1", train_id = "FREIGHT-1", kind = "unloaded", qty = 650, quality = "AUTO_INVENTORY", ref = "SUED/P1#1" })
+    local summary = w.engine.cargo_summary("FR-1")
+    assert(summary.delivered == 650 and summary.in_transit_or_unresolved == 50 and summary.open == 350)
+    assert(trip.trip_id and w.engine.report().cargo["FR-1"].unresolved == 50)
+  end,
+
+  test_a_measurement_of_a_train_without_cargo_or_a_failed_one_books_nothing = function()
+    local w = world({ freight = true })
+    assert(w.engine.create_cargo_order({ id = "FR-1", cargo_type = "item", unit = "stack", target_qty = 100, departure_rule = "FULL", proof_mode = "AUTO_INVENTORY",
+      source = "MINE", destination = "HUB", origin = "NORD", goal = "SUED", route_id = "R-NS", direction = "EAST", train_class = "FREIGHT" }))
+    w.tick(1)
+    local ok, why = w.engine.cargo_measure({ station = "NORD", train_id = "TRAIN-1", kind = "loaded", qty = 50, quality = "AUTO_INVENTORY", ref = "x" })
+    assert(ok == false and why:find("no trip with cargo", 1, true) and #w.engine.unmatched_measures() == 1)
+    local failed_ok, reason = w.engine.cargo_measure({ station = "NORD", train_id = "FREIGHT-1", kind = "loaded", failed = true, reason = "inventory chest_0 cannot be read" })
+    assert(failed_ok == false and reason:find("Ladestelle NORD", 1, true))
+    local trip = w.engine.trip_for_order("FR-1")
+    assert(trip.hold_reason:find("cannot be read", 1, true))
+    assert(w.engine.cargo_summary("FR-1").loaded == 0, "no fabricated loading status")
+    assert(w.engine.cargo_measure({ station = "NORD", train_id = "FREIGHT-1", kind = "loaded", qty = 0, quality = "AUTO_INVENTORY", ref = "z" }) == true and w.engine.cargo_summary("FR-1").loaded == 0, "nothing moved: nothing booked")
+    -- a quality below what the order asks for is not booked either
+    local low_ok, low_why = w.engine.cargo_measure({ station = "NORD", train_id = "FREIGHT-1", kind = "loaded", qty = 10, quality = "MANUAL_AUTH", ref = "m", by = "ED" })
+    assert(low_ok == false and low_why:find("lower than", 1, true) and w.engine.cargo_summary("FR-1").loaded == 0)
+  end,
+
+  test_a_depot_run_chooses_the_track_asks_for_the_route_of_that_track_and_goes_through_the_normal_chain = function()
+    local depots = {
+      DEP1 = { tracks = { { id = "T1", block = "BD1", length = 8, confirmed = true, preferred = 1, routes = { NORD = "R-D1T1" } }, { id = "T2", block = "BD2", length = 12, confirmed = true, preferred = 2, routes = { NORD = "R-D1T2" } } } }
+    }
+    local w = world({ depots = depots })
+    w.free_blocks = { BD1 = true, BD2 = true }
+    local ok, trip_id = w.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "DEP1", requested_by = "PANEL-1" })
+    assert(ok and trip_id)
+    w.tick(1)
+    w.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    w.tick(1)
+    local request = w.last("route_request")
+    assert(request and request.trip_id == trip_id and request.route_id == "R-D1T1" and request.platform == "T1" and request.platform_block == "BD1", request and tostring(request.route_id))
+    local trip = w.engine.trip(trip_id)
+    assert(trip.goal == "DEP1" and trip.goal_kind == "depot")
+    -- only after both masters: the schedule goes to the station the train stands at, with the depot as destination
+    w.event({ type = "route_committed", trip_id = trip_id, commit_index = 5 })
+    w.event({ type = "route_eligible", trip_id = trip_id })
+    w.tick(1)
+    local apply = w.last("apply_schedule")
+    assert(apply and apply.station == "NORD" and apply.destination == "DEP1" and apply.platform == "T1" and apply.route_id == "R-D1T1")
+  end,
+
+  test_a_track_that_is_taken_gives_way_to_the_next_and_a_full_depot_to_another_depot = function()
+    local depots = {
+      DEP1 = { tracks = { { id = "T1", block = "BD1", length = 8, confirmed = true, routes = { NORD = "R-D1T1" } } } },
+      DEP2 = { tracks = { { id = "T1", block = "BE1", length = 8, confirmed = true, routes = { NORD = "R-D2T1" } } } }
+    }
+    local w = world({ depots = depots })
+    w.free_blocks = { BD1 = false, BE1 = true }
+    local ok, trip_id = w.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "DEP1" })
+    w.tick(1)
+    w.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    w.tick(1)
+    local request = w.last("route_request")
+    assert(request and request.route_id == "R-D2T1" and w.engine.trip(trip_id).goal == "DEP2" and w.engine.trip(trip_id).depot_alternative == true and w.engine.trip(trip_id).depot_wanted == "DEP1")
+  end,
+
+  test_when_every_depot_is_full_the_train_waits_before_the_station_and_goes_when_a_track_is_free_or_uses_the_approved_circuit = function()
+    local depots = { DEP1 = { tracks = { { id = "T1", block = "BD1", length = 8, confirmed = true, routes = { NORD = "R-D1T1" } } } } }
+    local w = world({ depots = depots })
+    w.free_blocks = { BD1 = false }
+    local ok, trip_id = w.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "DEP1" })
+    w.tick(1)
+    w.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    w.tick(1)
+    local trip = w.engine.trip(trip_id)
+    assert(trip.state == "WAITING" and trip.hold_reason:find("every depot is full", 1, true) and w.last("route_request") == nil)
+    assert(w.last("hold_at_waiting_point") and w.last("hold_at_waiting_point").trip_id == trip_id)
+    w.free_blocks.BD1 = true
+    w.tick(40)
+    assert(w.last("route_request") and w.last("route_request").route_id == "R-D1T1", "a track is free: the run goes on")
+    -- with an approved circuit the full depot sends the train round instead
+    local circuit = world({ depots = depots, depot_circuit = "R-CIRCUIT" })
+    circuit.free_blocks = { BD1 = false }
+    local _, circuit_trip = circuit.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "DEP1" })
+    circuit.tick(1)
+    circuit.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    circuit.tick(1)
+    assert(circuit.last("route_request").route_id == "R-CIRCUIT" and circuit.engine.trip(circuit_trip).hold_reason:find("circuit", 1, true))
+  end,
+
+  test_a_train_that_fits_no_depot_track_is_a_fault_and_a_track_without_a_route_from_here_too = function()
+    local w = world({ depots = { DEP1 = { tracks = { { id = "T1", block = "BD1", length = 3, confirmed = true, routes = { NORD = "R" } } } } } })
+    w.free_blocks = { BD1 = true }
+    local _, trip_id = w.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "DEP1" })
+    w.tick(1)
+    w.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    w.tick(1)
+    assert(w.engine.trip(trip_id).state == "FAULT" and w.engine.trip(trip_id).hold_reason:find("no track in any depot fits", 1, true))
+    local nowhere = world({ depots = { DEP1 = { tracks = { { id = "T1", block = "BD1", length = 12, confirmed = true, routes = { ELSEWHERE = "R" } } } } } })
+    nowhere.free_blocks = { BD1 = true }
+    local _, other = nowhere.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "DEP1" })
+    nowhere.tick(1)
+    nowhere.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    nowhere.tick(1)
+    assert(nowhere.engine.trip(other).state == "FAULT")
+  end,
+
+  test_a_depot_run_needs_a_known_depot_and_names_what_is_missing = function()
+    local w = world({ depots = { DEP1 = { tracks = {} } } })
+    assert(not w.engine.request_depot({ train_id = "TRAIN-1", origin = "NORD", depot = "NOPE" }))
+    assert(not w.engine.request_depot({ origin = "NORD", depot = "DEP1" }))
+    assert(not w.engine.request_depot(nil))
+  end,
+
+  test_a_depot_run_starts_where_the_train_was_seen_and_is_refused_for_a_train_nobody_has_seen = function()
+    local depots = { DEP1 = { tracks = { { id = "T1", block = "BD1", length = 12, confirmed = true, routes = { NORD = "R-D1T1" } } } } }
+    local w = world({ depots = depots })
+    w.free_blocks = { BD1 = true }
+    local ok, err = w.engine.request_depot({ train_id = "TRAIN-1", depot = "DEP1" })
+    assert(ok == false and err:find("not known", 1, true))
+    w.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = true })
+    assert(w.engine.station_of("TRAIN-1") == "NORD")
+    local ok2, trip_id = w.engine.request_depot({ train_id = "TRAIN-1", depot = "DEP1" })
+    assert(ok2 and w.engine.trip(trip_id).origin == "NORD")
+    w.event({ type = "station_train", train_id = "TRAIN-1", station = "NORD", present = false })
+    assert(w.engine.station_of("TRAIN-1") == nil, "a train that left is no longer 'at' the station")
+    local report = w.engine.report()
+    assert(report.depots[1] == "DEP1" and report.trains[1] == "TRAIN-1")
   end
 }

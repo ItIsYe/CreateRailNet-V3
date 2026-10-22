@@ -126,8 +126,9 @@ return {
       local total = plan.total_bytes(assert(plan.files_for_role(manifest, role.key)))
       -- CC:Tweaked computers hold 1 MB by default. The installer checks the space itself (the files it has to write, one temporary copy of the
       -- largest, a little more; docs/assumptions.md "Space budget"); this is the budget that leaves a node room for its state and an update that
-      -- arrives over the air. The master carries the dispatcher, the operator pages and the setup tools of every role, so its budget is larger (1000000 since the authentication of every message, the election of two masters, the replica and the proof of occupancy, V3 packages P1 to P6; the Gesamtkonzept names about 740000 as a project target). A master of this size does not fit a default computer (1 MB) with its journal: it needs computer_space_limit of 2000000 on the server, the doctor says so.
-      local budget = role.key == "master" and 1000000 or 600000
+      -- arrives over the air. The master carries the dispatcher, the operator pages and the setup tools of every role, so its budget is larger (1100000 since the authentication of every message, the election of two masters, the replica, the proof of occupancy, the update control, the replacement wizard, the signed packages and the Master-AUX, V3 packages P1 to P10 and the wiring round: measured 1014713 bytes; the Gesamtkonzept names about 740000 as a project target). A master of this size does not fit a default computer (1 MB) with its journal: it needs computer_space_limit of 2000000 on the server, the doctor says so.
+      -- the panel carries the views of 13 pages, the monitor registry, the track diagram and the timetable editor (measured 600637 bytes): 650000
+      local budget = role.key == "master" and 1100000 or (role.key == "panel" and 650000 or 600000)
       assert(total < budget, role.key .. " needs " .. total .. " bytes (budget " .. budget .. ")")
     end
   end,

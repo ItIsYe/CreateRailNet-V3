@@ -20,6 +20,8 @@ local function plan()
       { id = "MASTER-1", role = "master" }, { id = "FLEET-A", role = "fleet" },
       { id = "STATION-N", role = "station", station_id = "NORD", create_station_name = "Nord Hbf",
         platforms = { { id = "N1", sensor_id = "SEN-N1", create_station = "Create_Station_0", dwell_seconds = 20 }, { id = "N2", sensor_id = "SEN-N2" } } },
+      { id = "DEPOT-1", role = "depot", depot_id = "DEP1", create_station_name = "Depot Eins",
+        tracks = { { id = "T1", kind = "storage", create_station_name = "Depot Eins Gleis 1" }, { id = "T2", kind = "storage" } } },
       { id = "STATION-S", role = "station", station_id = "SUED", create_station_name = "Sued Hbf",
         platforms = { { id = "P1", create_station_name = "Sued Gleis 1" }, { id = "P2", create_station_name = "Sued Gleis 2" } } }
     }
@@ -57,6 +59,16 @@ return {
     assert(entry.conditions[1][1].data.value == 20, "the dwell of the platform")
     local answer = sent[#sent]
     assert(answer.type == "ack" and answer.payload.applied == true)
+  end,
+
+  test_a_depot_run_names_the_track_of_the_depot_as_the_destination_and_the_depot_when_the_track_has_no_name = function()
+    local node, sent, calls = build()
+    node.handle_message({ v = 1, id = "M.1", src = "MASTER-1", dst = "STATION-N", type = "cmd", payload = { cmd = "reserve_platform", platform_id = "N1", train_id = "TRAIN-1" }, ts = 0 })
+    node.handle_message(order({ destination = "DEP1", platform = "T1", command_id = "D/C1" }))
+    assert(calls[1].entries[1].instruction.data.text == "Depot Eins Gleis 1", calls[1] and calls[1].entries[1].instruction.data.text)
+    node.handle_message(order({ destination = "DEP1", platform = "T2", command_id = "D/C2" }))
+    assert(calls[2].entries[1].instruction.data.text == "Depot Eins", "a track without its own Create name: the name of the depot")
+    assert(sent[#sent].type == "ack" and sent[#sent].payload.applied == true)
   end,
 
   test_a_repeated_call_with_the_same_command_id_is_answered_not_made_again = function()
