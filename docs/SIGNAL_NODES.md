@@ -14,6 +14,10 @@ Peripherie dahinter steckt, weiss nur der Computer vor Ort.
 - `signal_transport = "network"`: der Master schickt `set_aspect` (mit `signal_id`) an die Signal-Node. Standard `local`: der Master schaltet die Peripherie selbst (altes Verhalten). Mit `network` muss jedes Signal
   eines Blocks von einer Signal-Node gesteuert werden, sonst meldet `scripts/setup.lua --check` einen Fehler.
 
+## Einrichtung am Computer
+
+Der Assistent (`scripts/setup.lua --role signal`) fragt bei zwei oder mehr angeschlossenen Create-Signalen: **Eines oder mehrere?** Bei „Mehrere“ gibst du die Namen kommagetrennt ein (`S-A, S-B, S-C, S-D`, wie im Netzplan bei `entry_signal` / `exit_signal`); der Eintrag bekommt `signals` und kein einzelnes Geraet. Kommt der Eintrag mit `signals` schon aus dem Plan des Masters, fragt der Assistent nichts und sucht kein Geraet mit dem Namen des Computers. Danach bindest du jedes Signal einzeln (siehe unten). `scripts/setup.lua --doctor` zeigt „Signale: n von m gebunden“ und nennt das naechste, das noch zu binden ist; `scripts/setup.lua --test` prueft jedes gebundene Signal einzeln (freigeben, danach wieder ROT; nur nach deinem Ja).
+
 ## Bindung (nur auf dem Computer, nur mit Bestaetigung)
 
 `scripts/bind_signals.lua bind <ID>`: das Modem **eines** Signals anschliessen, Enter, das Werkzeug erkennt genau ein neues Signal-Geraet und stellt es auf **Rot** (nie auf Gruen: ein Signal wird nicht

@@ -18,6 +18,7 @@ Notes: the checks, in order: installation complete, startup.lua, network plan (a
 ]]
 
 local storage_budget = require("src.shared.storage_budget")
+local signal_bindings = require("src.shared.signal_bindings")
 local hardware = require("src.setup.hardware")
 local netplan = require("src.setup.netplan")
 local terminal = require("src.setup.terminal")
@@ -176,7 +177,31 @@ function doctor.run(opts)
       for _, known in ipairs(hardware.SIDES) do if known.key == side then return true end end
       return false
     end
-    if role == "signal" or role == "sensor" then
+    if role == "signal" and type(entry.signals) == "table" then
+      -- several signals on this computer: each logical signal is bound to a device (scripts/bind_signals.lua), nothing is bound by itself
+      local bindings = signal_bindings.new({ fs = fs_api, node_id = ctx.id })
+      local state, why = bindings.load()
+      local present = {}
+      for _, info in ipairs(devices) do present[info.name] = info.type end
+      local unbound, unusable, usable = {}, {}, 0
+      if state == "corrupt" then
+        add("device", "fail", "Signal-Bindungen unlesbar", "state/signal_bindings.json ist beschaedigt (" .. tostring(why) .. "): kein Signal dieses Computers wird benutzt. scripts/bind_signals.lua check; die Datei steht als .prev noch einmal da.")
+      else
+        for _, signal_id in ipairs(entry.signals) do
+          if not bindings.get(signal_id) then unbound[#unbound + 1] = signal_id
+          elseif bindings.is_usable(signal_id, present) then usable = usable + 1
+          else unusable[#unusable + 1] = signal_id end
+        end
+        local total = #entry.signals
+        if #unusable > 0 then
+          add("device", "fail", #unusable .. " von " .. total .. " Signalen nicht nutzbar: " .. table.concat(unusable, ", "), "Das Geraet fehlt oder hat einen anderen Typ. scripts/bind_signals.lua check zeigt, was; mit replace <ID> ein Ersatzgeraet binden.")
+        elseif #unbound > 0 then
+          add("device", "warn", usable .. " von " .. total .. " Signalen gebunden, offen: " .. table.concat(unbound, ", "), "Nicht gebundene Signale bleiben rot. Je Signal: scripts/bind_signals.lua bind " .. unbound[1] .. " (das Modem eines Signals anschliessen, bestaetigen).")
+        else
+          add("device", "ok", "Signale: " .. total .. " von " .. total .. " gebunden und nutzbar")
+        end
+      end
+    elseif role == "signal" or role == "sensor" then
       local want = DEVICE[role]
       if entry.adapter == "redstone" then
         if side_ok(entry.side) then add("device", "ok", want.label .. ": Redstone " .. entry.side)

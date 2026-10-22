@@ -23,6 +23,8 @@ local hardware=require("src.setup.hardware")
 local hardware_config=require("src.adapter.hardware_config")
 local monitors=require("src.adapter.monitors")
 local peripherals_module=require("src.adapter.peripherals")
+local signal_bindings=require("src.shared.signal_bindings")
+local signal_host=require("src.nodes.signal_host")
 local redstone_module=require("src.adapter.redstone")
 
 local functest={}
@@ -107,7 +109,32 @@ return true,"lesbar, zuletzt " .. seen[#seen] ..(changed and ", der Wert hat gew
 end})
 end
 
-if ctx.role=="signal" then
+if ctx.role=="signal" and type(entry.signals)=="table" then
+
+local bindings=signal_bindings.new({fs=opts.fs or _G.fs,node_id=id})
+local state,why=bindings.load()
+local host=signal_host.new({bindings=bindings,peripherals=peri,expected=entry.signals})
+if state=="corrupt" then
+add({id="signals",title="Signale",kind="read",run=function()return false,"Bindungen unlesbar: " .. text_of(why)end})
+end
+for _,signal_id in ipairs(entry.signals)do
+add({id="signal_" .. signal_id,title="Signal " .. signal_id,kind="act",
+ask="Das Signal " .. signal_id .. " wird " .. hold_s .. " Sekunden freigegeben (nicht mehr erzwungen rot) und danach wieder auf ROT gestellt. Es darf dabei kein Zug in der Naehe sein.",
+run=function()
+local released,release_err=attempt(host.set_aspect,signal_id,"GREEN")
+local slept,sleep_err=pcall(sleep,hold_s)
+local red=attempt(host.set_aspect,signal_id,"RED")
+if not red then red=attempt(host.set_aspect,signal_id,"RED")end
+if not slept then error(sleep_err,0)end
+if not red then
+if not released then return false,"nicht gebunden oder nicht nutzbar: " .. text_of(release_err).. " (scripts/bind_signals.lua check)" end
+return false,"ACHTUNG: das Signal liess sich NICHT auf ROT zurueckstellen -- von Hand pruefen"
+end
+if not released then return false,"nicht gebunden oder nicht nutzbar: " .. text_of(release_err).. " (scripts/bind_signals.lua check)" end
+return true,"freigegeben und wieder ROT"
+end})
+end
+elseif ctx.role=="signal" then
 local adapter=create_signals.new(peri,{hardware=hw,redstone=rs})
 local device=hw.adapter(id)=="redstone" and("Redstone " .. tostring(hw.side(id)))or tostring(hw.target(id))
 add({id="signal",title="Signal " .. device,kind="act",

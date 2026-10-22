@@ -259,6 +259,32 @@ return {
     assert(level(report, "space") == "ok" or level(report, "space") == nil, "no limit: nothing to say")
   end,
 
+  test_a_computer_with_several_signals_is_checked_by_its_bindings_not_as_one_device = function()
+    local signal = function(n) return { name = "Create_Signal_" .. n, type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" } } end
+    local spec = { role = "signal", id = "SIGN-1", entry = { signals = { "S-A", "S-B", "S-C", "S-D" } }, devices = { MODEM, signal(0), signal(1), signal(2), signal(3) } }
+    -- nothing bound yet: the signals stay red, the doctor says which one to bind next (and does not look for a device called SIGN-1)
+    local report = run(spec)
+    local lvl, check = level(report, "device")
+    assert(lvl == "warn" and check.title:find("0 von 4", 1, true) and (check.hint or check.fix or ""):find("bind_signals.lua bind S-A", 1, true), tostring(check and check.title))
+    assert(not tostring(check.title):find("SIGN-1", 1, true))
+    -- all four bound to devices that are there
+    local signal_bindings = require("src.shared.signal_bindings")
+    local c = computer(spec)
+    local b = signal_bindings.new({ fs = c.fs, node_id = "SIGN-1" })
+    b.load()
+    for i, id in ipairs({ "S-A", "S-B", "S-C", "S-D" }) do assert(b.bind(id, "Create_Signal_" .. (i - 1), { confirmed = true, ptype = "Create_Signal" })) end
+    local lvl2, check2 = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "device")
+    assert(lvl2 == "ok" and check2.title:find("4 von 4", 1, true), tostring(check2 and check2.title))
+    -- one device is gone: that is red
+    local gone = { role = "signal", id = "SIGN-1", entry = { signals = { "S-A", "S-B", "S-C", "S-D" } }, devices = { MODEM, signal(0), signal(1), signal(2) }, files = { ["state/signal_bindings.json"] = c.fs.files["state/signal_bindings.json"] } }
+    local lvl3, check3 = level(run(gone), "device")
+    assert(lvl3 == "fail" and check3.title:find("S-D", 1, true), tostring(check3 and check3.title))
+    -- a damaged bindings file binds nothing
+    local broken = { role = "signal", id = "SIGN-1", entry = { signals = { "S-A", "S-B" } }, devices = { MODEM, signal(0), signal(1) }, files = { ["state/signal_bindings.json"] = "{not json" } }
+    local lvl4 = level(run(broken), "device")
+    assert(lvl4 == "fail")
+  end,
+
   test_a_cable_modem_next_to_an_ender_modem_is_no_guess = function()
     local master = { role = "master", id = "MASTER-1", devices = { setup_world.WIRED_MODEM, setup_world.ENDER_MODEM, MONITOR } }
     local c = computer(master)

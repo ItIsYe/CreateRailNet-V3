@@ -62,6 +62,35 @@ local SIGNAL_RS = { id = "SIG-1", role = "signal", adapter = "redstone", side = 
 local MODEM = { top = { type = "modem", methods = { "open", "close", "isOpen", "transmit" }, object = strict_cc.modem() } }
 
 return {
+  test_every_bound_signal_of_a_computer_with_several_signals_is_tested_and_ends_red = function()
+    local signal_bindings = require("src.shared.signal_bindings")
+    local memfs = require("tests.harness.memfs")
+    local fs = memfs.new()
+    local a, b = create_signal(), create_signal()
+    local w = world_with({
+      top = MODEM.top,
+      Create_Signal_0 = { type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" }, object = a },
+      Create_Signal_1 = { type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" }, object = b },
+    })
+    local bindings = signal_bindings.new({ fs = fs, node_id = "SIGN-1" })
+    bindings.load()
+    assert(bindings.bind("S-A", "Create_Signal_0", { confirmed = true, ptype = "Create_Signal" }))
+    assert(bindings.bind("S-B", "Create_Signal_1", { confirmed = true, ptype = "Create_Signal" }))
+    w.answers = { true, true, true }
+    local entry = { id = "SIGN-1", role = "signal", signals = { "S-A", "S-B", "S-C" } }
+    local report = functest.run(ctx_for("signal", entry), options(w, { fs = fs }))
+    assert(result_of(report, "signal_S-A").state == "ok" and result_of(report, "signal_S-B").state == "ok", "both bound signals pass")
+    local unbound = result_of(report, "signal_S-C")
+    assert(unbound.state == "fail" and unbound.detail:find("nicht gebunden", 1, true), tostring(unbound.detail))
+    assert(a.forced == true and b.forced == true, "both end forced RED")
+    assert(a.calls[1] == false and a.calls[#a.calls] == true and b.calls[1] == false and b.calls[#b.calls] == true, "released first, RED last")
+    -- nothing is switched without a yes
+    local w2 = world_with({ top = MODEM.top, Create_Signal_0 = { type = "Create_Signal", methods = { "setForcedRed" }, object = create_signal() } })
+    w2.answers = { false, false, false }
+    local skipped = functest.run(ctx_for("signal", entry), options(w2, { fs = fs }))
+    assert(result_of(skipped, "signal_S-A").state == "skipped")
+  end,
+
   test_a_signal_is_released_for_a_moment_and_ends_red = function()
     local w = world_with(MODEM)
     w.answers = { true }

@@ -269,7 +269,11 @@ end
 
 function netplan.build_entry(role, id, f)
   local entry = { id = id, role = role }
-  if role == "signal" or role == "sensor" then
+  if role == "signal" and type(f.signals) == "table" and #f.signals > 0 then
+    -- several signals on one computer (docs/SIGNAL_NODES.md): the logical ids; which peripheral is which is bound on the computer (scripts/bind_signals.lua)
+    entry.signals = {}
+    for i, signal_id in ipairs(f.signals) do entry.signals[i] = signal_id end
+  elseif role == "signal" or role == "sensor" then
     entry.adapter = f.adapter or "peripheral"
     if entry.adapter == "redstone" then entry.side = f.side else entry.peripheral = f.peripheral end
   elseif role == "switch" then
