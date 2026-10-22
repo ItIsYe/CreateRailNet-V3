@@ -148,13 +148,23 @@ elseif#modems==0 then
 add("modem","fail","Kein Modem","Ein Modem direkt an den Computer setzen (oder per Kabel anbinden). Ohne Modem erreicht er das Netz nicht.")
 elseif#modems==1 then
 modem_usable=true
-add("modem","ok","Modem " .. modems[1].name .. " (automatisch)")
+local kind=hardware.modem_kind(modems[1])
+add("modem","ok","Modem " .. modems[1].name .. " (" ..(kind~="" and(kind .. ", ")or "").. "automatisch)")
 else
 modem_usable=true
-local names={}
-for _,info in ipairs(modems)do names[#names+1]=info.name end
+local names,wireless={},{}
+for _,info in ipairs(modems)do
+local kind=hardware.modem_kind(info)
+names[#names+1]=info.name ..(kind~="" and(" (" .. kind .. ")")or "")
+if info.wireless==true then wireless[#wireless+1]=info end
+end
+if#wireless==1 then
+
+add("modem","ok","Modem " .. wireless[1].name .. " (Funk, automatisch)","Gesehen: " .. table.concat(names,", ").. ". Das Funknetz nimmt das Funkmodem; ein Kabelmodem daneben bleibt fuer Monitore und Geraete.")
+else
 add("modem","warn","Mehrere Modems, keines festgelegt",
-"Es gibt " .. table.concat(names,", ").. ". Den Assistenten ausfuehren oder beim Eintrag \"modem\": \"" .. names[1] .. "\" eintragen, sonst entscheidet der Zufall.")
+"Es gibt " .. table.concat(names,", ").. ". Den Assistenten ausfuehren oder beim Eintrag \"modem\": \"" .. modems[1].name .. "\" eintragen, sonst entscheidet der Zufall.")
+end
 end
 end
 

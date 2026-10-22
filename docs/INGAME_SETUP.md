@@ -44,6 +44,7 @@ Eine Einleitung gibt es nicht: die Tasten stehen am rechten Ende der Trennlinie 
    alles zu diesem Computer, entfällt der Schritt; fehlt nur das Gerät, weist er darauf hin.
    - **Modem**: kein Modem hält an („Trotzdem ohne Modem weitermachen?", Enter bricht ab). Bei **mehreren** Modems wählst du eins; der Name kommt als
      `modem` in den Plan und der Computer nimmt nie ein anderes. Mit einem einzigen wird es von selbst gefunden.
+     Ein **Funkmodem** (z. B. Ender-Modem) und ein **Kabelmodem** (für Monitore und Geräte am Kabel) an einem Computer sind normal: der Assistent zeigt hinter jedem Modem „Funk“ oder „Kabel“ und schlägt das Funkmodem vor; ohne Festlegung nimmt der Computer ebenfalls das Funkmodem. Beide Modems müssen **direkt am Computer** sitzen, sonst zählt der Computer nur eines (Modems am Kabel erscheinen nicht als Geräte); `scripts/setup.lua --doctor` zeigt unter „Modem“, welche er sieht.
    - **Monitor** (Master, Monitor, Bahnhof, Depot, Zug): bei mehreren die Wahl, sonst wird der gefundene genommen (Feld `monitor` im Plan, nur wenn gewählt;
      beim Monitor-Computer immer).
    - Weiche: Seite des Redstone-Ausgangs, Stellung bei Signal, Signal umkehren. Signal und Melder: Create-Gerät am Computer oder Redstone an einer Seite.

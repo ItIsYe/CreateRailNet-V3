@@ -27,7 +27,47 @@ local function strict_modem()
   return m
 end
 
+-- a computer with a cable modem ("back") and an ender modem ("right"): sorted by name the cable one comes first
+local function two_modems()
+  local wrapped = {}
+  local kinds = { back = false, right = true }
+  local api = {
+    getNames = function() return { "right", "back", "monitor_0" } end,
+    getType = function(name) return name == "monitor_0" and "monitor" or "modem" end,
+    call = function(name, method) assert(method == "isWireless"); return kinds[name] end,
+    wrap = function(name) wrapped[#wrapped + 1] = name; return strict_modem() end,
+    find = function(kind) assert(kind == "modem"); wrapped[#wrapped + 1] = "find"; return strict_modem() end,
+  }
+  return api, wrapped
+end
+
 return {
+  test_the_radio_modem_is_taken_when_a_cable_modem_sits_next_to_it = function()
+    local api, wrapped = two_modems()
+    local adapter = cc_modem.new({ peripheral_api = api, channel = 777 })
+    assert(adapter.modem and wrapped[#wrapped] == "right" and wrapped[1] == "right", table.concat(wrapped, ","))
+  end,
+
+  test_a_named_modem_is_not_replaced_by_the_radio_one = function()
+    local api, wrapped = two_modems()
+    local adapter = cc_modem.new({ peripheral_api = api, modem_name = "back", channel = 777 })
+    assert(adapter.modem and wrapped[1] == "back" and #wrapped == 1)
+  end,
+
+  test_without_a_modem_that_says_it_is_wireless_the_first_one_is_found_as_before = function()
+    local wrapped = {}
+    local api = {
+      getNames = function() return { "back" } end, getType = function() return "modem" end,
+      call = function() error("no isWireless", 0) end,
+      wrap = function(name) wrapped[#wrapped + 1] = name; return strict_modem() end,
+      find = function() wrapped[#wrapped + 1] = "find"; return strict_modem() end,
+    }
+    local adapter = cc_modem.new({ peripheral_api = api, channel = 777 })
+    assert(adapter.modem and wrapped[1] == "find")
+    local old = cc_modem.new({ peripheral_api = { find = function() return strict_modem() end }, channel = 777 })
+    assert(old.modem, "a peripheral api with find only still works")
+  end,
+
   test_the_channel_is_opened_the_way_the_nodes_and_the_master_ask_for_it = function()
     local raw = strict_modem()
     local adapter = cc_modem.new({ modem = raw, channel = 777 })

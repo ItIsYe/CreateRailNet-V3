@@ -33,6 +33,12 @@ local function peripheral_api(list)
     getNames = function() local names = {}; for _, p in ipairs(list) do names[#names + 1] = p.name end; return names end,
     getType = function(name) for _, p in ipairs(list) do if p.name == name then return p.type end end end,
     getMethods = function(name) for _, p in ipairs(list) do if p.name == name then return p.methods end end end,
+    call = function(name, method)
+      for _, p in ipairs(list) do
+        if p.name == name and method == "isWireless" and p.wireless ~= nil then return p.wireless end
+      end
+      error("no such method", 0)
+    end,
   }
 end
 
@@ -251,6 +257,30 @@ return {
     local report = doctor.run({ fs = c.fs, peripheral = c.peripheral })
     assert(level(report, "version") == "warn")
     assert(level(report, "space") == "ok" or level(report, "space") == nil, "no limit: nothing to say")
+  end,
+
+  test_a_cable_modem_next_to_an_ender_modem_is_no_guess = function()
+    local master = { role = "master", id = "MASTER-1", devices = { setup_world.WIRED_MODEM, setup_world.ENDER_MODEM, MONITOR } }
+    local c = computer(master)
+    local report = doctor.run({ fs = c.fs, peripheral = c.peripheral })
+    local lvl, check = level(report, "modem")
+    assert(lvl == "ok" and check.title:find("right", 1, true) and check.title:find("Funk", 1, true), tostring(check and check.title))
+    assert((check.hint or check.fix or ""):find("back (Kabel)", 1, true), "the cable modem is named as such")
+  end,
+
+  test_two_radio_modems_or_modems_that_do_not_say_what_they_are_stay_a_guess = function()
+    local two = { role = "master", id = "MASTER-1", devices = { setup_world.ENDER_MODEM, { name = "left", type = "modem", methods = { "open", "isWireless" }, wireless = true }, MONITOR } }
+    local c = computer(two)
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "modem") == "warn")
+    local unknown = { role = "master", id = "MASTER-1", devices = { MODEM, MODEM2, MONITOR } }
+    local u = computer(unknown)
+    assert(level(doctor.run({ fs = u.fs, peripheral = u.peripheral }), "modem") == "warn")
+  end,
+
+  test_a_single_cable_modem_is_said_to_be_one = function()
+    local c = computer({ role = "signal", id = "SIG-1", devices = { setup_world.WIRED_MODEM, SIGNAL } })
+    local lvl, check = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "modem")
+    assert(lvl == "ok" and check.title:find("Kabel", 1, true), tostring(check and check.title))
   end,
 
   test_nothing_asks_for_a_bigger_computer_but_a_short_update_room_is_said = function()

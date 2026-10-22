@@ -39,6 +39,9 @@ local TEMPLATE_NAMES = {
 
 -- the devices a computer typically has
 setup_world.MODEM = { name = "top", type = "modem", methods = { "open", "transmit", "isOpen" } }
+-- a cable modem (for the monitors) and an ender modem (radio) side by side
+setup_world.WIRED_MODEM = { name = "back", type = "modem", methods = { "open", "transmit", "isOpen", "isWireless" }, wireless = false }
+setup_world.ENDER_MODEM = { name = "right", type = "modem", methods = { "open", "transmit", "isOpen", "isWireless" }, wireless = true }
 setup_world.SIGNAL = { name = "Create_Signal_0", type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" } }
 setup_world.OBSERVER = { name = "Create_TrainObserver_0", type = "Create_TrainObserver", methods = { "isTrainPassing", "getPassingTrainName" } }
 setup_world.STATION = { name = "Create_Station_0", type = "Create_Station", methods = { "setSchedule", "isTrainPresent", "getStationName" } }
@@ -90,6 +93,14 @@ function setup_world.new(opts)
         getNames = function() local names = {}; for _, p in ipairs(peripherals) do names[#names + 1] = p.name end; return names end,
         getType = function(name) for _, p in ipairs(peripherals) do if p.name == name then return p.type end end end,
         getMethods = function(name) for _, p in ipairs(peripherals) do if p.name == name then return p.methods end end end,
+        call = function(name, method)
+          for _, p in ipairs(peripherals) do
+            if p.name == name then
+              if method == "isWireless" and p.wireless ~= nil then return p.wireless end
+              error("no such method " .. tostring(method), 0)
+            end
+          end
+        end,
         wrap = function(name) for _, p in ipairs(peripherals) do if p.name == name then return device_of(p) end end end,
         find = function(kind) for _, p in ipairs(peripherals) do if p.type == kind then return device_of(p), p.name end end end,
       },

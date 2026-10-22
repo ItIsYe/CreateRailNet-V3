@@ -1217,8 +1217,14 @@ local modems=hardware.of_class(ctx.peripherals,"modem")
 page("hardware",role_label(ctx.role))
 local items,default={},1
 for i,info in ipairs(modems)do
-items[i]={value=info.name,label=info.name .. " (" .. info.type .. ")"}
+local kind=hardware.modem_kind(info)
+items[i]={value=info.name,label=info.name .. " (" .. info.type ..(kind~="" and(", " .. kind)or "").. ")"}
 if info.name==ctx.fields.modem then default=i end
+end
+
+if not ctx.fields.modem then
+local preferred=hardware.preferred_modem(ctx.peripherals)
+for i,info in ipairs(modems)do if preferred and info.name==preferred.name then default=i end end
 end
 t.say("Dieser Computer hat " ..#modems .. " Modems.","dim")
 local value=ask_choice("Ueber welches Modem laeuft das Funknetz?",items,{default=default,compact=true,
@@ -1345,7 +1351,12 @@ local bound=entry.modem or ctx.fields.modem
 if#modems==0 then rows[#rows+1]={"Modem","FEHLT (spaeter anbauen)"}
 elseif bound then rows[#rows+1]={"Modem",bound ..(hardware.find(ctx.peripherals,bound)and " (festgelegt)" or " (festgelegt, NICHT gefunden)")}
 elseif#modems==1 then rows[#rows+1]={"Modem",modems[1].name .. " (automatisch)"}
+else
+local wireless={}
+for _,info in ipairs(modems)do if info.wireless==true then wireless[#wireless+1]=info end end
+if#wireless==1 then rows[#rows+1]={"Modem",wireless[1].name .. " (Funk, automatisch)"}
 else rows[#rows+1]={"Modem","NICHT festgelegt (" ..#modems .. " vorhanden)"}end
+end
 if netplan.MONITOR_ROLES[ctx.role] then
 local monitors=hardware.of_class(ctx.peripherals,"monitor")
 local chosen=entry.monitor or ctx.fields.monitor

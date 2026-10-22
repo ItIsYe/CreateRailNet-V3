@@ -20,10 +20,29 @@ if peripheral_api and peripheral_api.wrap then
 local ok,wrapped=pcall(peripheral_api.wrap,options.modem_name)
 if ok then modem=wrapped end
 end
-elseif not modem and peripheral_api and peripheral_api.find then
+elseif not modem and peripheral_api then
+
+if peripheral_api.getNames and peripheral_api.getType and peripheral_api.call and peripheral_api.wrap then
+local ok_names,names=pcall(peripheral_api.getNames)
+if ok_names and type(names)=="table" then
+table.sort(names)
+for _,name in ipairs(names)do
+local ok_type,kind=pcall(peripheral_api.getType,name)
+if ok_type and kind=="modem" then
+local ok_wireless,wireless=pcall(peripheral_api.call,name,"isWireless")
+if ok_wireless and wireless==true then
+local ok_wrap,wrapped=pcall(peripheral_api.wrap,name)
+if ok_wrap and wrapped then modem=wrapped;break end
+end
+end
+end
+end
+end
+if not modem and peripheral_api.find then
 local ok,found=pcall(peripheral_api.find,"modem")
 if ok then
 modem=found
+end
 end
 end
 

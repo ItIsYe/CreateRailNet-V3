@@ -10,6 +10,7 @@
 
 
 
+
 local hardware={}
 
 hardware.SIDES={
@@ -54,6 +55,14 @@ if ok_methods and type(list)=="table" then methods=list end
 end
 local info={name=name,type=ptype,methods=methods}
 info.class=hardware.classify(info)
+if info.class=="modem" and peripheral_api.call then
+local has=false
+for _,method in ipairs(methods)do if method=="isWireless" then has=true end end
+if has then
+local ok_w,wireless=pcall(peripheral_api.call,name,"isWireless")
+if ok_w and type(wireless)=="boolean" then info.wireless=wireless end
+end
+end
 found[#found+1]=info
 end
 return found
@@ -63,6 +72,20 @@ function hardware.of_class(list,class)
 local out={}
 for _,info in ipairs(list)do if info.class==class then out[#out+1]=info end end
 return out
+end
+
+
+function hardware.modem_kind(info)
+if info.wireless==true then return "Funk" end
+if info.wireless==false then return "Kabel" end
+return ""
+end
+
+
+function hardware.preferred_modem(list)
+local modems=hardware.of_class(list,"modem")
+for _,info in ipairs(modems)do if info.wireless==true then return info end end
+return modems[1]
 end
 
 function hardware.find(list,name)
