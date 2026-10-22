@@ -15,6 +15,7 @@ local audit_log = require("src.domain.audit_log")
 local maintenance_mode = require("src.domain.maintenance")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
+local update_control_module = require("src.master.update_control")
 local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
@@ -70,7 +71,9 @@ function app.new(args)
   local service_plan_registry = service_plans.new(cfg)
   local resolver = route_resolver.new(cfg.routes or {})
   local audits = audit_log.new(300)
-  local maintenance = maintenance_mode.new()
+  local maintenance = maintenance_mode.new({ path = cfg.maintenance_file or "state/maintenance.json", fs = _G.fs })
+  local maintenance_load, maintenance_why = maintenance.load()
+  if maintenance_load == "corrupt" then logger.error("maintenance file unreadable: lock stays on", { error = maintenance_why }) end
   local peri = peripherals.new()
   local hw = hardware_config.new(cfg)
   local modem = cc_modem.for_node(cfg, parsed.id or cfg.master_id)
@@ -205,6 +208,38 @@ function app.new(args)
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
   context.ota = ota_manager.new(network, reg, logger)
+  -- updates: operator confirmation, release of critical nodes, order for masters/arbiter/fleet partners; locks outlive a restart
+  local fleet_pairs_view = {
+    pair_of = function(node_id) for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do for _, id in ipairs(pair.nodes or {}) do if id == node_id then return pair.id end end end end,
+    partner_of = function(node_id) for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do for index, id in ipairs(pair.nodes or {}) do if id == node_id then return pair.nodes[3 - index] end end end end,
+    status = function(pair_id)
+      for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do
+        if pair.id == pair_id then
+          for _, id in ipairs(pair.nodes or {}) do local node = reg.get(id); if not node or node.status ~= "UP" then return { alive = false } end end
+        end
+      end
+      return { alive = true }
+    end
+  }
+  context.update_control = update_control_module.new({
+    fs = _G.fs, path = cfg.update_plan_file or "state/update_plan.json", now = require("src.shared.time").now_s, config = cfg, logger = logger,
+    busy = function(node_id)
+      local role
+      for _, node in ipairs(cfg.nodes or {}) do if node.id == node_id then role = node.role end end
+      if role ~= "signal" and role ~= "switch" and role ~= "sensor" and role ~= "station" and role ~= "depot" then return false end
+      for _, train in pairs(disp.get_trains()) do if train.holds_route then return true end end
+      return false
+    end,
+    ha = function()
+      if not ha then return {} end
+      local status = ha.status()
+      return { leads = ha.is_leader(), both_masters_healthy = ha.is_leader() and (status.fresh or 0) >= 3 }
+    end,
+    fleet_pairs = fleet_pairs_view,
+    -- the blocks that depend on a node that was updated and failed (or rolled back) are not trusted again: they go FAULT like after a node timeout and come back by the normal proof
+    on_lock = function(node_id, reason) logger.warn("update lock", { node = node_id, reason = reason }); if disp.timeout_node then disp.timeout_node(node_id) end end
+  })
+  context.update_control.load()
   context.pairing = pairing
   -- the controlled restart (setup page): signals to RED like on a stop, then the reboot
   context.restart = restart_module.build({ dispatcher = disp, red = cfg.signal_red_on_stop ~= false, logger = logger, reboot = function() if os.reboot then os.reboot() end end })

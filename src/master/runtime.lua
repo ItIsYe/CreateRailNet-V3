@@ -6,6 +6,7 @@ Public API: new(context) -> runtime with handle_event(event), run(), save_recove
 
 local time = require("src.shared.time")
 local permissions = require("src.panel.permissions")
+local op_state = require("src.domain.op_state")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local status_model = require("src.domain.status_model")
@@ -35,6 +36,7 @@ function master_runtime.new(context)
     audit_log = context.audit_log,
     maintenance = context.maintenance,
     ota = context.ota,
+    update_control = context.update_control,
     pairing = context.pairing,
     plan_service = context.plan_service,
     restart = context.restart,
@@ -294,6 +296,19 @@ function master_runtime.new(context)
     local master_state = maintenance_enabled() and "MAINTENANCE" or (recovery_locked() and "RECOVERY" or (release_locked() and "NICHT_FREIGEGEBEN" or "ONLINE"))
     local built = { cmd = "panel_update", master_state = master_state, overview = runtime.dispatcher and runtime.dispatcher.get_overview() or {}, trains = runtime.train_registry and runtime.train_registry.list() or {}, stations = runtime.station_registry and runtime.station_registry.list() or {}, depots = runtime.depot_registry and runtime.depot_registry.list() or {}, service_plans = runtime.service_plan_registry and runtime.service_plan_registry.list() or {}, diagnostics = diagnostics.build(context_view) }
     built.diagnostics.recovery = runtime.recovery
+    local locks = runtime.update_control and runtime.update_control.locks() or {}
+    local faulty = {}
+    for _, lock in ipairs(locks) do faulty[#faulty + 1] = lock.node_id end
+    local both_masters -- nil in a plan with one master; with two a leader whose lease holds has the majority
+    if runtime.ha then both_masters = runtime.ha.is_leader() end
+    local commit_clear = true
+    if runtime.dispatcher and runtime.dispatcher.commit_pending and runtime.ha then commit_clear = #runtime.dispatcher.commit_pending() == 0 end
+    built.op_state, built.op_reason = op_state.derive({
+      setup_done = true, recovery = recovery_locked(), maintenance = maintenance_enabled(), local_faults = faulty,
+      both_masters = both_masters, commit_clear = commit_clear
+    })
+    built.op_text = op_state.describe(built.op_state)
+    built.diagnostics.update_locks = locks
     built.diagnostics.loop = runtime.ticker.stats()
     return built
   end

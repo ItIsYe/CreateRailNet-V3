@@ -31,7 +31,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | **umgesetzt (offline)**, siehe unten |
 | P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | **umgesetzt (offline)**, siehe unten |
 | P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | **umgesetzt (offline)**, siehe unten |
-| P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | offen |
+| P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | **umgesetzt (offline)**, siehe unten |
 | P10 Integration | 112 Einzeltests + E2E, 300/400 Signale, Freigabestufen | offen |
 
 ## P1: was umgesetzt ist
@@ -166,6 +166,24 @@ Einzelheiten `docs/PANEL.md`. Code unter `src/panel/`, Anbindung in `src/nodes/p
 Noch nicht Teil von P8: das Zeichnen der Seiten auf mehreren Monitoren gleichzeitig durch `panel_node.lua` (der Knoten bedient weiter einen Monitor; Registry, Gruppen, Gleisbildmodell und Seitentabelle sind fertig und getestet,
 aber noch nicht an den Renderer gehaengt), das Werkzeug zum Binden der Monitore am Computer, der Fahrplaneditor am Bildschirm, das Eintragen der Stoerungszentrale in die Master-Alarme.
 Wie die Monitore im Spiel aussehen und reagieren, bleibt Spieltest (0cn bis 0cs).
+
+## P9 OTA und Wartung
+
+Einzelheiten `docs/UPDATE.md`. Der verifizierte Ablauf (Angebot, Teile, Tausch, Probestart, Rueckfall) bestand schon in `updater.lua`/`ota_recovery.lua`; P9 setzt die Regeln des Konzepts darum.
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| 18 Betriebszustaende und was sie erlauben | `domain/op_state.lua`, im Panel-Snapshot (`op_state`, `op_text`) | `test_op_state.lua`, `test_release.lua` |
+| 14 Paket: Herkunftsnachweis, Rolle, Protokoll, Schema, Migration, Platz, Rueckfallziel, Dateihashes | `shared/update_package.lua`, Haken `verify_package` im Updater | `test_update_package.lua`, `test_updater.lua` (I-02, I-03, I-09) |
+| 14 Aktivierung nur mit Betreiberbestaetigung; kritische Knoten mit Freigabe und ohne abhaengige Fahrt | `master/update_control.lua`, `manual_control` (`ota_push`, `update_release`, `update_unlock`) | `test_update_control.lua` (I-01, I-04, I-05, I-12) |
+| 14 Reihenfolge: Standby-Master vom fuehrenden aus, Schiedsrichter nur bei zwei gesunden Mastern, Flottenpartner einzeln | `update_control.check` | `test_update_control.lua` (I-05, I-06) |
+| 14 Neustart mitten im Slotwechsel, Wartungssperre ueber Neustart, Fehler -> Sperre, kein blindes Zurueckspielen | `update_control.load/finish`, `domain/maintenance.lua` (Datei), `on_lock` -> Knoten-Timeout im Dispatcher | `test_update_control.lua`, `test_op_state.lua` (I-07, I-08, I-10) |
+| 14 Ersatzhardware: neue Identitaet, neue Zuordnung, Test | `master/replacement.lua` | `test_replacement.lua` (I-11) |
+
+Abweichungen und Grenzen: Die "A/B-Programmslots" sind auf ComputerCraft dateiweise ausgefuehrt (Stage `.ota_new`, Sicherung `.ota_bak`, Journal, Probestart), der kleine verifizierte Bootloader ist der Wiederherstellungsblock in `startup.lua`.
+Das Panel hat noch keine Seite fuer den Austauschassistenten (das Modul ist fertig, die Aktionen `replace_*` sind nicht in `manual_control` eingehaengt). `verify_package` ist als Haken im Updater vorhanden, wird aber noch nicht aus
+der Knotenkonfiguration verdrahtet; bis dahin schuetzen die Absenderliste (`sources`), die P1-Authentisierung und die Dateiprüfsummen des Angebots. Der Master wird weiter durch den Installer aktualisiert (nicht ueber OTA).
+Was Create und die Welt beim Neustart eines Signal-Computers tun, bleibt Spieltest (0ct bis 0cx).
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

@@ -59,6 +59,7 @@ local function master(opts)
     service_plan_registry = { list = function() return {} end },
     clock = function() return env.now end, start_timer = function() return 1 end,
     auto_restore_state = false, auto_save_state = false,
+    update_control = o.update_control, maintenance = o.maintenance,
   })
   local counter = 0
   local function deliver(src, kind, payload)
@@ -205,6 +206,23 @@ return {
     assert(state_of_last_snapshot() == "NICHT_FREIGEGEBEN")
     assert(m.runtime.release_operation("PANEL-1"))
     assert(state_of_last_snapshot() == "ONLINE")
+  end,
+
+  test_the_panels_get_the_operating_state_and_the_update_locks = function()
+    local locks = {}
+    local m = master({ update_control = { locks = function() return locks end }, maintenance = { is_locked = function() return false end } })
+    m.everything_up()
+    local function snapshot()
+      m.sent = {}
+      m.event("PANEL-1", { type = "panel_request_snapshot" })
+      for _, item in ipairs(m.sent) do if item.payload.cmd == "panel_update" then return item.payload end end
+    end
+    local normal = snapshot()
+    assert(normal.op_state == "NORMAL" and normal.op_text == "Normalbetrieb", tostring(normal.op_state))
+    locks[1] = { node_id = "SIG-1", reason = "Rollback" }
+    local degraded = snapshot()
+    assert(degraded.op_state == "DEGRADED_LOCAL" and degraded.op_reason:find("SIG-1", 1, true))
+    assert(degraded.diagnostics.update_locks[1].node_id == "SIG-1")
   end,
 
   test_a_new_master_starts_not_released = function()

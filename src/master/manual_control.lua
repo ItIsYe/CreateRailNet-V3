@@ -7,7 +7,8 @@ local errors = require("src.shared.error_codes")
 
 local manual_control = {}
 
-local SAFE_ACTIONS = { enter_maintenance = true, exit_maintenance = true, hold_train = true, emergency_stop = true }
+-- updates run in maintenance: their own checks (src/master/update_control.lua) decide, the maintenance lock does not block them
+local SAFE_ACTIONS = { enter_maintenance = true, exit_maintenance = true, hold_train = true, emergency_stop = true, ota_push = true, update_release = true, update_unlock = true }
 
 local function send_cmd(network, dst, cmd, payload)
   local body = payload or {}
@@ -32,7 +33,7 @@ function manual_control.new(context)
   -- ota, cargo and alerts are looked up when an action runs: the app builds this helper before those services exist, and
   -- reading them at construction left "ota manager unavailable" and "cargo system unavailable" on every call
   setmetatable(self, { __index = function(_, key)
-    if key == "ota" or key == "cargo" or key == "alerts" or key == "trace" then return context[key] end
+    if key == "ota" or key == "update_control" or key == "cargo" or key == "alerts" or key == "trace" then return context[key] end
     return nil
   end })
 
@@ -180,9 +181,36 @@ function manual_control.new(context)
       local ok, err = self.cargo.cancel_order(cmd.order_id)
       audit("cargo_cancel", { order_id=cmd.order_id })
       return ok, err
+    elseif cmd.action == "update_release" then
+      if not self.update_control then return false, "update control unavailable" end
+      local ok_release, why = self.update_control.release_node(cmd.node_id, cmd.operator, cmd.evidence)
+      audit("update_release", { node_id = cmd.node_id, ok = ok_release == true, by = cmd.operator })
+      return ok_release, why
+    elseif cmd.action == "update_unlock" then
+      if not self.update_control then return false, "update control unavailable" end
+      local ok_unlock, why = self.update_control.unlock(cmd.node_id, cmd.operator, cmd.proof)
+      audit("update_unlock", { node_id = cmd.node_id, ok = ok_unlock == true, by = cmd.operator })
+      return ok_unlock, why
     elseif cmd.action == "ota_push" then
       if not self.ota then return false, "ota manager unavailable" end
       local targets = cmd.node_id and { cmd.node_id } or nil
+      -- with the update control every target needs the operator confirmation and, if critical, its release; a refused target is not touched
+      if self.update_control then
+        if not targets then return false, "update control: a target node is needed (no blind broadcast of production updates)" end
+        for _, node_id in ipairs(targets) do
+          local rec = self.update_control.state_of(node_id)
+          if not rec or rec.state ~= "PREPARED" then
+            local ok_prepare, why = self.update_control.prepare(node_id, { release = cmd.version or "runtime", rollback_to = "previous" })
+            if not ok_prepare then return false, "update not prepared for " .. node_id .. ": " .. tostring(why) end
+          end
+          local ok_check, reasons = self.update_control.check(node_id, { confirm = cmd.confirm == true })
+          if not ok_check then
+            audit("ota_refused", { node_id = node_id, reasons = reasons, by = cmd.operator })
+            return false, "update refused for " .. node_id .. ": " .. table.concat(reasons, "; ")
+          end
+        end
+        for _, node_id in ipairs(targets) do self.update_control.begin(node_id, cmd.operator) end
+      end
       local results, start_err = self.ota.push_runtime({ nodes = targets, version = cmd.version })
       if start_err then return false, "OTA not started: " .. tostring(start_err) end
       local ok_count, fail_count = 0, 0

@@ -2,7 +2,7 @@
 Purpose: Node side of the over-the-air (OTA) update: offer/need/chunk/commit transfer, verification, swap with rollback.
 Public API:
   new(network, node_id, logger, opts) -> updater
-    opts: fs, sources (list of allowed sender ids), quiesce() -> ok, err, reboot(), sleep(seconds), max_files, max_bytes
+    opts: verify_package(package, offer) -> true | false, code, detail (optional: src/shared/update_package.lua), fs, sources (list of allowed sender ids), quiesce() -> ok, err, reboot(), sleep(seconds), max_files, max_bytes
   updater.offer(payload, src)    manifest of the new version -> true | false, err; answers with ota_need (or ota_result when current)
   updater.chunk(payload, src)    one piece of a needed file -> true | false, err (a damaged file is answered with ota_need, true)
   updater.commit(payload, src)   all pieces staged: quiesce, swap, trial boot journal, reboot -> true | false, err
@@ -144,6 +144,14 @@ function updater.new(network, node_id, logger, opts)
     if not manifest then
       fail(src, payload.update_id, { err })
       return false, err
+    end
+    -- a node that holds the release key checks the origin proof, role, protocol, schema and space of the package before it asks for a single file
+    if options.verify_package then
+      local package_ok, code, detail = options.verify_package(payload.package, payload)
+      if not package_ok then
+        fail(src, payload.update_id, { "package refused: " .. tostring(code) .. (detail and (" (" .. tostring(detail) .. ")") or "") })
+        return false, "package refused: " .. tostring(code)
+      end
     end
 
     local need = {}

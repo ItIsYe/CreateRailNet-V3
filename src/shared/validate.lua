@@ -229,6 +229,8 @@ local function validate_inner(cfg, errors)
     end
   end
   if cfg.master_journal_file ~= nil and not nonempty(cfg.master_journal_file) then add(errors, "master_journal_file", "must be non-empty string") end
+  if cfg.maintenance_file ~= nil and not nonempty(cfg.maintenance_file) then add(errors, "maintenance_file", "must be non-empty string") end
+  if cfg.update_plan_file ~= nil and not nonempty(cfg.update_plan_file) then add(errors, "update_plan_file", "must be non-empty string") end
   if cfg.arbiter ~= nil and not nonempty(cfg.arbiter) then add(errors, "arbiter", "must be non-empty string") end
   if type(cfg.masters) == "table" and #cfg.masters >= 1 then
     if #cfg.masters ~= 2 then add(errors, "masters", "must list exactly two masters (or be left out for a plan with one)") end

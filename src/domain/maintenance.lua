@@ -1,13 +1,19 @@
 --[[
 Purpose: Maintenance/lockdown state for safe operator control.
-Public API: new() -> mode with enable, disable, is_locked, status.
+Public API: new({ fs, path }) -> mode with enable, disable, is_locked, status, load.
+Notes: with a path the lock is written to disk and read again at start: a restart does not lift a maintenance lock (Kap. 14, I-10). A file that cannot be read keeps the lock on (reason "Sperrdatei nicht lesbar").
+  Without a path (older callers) the state lives in memory only.
 ]]
+local json = require("src.shared.json")
+local safe_write = require("src.shared.safe_write")
 
 local time = require("src.shared.time")
 
 local maintenance = {}
 
-function maintenance.new()
+function maintenance.new(opts)
+  opts = opts or {}
+  local io_opts = { fs = opts.fs }
   local state = {
     enabled = false,
     reason = nil,
@@ -16,12 +22,35 @@ function maintenance.new()
   }
   local self = {}
 
+  local function persist()
+    if not opts.path then return true end
+    local ok, err = safe_write.write(opts.path, json.encode({ v = 1, enabled = state.enabled, reason = state.reason, changed_by = state.changed_by, changed_at = state.changed_at }), io_opts)
+    return ok, err
+  end
+
+  function self.load()
+    if not opts.path then return "memory" end
+    local body, err = safe_write.read_with_backup(opts.path, io_opts)
+    if not body then
+      if err == "missing" then return "empty" end
+      state.enabled, state.reason = true, "Sperrdatei nicht lesbar"
+      return "corrupt", err
+    end
+    local ok, decoded = pcall(json.decode, body)
+    if not ok or type(decoded) ~= "table" then
+      state.enabled, state.reason = true, "Sperrdatei nicht lesbar"
+      return "corrupt", "not valid json"
+    end
+    state.enabled, state.reason, state.changed_by, state.changed_at = decoded.enabled == true, decoded.reason, decoded.changed_by, decoded.changed_at
+    return "loaded"
+  end
+
   function self.enable(reason, actor)
     state.enabled = true
     state.reason = reason or "maintenance"
     state.changed_by = actor
     state.changed_at = time.now_s()
-    return true
+    return persist()
   end
 
   function self.disable(actor)
@@ -29,7 +58,7 @@ function maintenance.new()
     state.reason = nil
     state.changed_by = actor
     state.changed_at = time.now_s()
-    return true
+    return persist()
   end
 
   function self.is_locked()

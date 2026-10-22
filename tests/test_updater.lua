@@ -297,4 +297,17 @@ return {
     for path, body in pairs(OLD) do assert(w.fs.files[path] == body) end
     assert(w.reboots == 0)
   end
+  ,test_a_package_that_the_node_refuses_is_answered_before_any_file_is_asked_for = function()
+    local w = { fs = memfs.new(), events = {} }
+    for path, body in pairs(OLD) do w.fs.set(path, body) end
+    local network = { send_reliable = function(kind, dst, payload) w.events[#w.events + 1] = { kind = kind, dst = dst, payload = payload } end }
+    local seen
+    local u = updater.new(network, "N1", nil, { fs = w.fs, sources = { "M" }, quiesce = function() return true end, reboot = function() end, sleep = function() end,
+      verify_package = function(package, offer) seen = package; return false, "bad_signature", "origin proof does not match" end })
+    local ok, err = u.offer({ update_id = "u1", version = "v2", files = manifest(NEW), package = { release = "v2" } }, "M")
+    assert(ok == false and err:find("bad_signature", 1, true), tostring(err))
+    assert(seen and seen.release == "v2")
+    assert(last_event(w, "ota_need") == nil, "no file is requested")
+    assert(last_event(w, "ota_result").success == false)
+  end
 }
