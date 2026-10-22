@@ -86,6 +86,49 @@ return {
     assert(j.snapshot({ small = "x" }))
   end,
 
+  test_a_snapshot_taken_over_from_a_leader_is_capped_too = function()
+    local fs = memfs.new()
+    local j = journal_module.new("state/j.log", { fs = fs, max_snapshot_bytes = 500 })
+    j.open()
+    local ok, err = j.install_snapshot(5, { big = string.rep("x", 2000) }, 5)
+    assert(not ok and tostring(err):find("too large", 1, true), tostring(err))
+    assert(fs.files["state/j.log.snap"] == nil and j.last_seq() == 0)
+  end,
+
+  test_the_plan_service_refuses_a_plan_above_the_cap_by_default = function()
+    local plan_service = require("src.master.plan_service")
+    local fs = memfs.new()
+    fs.set("configs/network.json", string.rep(" ", storage_budget.PLAN_MAX_BYTES + 1))
+    local service = plan_service.new({ plan_path = "configs/network.json", fs = fs })
+    local reply = service.part(1)
+    assert(reply.ok == false and reply.reason:find("zu gross", 1, true), tostring(reply.reason))
+  end,
+
+  test_an_update_is_counted_with_the_new_and_the_old_copy_of_every_file = function()
+    local fs = memfs.new()
+    fs.capacity = 13000
+    fs.set("src/shared/net.lua", string.rep("a", 1500))
+    local events = {}
+    local u = updater.new({ send_reliable = function(_, _, payload) events[#events + 1] = payload end }, "N1", nil, { fs = fs, sources = { "M" }, reboot = function() end, sleep = function() end })
+    local function offer(size)
+      local body = string.rep("b", size)
+      return u.offer({ update_id = "u" .. size, version = "v2", files = { { path = "src/shared/net.lua", size = #body, adler = checksum.adler32(body) } } }, "M")
+    end
+    -- free 11500: 8000 reserve + 1500 old + the new copy
+    assert(not offer(2100), "3600 + 8000 do not fit 11500")
+    assert(offer(1900), "3400 + 8000 fit")
+  end,
+
+  test_a_single_message_update_is_checked_for_room_too = function()
+    local fs = memfs.new()
+    fs.capacity = 12000
+    fs.set("src/shared/net.lua", string.rep("a", 1500))
+    local u = updater.new({ send_reliable = function() end }, "N1", nil, { fs = fs, sources = { "M" }, reboot = function() end, sleep = function() end })
+    local ok = u.apply({ update_id = "s1", version = "v2", files = { { path = "src/shared/net.lua", content = string.rep("b", 4000) } } }, "M")
+    assert(not ok, "5500 + 8000 do not fit 10500")
+    assert(fs.files["src/shared/net.lua.ota_new"] == nil)
+  end,
+
   test_an_update_that_does_not_fit_is_refused_before_anything_is_staged = function()
     local fs = memfs.new()
     fs.capacity = 5000

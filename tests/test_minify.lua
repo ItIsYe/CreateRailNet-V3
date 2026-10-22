@@ -71,6 +71,11 @@ return {
     assert(not out:find("1%.%.2"), out)
   end,
 
+  test_names_and_dots_without_white_space_stay_tight = function()
+    local out = assert(minify.minify("local t = a.b.c:d(e)\nreturn t.x[1]\n"))
+    assert(out == "local t=a.b.c:d(e)\nreturn t.x[1]\n", out)
+  end,
+
   test_a_broken_source_is_refused = function()
     assert(minify.minify('local s = "open') == nil)
     assert(minify.minify("--[[ never closed") == nil)

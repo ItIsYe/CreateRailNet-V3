@@ -147,5 +147,14 @@ return {
     again.handle_message(command("M.b.600", "set_schedule"))
     again.handle_message(command("M.b.599", "set_schedule"))
     assert(#ran2 == 0, "recent commands are still remembered after compaction")
+  end,
+
+  test_the_command_journal_never_snapshots_above_the_cap = function()
+    -- ids of 150 bytes: the 250 remembered commands would be a snapshot of about 47 000 bytes, above the cap of a computer with a fixed 1 MB
+    local fs = memfs.new()
+    local node = make_node(fs, { ledger = true })
+    for i = 1, 600 do node.handle_message(command("M." .. string.rep("i", 140) .. "." .. i, "set_schedule")) end
+    assert(fs.files["state/node_commands.log.snap"] == nil or #fs.files["state/node_commands.log.snap"] <= 30000, "snapshot " .. #(fs.files["state/node_commands.log.snap"] or ""))
+    assert(#fs.files["state/node_commands.log"] <= 16100, "journal " .. #fs.files["state/node_commands.log"])
   end
 }

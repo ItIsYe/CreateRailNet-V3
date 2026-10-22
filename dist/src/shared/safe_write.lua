@@ -116,9 +116,18 @@ local dir=dirname(path)
 if dir and fsys and fsys.exists and fsys.makeDir and not fsys.exists(dir)then fsys.makeDir(dir)end
 
 
-if keep_backup and fsys and fsys.getFreeSpace and raw_exists(fsys,prev)then
+
+if keep_backup and fsys and fsys.getFreeSpace and raw_exists(fsys,path)then
 local okf,free=pcall(fsys.getFreeSpace,"/")
-if okf and type(free)=="number" and free<math.max(#body,500)+500 then raw_delete(fsys,prev)end
+if okf and type(free)=="number" then
+local current=raw_read(fsys,path)or ""
+local old_prev=raw_read(fsys,prev)or ""
+
+if free+math.max(#old_prev,old_prev=="" and 0 or 500)<math.max(#body,500)+math.max(#current,500)+500 then
+raw_delete(fsys,prev)
+keep_backup=false
+end
+end
 end
 
 local ok,err=raw_write(fsys,tmp,body)
