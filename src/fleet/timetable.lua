@@ -3,7 +3,7 @@ Purpose: Lines and timetables of the fleet: versioned drafts, publication by bot
 Public API: new({ time = { real() -> epoch seconds, ingame() -> day, hour }, tz_offset_min (0), grace_min (3), max_gap_min (5) }) -> timetable.
   timetable.add_draft(line) -> version | nil, problems          each draft is a new version of that line
   timetable.publish(line_id, version, confirmations, pair_nodes) -> ok | false, err      every node of the pair must have confirmed durably; the older published version is superseded
-  timetable.published(line_id) -> line + version + state | nil, timetable.get(line_id, version)
+  timetable.published(line_id) -> line + version + state | nil, timetable.get(line_id, version), timetable.list() -> { {id, published, versions = { {version, state} } } }
   timetable.due() -> { due = {event...}, missed = {event...}, resync = boolean }
   timetable.effective_for_leg(line_id, started_version, { at_handover_point }) -> { version }
   timetable.snapshot() / timetable.restore(snapshot)
@@ -85,6 +85,18 @@ function timetable.new(opts)
     stored.version, stored.state = version, "DRAFT"
     lines[line.id][version] = stored
     return version
+  end
+
+  -- every line with its published version and its versions (for the panel: what runs, what waits as a draft)
+  function self.list()
+    local out = {}
+    for id, versions in pairs(lines) do
+      local entry = { id = id, published = published[id], versions = {} }
+      for v = 1, #versions do entry.versions[v] = { version = v, state = versions[v].state } end
+      out[#out + 1] = entry
+    end
+    table.sort(out, function(a, b) return a.id < b.id end)
+    return out
   end
 
   function self.get(line_id, version) return lines[line_id] and lines[line_id][version] or nil end

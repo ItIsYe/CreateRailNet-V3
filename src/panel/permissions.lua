@@ -16,12 +16,14 @@ local ACTION_LEVEL = {
   request_route = "operate", hold_train = "operate", emergency_stop = "operate", authorize_train = "operate", ack_alert = "operate",
   cargo_order = "operate", cargo_assign = "operate", cargo_loaded = "operate", cargo_delivered = "operate", cargo_cancel = "operate",
   enter_maintenance = "admin", exit_maintenance = "admin", clear_fault = "admin", set_signal = "admin", set_switch = "admin", ota_push = "admin", update_release = "admin", update_unlock = "admin",
+  timetable_draft = "admin", timetable_publish = "admin", trip_cancel = "operate",
+  replace_begin = "admin", replace_adopt = "admin", replace_key = "admin", replace_bindings = "admin", replace_finish = "admin",
   release_train = "admin", confirm_recovery = "admin", release_operation = "admin"
 }
 
 local CRITICAL = {
   release_train = true, clear_fault = true, enter_maintenance = true, exit_maintenance = true, set_signal = true, set_switch = true,
-  ota_push = true, update_release = true, update_unlock = true, confirm_recovery = true, release_operation = true
+  ota_push = true, update_release = true, update_unlock = true, timetable_publish = true, replace_begin = true, replace_adopt = true, replace_key = true, replace_bindings = true, replace_finish = true, confirm_recovery = true, release_operation = true
 }
 
 function permissions.level_of(config, panel_id)

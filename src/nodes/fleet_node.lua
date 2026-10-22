@@ -17,6 +17,7 @@ local cc_modem = require("src.adapter.cc_modem")
 local bootstrap = require("src.nodes.bootstrap")
 local json = require("src.shared.json")
 local checksum = require("src.shared.checksum")
+local canon = require("src.shared.canon")
 local time = require("src.shared.time")
 local journal_module = require("src.shared.journal")
 local replica_module = require("src.master.replica")
@@ -55,6 +56,7 @@ function fleet_node.new_runtime(args_or_context)
   local clock_s = context.clock or function() return time.now_ms() / 1000 end
 
   local node
+  local admin    -- the commands of the operator that the master forwards (below, once the engine exists)
   node = common_node.new({
     id = context.id, role = "fleet", config = cfg, modem = context.modem, logger = context.logger, clock = context.clock, start_timer = context.start_timer,
     tick_grace = context.tick_grace, journal_fs = context.journal_fs, fence_fs = context.fence_fs, topology_fs = context.topology_fs,
@@ -62,6 +64,7 @@ function fleet_node.new_runtime(args_or_context)
       on_quiesce = function() return true end,
       on_cmd = function(payload, msg)
         if payload.cmd == "repl" and node.replica then node.replica.handle(msg) return true end
+        if payload.cmd == "fleet_admin" and admin then return admin(payload, msg) end
         return false, "a fleet node takes no command: " .. tostring(payload.cmd)
       end
     }
@@ -80,6 +83,7 @@ function fleet_node.new_runtime(args_or_context)
   })
   local pair_set = pairs_module.new({ nodes = fleet_ids(cfg), pairs = fleet_cfg.pairs, now = clock_s, timeout_s = fleet_cfg.pair_timeout_s })
   local free_blocks = {}   -- block -> time it was reported proven free
+  node.pair_set = pair_set
   node.engine = engine_module.new({
     id = context.id, pair_id = my_pair.id, profiles = profiles, timetable = timetable, pairs = pair_set, now = clock_s, ids_prefix = my_pair.id,
     platforms = fleet_cfg.platforms,
@@ -222,12 +226,79 @@ function fleet_node.new_runtime(args_or_context)
     return status
   end
 
+  -- what the operator may change from the panel (the master forwards it, Kap. 9, 11.5, H-12): a draft of a line, its publication, the cancel of a trip. Every answer goes back to the master as an event.
+  local publishing = {}   -- { request_id, line_id, version, idx }: a draft that waits until the partner holds the state it is in
+  local function answer(request_id, ok, extra)
+    local payload = { type = "fleet_admin_result", request_id = request_id, pair_id = my_pair.id, ok = ok == true }
+    for k, v in pairs(extra or {}) do payload[k] = v end
+    node.net.send_reliable("event", cfg.master_id, payload)
+  end
+
+  admin = function(payload, msg)
+    local from_master = msg.src == cfg.master_id
+    for _, id in ipairs(cfg.masters or {}) do if id == msg.src then from_master = true end end
+    if not from_master then return false, "only the master forwards operator commands" end
+    local request_id = payload.request_id
+    if not active then answer(request_id, false, { reason = "this node is the standby of the pair" }); return true end
+    if journal_state == "corrupt" or journal_state == "failed" or not replica.writable() then answer(request_id, false, { reason = "the fleet journal is not writable" }); return true end
+    local op = payload.op
+    if op == "timetable_draft" then
+      local version, problems = timetable.add_draft(payload.line)
+      if not version then answer(request_id, false, { reason = "draft refused", problems = problems }); return true end
+      node.flush()
+      answer(request_id, true, { op = op, line_id = payload.line.id, version = version })
+    elseif op == "timetable_publish" then
+      local healthy, why = pair_set.auto_allowed(my_pair.id)
+      if not healthy then answer(request_id, false, { reason = "the pair is not healthy, nothing is published: " .. tostring(why) }); return true end
+      local published = timetable.published(tostring(payload.line_id))
+      local current = published and published.version or nil
+      if payload.base_version ~= current then
+        answer(request_id, false, { reason = "conflict: the line is at version " .. tostring(current) .. ", the draft was made on " .. tostring(payload.base_version), conflict = true, current = current })
+        return true
+      end
+      if not timetable.get(tostring(payload.line_id), payload.version) then answer(request_id, false, { reason = "no such draft" }); return true end
+      local idx = replica.capture()
+      publishing[#publishing + 1] = { request_id = request_id, line_id = payload.line_id, version = payload.version, idx = idx or math.huge, base = current }
+    elseif op == "trip_cancel" then
+      local ok, err = engine.cancel(payload.trip_id, payload.who or "operator")
+      node.flush()
+      answer(request_id, ok, { op = op, reason = err })
+    else
+      answer(request_id, false, { reason = "unknown operation " .. tostring(op) })
+    end
+    return true
+  end
+
+  local function finish_publications()
+    local still = {}
+    for _, p in ipairs(publishing) do
+      if p.idx ~= math.huge and replica.confirmed(p.idx) then
+        local confirmations = {}
+        for _, id in ipairs(my_pair.nodes) do confirmations[id] = true end
+        local current = timetable.published(tostring(p.line_id))
+        if (current and current.version or nil) ~= p.base then
+          answer(p.request_id, false, { reason = "conflict: the line changed while the draft waited", conflict = true })
+        else
+          local ok, err = timetable.publish(tostring(p.line_id), p.version, confirmations, my_pair.nodes)
+          if ok then node.flush() end
+          answer(p.request_id, ok, { op = "timetable_publish", line_id = p.line_id, version = p.version, reason = err })
+        end
+      elseif p.idx == math.huge then
+        answer(p.request_id, false, { reason = "the fleet journal could not take the draft" })
+      else
+        still[#still + 1] = p
+      end
+    end
+    publishing = still
+  end
+
   -- the periodic work -----------------------------------------------------------------------------------------------------------
   local cached = { idx = -1, sum = "0" }
   local function state_sum()
     local idx = replica.committed_idx()
     if cached.idx ~= idx then
-      local text = json.encode(replica.committed_state())
+      -- canonical text: the same state gives the same checksum whatever order the tables list their keys in
+      local text = canon.encode(replica.committed_state()) or json.encode(replica.committed_state())
       cached = { idx = idx, sum = checksum.hex(checksum.adler32(text)) }
     end
     return idx, cached.sum
@@ -248,7 +319,11 @@ function fleet_node.new_runtime(args_or_context)
       engine.restore(replica.committed_state())
     end
   end)
-  node.ticker.every("replica", 0.5, function() replica.tick() end)
+  node.ticker.every("replica", 0.5, function() replica.tick(); if active then finish_publications() end end)
+  -- the active node tells the master what the panels show (lines, trips, cargo)
+  node.ticker.every("fleet_status", fleet_cfg.status_every_s or 5, function()
+    if active then node.net.send("event", cfg.master_id, { type = "fleet_status", pair_id = my_pair.id, report = engine.report(), healthy = pair_set.auto_allowed(my_pair.id) }) end
+  end)
   return node
 end
 

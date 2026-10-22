@@ -1,6 +1,6 @@
 --[[
 Purpose: The update package as the nodes check it before anything is installed (Gesamtkonzept Kap. 14).
-Public API: build(files, meta, key) -> package; verify(package, key, ctx, contents) -> true | false, code, detail.
+Public API: build(files, meta, key) -> package; verify(package, key, ctx, contents) -> true | false, code, detail; covers(package, manifest) -> true | false, detail; DATA_SCHEMA.
   files = { {path, content} }   meta = { release, roles = {"signal", ...}, protocol, schema, migration (nil or {steps = text, automatic_safe = bool}), min_free_bytes, rollback_to (release name the node returns to) }
   ctx = { role, protocol, schema, free_bytes }   contents = { [path] = content } (optional: the files as they arrived)
   codes: bad_format, bad_signature, wrong_role, protocol_incompatible, schema_incompatible, migration_required, no_space, bad_file, no_rollback
@@ -13,6 +13,9 @@ local sha256 = require("src.shared.sha256")
 local canon = require("src.shared.canon")
 
 local update_package = {}
+
+-- the version of the data the computers keep on their disks (journals, key and binding files); raised with every change that needs a migration
+update_package.DATA_SCHEMA = 1
 
 local function signed_body(package)
   return { format = package.format, release = package.release, roles = package.roles, protocol = package.protocol, schema = package.schema, migration = package.migration, min_free_bytes = package.min_free_bytes, rollback_to = package.rollback_to, files = package.files }
@@ -36,6 +39,18 @@ end
 local function has_role(package, role)
   for _, name in ipairs(package.roles or {}) do if name == role or name == "*" then return true end end
   return false
+end
+
+-- the files of the offer (path, size) are exactly the ones the package lists: nothing is offered that the proof does not cover
+function update_package.covers(package, manifest)
+  local listed = {}
+  for _, file in ipairs(package.files or {}) do listed[file.path] = file end
+  for _, item in ipairs(manifest or {}) do
+    local file = listed[item.path]
+    if not file then return false, "file " .. tostring(item.path) .. " is not covered by the package" end
+    if file.size ~= item.size then return false, "file " .. tostring(item.path) .. " has another size than the package says" end
+  end
+  return true
 end
 
 function update_package.verify(package, key, ctx, contents)

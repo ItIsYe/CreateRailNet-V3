@@ -17,7 +17,7 @@ local netplan = require("src.setup.netplan")
 
 local NODES = {
   { id = "M", role = "master" }, { id = "SIG-1", role = "signal" }, { id = "SEN-1", role = "sensor" }, { id = "ST-1", role = "station" },
-  { id = "DEP-1", role = "depot" }, { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel", permission = "admin" },
+  { id = "DEP-1", role = "depot" }, { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel", permission = "admin" }, { id = "FLEET-1", role = "fleet" },
 }
 
 local function master(opts)
@@ -67,7 +67,11 @@ local function master(opts)
     env.runtime.handle_event({ "modem_message", nil, nil, nil, { v = 1, pv = 4, id = src .. "." .. kind .. counter, type = kind, src = src, dst = "M", payload = payload } })
   end
   function env.event(src, payload) deliver(src, "event", payload) end
-  function env.heartbeat(src, role) deliver(src, "heartbeat", { role = role }) end
+  function env.heartbeat(src, role, extra)
+    local payload = { role = role }
+    for k, v in pairs(extra or {}) do payload[k] = v end
+    deliver(src, "heartbeat", payload)
+  end
   function env.everything_up()
     for _, node in ipairs(NODES) do if node.role ~= "master" then env.heartbeat(node.id, node.role) end end
   end
@@ -223,6 +227,42 @@ return {
     local degraded = snapshot()
     assert(degraded.op_state == "DEGRADED_LOCAL" and degraded.op_reason:find("SIG-1", 1, true))
     assert(degraded.diagnostics.update_locks[1].node_id == "SIG-1")
+  end,
+
+  test_the_master_keeps_what_a_signal_node_reports_about_its_signals_for_the_replacement = function()
+    local m = master()
+    m.everything_up()
+    assert(m.runtime.signal_report("SIG-1") == nil)
+    m.heartbeat("SIG-1", "signal", { signals = { ["S-A"] = "OK", ["S-B"] = "MISSING" } })
+    local report = m.runtime.signal_report("SIG-1")
+    assert(report and report.signals["S-A"] == "OK" and report.signals["S-B"] == "MISSING" and report.at)
+    m.heartbeat("SIG-1", "signal", { signals = { ["S-A"] = "OK", ["S-B"] = "OK" } })
+    assert(m.runtime.signal_report("SIG-1").signals["S-B"] == "OK", "the last report counts")
+    m.heartbeat("SEN-1", "sensor", { signals = { ["S-Z"] = "OK" } })
+    assert(m.runtime.signal_report("SEN-1") == nil, "only a signal node reports signals")
+  end,
+
+  test_the_report_of_a_fleet_pair_reaches_the_panels_and_the_answer_to_an_operator_command_is_kept = function()
+    local m = master()
+    m.everything_up()
+    m.event("FLEET-1", { type = "fleet_status", pair_id = "P1", healthy = true, report = {
+      lines = { L1 = { version = 3, kind = "PASSENGER", departures = { "08:00" } } },
+      trips = { ["P1-T1"] = { state = "EN_ROUTE", train_id = "TRAIN-1", to = "SUED" } },
+      cargo = { O1 = { state = "OFFEN", delivered = 650, open = 350, unresolved = 50 } } } })
+    m.event("FLEET-1", { type = "fleet_admin_result", request_id = "REQ-1-P1", pair_id = "P1", ok = false, conflict = true, reason = "conflict: the line is at version 3" })
+    m.sent = {}
+    m.event("PANEL-1", { type = "panel_request_snapshot" })
+    local snapshot
+    for _, item in ipairs(m.sent) do if item.payload.cmd == "panel_update" then snapshot = item.payload end end
+    assert(snapshot.fleet.lines.L1.version == 3 and snapshot.fleet.lines.L1.pair_id == "P1")
+    assert(snapshot.fleet.trips["P1-T1"].state == "EN_ROUTE" and snapshot.fleet.pairs.P1.healthy == true)
+    assert(snapshot.cargo.O1.delivered == 650 and snapshot.cargo.O1.unresolved == 50, "only what was proven")
+    local result = snapshot.fleet.results["REQ-1-P1"]
+    assert(result and result.ok == false and result.conflict == true)
+    assert(m.audited("fleet_admin_result"))
+    -- a report without a pair id or with junk changes nothing
+    m.event("FLEET-1", { type = "fleet_status", report = "junk" })
+    m.event("FLEET-1", { type = "fleet_admin_result", ok = true })
   end,
 
   test_a_new_master_starts_not_released = function()

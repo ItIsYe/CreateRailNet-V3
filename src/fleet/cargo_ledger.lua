@@ -4,7 +4,7 @@ Public API: new({ may_check(person) -> boolean }) -> ledger.
   ledger.create_order(spec) -> ok | false, err      spec: id, cargo_type, unit, target_qty, source, destination, load_track, unload_track, train_class, min_load, departure_rule (FULL | MIN_PARTIAL | TIME),
                                                     deadline, allow_empty_run, proof_mode (lowest accepted quality, default MANUAL_AUTH)
   ledger.report(event) -> ok, "duplicate"? | false, err    event: { order_id, shipment_id, kind = "loaded" | "unloaded", qty, quality, ref, by? }
-  ledger.summary(order_id) -> { target, loaded, delivered, open, in_transit_or_unresolved, discrepancies }
+  ledger.order_ids() -> sorted ids      ledger.summary(order_id) -> { target, loaded, delivered, open, in_transit_or_unresolved, discrepancies }
   ledger.shipment(id) / ledger.shipments(order_id) -> { shipment_id, loaded_proven, unloaded_proven, unresolved, excess, evidence_refs }
   ledger.may_depart(order_id, now) -> true | false, why ; ledger.close(order_id); ledger.snapshot() / restore(); rule_for(order, line_default)
 Quality (best first): AUTO_INVENTORY (a clear inventory or transfer measurement), EXTERNAL_AUTH (an authenticated external loading message), MANUAL_AUTH (a logged manual check by someone who may do it).
@@ -89,6 +89,13 @@ function cargo_ledger.new(opts)
     local out = {}
     for _, shipment in pairs(shipments) do if shipment.order_id == order_id then out[#out + 1] = view(shipment) end end
     table.sort(out, function(a, b) return a.shipment_id < b.shipment_id end)
+    return out
+  end
+
+  function self.order_ids()
+    local out = {}
+    for id in pairs(orders) do out[#out + 1] = id end
+    table.sort(out)
     return out
   end
 

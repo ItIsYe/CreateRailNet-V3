@@ -81,6 +81,21 @@ return {
     end)
   end,
 
+  -- the checksum of the pair compares the state, not the order in which Lua happened to list its keys: a partner that restarts replays its journal into
+  -- tables with another order, and the pair used to lock itself for good ("the partners contradict each other") for a state that was the same
+  test_a_partner_that_restarts_is_in_step_again_and_the_pair_does_not_lock_itself = function()
+    for _, down in ipairs({ 2000, 20000 }) do
+      with_world({}, function(w)
+        w.run(20000)
+        w.crash(B); w.run(down)
+        w.restart(B); w.run(8000)
+        local ok, why = w.nodes[A].pair_set.auto_allowed("P1")
+        assert(ok == true, "after " .. down .. " ms away: " .. tostring(why))
+        assert(w.nodes[A].pair_set.status("P1").locked == false)
+      end)
+    end
+  end,
+
   test_the_whole_trip_through_real_nodes_with_the_schedule_applied_exactly_once = function()
     with_world({}, function(w)
       until_departure(w)

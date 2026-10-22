@@ -59,6 +59,18 @@ return {
     assert(not c.raise("") and not c.ack("nope"))
   end,
 
+  test_the_list_of_the_master_is_followed_and_only_the_master_closes_a_cause = function()
+    local c = new()
+    c.sync({ { key = "a", severity = "RED", text = "Block B1 unklar" }, { key = "b", severity = "YELLOW", text = "Knoten weg", acked = true, acked_by = "P1" } })
+    assert(c.get("a").state == "ACTIVE" and c.get("b").state == "ACTIVE_SEEN" and c.get("b").acked_by == "P1" and c.get("a").message == "Block B1 unklar")
+    c.sync({ { key = "a", severity = "RED", text = "Block B1 unklar", acked = true, acked_by = "P2" } })
+    assert(c.get("a").state == "ACTIVE_SEEN" and not c.is_open("b") and c.get("b").proof.source == "master")
+    c.sync({})
+    assert(#c.list() == 0)
+    c.sync({ { key = "a", severity = "RED", text = "wieder" } })
+    assert(c.get("a").state == "ACTIVE" and c.get("a").count == 1, "a returning cause opens as new")
+  end,
+
   test_pages_are_a_subset_of_the_registry_views_and_follow_the_level = function()
     for _, page in ipairs(pages.list()) do assert(monitor_registry.VIEWS[page.id], page.id) end
     for id in pairs(monitor_registry.VIEWS) do assert(pages.get(id), "no page for " .. id) end

@@ -16,6 +16,8 @@ local maintenance_mode = require("src.domain.maintenance")
 local dispatcher = require("src.master.dispatcher")
 local route_integration = require("src.master.route_integration")
 local update_control_module = require("src.master.update_control")
+local update_trust = require("src.shared.update_trust")
+local replacement_setup_module = require("src.master.replacement_setup")
 local manual_control = require("src.master.manual_control")
 local runtime_factory = require("src.master.runtime")
 local ui_core = require("src.master.ui.ui_core")
@@ -207,7 +209,9 @@ function app.new(args)
   }
   context.route_integration = route_integration.new(context)
   context.manual_control = manual_control.new(context)
-  context.ota = ota_manager.new(network, reg, logger)
+  context.ota = ota_manager.new(network, reg, logger, {
+    sign_package = network.auth and network.auth.keyring and update_trust.signer({ keyring = network.auth.keyring, my_id = parsed.id or cfg.master_id, config = cfg, protocol = net.PROTOCOL_REVISION }) or nil
+  })
   -- updates: operator confirmation, release of critical nodes, order for masters/arbiter/fleet partners; locks outlive a restart
   local fleet_pairs_view = {
     pair_of = function(node_id) for _, pair in ipairs((cfg.fleet and cfg.fleet.pairs) or {}) do for _, id in ipairs(pair.nodes or {}) do if id == node_id then return pair.id end end end end,
@@ -240,6 +244,15 @@ function app.new(args)
     on_lock = function(node_id, reason) logger.warn("update lock", { node = node_id, reason = reason }); if disp.timeout_node then disp.timeout_node(node_id) end end
   })
   context.update_control.load()
+  -- a computer that is exchanged: new key on a disk, signals bound again, a test (docs/UPDATE.md); only with authentication set up
+  context.replacement = replacement_setup_module.build({
+    config = cfg, fs = _G.fs, peripheral = _G.peripheral, now = require("src.shared.time").now_s,
+    on_hold = function(node_id)
+      if disp.timeout_node then disp.timeout_node(node_id) end
+      alerts.raise("replace:" .. node_id, "RED", "Computer " .. node_id .. " wird ersetzt: seine Bloecke sind gesperrt")
+    end,
+    on_release = function(node_id) alerts.clear("replace:" .. node_id) end
+  })
   context.pairing = pairing
   -- the controlled restart (setup page): signals to RED like on a stop, then the reboot
   context.restart = restart_module.build({ dispatcher = disp, red = cfg.signal_red_on_stop ~= false, logger = logger, reboot = function() if os.reboot then os.reboot() end end })

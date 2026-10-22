@@ -7,6 +7,7 @@ Public API: new(context) -> runtime with handle_event(event), run(), save_recove
 local time = require("src.shared.time")
 local permissions = require("src.panel.permissions")
 local op_state = require("src.domain.op_state")
+local safety_graph = require("src.domain.safety_graph")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local status_model = require("src.domain.status_model")
@@ -37,6 +38,9 @@ function master_runtime.new(context)
     maintenance = context.maintenance,
     ota = context.ota,
     update_control = context.update_control,
+    replacement = context.replacement,
+    signal_reports = {},
+    fleet_reports = {}, fleet_results = {}, fleet_result_order = {},
     pairing = context.pairing,
     plan_service = context.plan_service,
     restart = context.restart,
@@ -57,6 +61,7 @@ function master_runtime.new(context)
     sensor_levels = {}  -- sensor_id -> { occupied, at }: what the detector shows right now, from heartbeats and events
   }
   -- with two masters only the leader of the newest term decides; the other one keeps the registry and the pairing, and does not touch the dispatcher
+  function runtime.signal_report(node_id) return runtime.signal_reports[node_id] end
   function runtime.active() return runtime.ha == nil or runtime.ha.is_leader() end
   local ui_once = once_log.new(context.logger)
   local signal_once = once_log.new(context.logger)
@@ -309,6 +314,39 @@ function master_runtime.new(context)
     })
     built.op_text = op_state.describe(built.op_state)
     built.diagnostics.update_locks = locks
+    -- the panel draws the track diagram of the topology the master runs: it announces the version and the panel fetches the plan
+    if not runtime.topology_version and runtime.config and runtime.config.blocks then
+      local built_ok, graph = pcall(safety_graph.build, runtime.config)
+      runtime.topology_version = built_ok and graph.version or false
+    end
+    built.topology_version = runtime.topology_version or nil
+    built.signals = runtime.signal_states and runtime.signal_states() or nil
+    local faults = {}
+    for _, entry in ipairs(runtime.alerts and runtime.alerts.list({ active_only = false, limit = 40 }) or {}) do
+      faults[#faults + 1] = { key = entry.key, severity = entry.severity, text = entry.text, acked = entry.acked, acked_by = entry.acked_by, state = entry.state }
+    end
+    built.faults = faults
+    local node_list = {}
+    for id, node in pairs(runtime.registry and runtime.registry.all and runtime.registry.all() or {}) do node_list[id] = { role = node.role, status = node.status } end
+    built.nodes = node_list
+    -- the fleet pairs as they last reported: a report older than 20 s is told so (the panel labels stale data)
+    local fleet = { lines = {}, trips = {}, pairs = {}, results = runtime.fleet_results }
+    local cargo = {}
+    for pair_id, entry in pairs(runtime.fleet_reports) do
+      fleet.pairs[pair_id] = { healthy = entry.healthy, age_s = time.now_s() - entry.at, node = entry.node }
+      for id, line in pairs(entry.report.lines or {}) do line.pair_id = pair_id; fleet.lines[id] = line end
+      for id, trip in pairs(entry.report.trips or {}) do trip.pair_id = pair_id; fleet.trips[id] = trip end
+      for id, order in pairs(entry.report.cargo or {}) do cargo[id] = order end
+    end
+    built.fleet, built.cargo = fleet, cargo
+    if runtime.replacement then
+      local list = {}
+      for _, node in ipairs((runtime.config or {}).nodes or {}) do
+        local state = runtime.replacement.wizard.state_of(node.id)
+        if state then list[node.id] = state end
+      end
+      built.replacements = list
+    end
     built.diagnostics.loop = runtime.ticker.stats()
     return built
   end
@@ -369,6 +407,11 @@ function master_runtime.new(context)
       runtime.sensor_levels[msg.src] = { occupied = msg.payload.occupied, at = time.now_s() }
     end
     -- a multi-signal node tells which of its signals it can use: one that is missing, of another type or unknown to the master takes its blocks out of service
+    if announced_role == "signal" and type(msg.payload) == "table" and type(msg.payload.signals) == "table" then
+      local report = {}
+      for signal_id, state in pairs(msg.payload.signals) do if type(signal_id) == "string" then report[signal_id] = tostring(state) end end
+      runtime.signal_reports[msg.src] = { signals = report, at = time.now_s() }
+    end
     if announced_role == "signal" and type(msg.payload) == "table" and type(msg.payload.signals) == "table" and runtime.dispatcher.signal_failed and runtime.active() then
       for signal_id, state in pairs(msg.payload.signals) do
         if state ~= "OK" and type(signal_id) == "string" then
@@ -543,6 +586,24 @@ function master_runtime.new(context)
     panel_request_snapshot   = handle_panel_event,
     manual_control           = handle_panel_event,
     -- the fleet pair asks for routes and is told what became of them (src/master/fleet_bridge.lua)
+    -- what the fleet pairs report for the panels (lines, trips, cargo) and the answers to the operator commands that were forwarded to them
+    fleet_status             = function(msg)
+      local payload = msg.payload or {}
+      if type(payload.pair_id) == "string" and type(payload.report) == "table" then
+        runtime.fleet_reports[payload.pair_id] = { report = payload.report, healthy = payload.healthy == true, at = time.now_s(), node = msg.src }
+      end
+      runtime.network.ack_for(msg, true)
+    end,
+    fleet_admin_result       = function(msg)
+      local payload = msg.payload or {}
+      if type(payload.request_id) == "string" then
+        runtime.fleet_results[payload.request_id] = { ok = payload.ok == true, reason = payload.reason, problems = payload.problems, version = payload.version, line_id = payload.line_id, conflict = payload.conflict == true, pair_id = payload.pair_id, at = time.now_s() }
+        runtime.fleet_result_order[#runtime.fleet_result_order + 1] = payload.request_id
+        while #runtime.fleet_result_order > 12 do runtime.fleet_results[table.remove(runtime.fleet_result_order, 1)] = nil end
+        audit("fleet_admin_result", { request_id = payload.request_id, pair_id = payload.pair_id, ok = payload.ok == true, reason = payload.reason })
+      end
+      runtime.network.ack_for(msg, true)
+    end,
     fleet_route              = handle_fleet_event,
     fleet_release            = handle_fleet_event,
     fleet_hold               = handle_fleet_event,
@@ -569,7 +630,7 @@ function master_runtime.new(context)
       if not runtime.plan_service then reply = { ok = false, state = "refused", reason = "unavailable" }
       elseif not role then reply = { ok = false, state = "refused", reason = "not_in_plan" }
       elseif payload.role ~= nil and payload.role ~= role then reply = { ok = false, state = "refused", reason = "conflict" }
-      elseif role ~= "station" and role ~= "depot" then reply = { ok = false, state = "refused", reason = "role" }
+      elseif role ~= "station" and role ~= "depot" and role ~= "panel" then reply = { ok = false, state = "refused", reason = "role" }
       else
         reply = runtime.plan_service.part(payload.index, payload.version)
         if reply.ok and reply.index == 1 then audit("plan_served", { node_id = msg.src, version = reply.version, parts = reply.total }) end

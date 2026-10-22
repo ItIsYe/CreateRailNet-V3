@@ -9,6 +9,7 @@ local net = require("src.shared.net")
 local log = require("src.shared.log")
 local time = require("src.shared.time")
 local updater = require("src.shared.updater")
+local update_trust = require("src.shared.update_trust")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local log_forwarder = require("src.shared.log_forwarder")
@@ -178,8 +179,21 @@ function common_node.new(opts)
       local sources = { node.config.master_id }
       for _, id in ipairs(node.config.ota_sources or { "OTA-TOOL" }) do sources[#sources + 1] = id end
       local ota = opts.ota or {}
+      -- with a key the node checks the signed package of an offer; the plan can demand one (ota_require_package), enforced authentication does by default
+      local fsys = ota.fs or _G.fs
+      local require_package = node.config.ota_require_package
+      if require_package == nil then require_package = node.auth ~= nil and node.auth.mode == "enforce" end
+      local verify = ota.verify_package
+      if not verify and node.auth and node.auth.keyring then
+        verify = update_trust.verifier({
+          keyring = node.auth.keyring, master_id = node.config.master_id, node_id = node.id, role = node.role, protocol = net.PROTOCOL_REVISION,
+          free_space = fsys and fsys.getFreeSpace and function() return fsys.getFreeSpace("/") end or nil, require = require_package
+        })
+      elseif not verify and require_package then
+        verify = function(package) if package == nil then return false, "no_package", "this computer takes only signed update packages" end return false, "no_key", "this computer has no key" end
+      end
       node_updater = updater.new(node.net, node.id, node.logger, {
-        fs = ota.fs, reboot = ota.reboot, sleep = ota.sleep, sources = sources,
+        fs = ota.fs, reboot = ota.reboot, sleep = ota.sleep, sources = sources, verify_package = verify,
         -- roles put their outputs into a known state before the files are swapped (signals: RED)
         quiesce = function()
           if node.handlers.on_quiesce then return node.handlers.on_quiesce() end

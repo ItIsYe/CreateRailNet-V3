@@ -6,7 +6,7 @@ Public API: new(opts) -> engine. opts: id, pair_id, profiles, timetable, pairs, 
   engine.event(ev)                       what the world says (see below)
   engine.take_outbox() -> messages       what the fleet asks the world to do (the node sends them reliably)
   engine.request(spec) -> ok, trip_id    a manual request: a wish in NEW_REQUEST, handled like every other order
-  engine.cancel(trip_id, who), engine.create_cargo_order(spec), engine.cargo_summary(order_id), engine.trip(id), engine.trips(), engine.trip_for_order(order_id), engine.queue_size(), engine.status()
+  engine.cancel(trip_id, who), engine.create_cargo_order(spec), engine.cargo_summary(order_id), engine.trip(id), engine.trips(), engine.trip_for_order(order_id), engine.queue_size(), engine.status(), engine.report()
   engine.snapshot() / engine.restore(snapshot)
 Events in: station_train, route_committed, route_eligible, route_refused, schedule_applied, departure_observed, position, arrival_observed, tail_clear, safe_stop_reached, reconstruction, cargo.
 Messages out: route_request, apply_schedule, hold_at_waiting_point, reconstruct_request, release_reservation, trip_complete.
@@ -353,6 +353,38 @@ function engine.new(opts)
     return nil
   end
   function self.queue_size() return queue.size() end
+  -- what the panel shows: the lines (published version, drafts), the running trips and the cargo orders, small enough for one message
+  function self.report()
+    local r = { lines = {}, trips = {}, cargo = {}, queued = queue.size(), blocked = auto_blocked }
+    for _, entry in ipairs(timetable.list()) do
+      local published = timetable.published(entry.id)
+      local drafts = {}
+      for _, v in ipairs(entry.versions) do if v.state == "DRAFT" then drafts[#drafts + 1] = v.version end end
+      local line = { version = entry.published, drafts = drafts }
+      if published then
+        line.kind, line.time_base, line.window, line.headway_min, line.dwell_s = published.kind, published.time_base, published.window, published.headway_min, published.dwell_s
+        line.stops, line.routes, line.direction = published.stops, published.routes, published.direction
+        line.departures = {}
+        for i = 1, math.min(24, #(published.departures or {})) do line.departures[i] = published.departures[i] end
+        line.departures_truncated = #(published.departures or {}) > 24 or nil
+      end
+      r.lines[entry.id] = line
+    end
+    local shown = 0
+    for i = #trips, 1, -1 do
+      local t = trips[i]
+      if (not trip_module.is_final(t.state)) or shown < 6 then
+        if trip_module.is_final(t.state) then shown = shown + 1 end
+        r.trips[t.trip_id] = { state = t.state, train_id = t.assigned_train, to = t.goal, uncertain = t.state == "UNCERTAIN" }
+      end
+    end
+    for _, id in ipairs(cargo.order_ids()) do
+      local c = cargo.summary(id)
+      r.cargo[id] = { state = (c.open == 0 and "ERLEDIGT" or "OFFEN"), delivered = c.delivered, open = c.open, unresolved = c.in_transit_or_unresolved, loaded = c.loaded }
+    end
+    return r
+  end
+
   function self.status() return { auto_blocked = auto_blocked, queued = queue.size(), trips = #trips } end
 
   function self.snapshot()

@@ -19,6 +19,7 @@
     "scripts/keys.lua",
     "scripts/auth_bench.lua",
     "scripts/bind_signals.lua",
+    "scripts/bind_monitors.lua",
     "src/setup/**",
     "src/shared/**",
     "src/domain/**",

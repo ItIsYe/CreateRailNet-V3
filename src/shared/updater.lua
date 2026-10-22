@@ -27,6 +27,8 @@ local checksum = require("src.shared.checksum")
 local safe_write = require("src.shared.safe_write")
 local ota_recovery = require("src.shared.ota_recovery")
 local sleep_guard = require("src.shared.sleep_guard")
+local sha256 = require("src.shared.sha256")
+local update_package = require("src.shared.update_package")
 
 local updater = {}
 
@@ -145,9 +147,14 @@ function updater.new(network, node_id, logger, opts)
       fail(src, payload.update_id, { err })
       return false, err
     end
-    -- a node that holds the release key checks the origin proof, role, protocol, schema and space of the package before it asks for a single file
+    -- a node that holds the key checks the origin proof, role, protocol, schema and space of the package before it asks for a single file,
+    -- and that the files of the offer are the ones the proof covers (their SHA-256 is checked again when the commit comes)
     if options.verify_package then
       local package_ok, code, detail = options.verify_package(payload.package, payload)
+      if package_ok and type(payload.package) == "table" then
+        package_ok, detail = update_package.covers(payload.package, payload.files)
+        code = "not_covered"
+      end
       if not package_ok then
         fail(src, payload.update_id, { "package refused: " .. tostring(code) .. (detail and (" (" .. tostring(detail) .. ")") or "") })
         return false, "package refused: " .. tostring(code)
@@ -167,7 +174,7 @@ function updater.new(network, node_id, logger, opts)
       return true
     end
 
-    session = { id = payload.update_id, version = tostring(payload.version or "unknown"), src = src, manifest = manifest, need = need, staged = {}, parts = {} }
+    session = { id = payload.update_id, version = tostring(payload.version or "unknown"), src = src, manifest = manifest, need = need, staged = {}, parts = {}, package = type(payload.package) == "table" and options.verify_package and payload.package or nil }
     for _, path in ipairs(need) do session.staged[path] = false end
     local listed = {}
     for _, path in ipairs(need) do listed[#listed + 1] = path end
@@ -283,6 +290,21 @@ function updater.new(network, node_id, logger, opts)
     if #missing > 0 then
       send(session.src, "ota_need", { update_id = session.id, need = missing, reason = "commit before all files arrived" })
       return false, "incomplete: " .. #missing .. " files missing"
+    end
+    -- the files that were staged are the ones the package proves: SHA-256 against the list of the signed package
+    if session.package then
+      local listed = {}
+      for _, file in ipairs(session.package.files or {}) do listed[file.path] = file end
+      for _, path in ipairs(session.need) do
+        local body = read(staged_path(path))
+        local file = listed[path]
+        if not (body and file and #body == file.size and sha256.hex(body) == file.sha256) then
+          local src_id, update_id = session.src, session.id
+          drop_session()
+          fail(src_id, update_id, { "package refused: bad_file (" .. tostring(path) .. " does not match the signed package)" })
+          return false, "package refused: bad_file"
+        end
+      end
     end
     return run_commit(session.src, session.id, session.need, session.version)
   end

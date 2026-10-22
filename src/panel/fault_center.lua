@@ -1,6 +1,6 @@
 --[[
 Purpose: The fault center of the panel: every open cause in one list, acknowledged or not (Gesamtkonzept Kap. 11.2, S-11).
-Public API: new({now}) -> center with raise(key, info), ack(key, who), resolve(key, proof), get(key), list(), counts(), is_open(key).
+Public API: new({now}) -> center with raise(key, info), ack(key, who), resolve(key, proof), sync(master_list), get(key), list(), counts(), is_open(key).
 Notes: an acknowledgement says "seen by a person" and nothing else. It neither hides the entry nor clears the safety cause behind it: the entry stays ACTIVE_SEEN until resolve() is given a proof (a table with a `kind` and a `source`, for
   example the free proof of a block or a successful self test). A raise() of a key that is already open only refreshes it and keeps the acknowledgement, a raise() of a resolved key opens it again as new. Severity order: RED, YELLOW, INFO.
 ]]
@@ -48,6 +48,22 @@ function fault_center.new(opts)
     end
     item.state, item.proof, item.resolved_at = "RESOLVED", proof, now()
     return true
+  end
+
+  -- the list of faults as the master holds it ({ key, severity, text, acked, acked_by }): what is new is raised, what was seen by a person is marked seen,
+  -- what the master no longer lists was cleared by its cause and closes with that as the proof (never because somebody clicked)
+  function self.sync(master_list)
+    local present = {}
+    for _, entry in ipairs(master_list or {}) do
+      if type(entry) == "table" and type(entry.key) == "string" then
+        present[entry.key] = true
+        self.raise(entry.key, { severity = entry.severity, message = entry.text or entry.message, source = "master" })
+        if entry.acked then self.ack(entry.key, entry.acked_by) end
+      end
+    end
+    for key, item in pairs(items) do
+      if item.state ~= "RESOLVED" and not present[key] then self.resolve(key, { kind = "master_cleared_cause", source = "master" }) end
+    end
   end
 
   function self.get(key) return items[key] end

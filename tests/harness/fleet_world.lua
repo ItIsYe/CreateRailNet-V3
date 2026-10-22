@@ -1,6 +1,6 @@
 --[[
 Purpose: A fleet pair (two real fleet nodes with journals), a stub master and a stub station on a simulated network, with a virtual clock; the test plays the master and the station.
-Public API: new(opts) -> world with nodes[id] (the real fleet nodes), master (inbox of events, send_event(ev, to)), station (inbox of cmds, answer), link, step(ms, n), run(ms), crash(id), restart(id), close().
+Public API: new(opts) -> world with nodes[id] (the real fleet nodes), master (inbox of events, send_event(ev, to), send_admin(payload, to)), station (inbox of cmds, answer), link, step(ms, n), run(ms), crash(id), restart(id), close().
   opts: seed, drop, delay_max_ms, apply_timeout_s, start_epoch (seconds, default 07:58:00 UTC), no_lines, proof (occupancy_proof on in the dispatcher), real_master (a dispatcher and the fleet bridge in place of the stub master: w.dispatcher, w.bridge).
 Notes: time is the link's virtual clock (os.clock is replaced until close()). The plan has one master, the pair FLEET-A (active) / FLEET-B, a station node STATION-N, one passenger line L1 NORD -> SUED at 08:00,
   two platforms in SUED and the train TRAIN-1 in the pair.
@@ -93,6 +93,12 @@ function world_mod.new(opts)
   end
   function w.master.send_event(ev, to)
     for _, target in ipairs(to and { to } or { A, B }) do w.master.net.send_reliable("event", target, { type = "fleet_event", ev = ev }) end
+  end
+  -- an operator command that the master forwards (the panel's timetable editor): cmd fleet_admin to one node
+  function w.master.send_admin(payload, to)
+    local body = { cmd = "fleet_admin" }
+    for k, v in pairs(payload) do body[k] = v end
+    w.master.net.send_reliable("cmd", to or A, body)
   end
   function w.master.send_free(blocks)
     for _, target in ipairs({ A, B }) do w.master.net.send_reliable("event", target, { type = "fleet_blocks", free = blocks }) end
