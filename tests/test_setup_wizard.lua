@@ -183,6 +183,72 @@ return {
     assert(world.text():find("Create_Signal_0 (gefunden)", 1, true), "the summary says the device is there")
   end,
 
+  test_build_entry_writes_the_signal_names_and_no_single_device = function()
+    local entry = netplan.build_entry("signal", "SIGN-1", { signals = { "S-A", "S-B" }, adapter = "peripheral", peripheral = "Create_Signal_0", modem = "top" })
+    assert(table.concat(entry.signals, ",") == "S-A,S-B" and entry.adapter == nil and entry.peripheral == nil and entry.modem == "top")
+    local single = netplan.build_entry("signal", "SIG-1", { adapter = "peripheral", peripheral = "Create_Signal_0" })
+    assert(single.signals == nil and single.peripheral == "Create_Signal_0")
+    local empty = netplan.build_entry("signal", "SIG-1", { signals = {}, adapter = "redstone", side = "left" })
+    assert(empty.signals == nil and empty.side == "left", "an empty list is no list")
+  end,
+
+  test_a_computer_with_four_signals_hosts_all_four_and_the_plan_is_valid = function()
+    local peripherals = { MODEM }
+    for i = 0, 3 do peripherals[#peripherals + 1] = { name = "Create_Signal_" .. i, type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" } } end
+    local world = setup_world.new({ peripherals = peripherals })
+    local asked = {}
+    local result = world.run({ "--role", "signal" }, function(page)
+      -- the page text holds the earlier questions of the step too: the latest one is asked first
+      if page:find("Namen der Signale", 1, true) then asked.names = true; return "S-A, S-B, S-C, S-D" end
+      if page:find("Wie viele Signale", 1, true) then asked.count = true; return "2" end
+      return ""
+    end)
+    assert(result.ok, tostring(result.error) .. "\n" .. world.last_page_text())
+    assert(asked.count and asked.names)
+    local cfg = plan_of(world)
+    local entry = node(cfg, "SIG-1")
+    assert(table.concat(entry.signals, ",") == "S-A,S-B,S-C,S-D", "all four names are in the entry")
+    assert(entry.peripheral == nil and entry.adapter == nil, "no single device is written for a computer with several signals")
+    assert(world.text():find("Signale", 1, true) and world.text():find("bind_signals", 1, true), "the summary says what comes next: bind them one by one")
+    assert(not world.text():find("Welches gehoert zu", 1, true), "the single-device questions are not asked")
+  end,
+
+  test_one_signal_is_still_one_signal_when_the_choice_is_one = function()
+    local peripherals = { MODEM, { name = "Create_Signal_0", type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" } }, { name = "Create_Signal_1", type = "Create_Signal", methods = { "setForcedRed", "isForcedRed" } } }
+    local world = setup_world.new({ peripherals = peripherals })
+    local result = world.run({ "--role", "signal" }, function(page)
+      if page:find("Welches gehoert zu", 1, true) then return "2" end
+      if page:find("Wie viele Signale", 1, true) then return "1" end
+      return ""
+    end)
+    assert(result.ok, tostring(result.error) .. "\n" .. world.last_page_text())
+    local entry = node(plan_of(world), "SIG-1")
+    assert(entry.signals == nil and entry.peripheral == "Create_Signal_1")
+  end,
+
+  test_signal_names_are_checked_where_they_are_typed = function()
+    local peripherals = { MODEM, { name = "Create_Signal_0", type = "Create_Signal", methods = { "setForcedRed" } }, { name = "Create_Signal_1", type = "Create_Signal", methods = { "setForcedRed" } } }
+    local world = setup_world.new({ peripherals = peripherals })
+    local tries = { "S-A", "S-A, S-A", "S A!, S-B", "S-A, S-B" }
+    local result = world.run({ "--role", "signal" }, function(page)
+      if page:find("Namen der Signale", 1, true) then return table.remove(tries, 1) or "S-A, S-B" end
+      if page:find("Wie viele Signale", 1, true) then return "2" end
+      return ""
+    end)
+    assert(result.ok, tostring(result.error))
+    assert(world.text():find("Mindestens zwei", 1, true) and world.text():find("zweimal", 1, true) and world.text():find("kein Signalname", 1, true))
+    assert(#node(plan_of(world), "SIG-1").signals == 2)
+  end,
+
+  test_a_plan_entry_with_several_signals_is_not_looked_for_as_one_device = function()
+    local world = setup_world.new({ peripherals = { MODEM }, files = { [netplan.PATH] = netplan.encode({ v = 1, channel = 777, master_id = "MASTER-1",
+      nodes = { { id = "MASTER-1", role = "master" }, { id = "SIGN-1", role = "signal", signals = { "S-A", "S-B", "S-C", "S-D" } } }, blocks = {}, routes = {} }) } })
+    local result = world.run({ "--role", "signal" }, enters(6))
+    assert(result.ok, tostring(result.error) .. "\n" .. world.last_page_text())
+    assert(not world.text():find("erwartet das Geraet", 1, true), "no device named SIGN-1 is expected")
+    assert(world.text():find("4 Signale", 1, true) and world.text():find("S-D", 1, true), "the summary names the signals")
+  end,
+
   test_a_missing_device_named_in_the_plan_is_called_out = function()
     local world = setup_world.new({ peripherals = { MODEM }, files = { [netplan.PATH] = netplan.encode({ v = 1, channel = 777, master_id = "MASTER-1",
       nodes = { { id = "MASTER-1", role = "master" }, { id = "SIG-9", role = "signal", adapter = "peripheral", peripheral = "Create_Signal_5" } }, blocks = {}, routes = {} }) } })

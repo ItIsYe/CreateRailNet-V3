@@ -350,7 +350,7 @@ function wizard.functest(env)
   t.say("Gelesen wird ohne Rueckfrage. Was etwas schaltet, wird einzeln gefragt und danach in den sicheren Zustand gebracht (Signal ROT, Weiche geradeaus). Ohne dein Ja passiert nichts. "
     .. "Dieser Computer sollte dabei nicht gerade im Betrieb sein (Strg+T beendet das Programm).", "dim")
   local opts = {
-    peripheral = env.peripheral, redstone = env.redstone, sleep = env.sleep, link = env.link, confirm = io.ask_yes,
+    peripheral = env.peripheral, redstone = env.redstone, sleep = env.sleep, link = env.link, confirm = io.ask_yes, fs = env.fs,
     on_step = function(step, phase, result)
       if phase == "end" then
         local tag = result.state == "ok" and "[ OK ] " or (result.state == "fail" and "[FEHL] " or "[----] ")
@@ -754,12 +754,14 @@ function wizard.run(opts)
   -- the name of the device a plan entry talks to (an entry without one uses its own id, like the adapters do)
   local function peripheral_name(entry)
     if entry.role == "train" then return entry.create_station or entry.schedule_station end
+    if type(entry.signals) == "table" then return nil end
     if entry.adapter == "redstone" then return nil end
     return entry.peripheral or entry.target or entry.id
   end
 
   local function describe_entry(entry)
     if entry.role == "signal" or entry.role == "sensor" then
+      if type(entry.signals) == "table" then return #entry.signals .. " Signale (" .. table.concat(entry.signals, ", ") .. ")" end
       if entry.adapter == "redstone" then return "Redstone, " .. side_word(entry.side) end
       return "Create-Geraet " .. tostring(peripheral_name(entry))
     elseif entry.role == "switch" then
@@ -1062,6 +1064,7 @@ function wizard.run(opts)
     return function()
       local found = hardware.of_class(ctx.peripherals, class)
       ctx.single[field] = false
+      if ctx.fields.signals then return SKIP end
       if #found ~= 1 then return SKIP end
       page("hardware", role_label(ctx.role))
       t.say(label .. " erkannt: " .. found[1].name .. " (" .. found[1].type .. ")", "ok")
@@ -1117,12 +1120,52 @@ function wizard.run(opts)
     end
   end
 
+  -- a signal computer can host several signals (docs/SIGNAL_NODES.md): the names are the logical ids of the plan; which device is which
+  -- is bound afterwards on the computer, one signal at a time (scripts/bind_signals.lua)
+  local function split_signal_ids(line)
+    local ids, seen = {}, {}
+    for part in tostring(line):gmatch("[^,;%s]+") do
+      if not part:match("^[%w_%-%.]+$") then return nil, "'" .. part .. "' ist kein Signalname (Buchstaben, Ziffern, - _ . erlaubt)." end
+      if false then return nil, "'" .. part .. "' steht zweimal in der Liste." end
+      seen[part] = true
+      ids[#ids + 1] = part
+    end
+    if #ids < 2 then return nil, "Mindestens zwei Signalnamen, getrennt durch Komma (bei einem Signal vorher 'Eines' waehlen)." end
+    if #ids > 64 then return nil, "Mehr als 64 Signale an einem Computer sind zu viel." end
+    return ids
+  end
+
+  local function multi_signal_question()
+    local found = #hardware.of_class(ctx.peripherals, "create_signal")
+    -- the question comes only where several signals can be meant: with none or one device attached the usual single-signal path stays as it was
+    -- (several signals on one computer can still come with the plan of the master: an entry with `signals`)
+    if found < 2 and not ctx.fields.signals then return SKIP end
+    page("hardware", role_label(ctx.role))
+    t.say("Create-Signale erkannt: " .. found .. ".", "ok")
+    local value = ask_choice("Wie viele Signale steuert dieser Computer?", {
+      { value = "one", label = "Eines" },
+      { value = "several", label = "Mehrere (4, 6, 8 oder mehr)" },
+    }, { default = (ctx.fields.signals or found >= 2) and 2 or 1, compact = true,
+      help = "Ein Computer kann mehrere Create-Signale steuern. Jedes bekommt einen Namen (wie im Netzplan bei den Bloecken als entry_signal / exit_signal). Welches Geraet zu welchem Namen gehoert, bindest du danach einzeln mit scripts/bind_signals.lua." })
+    if value == BACK then return BACK end
+    if value == "one" then ctx.fields.signals = nil; return "ok" end
+    local text = ask_text("Namen der Signale, getrennt durch Komma", {
+      default = ctx.fields.signals and table.concat(ctx.fields.signals, ",") or nil,
+      hint = "Zum Beispiel: S-A, S-B, S-C, S-D",
+      help = "Die Namen stehen im Netzplan (blocks: entry_signal und exit_signal). Der Master schickt Befehle mit diesem Namen an diesen Computer.",
+      check = function(line) local ids, err = split_signal_ids(line); return ids ~= nil, err end })
+    if text == BACK then return BACK end
+    ctx.fields.signals = split_signal_ids(text)
+    ctx.fields.adapter, ctx.fields.peripheral, ctx.fields.side = nil, nil, nil
+    return "ok"
+  end
+
   local function connection_questions(kind)
     local class = kind == "signal" and "create_signal" or "train_observer"
     local label = kind == "signal" and "Create-Signal" or "Train Observer"
     local default_name = kind == "signal" and "Create_Signal_0" or "Create_TrainObserver_0"
     local function how()
-      if ctx.single.peripheral then return SKIP end
+      if ctx.single.peripheral or ctx.fields.signals then return SKIP end
       page("hardware", role_label(ctx.role))
       local found = #hardware.of_class(ctx.peripherals, class)
       t.say(found > 0 and (label .. " erkannt (" .. found .. ").") or ("Kein " .. label .. " erkannt."), found > 0 and "ok" or "dim")
@@ -1135,13 +1178,15 @@ function wizard.run(opts)
       ctx.fields.adapter = value
     end
     local function detail()
-      if ctx.single.peripheral then return SKIP end
+      if ctx.single.peripheral or ctx.fields.signals then return SKIP end
       if ctx.fields.adapter == "redstone" then
         return side_question(kind == "signal" and "An welcher Seite liegt der Ausgang?" or "An welcher Seite kommt das Signal an?")()
       end
       return device_question(class, label, default_name)()
     end
-    return { confirm_single(class, label, "peripheral", true), how, detail }
+    local list = { confirm_single(class, label, "peripheral", true), how, detail }
+    if kind == "signal" then table.insert(list, 1, multi_signal_question) end
+    return list
   end
 
   local function display_question(question, help)
@@ -1370,7 +1415,10 @@ function wizard.run(opts)
   local function summary_rows(entry)
     local rows = {}
     local role = ctx.role
-    if role == "signal" or role == "sensor" then
+    if role == "signal" and type(entry.signals) == "table" then
+      rows[#rows + 1] = { "Signale", #entry.signals .. ": " .. table.concat(entry.signals, ", ") }
+      rows[#rows + 1] = { "Binden", "danach: scripts/bind_signals.lua bind <ID>" }
+    elseif role == "signal" or role == "sensor" then
       rows[#rows + 1] = { "Anschluss", entry.adapter == "redstone" and ("Redstone, " .. side_word(entry.side)) or found_text(tostring(peripheral_name(entry))) }
     elseif role == "switch" then
       rows[#rows + 1] = { "Anschluss", "Redstone, " .. side_word(entry.side) .. (entry.invert and ", umgekehrt" or "") }
