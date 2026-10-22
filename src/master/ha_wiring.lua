@@ -13,6 +13,7 @@ local barrier_module = require("src.master.barrier")
 local guarded_adapters = require("src.master.guarded_adapters")
 local replica_module = require("src.master.replica")
 local journal_module = require("src.shared.journal")
+local storage_budget = require("src.shared.storage_budget")
 
 local ha_wiring = {}
 
@@ -40,7 +41,7 @@ function ha_wiring.finish(prep, opts)
 
   local partner
   for _, master in ipairs(cfg.masters) do if master ~= id then partner = master end end
-  local journal = opts.journal or journal_module.new(cfg.master_journal_file or "state/master_journal.log", { max_entries = 1000, max_bytes = 300000 })
+  local journal = opts.journal or journal_module.new(cfg.master_journal_file or "state/master_journal.log", { max_entries = storage_budget.JOURNAL.master.max_entries, max_bytes = storage_budget.JOURNAL.master.max_bytes, max_snapshot_bytes = storage_budget.SNAPSHOT_MAX_BYTES })
   local journal_state, journal_info = journal.open()
   if (journal_state == "corrupt" or journal_state == "failed") and logger then
     logger.error("master journal unusable: no dual commit, no movement is given", { status = journal_state, reason = journal_info and journal_info.reason })

@@ -9,6 +9,7 @@ pcall(dofile, "tests/harness/cc_bootstrap.lua")
 local installer_world = require("tests.harness.installer_world")
 local plan = dofile("install/plan.lua")
 local startup_template = require("src.shared.startup_template")
+local manifest_builder = require("src.tools.manifest_builder")
 
 local function read_disk(path)
   local fh = assert(io.open(path, "rb"))
@@ -16,6 +17,9 @@ local function read_disk(path)
   fh:close()
   return body
 end
+
+-- what the installer puts on the computer for a repository file: the minified copy (dist/)
+local function shipped(path) return manifest_builder.shipped(path, read_disk(path)) end
 
 local function manifest() return assert(plan.parse_manifest(read_disk("install/manifest.lua"))) end
 
@@ -70,7 +74,7 @@ return {
     install(world, "sensor")
     local m = manifest()
     for path, entry in pairs(files_of("sensor", m)) do
-      assert(world.fs.files[path] == read_disk(path), "wrong or missing: " .. path)
+      assert(world.fs.files[path] == shipped(path), "wrong or missing: " .. path)
       assert(#world.fs.files[path] == entry.size)
     end
     assert(world.fs.files["src/nodes/sensor_node.lua"] and not world.fs.files["src/master/dispatcher.lua"] and not world.fs.files["src/nodes/signal_node.lua"])
@@ -106,11 +110,12 @@ return {
     world.fs.set("startup.lua", startup_for("sensor"))
     local net_v1 = world.fs.files["src/shared/net.lua"]
     local other = world.fs.files["src/shared/util.lua"]
-    world.set_version({ ["src/shared/net.lua"] = net_v1 .. "\n-- v2\n" })
+    local net_v2 = "local v2 = true\n" .. net_v1
+    world.set_version({ ["src/shared/net.lua"] = net_v2 })
     local ops = world.fs.ops
     local ok, err = world.run({ "--yes" })
     assert(ok, tostring(err))
-    assert(world.fs.files["src/shared/net.lua"] == net_v1 .. "\n-- v2\n")
+    assert(world.fs.files["src/shared/net.lua"] == manifest_builder.shipped("src/shared/net.lua", net_v2))
     assert(world.fs.files["src/shared/util.lua"] == other)
     assert(world.requests_for("src/shared/net.lua") == 2, "once at install, once at the update")
     assert(world.fs.ops - ops < 20, "few writes for one file: " .. (world.fs.ops - ops))
@@ -132,7 +137,7 @@ return {
     local new_set = files_of("sensor", plan.parse_manifest(world.served["install/manifest.lua"]))
     local ok, err = world.run({ "--yes" })
     assert(ok, tostring(err))
-    assert(world.fs.files["src/shared/extra_module.lua"] == "return {}\n", "new file")
+    assert(world.fs.files["src/shared/extra_module.lua"] == manifest_builder.shipped("src/shared/extra_module.lua", "return {}\n"), "new file")
     assert(world.fs.files["src/shared/legacy_module.lua"] == nil, "old file removed")
     local gone = 0
     for path, entry in pairs(old_set) do
@@ -194,7 +199,7 @@ return {
     local world = installer_world.new()
     world.fail_next("src/shared/net.lua", 2, "corrupt")
     install(world, "signal")
-    assert(world.fs.files["src/shared/net.lua"] == read_disk("src/shared/net.lua"))
+    assert(world.fs.files["src/shared/net.lua"] == shipped("src/shared/net.lua"))
     assert(world.requests_for("src/shared/net.lua") == 3)
   end,
 
@@ -202,7 +207,7 @@ return {
     local world = installer_world.new()
     world.fail_next("src/shared/net.lua", 1, "stale")
     install(world, "signal")
-    assert(world.fs.files["src/shared/net.lua"] == read_disk("src/shared/net.lua"))
+    assert(world.fs.files["src/shared/net.lua"] == shipped("src/shared/net.lua"))
     assert(world.requests_for("src/shared/net.lua") == 2)
   end,
 
@@ -227,7 +232,7 @@ return {
     local resumed, err = world.run({ "--resume", "--role", "signal" })
     assert(resumed, tostring(err))
     assert(not has_leftovers(world.fs), has_leftovers(world.fs))
-    assert(world.fs.files["src/nodes/signal_node.lua"] == read_disk("src/nodes/signal_node.lua"))
+    assert(world.fs.files["src/nodes/signal_node.lua"] == shipped("src/nodes/signal_node.lua"))
   end,
 
   test_a_ref_that_does_not_exist_fails_clearly = function()

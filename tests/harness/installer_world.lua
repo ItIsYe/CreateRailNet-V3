@@ -64,6 +64,8 @@ function installer_world.new(opts)
     local clean = url:gsub("%?.*$", "")
     if clean:sub(1, #base) ~= base then return nil, "wrong host" end
     local path = clean:sub(#base + 1)
+    local shipped = path:match("^dist/(.+)$")
+    if shipped then path = shipped end
     local failure = world.failures[path]
     if failure and failure.count > 0 then
       failure.count = failure.count - 1
@@ -72,6 +74,7 @@ function installer_world.new(opts)
         return { readAll = function() return "<!DOCTYPE html><html><body>Bad gateway</body></html>" end, close = function() end }
       end
       local body = served_body(path)
+      if body and shipped then body = manifest_builder.shipped(path, body) end
       if failure.kind == "corrupt" and body then
         body = body:sub(1, #body - 1) .. string.char((body:byte(#body) + 1) % 256)
         return { readAll = function() return body end, close = function() end }
@@ -82,6 +85,7 @@ function installer_world.new(opts)
       end
     end
     local body = served_body(path)
+    if body and shipped then body = manifest_builder.shipped(path, body) end
     if not body then
       return { readAll = function() return "404: Not Found" end, getResponseCode = function() return 404 end, close = function() end }
     end

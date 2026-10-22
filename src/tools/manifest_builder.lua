@@ -14,6 +14,7 @@ Notes: seed files (config templates, scripts/start_*.lua) are what an operator e
 local require_scan = require("src.shared.require_scan")
 local checksum = require("src.shared.checksum")
 local runtime_packager = require("src.tools.runtime_packager")
+local minify = require("src.tools.minify")
 
 local manifest_builder = {}
 
@@ -58,6 +59,16 @@ local function set_of(list)
   return set
 end
 
+-- what a computer receives for a repository file: Lua sources minified (dist/), everything else as it is; the start scripts
+-- are seed files an operator edits and stay readable
+function manifest_builder.shipped(path, body)
+  if path:match("%.lua$") and not path:match("^scripts/start_[%w_]+%.lua$") then
+    local small = minify.minify(body)
+    if small then return small end
+  end
+  return body
+end
+
 function manifest_builder.build(read_body, runtime_manifest)
   local problems = {}
   local role_sets = {}
@@ -85,7 +96,8 @@ function manifest_builder.build(read_body, runtime_manifest)
             local allowed, why = runtime_packager.should_include(runtime_manifest, path)
             if not allowed then note(role .. ": " .. path .. " may not be installed (" .. tostring(why) .. ")") end
           end
-          files[path] = { #body, checksum.adler32(body) }
+          local shipped = manifest_builder.shipped(path, body)
+          files[path] = { #shipped, checksum.adler32(shipped) }
         end
       end
     end

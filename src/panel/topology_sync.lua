@@ -12,6 +12,7 @@ Notes: the plan comes in the parts of src/master/plan_service.lua (event plan_ge
   Old data on disk is only used when its version equals the announced one. Everything that arrives is data: wrong sizes, wrong order or a wrong question id are ignored.
 ]]
 
+local storage_budget = require("src.shared.storage_budget")
 local checksum = require("src.shared.checksum")
 local json = require("src.shared.json")
 local safe_write = require("src.shared.safe_write")
@@ -19,7 +20,7 @@ local safety_graph = require("src.domain.safety_graph")
 
 local topology_sync = {}
 
-local MAX_PARTS, MAX_BYTES = 60, 200000
+local MAX_PARTS, MAX_BYTES = 60, storage_budget.PLAN_MAX_BYTES
 
 function topology_sync.new(opts)
   local now = opts.now or function() return 0 end

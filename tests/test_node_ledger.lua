@@ -142,10 +142,10 @@ return {
     local node, _, ran = make_node(fs, { ledger = true })
     for i = 1, 600 do node.handle_message(command("M.b." .. i, "set_schedule")) end
     assert(#ran == 600)
-    assert(#fs.files["state/node_commands.log"] < 40000, "bounded, got " .. #fs.files["state/node_commands.log"])
+    assert(#fs.files["state/node_commands.log"] < 16000, "bounded, got " .. #fs.files["state/node_commands.log"])
     local again, _, ran2 = make_node(fs, { ledger = true })
     again.handle_message(command("M.b.600", "set_schedule"))
-    again.handle_message(command("M.b.300", "set_schedule"))
+    again.handle_message(command("M.b.599", "set_schedule"))
     assert(#ran2 == 0, "recent commands are still remembered after compaction")
   end
 }

@@ -16,6 +16,7 @@ local log_forwarder = require("src.shared.log_forwarder")
 local setup_status = require("src.shared.setup_status")
 local auth_setup = require("src.shared.auth_setup")
 local journal_module = require("src.shared.journal")
+local storage_budget = require("src.shared.storage_budget")
 local idempotency = require("src.shared.idempotency")
 local fence_module = require("src.shared.fence")
 local ha_module = require("src.shared.ha")
@@ -100,10 +101,10 @@ function common_node.new(opts)
     if wanted then
       local ledger
       local commands_journal = journal_module.new(opts.journal_path or LEDGER_PATH, {
-        fs = opts.journal_fs, max_entries = 200, max_bytes = 16384,
+        fs = opts.journal_fs, max_entries = storage_budget.JOURNAL.node.max_entries, max_bytes = storage_budget.JOURNAL.node.max_bytes, max_snapshot_bytes = storage_budget.SNAPSHOT_MAX_BYTES,
         state_fn = function() return { ledger = ledger and ledger.to_state() or {} } end
       })
-      ledger = idempotency.new({ journal = commands_journal, ttl_s = 3600, max = 400 })
+      ledger = idempotency.new({ journal = commands_journal, ttl_s = 3600, max = 250 })
       local status, info = commands_journal.open()
       if status == "corrupt" or status == "failed" then
         node.logger.error("command journal unusable: critical commands are refused", { status = status, reason = info and info.reason })

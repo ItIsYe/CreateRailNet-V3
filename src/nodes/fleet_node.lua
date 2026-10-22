@@ -20,6 +20,7 @@ local checksum = require("src.shared.checksum")
 local canon = require("src.shared.canon")
 local time = require("src.shared.time")
 local journal_module = require("src.shared.journal")
+local storage_budget = require("src.shared.storage_budget")
 local replica_module = require("src.master.replica")
 local engine_module = require("src.fleet.engine")
 local profile_module = require("src.fleet.profile")
@@ -96,7 +97,7 @@ function fleet_node.new_runtime(args_or_context)
   local engine = node.engine
 
   -- durable pair state --------------------------------------------------------------------------------------------------------
-  local journal = journal_module.new(fleet_cfg.journal_file or "state/fleet_journal.log", { fs = context.journal_fs, max_entries = 600, max_bytes = 150000 })
+  local journal = journal_module.new(fleet_cfg.journal_file or "state/fleet_journal.log", { fs = context.journal_fs, max_entries = storage_budget.JOURNAL.fleet.max_entries, max_bytes = storage_budget.JOURNAL.fleet.max_bytes, max_snapshot_bytes = storage_budget.SNAPSHOT_MAX_BYTES })
   local journal_state, journal_info = journal.open()
   if journal_state == "corrupt" or journal_state == "failed" then
     node.logger.error("fleet journal unusable: no automatic activity", { status = journal_state, reason = journal_info and journal_info.reason })

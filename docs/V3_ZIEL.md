@@ -15,7 +15,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | E2 | Der **Schiedsrichter ist ein eigener CC-Computer** (Rolle `arbiter`), kein Nebenjob eines Nodes | Kap. 2: dritte Stimme, nur Wahldaten; ein Nebenjob würde Ausfälle koppeln |
 | E3 | Schlüssel: ein Master-Schlüssel (beide Master), je Computer ein abgeleiteter Schlüssel mit Nummer; **Übergabe per Diskette oder Eingabe** am Gerät | Kap. 12.1 verlangt physisch bestätigte Erstregistrierung mit lokaler Schlüsselübergabe |
 | E4 | Authentifizierung ist je Computer schaltbar (`auth_mode` off / monitor / enforce); `off` bleibt der Standard bis zur Einführung | bestehende Netze laufen weiter; der Betrieb nach dem Konzept verlangt `enforce` |
-| E5 | Master-Speicherbudget **900 000 Byte** statt „etwa 740 000“ des Konzepts, mit Begründung in `docs/assumptions.md` | Authentifizierung (P1) und Masterwahl (P3) kosten zusammen etwa 100 KB; ein Master dieser Größe braucht `computer_space_limit` von 2 MB oder mehr; Rückweg: `computer_space_limit` anheben oder Planer/Setup-Werkzeuge auf die Panel-Rolle verlagern, Entscheidung in P10 mit Messwerten |
+| E5 | Das Speicherlimit von 1 000 000 Byte je Computer ist fest (`computer_space_limit` wird nicht angehoben). Programm als verkleinerte Dateien (`dist/`), Master 709 380 Byte, Zustand und Update-Reserve gedeckelt (`src/shared/storage_budget.lua`) | Die frühere Entscheidung, das Budget anzuheben und 2 MB zu verlangen, ist zurückgenommen; Beleg: `test_installer_manifest.lua`, `test_storage_budget.lua`, `test_minify.lua` |
 | E6 | Alles, was nur das Spiel zeigt (Mod-APIs, Create-Verhalten, Rechenzeit), steht in `docs/INGAME_TESTS.md` und bleibt **NOT_RUN**, bis es im Spiel gelaufen ist | Kap. 20: BLOCKED ist kein PASS; kein Offline-Test ersetzt einen Pflichtfall |
 
 ## Pakete (Kap. 19)
@@ -127,7 +127,7 @@ Einzelheiten `docs/SIGNAL_NODES.md`. Schalter `signal_transport` (Standard `loca
 | Kap. 2.1: Empfang, Anwendung, physische Wirkung getrennt; Epoche und Befehls-ID | `net_signals.lua` (Befehl ueber das Netz), `err` beendet die Wiederholung (`net.lua`) | `test_net_signals.lua`, `test_signal_node_world.lua` |
 | Signalausfall nimmt die Bloecke ausser Betrieb | `dispatcher.signal_failed`, Heartbeat `signals` | `test_net_signals.lua`, `test_signal_node_world.lua` |
 | Kap. 7.1 / 7.2: Gleiswahl, Alternativen, volles Depot nie als Blockade | `track_choice.lua` | `test_track_choice.lua` (C-06, C-10, C-11) |
-| Platzbedarf des Masters | Budget 1 000 000 Bytes, `computer_space_limit` 2 000 000 noetig, Warnung im Doctor | `test_installer_manifest.lua`, `test_doctor.lua` |
+| Platzbedarf des Masters | Programm 709 380 + Zustand 238 000 + Update-Reserve 40 000 innerhalb 1 000 000 Byte, Warnung im Doctor bei weniger als 40 KB Reserve | `test_installer_manifest.lua`, `test_storage_budget.lua`, `test_doctor.lua` |
 
 Noch nicht Teil von P6: aktive Observer-Nodes (der Detektorpegel der Sensor-Nodes beweist "frei", `docs/PROOF.md`; Train-Observer mit Zugnamen sind in ATM10 8.1 nicht belegt), die Erstellung von
 Bahnsteig-Kandidaten aus dem Netzplaner, die Einrichtung der Bahnhof- und Depot-Peripherie durch einen gefuehrten Assistenten (die Daten stehen im Plan), die Verwendung der Gleiswahl durch Fahrplaene (P7), die

@@ -12,6 +12,7 @@ local require_scan = require("src.shared.require_scan")
 local manifest_builder = require("src.tools.manifest_builder")
 local updater = require("src.shared.updater")
 local runtime_packager = require("src.tools.runtime_packager")
+local storage_budget = require("src.shared.storage_budget")
 
 local function read(path)
   local fh = io.open(path, "rb")
@@ -42,7 +43,8 @@ return {
     local manifest = load_manifest()
     assert(plan.validate(manifest))
     for path, entry in pairs(manifest.files) do
-      local body = assert(read(path), "missing " .. path)
+      local body = manifest_builder.shipped(path, assert(read(path), "missing " .. path))
+      assert(read("dist/" .. path) == body, "dist/" .. path .. " is out of date: run lua scripts/build_dist.lua --write")
       assert(#body == entry[1] and checksum.adler32(body) == entry[2], "stale entry " .. path)
     end
   end,
@@ -121,15 +123,15 @@ return {
   end,
 
   test_a_role_fits_on_a_default_computer = function()
+    -- a CC:Tweaked computer holds 1 000 000 bytes and that does not change: program (the minified files of dist/, every file counted at least 500 bytes),
+    -- state files at their caps and the headroom of an update have to fit (src/shared/storage_budget.lua)
     local manifest = load_manifest()
     for _, role in ipairs(plan.ROLES) do
-      local total = plan.total_bytes(assert(plan.files_for_role(manifest, role.key)))
-      -- CC:Tweaked computers hold 1 MB by default. The installer checks the space itself (the files it has to write, one temporary copy of the
-      -- largest, a little more; docs/assumptions.md "Space budget"); this is the budget that leaves a node room for its state and an update that
-      -- arrives over the air. The master carries the dispatcher, the operator pages and the setup tools of every role, so its budget is larger (1100000 since the authentication of every message, the election of two masters, the replica, the proof of occupancy, the update control, the replacement wizard, the signed packages and the Master-AUX, V3 packages P1 to P10 and the wiring round: measured 1014713 bytes; the Gesamtkonzept names about 740000 as a project target). A master of this size does not fit a default computer (1 MB) with its journal: it needs computer_space_limit of 2000000 on the server, the doctor says so.
-      -- the panel carries the views of 13 pages, the monitor registry, the track diagram and the timetable editor (measured 600637 bytes): 650000
-      local budget = role.key == "master" and 1100000 or (role.key == "panel" and 650000 or 600000)
-      assert(total < budget, role.key .. " needs " .. total .. " bytes (budget " .. budget .. ")")
+      local counted = 0
+      for _, entry in pairs(assert(plan.files_for_role(manifest, role.key))) do counted = counted + math.max(entry.size, storage_budget.MIN_FILE_COST) end
+      local budget = storage_budget.program_budget(role.key)
+      assert(counted <= budget, role.key .. " needs " .. counted .. " bytes of program, the budget is " .. budget .. " (" .. storage_budget.LIMIT .. " minus state " .. storage_budget.state_worst_case(role.key) .. " minus update headroom " .. storage_budget.OTA_HEADROOM .. ")")
+      assert(counted + storage_budget.state_worst_case(role.key) + storage_budget.OTA_HEADROOM <= storage_budget.LIMIT)
     end
   end,
 

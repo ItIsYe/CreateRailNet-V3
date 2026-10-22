@@ -79,8 +79,7 @@ Die Dateien einer Rolle sind der Abschluss der `require`-Abhängigkeiten ihres E
 | signal, sensor, switch | ca. 42 | ca. 235 KB |
 | train, station, depot, panel | ca. 41-43 | ca. 245 KB |
 
-Die genaue Liste steht in `install/manifest.lua` (erzeugt, nicht von Hand ändern). Ein Computer braucht dafür freien Speicher in dieser Größe
-(`computer_space_limit` in `computercraft-server.toml`); der Installer prüft das vorher.
+Die genaue Liste steht in `install/manifest.lua` (erzeugt, nicht von Hand ändern). Ein Computer fasst fest 1 MB (das Limit wird nicht angehoben); die Dateien sind kleingeschrieben (`dist/`, ohne Kommentare, gleiche Zeilennummern), damit Programm, Zustand und ein Update Platz haben (`docs/assumptions.md`, Space budget). Der Installer prüft den Platz vorher.
 
 **Eigene Dateien bleiben.** Konfigurationsvorlagen (`configs/templates/*.json`, dort liegt die Welt-Konfiguration) und `scripts/start_*.lua`
 sind „Seed"-Dateien: sie werden nur angelegt, wenn sie fehlen, und nie ersetzt oder gelöscht. Ebenso unberührt: `configs/network.json` und alles, was der
@@ -118,7 +117,7 @@ und die Dateien unter `configs/templates/` verteilt, nie ein Netzplan.
 | `install/http.lua konnte nicht geladen werden (Ref ...)` | Zweig oder Tag gibt es nicht (Tippfehler?) oder GitHub ist nicht erreichbar |
 | `Ungueltiger Ref` | Zweignamen dürfen nur Buchstaben, Ziffern und `. _ - /` enthalten |
 | `Manifest ungueltig` | der Ref enthält kein passendes `install/manifest.lua` (zu alter Stand) |
-| `Der Speicher dieses Computers reicht nicht` | nichts wurde verändert; `computer_space_limit` erhöhen oder einen größeren Computer nehmen |
+| `Der Speicher dieses Computers reicht nicht` | nichts wurde verändert; Platz schaffen (Logs und Spuren löschen, fremde Dateien entfernen), das Limit von 1 MB steht fest |
 | `Installation abgebrochen bei <datei>` | Download oder Prüfung ist mehrfach gescheitert; `installer --resume` setzt fort |
 | `Installation unvollstaendig.` beim Start | das Journal einer abgebrochenen Installation liegt noch da; `startup.lua` führt `installer --resume` aus |
 | `Die Rolle dieses Computers ist unbekannt` | mit `--yes` ohne installierte Rolle: `--role <rolle>` angeben |

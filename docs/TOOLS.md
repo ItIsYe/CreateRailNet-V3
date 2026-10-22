@@ -77,6 +77,7 @@ Keys travel on a disk in a disk drive or are typed; the tool names a fingerprint
 | Script | Purpose |
 |---|---|
 | `installer` | one-line installer: `wget run https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer` (`docs/INSTALL.md`) |
+| `scripts/build_dist.lua --write\|--check` | writes / checks `dist/`, the minified copy of every installed file (run before `manifest_sync.lua`) |
 | `scripts/manifest_sync.lua --write\|--check` | regenerates / checks `install/manifest.lua`, the installer's file list (after changing any installed file) |
 | `scripts/setup.lua [--role R]` | the setup wizard of one computer: role, network plan (`configs/network.json`), id, hardware, summary; writes `startup.lua` (`docs/INGAME_SETUP.md`) |
 | `scripts/setup.lua --check [file]` | checks a network plan (default `configs/network.json`) on the computer and names every problem; changes nothing |

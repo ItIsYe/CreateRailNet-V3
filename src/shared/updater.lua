@@ -37,6 +37,9 @@ local MAX_FILE_BYTES = 200000
 local MAX_TOTAL_BYTES = 3000000
 local MAX_PARTS = 64
 local VERSION_FILE = "crn_version.txt"
+-- a computer holds a fixed 1 000 000 bytes (CC:Tweaked counts every file at least 500): an update needs the staged copy and the backup of every file it replaces
+local MIN_FILE_COST = 500
+local FREE_RESERVE = 8000
 
 local ALLOWED_PREFIXES = { "src/", "scripts/", "configs/templates/" }
 -- startup.lua is not listed: it holds the role, id and config of each computer and must never be replaced remotely
@@ -84,6 +87,17 @@ function updater.new(network, node_id, logger, opts)
 
   local function log(level, text, data)
     if logger and logger[level] then logger[level](text, data) end
+  end
+
+  -- true when `bytes` more fit on the computer with FREE_RESERVE left for the state files; an unknown free space does not block
+  local function has_room(bytes)
+    local ok, free = pcall(function() return fsys.getFreeSpace and fsys.getFreeSpace("/") end)
+    if ok and type(free) == "string" then free = tonumber(free) end
+    if not ok or type(free) ~= "number" then return true end
+    if free < bytes + FREE_RESERVE then
+      return false, "no room: the update needs " .. (bytes + FREE_RESERVE) .. " bytes (staged copies and backups), " .. free .. " free"
+    end
+    return true
   end
 
   local function allowed_source(src)
@@ -161,12 +175,20 @@ function updater.new(network, node_id, logger, opts)
       end
     end
 
-    local need = {}
+    local need, cost = {}, 0
     for path, want in pairs(manifest) do
       local current = read(path)
-      if not (current and #current == want.size and checksum.adler32(current) == want.adler) then need[#need + 1] = path end
+      if not (current and #current == want.size and checksum.adler32(current) == want.adler) then
+        need[#need + 1] = path
+        cost = cost + math.max(want.size, MIN_FILE_COST) + (current and math.max(#current, MIN_FILE_COST) or 0)
+      end
     end
     table.sort(need)
+    local room, room_err = has_room(cost)
+    if #need > 0 and not room then
+      fail(src, payload.update_id, { room_err })
+      return false, room_err
+    end
 
     if #need == 0 then
       session = nil
@@ -337,6 +359,13 @@ function updater.new(network, node_id, logger, opts)
     local manifest, err = validate_manifest(manifest_list, max_files, max_bytes)
     if not manifest then fail(src, update_id, { err }); return false, err end
     if update_pending() then fail(src, update_id, { "an earlier update is not confirmed yet" }); return false, "earlier update pending" end
+    local direct_cost = 0
+    for _, item in ipairs(manifest_list) do
+      local current = read(item.path)
+      direct_cost = direct_cost + math.max(item.size, MIN_FILE_COST) + (current and math.max(#current, MIN_FILE_COST) or 0)
+    end
+    local direct_room, direct_err = has_room(direct_cost)
+    if not direct_room then fail(src, update_id, { direct_err }); return false, direct_err end
 
     if session then drop_session() end
     session = { id = update_id, version = tostring(payload.version or "unknown"), src = src, manifest = manifest, need = {}, staged = {}, parts = {} }

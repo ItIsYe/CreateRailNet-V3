@@ -17,6 +17,7 @@ Notes: the checks, in order: installation complete, startup.lua, network plan (a
   can but something is probably not as meant. Nothing here switches a signal or a turnout.
 ]]
 
+local storage_budget = require("src.shared.storage_budget")
 local hardware = require("src.setup.hardware")
 local netplan = require("src.setup.netplan")
 local terminal = require("src.setup.terminal")
@@ -267,23 +268,21 @@ function doctor.run(opts)
     if ok and type(free) == "string" then free = free:lower() == "unlimited" and math.huge or tonumber(free) end
     if ok and type(free) == "number" and free ~= math.huge and free >= 0 then
       if free < 8000 then
-        add("space", "fail", "Speicher fast voll: " .. kb(free) .. " KB frei", "Platz schaffen (Logs und Spuren loeschen) oder 'computer_space_limit' erhoehen: Zustandsdateien brauchen Platz.")
+        add("space", "fail", "Speicher fast voll: " .. kb(free) .. " KB frei", "Platz schaffen (Logs und Spuren loeschen): Zustandsdateien brauchen Platz. Der Computer fasst fest 1 MB.")
       elseif free < 30000 then
-        add("space", "warn", "Wenig Speicher: " .. kb(free) .. " KB frei", "Platz schaffen oder 'computer_space_limit' erhoehen, damit Updates und Zustandsdateien Platz haben.")
+        add("space", "warn", "Wenig Speicher: " .. kb(free) .. " KB frei", "Platz schaffen, damit Updates und Zustandsdateien Platz haben. Der Computer fasst fest 1 MB.")
       else
         add("space", "ok", "Speicher: " .. kb(free) .. " KB frei")
       end
     end
   end
 
-  -- 8b. the master carries the dispatcher, the replica journal and the setup tools of every role: it needs far more than the 1 MB a computer has by default
+  -- 8b. a computer holds a fixed 1 MB: after the program and the state files an update still needs room for the staged copies and the backups (src/shared/storage_budget.lua)
   do
-    if ctx.role == "master" then
-      local okc, capacity = pcall(function() return fs_api and fs_api.getCapacity and fs_api.getCapacity("/") end)
-      if okc and type(capacity) == "number" and capacity > 0 and capacity < 1500000 then
-        add("space_limit", "warn", "Dieser Computer fasst nur " .. kb(capacity) .. " KB",
-          "Der Master braucht auf dem Server computer_space_limit von mindestens 2000000 (docs/INSTALL.md). Mit weniger bleibt kein Platz fuer Journal und Zustand.")
-      end
+    local okf, free = pcall(function() return fs_api and fs_api.getFreeSpace and fs_api.getFreeSpace("/") end)
+    if okf and type(free) == "number" and free ~= math.huge and free >= 8000 and free < storage_budget.OTA_HEADROOM then
+      add("space_ota", "warn", "Fuer ein Update bleibt nur " .. kb(free) .. " KB",
+        "Ein Update braucht Platz fuer neue Dateien und Sicherungen. Logs und Spuren loeschen, sonst den Installer verwenden (er ersetzt Datei fuer Datei).")
     end
   end
 

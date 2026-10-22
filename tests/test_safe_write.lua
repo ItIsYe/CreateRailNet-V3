@@ -123,5 +123,31 @@ return {
     assert(safe_write.read(path) == "beta")
     assert(safe_write.read(safe_write.backup_path(path)) == "alpha")
     os.remove(path); os.remove(path .. ".prev"); os.remove(path .. ".tmp")
-  end
+  end,
+
+  test_the_old_generation_gives_way_when_the_new_copy_would_not_fit = function()
+    local f = memfs()
+    local capacity = 3000
+    f.getFreeSpace = function()
+      local used = 0
+      for _, body in pairs(f.files) do used = used + math.max(#body, 500) end
+      return math.max(0, capacity - used)
+    end
+    local old = string.rep("a", 1000)
+    f.files["state/x.json"], f.files["state/x.json.prev"] = old, string.rep("b", 1000)
+    -- free: 1000; a new copy of 900 bytes fits next to the current one only without .prev
+    local new = string.rep("c", 900)
+    assert(safe_write.write("state/x.json", new, { fs = f }))
+    assert(f.files["state/x.json"] == new)
+    assert(f.files["state/x.json.prev"] == old, "the previous generation is the one that was current")
+    assert(f.files["state/x.json.tmp"] == nil)
+  end,
+
+  test_with_room_enough_both_generations_stay = function()
+    local f = memfs()
+    f.getFreeSpace = function() return 900000 end
+    f.files["state/x.json"], f.files["state/x.json.prev"] = "one", "zero"
+    assert(safe_write.write("state/x.json", "two", { fs = f }))
+    assert(f.files["state/x.json.prev"] == "one")
+  end,
 }

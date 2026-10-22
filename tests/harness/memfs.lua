@@ -10,6 +10,7 @@ local memfs = {}
 
 function memfs.new()
   local f = { files = {}, ops = 0, crash_at = nil, fail = {} }
+  local used
 
   local function mutate(partial)
     -- sticky_crash: once the computer crashed it stays dead until the test reboots it (f.crashed = false)
@@ -89,9 +90,10 @@ function memfs.new()
   f.makeDir = function() end
 
   -- capacity (bytes) nil = no limit; a write that does not fit raises like CC:Tweaked does and stores nothing
-  local function used()
+  -- CC:Tweaked counts every file at least 500 bytes
+  used = function()
     local total = 0
-    for _, body in pairs(f.files) do total = total + #body end
+    for _, body in pairs(f.files) do total = total + math.max(#body, 500) end
     return total
   end
   f.used = used

@@ -253,20 +253,20 @@ return {
     assert(level(report, "space") == "ok" or level(report, "space") == nil, "no limit: nothing to say")
   end,
 
-  test_a_master_on_a_one_megabyte_computer_is_told_to_raise_the_limit = function()
+  test_nothing_asks_for_a_bigger_computer_but_a_short_update_room_is_said = function()
     local master = { role = "master", id = "MASTER-1", devices = { MODEM, MONITOR } }
     local c = computer(master)
     c.fs.capacity = 1000000
-    local lvl, check = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_limit")
-    assert(lvl == "warn" and check.title:find("1000", 1, true) and (check.fix or check.hint or ""):find("computer_space_limit", 1, true), tostring(check and check.title))
-    c.fs.capacity = 2000000
-    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_limit") == nil)
-    c.fs.capacity = nil
-    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_limit") == nil, "no limit known: nothing to say")
-    local signal = healthy_signal()
-    local s = computer(signal)
-    s.fs.capacity = 1000000
-    assert(level(doctor.run({ fs = s.fs, peripheral = s.peripheral }), "space_limit") == nil, "a node fits on 1 MB")
+    local report = doctor.run({ fs = c.fs, peripheral = c.peripheral })
+    assert(level(report, "space_limit") == nil, "the limit of 1 MB is fixed: no advice to raise it")
+    for _, check in ipairs(report.checks or {}) do
+      local text = (check.title or "") .. (check.fix or "") .. (check.hint or "")
+      assert(not text:find("computer_space_limit", 1, true), check.id)
+    end
+    -- room for the files and the state, but not for an update
+    c.fs.set("filler.bin", string.rep("x", 1000000 - 500 - c.fs.used() - 20000 + 500))
+    local lvl = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota")
+    assert(lvl == "warn", tostring(lvl))
   end,
 
   test_a_startup_without_the_recovery_is_called_out = function()

@@ -1,6 +1,6 @@
 --[[
 Purpose: Durable journal with monotone sequence numbers, checksums, commit markers and snapshots (Gesamtkonzept Kap. 5.2, 5.4, 15).
-Public API: new(path, opts) -> journal. opts: fs, max_entries (2000), max_bytes (65536), state_fn (function -> state, makes the journal compact itself), now (function -> seconds).
+Public API: new(path, opts) -> journal. opts: fs, max_entries (2000), max_bytes (65536), hard_factor (2), max_snapshot_bytes (none), state_fn (function -> state, makes the journal compact itself), now (function -> seconds).
   journal.open() -> status, info     status "fresh" | "ok" | "tail_repaired" | "corrupt" | "failed" ("failed": the files could not be written; "corrupt" locks the journal: nothing is appended until the operator deals with it)
   journal.append(kind, data) -> seq | nil, err        data is a table of plain values; the entry is on disk when this returns
   journal.commit(seq) -> ok, err                       marks every entry up to seq as committed (a marker entry of its own)
@@ -18,7 +18,7 @@ Notes: file format: first line "#CRNJ1<TAB>base_seq<TAB>crc", then one line per 
   A failed write (disk full, unwritable) makes the journal "failed": append refuses until reopen() finds the file intact. Compaction writes the snapshot first and rewrites the
   journal second; a crash between the two leaves old journal entries below the snapshot, which open() skips and then drops. The snapshot file is path .. ".snap" (safe_write, .prev kept).
   Everything is bounded: entries since the last snapshot are kept in memory, and past max_entries / max_bytes the journal compacts itself with state_fn; without it,
-  or when compaction keeps failing, appends stop at four times max_bytes ("full") instead of growing without limit.
+  or when compaction keeps failing, appends stop at hard_factor (2) times max_bytes ("full") instead of growing without limit; a snapshot above max_snapshot_bytes is refused (a computer holds a fixed 1 000 000 bytes, src/shared/storage_budget.lua).
 ]]
 
 local json = require("src.shared.json")
@@ -82,6 +82,8 @@ function journal.new(path, opts)
   local fsys = opts.fs or _G.fs
   local max_entries = opts.max_entries or 2000
   local max_bytes = opts.max_bytes or 65536
+  local hard_stop = max_bytes * (opts.hard_factor or 2)
+  local max_snapshot = opts.max_snapshot_bytes
   local now = opts.now or function() return os.time and os.time() or 0 end
   local snap_path = path .. ".snap"
   local io_opts = { fs = opts.fs }
@@ -219,7 +221,7 @@ function journal.new(path, opts)
   local function write_line(line)
     if locked then return nil, "journal is locked (" .. state .. ")" end
     if failed then return nil, "journal is failed: " .. tostring(last_error) end
-    if bytes + #line > max_bytes * 4 then full = true; return nil, "journal is full" end
+    if bytes + #line > hard_stop then full = true; return nil, "journal is full" end
     local ok, handle = pcall(fsys.open, path, "a")
     if not ok or not handle then return fail(ok and "cannot open journal" or handle) end
     local wrote, err = pcall(function() handle.write(line); handle.close() end)
@@ -259,6 +261,7 @@ function journal.new(path, opts)
   function self.snapshot(new_state)
     if locked then return nil, "journal is locked (" .. state .. ")" end
     local body = json.encode({ v = SNAPSHOT_VERSION, seq = last, committed = committed, saved_at = now(), state = new_state })
+    if max_snapshot and #body > max_snapshot then return nil, "snapshot too large: " .. #body .. " bytes (limit " .. max_snapshot .. ")" end
     local ok, err = safe_write.write(snap_path, body, io_opts)
     if not ok then return fail(err) end
     local size, rerr = rewrite_journal(last, {})
@@ -273,6 +276,7 @@ function journal.new(path, opts)
     if locked then return nil, "journal is locked (" .. state .. ")" end
     if type(seq) ~= "number" or seq < 0 then return nil, "bad sequence number" end
     local body = json.encode({ v = SNAPSHOT_VERSION, seq = seq, committed = new_committed or seq, saved_at = now(), state = new_state })
+    if max_snapshot and #body > max_snapshot then return nil, "snapshot too large: " .. #body .. " bytes (limit " .. max_snapshot .. ")" end
     local ok, err = safe_write.write(snap_path, body, io_opts)
     if not ok then return fail(err) end
     local size, rerr = rewrite_journal(seq, {})

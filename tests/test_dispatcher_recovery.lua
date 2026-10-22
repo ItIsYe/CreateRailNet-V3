@@ -82,7 +82,7 @@ return {
     local d1 = dispatcher.new(cfg(), adapters())
     assert(d1.reserve_route("TRAIN-1", "R1"))
     local snap = d1.snapshot()
-    assert(snap.active_conflicts["opp:ST-A<->ST-B"])
+    assert(snap.active_conflicts == nil, "the groups are not stored twice: the trains carry their routes")
     local d2 = dispatcher.new(cfg(), adapters())
     assert(d2.restore(snap))
     assert(d2.get_conflicts()["opp:ST-A<->ST-B"])

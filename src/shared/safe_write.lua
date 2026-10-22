@@ -6,7 +6,7 @@ Public API:
   read_with_backup(path, opts) -> body, source | nil, err     source is "primary" or "backup"
   backup_path(path) -> path .. ".prev"
 Notes:
-  Order of a write: body -> path.tmp, read back and compare, current file -> path.prev, tmp -> path.
+  Order of a write: (only when the space is short: the old .prev goes first) body -> path.tmp, read back and compare, current file -> path.prev, tmp -> path.
   At every point at least one complete copy exists (path, path.prev or path.tmp), unlike delete + move.
   The old file is copied instead of moved so a failing final move can still be rolled back from the copy.
 ]]
@@ -114,6 +114,12 @@ function safe_write.write(path, body, opts)
 
   local dir = dirname(path)
   if dir and fsys and fsys.exists and fsys.makeDir and not fsys.exists(dir) then fsys.makeDir(dir) end
+
+  -- a computer holds a fixed 1 000 000 bytes: the older generation (.prev) is the first thing to give way when the new copy would not fit next to the current one
+  if keep_backup and fsys and fsys.getFreeSpace and raw_exists(fsys, prev) then
+    local okf, free = pcall(fsys.getFreeSpace, "/")
+    if okf and type(free) == "number" and free < math.max(#body, 500) + 500 then raw_delete(fsys, prev) end
+  end
 
   local ok, err = raw_write(fsys, tmp, body)
   if not ok then raw_delete(fsys, tmp); return false, err end
