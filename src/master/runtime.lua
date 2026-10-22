@@ -745,6 +745,26 @@ function master_runtime.new(context)
   end
   runtime.ticker.every("auto_clear", 2, function() if runtime.active() then runtime.auto_clear_faults() end end)
 
+  -- Blocks nobody holds are proven free by fresh detector levels (every sensor of the block says free); with config.occupancy_proof = "on" a route is only given over such blocks.
+  function runtime.prove_free_blocks()
+    if not runtime.dispatcher.prove_free_from_sensors or maintenance_enabled() or recovery_locked() then return {} end
+    local cfg = runtime.config or {}
+    local proven = runtime.dispatcher.prove_free_from_sensors({
+      now = time.now_s(), max_age_s = cfg.auto_clear_max_age_s,
+      sensor_level = function(sensor_id)
+        local level = runtime.sensor_levels[sensor_id]
+        if not level then return nil, nil end
+        return level.occupied, level.at
+      end
+    })
+    if #proven > 0 then
+      if runtime.route_integration then runtime.route_integration.process_queue() end
+      runtime.ui.mark_dirty()
+    end
+    return proven
+  end
+  runtime.ticker.every("prove_free", 2, function() if runtime.active() then runtime.prove_free_blocks() end end)
+
   -- Rolling signal refresh: a few blocks per second, so a signal that lost its state (node reboot, chunk reload, lost
   -- command) is corrected within one round. config signal_refresh_per_s = 0 turns it off.
   function runtime.refresh_signals()
@@ -830,6 +850,11 @@ function master_runtime.new(context)
     if runtime.check_leadership then runtime.check_leadership() end
     if runtime.ha and runtime.ha.is_leader() then
       local idx = runtime.replica.capture()
+      -- the reservations of this change are PREPARED when the standby holds them and COMMITTED when both have committed; only then the dispatcher gives a signal for them
+      if idx and runtime.dispatcher.tag_commit then
+        runtime.dispatcher.tag_commit(idx)
+        runtime.dispatcher.advance_commits(runtime.replica.prepared_idx(), runtime.replica.committed_idx())
+      end
       -- a change that could not be written is never confirmed: whatever it produced waits (and is dropped when the leadership goes)
       runtime.barrier.tag(idx or math.huge)
       runtime.barrier.release(function(need) return runtime.replica.confirmed(need) end)

@@ -28,7 +28,8 @@ function route_queue.new()
       blocked_by = request.blocked_by,
       queued_at = request.queued_at or time.now_s(),
       state = "QUEUED",
-      reason = request.reason
+      reason = request.reason,
+      length = request.length
     }
     table.insert(items, item)
     return item

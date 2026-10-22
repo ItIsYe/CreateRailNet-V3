@@ -58,6 +58,10 @@ order, the old file stays as `<file>.prev`); a plan that is a bundled template (
 | `arbiter` | none | id of the node with role `arbiter`: the third voice of the election. Only with `masters` |
 | `election_lease_ms` / `election_beat_ms` | 3000 / 1000 | how long a leader stays valid after the last acknowledged beat / how often it beats; the follower waits longer (lease + 1 s margin, then 5 s for A, 8 s for B) |
 | `election_state_file` | `state/election.json` | term and vote of this master (written before every answer) |
+| `occupancy_proof` | `off` | `on`: a block is only given when it is FREE_PROVEN (a fresh detector level, an observer, a tail sensor), a route has to end at a proven safe stop (`safe_stops`) the train fits, and a reservation that is lifted keeps every block whose train end was not proven (`docs/PROOF.md`). After a restart or a change of leader every block is UNKNOWN until it is proven again. `off` keeps the old behaviour |
+| `safe_stops` | none | `[{ "block": "B7", "length": 8, "proven": true }]`: the blocks where a whole train can stand safely (Kap. 4.2). `length` in cars (a train with a known length must fit), `proven` only after a stop test in the game |
+| block `tail_sensors` | the sensors of the block | sensors whose "leave" proves the end of the train has left the block; a "leave" from another sensor of the block does not lift the block (with `occupancy_proof = on`) |
+| route `alternatives` / `reachability_confirmed` | none | other routes between the same ends that are tried when the first cannot be given; used only when the alternative has `reachability_confirmed = true` (Create was seen taking it, R-03) |
 | `master_journal_file` | `state/master_journal.log` | journal of the master state (`docs/JOURNAL.md`): every change of the dispatcher is written here before any command that depends on it is sent; the standby keeps its own copy (`docs/HA.md`, dual commit) |
 | `auto_clear_faults` | `true` | blocks that went FAULT because a node timed out clear themselves (`docs/OPERATIONS.md`); `false` = operator only |
 | `auto_clear_stable_s` | 15 | how long every node of the cause has to be back before the block may clear |

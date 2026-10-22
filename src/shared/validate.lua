@@ -126,6 +126,31 @@ local function validate_inner(cfg, errors)
     if cfg[key] ~= nil and (type(cfg[key]) ~= "number" or cfg[key] <= 0) then add(errors, key, "must be a number > 0") end
   end
   if cfg.election_state_file ~= nil and not nonempty(cfg.election_state_file) then add(errors, "election_state_file", "must be non-empty string") end
+  -- proof of occupancy and safe stops (docs/PROOF.md)
+  if cfg.occupancy_proof ~= nil and cfg.occupancy_proof ~= "on" and cfg.occupancy_proof ~= "off" then add(errors, "occupancy_proof", "must be \"on\" or \"off\"") end
+  if cfg.safe_stops ~= nil then
+    if type(cfg.safe_stops) ~= "table" then
+      add(errors, "safe_stops", "must be a list")
+    else
+      local known = {}
+      for _, block in ipairs(cfg.blocks or {}) do known[block.id] = true end
+      for i, stop in ipairs(cfg.safe_stops) do
+        local path = "safe_stops[" .. i .. "]"
+        if type(stop) ~= "table" or not nonempty(stop.block) then add(errors, path, "needs a block id")
+        elseif not known[stop.block] then add(errors, path .. ".block", "unknown block " .. tostring(stop.block)) end
+        if type(stop) == "table" then
+          if stop.length ~= nil and (type(stop.length) ~= "number" or stop.length <= 0) then add(errors, path .. ".length", "must be a number > 0") end
+          if stop.proven ~= nil and type(stop.proven) ~= "boolean" then add(errors, path .. ".proven", "must be true or false") end
+        end
+      end
+    end
+  end
+  if cfg.occupancy_proof == "on" then
+    local graph = require("src.domain.safety_graph").build(cfg)
+    for _, problem in ipairs(graph.problems) do
+      if problem.severity == "error" then add(errors, "safety_graph." .. tostring(problem.code), problem.text) end
+    end
+  end
   if cfg.master_journal_file ~= nil and not nonempty(cfg.master_journal_file) then add(errors, "master_journal_file", "must be non-empty string") end
   if cfg.arbiter ~= nil and not nonempty(cfg.arbiter) then add(errors, "arbiter", "must be non-empty string") end
   if type(cfg.masters) == "table" and #cfg.masters >= 1 then

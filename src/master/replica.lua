@@ -4,6 +4,7 @@ Public API: new(opts) -> replica. opts: id, peer (the other master), network, jo
   peer_timeout_ms (6000), resend_ms (1500), part_bytes (2800).
   replica.capture() -> idx | nil, err       leader: writes the change since the last call into the journal and sends it to the peer; returns the index the change has (the last one when nothing changed)
   replica.confirmed(idx) -> boolean          both masters have this index durably (committed)
+  replica.prepared_idx() -> idx              leader: the last entry the standby has acknowledged (durable on both, not yet committed)
   replica.handle(msg) -> true                a "cmd" with cmd = "repl" from the peer (entries, acknowledgements, commits, pings, synchronisation)
   replica.tick()                             leader: ping, resend, catch up the peer; follower: nothing to do
   replica.promote() -> state                 this master became leader: everything that was never committed is cut, the committed state is returned
@@ -198,6 +199,7 @@ function replica.new(opts)
   end
 
   function self.confirmed(idx) return idx <= committed_idx_now() end
+  function self.prepared_idx() return peer_idx end -- the last entry the peer holds durably (leader)
 
   -- the standby ---------------------------------------------------------------------------------------------------------
 

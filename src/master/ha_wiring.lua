@@ -47,10 +47,12 @@ function ha_wiring.finish(prep, opts)
   end
   local replica = replica_module.new({
     id = id, peer = partner, network = network, journal = journal, ha = ha, logger = logger, now_ms = opts.now_ms,
-    snapshot_fn = function() return opts.dispatcher.snapshot() end
+    snapshot_fn = function() return opts.dispatcher.snapshot({ replicated = true }) end
   })
   ha.dual_commit = { permissive = barrier_module.permissive_cmd, writable = replica.writable }
   network.hold = prep.barrier.hold
+  -- a new reservation of the dispatcher gives no signal before both masters hold it (S-02, S-06): the barrier holds the commands, the phase holds the decision
+  if opts.dispatcher.require_commit then opts.dispatcher.require_commit(true) end
   return { ha = ha, replica = replica, barrier = prep.barrier, journal = journal }
 end
 

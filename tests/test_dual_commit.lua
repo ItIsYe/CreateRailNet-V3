@@ -170,6 +170,23 @@ return {
     end)
   end,
 
+  -- the state machine of the reservation (Kap. 5.2) follows the replication: nothing is eligible before both masters hold it
+  test_the_phase_of_a_reservation_follows_the_commit_of_both_masters = function()
+    with_cluster({}, function(w)
+      w.run(20000)
+      local a = w.masters[A]
+      w.crash(B)
+      w.request("TRAIN-1", "R1")
+      w.run(4000)
+      assert(a.dispatcher.get_trains()["TRAIN-1"].phase == "VALIDATED", "reserved and validated, the standby does not hold it: " .. tostring(a.dispatcher.get_trains()["TRAIN-1"].phase))
+      assert(count(w.signal_calls(A, "SE1"), "GREEN") == 0)
+      w.restart(B)
+      w.run(15000)
+      assert(a.dispatcher.get_trains()["TRAIN-1"].phase == "ACTUATED", "committed on both, the signal was given: " .. tostring(a.dispatcher.get_trains()["TRAIN-1"].phase))
+      assert(count(w.signal_calls(A, "SE1"), "GREEN") >= 1)
+    end)
+  end,
+
   -- what waits in the barrier while the leader still leads is dropped when the leadership goes, and never goes out later
   test_what_waits_is_dropped_when_the_leadership_is_lost = function()
     with_cluster({}, function(w)

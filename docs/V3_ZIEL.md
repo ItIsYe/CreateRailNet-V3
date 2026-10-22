@@ -27,7 +27,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P2 Persistenz | Journal mit Commit-Indizes, Snapshots, Testabstürze, Idempotenz | **umgesetzt (offline)**, siehe unten |
 | P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | **umgesetzt (offline)**, siehe unten |
 | P4 Dual-Commit | Zustandsreplikation auf beide Master, Sperre für Freigaben bis zur Bestätigung | **umgesetzt (offline)**, siehe unten |
-| P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | offen |
+| P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | **umgesetzt (offline)**, siehe unten |
 | P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | offen |
 | P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | offen |
 | P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | offen |
@@ -96,6 +96,24 @@ Entscheidung: es wird der **Zustand** des Dispatchers repliziert (Differenzen, `
 
 Noch nicht Teil von P4: die Bestätigung des Betreibers im Panel (P8), die Prüfung der Ist-Lage nach dem Wechsel gegen die Sensoren (P5), das Stellen der Signale über Signal-Nodes im Netz statt über die Peripherie
 des Masters (P6). Der Platzbedarf des Masters ist auf 900000 Bytes gewachsen (Konzept: etwa 740000); die Entscheidung fällt in P10.
+
+## P5 Graph + Reservierung
+
+Schalter `occupancy_proof` (Standard aus), Einzelheiten `docs/PROOF.md`.
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| 4.1 gerichteter Graph, stabile IDs, Topologieversion | `safety_graph.lua` | `test_safety_graph.lua` (B-01 bis B-04, B-09) |
+| 4.1 FREE_PROVEN / OCCUPIED_PROVEN / UNKNOWN, Quelle, Zeitpunkt | `occupancy.lua` | `test_occupancy.lua` (B-07) |
+| Kap. 3 verbotene Ersatznachweise | nur Endsensor, Detektorpegel, Beobachter, Bahnhof beweisen "frei" | `test_occupancy.lua` |
+| S-03 / S-07 / S-10 | UNKNOWN nach Neustart, Wechsel, Reparatur | `test_dispatcher_proof.lua` |
+| 4.2 / 4.3 / S-08 Fahrstraße endet an bewiesenem Wartepunkt, Zuglänge | `route_end`, `request_route(..., { length })` | `test_dispatcher_proof.lua` (C-06, C-10) |
+| S-05 / B-08 Freigabe erst nach Zugschlussnachweis | Endsensor, Block bleibt belegt, `get_clearing()` | `test_dispatcher_proof.lua` |
+| 4.4 Deadlock melden, nicht erzwingen; bestätigte Umfahrung | `deadlock.lua`, `alternatives` | `test_deadlock.lua`, `test_dispatcher_proof.lua` (C-12) |
+| 5.2 Zustandsautomat der Reservierung | `reservation_phase.lua`, Verbindung mit dem Dual-Commit | `test_reservation_phase.lua`, `test_dual_commit.lua` |
+
+Noch nicht Teil von P5: Beobachter-Nodes und die aktive Abfrage nach einem Wechsel (P6), die Räumungsprüfung bei Topologieänderung im Betrieb über die Anzeige (P8), die Erzeugung von Wartepunkt-Kandidaten
+aus dem Netzplaner (`safe_stops` werden von Hand eingetragen). Das alte Verhalten bleibt Standard (`occupancy_proof = off`); die Wirkung auf das echte Netz zeigen nur die Spieltests 0ca bis 0cd.
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 
