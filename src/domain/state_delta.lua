@@ -1,7 +1,7 @@
 --[[
 Purpose: Differences between two states of the master (dispatcher snapshots), small enough to send to the other master and to write into a journal (Gesamtkonzept Kap. 5.2).
 Public API: diff(old, new) -> delta | nil (nil: nothing changed), apply(base, delta) -> new state (base is not changed), equal(a, b) -> boolean, copy(value) -> deep copy.
-Notes: a state is a table of plain values. The keys listed in MAP_KEYS (blocks, trains: id -> record) are compared record by record, so a train that moved sends one record and not the whole
+Notes: a state is a table of plain values. The keys listed in MAP_KEYS (blocks, trains, active_conflicts: id -> record; the conflicts were half of the delta with 40 trains running) are compared record by record, so a train that moved sends one record and not the whole
   table; every other key is replaced as a whole when it changed (the queue, the locks, the conflicts are small). A delta is { map = { key = { set = { id = record }, del = { id, ... } } }, whole = { key = value },
   removed = { key, ... } }. apply(old, diff(old, new)) equals new for any two states; the state of the standby is therefore exactly the state of the leader, however the deltas were cut. Lua tables have
   no order, so records are compared by content (arrays in order, maps by key).
@@ -9,7 +9,7 @@ Notes: a state is a table of plain values. The keys listed in MAP_KEYS (blocks, 
 
 local state_delta = {}
 
-local MAP_KEYS = { blocks = true, trains = true }
+local MAP_KEYS = { blocks = true, trains = true, active_conflicts = true }
 
 local function copy(value)
   if type(value) ~= "table" then return value end

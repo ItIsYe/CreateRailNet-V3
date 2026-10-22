@@ -32,7 +32,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | **umgesetzt (offline)**, siehe unten |
 | P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | **umgesetzt (offline)**, siehe unten |
 | P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | **umgesetzt (offline)**, siehe unten |
-| P10 Integration | 112 Einzeltests + E2E, 300/400 Signale, Freigabestufen | offen |
+| P10 Integration | 112 Einzeltests + E2E, 300/400 Signale, Freigabestufen | **umgesetzt (offline)**, siehe unten |
 
 ## P1: was umgesetzt ist
 
@@ -184,6 +184,25 @@ Abweichungen und Grenzen: Die "A/B-Programmslots" sind auf ComputerCraft dateiwe
 Das Panel hat noch keine Seite fuer den Austauschassistenten (das Modul ist fertig, die Aktionen `replace_*` sind nicht in `manual_control` eingehaengt). `verify_package` ist als Haken im Updater vorhanden, wird aber noch nicht aus
 der Knotenkonfiguration verdrahtet; bis dahin schuetzen die Absenderliste (`sources`), die P1-Authentisierung und die Dateiprüfsummen des Angebots. Der Master wird weiter durch den Installer aktualisiert (nicht ueber OTA).
 Was Create und die Welt beim Neustart eines Signal-Computers tun, bleibt Spieltest (0ct bis 0cx).
+
+## P10 Integration und Abnahme
+
+Die Abnahme ist ein Spielthema; offline lassen sich Vollstaendigkeit, Nachweisfuehrung und die Logik hinter den Faellen pruefen.
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| Kap. 20: 112 Faelle A-01 bis J-10 und E2E-01 bis E2E-08 mit Pruefschritt, Kriterium, Offline-Beleg und Spielstatus | `tests/acceptance/matrix.lua` (Daten), `docs/ABNAHME.md` (erzeugt) | `test_acceptance.lua` (Zahlen je Gruppe, jeder genannte Test existiert) |
+| Kap. 20: Zustaende NOT_RUN/PASS/FAIL/BLOCKED, PASS nur mit allen Nachweisfeldern, BLOCKED ist kein PASS | `tests/acceptance/lib.lua` | `test_acceptance.lua` |
+| Kap. 20.2: Freigabestufen G1 bis G5; G5 nur mit Lastreserve, Freigabeentscheidung, verantwortlicher Person und ohne FAIL/BLOCKED in Master-/Vertrauensfaellen | `lib.stage`, `scripts/acceptance_report.lua --stage` | `test_acceptance.lua` |
+| Kap. 21: Risiko-Register R-01 bis R-12 mit Freigabebedingung und zugehoerigen Faellen | `matrix.risks`, `docs/ABNAHME.md` | `test_acceptance.lua` |
+| Kap. 16 / J-01, J-02, J-03, J-05, H-13: 300 und 400 Signale, viele Zuege, kleine Deltas, getrennte Zustaende im Gleisbild (Zaehlungen, keine Zeiten) | `tests/test_load_signals.lua` | `test_load_signals.lua` |
+| E2E-08: nach Komplettneustart bleiben Reservierungen, kein alter Befehl wird wiederholt, nichts gilt als frei | `tests/test_e2e_offline.lua`; **Fund:** `dispatcher.restore` hat im Beweismodus alte Gruen-Signale wiederholt, jetzt bleiben die Bloecke ROT | `test_e2e_offline.lua` |
+
+Funde dieses Pakets: (1) `active_conflicts` wurde im Delta als Ganzes ersetzt und war bei 40 laufenden Zuegen die Haelfte des Deltas, jetzt Eintrag fuer Eintrag (`state_delta`). (2) Der Wiederanlauf hat im Beweismodus Gruen wiederholt (siehe oben).
+
+Stand der Abnahme: **kein Fall ist PASS, es wurde kein Fall im Spiel gelaufen; erreichte Stufe: keine.** Die Matrix zeigt je Fall, was offline belegt ist; das ersetzt keinen Spiellauf. Nicht offline pruefbar: Zeiten und Latenzen unter Serverlast,
+TPS, Speicher, Verhalten von Create und CC:Tweaked, die Dauerlaeufe (2 h Mischbetrieb, danach 8 h, Kap. 20.1, vorher Obergrenzen festlegen) und alles unter "Spiel" in `docs/ABNAHME.md`.
+Offene Verdrahtungen aus P8/P9, die vor G4 geschlossen werden muessen: Mehrmonitor-Zeichnen im Panel-Node, Bindewerkzeug fuer Monitore, Panel-Seite und `manual_control`-Aktionen des Austauschassistenten, `verify_package` aus der Knotenkonfiguration.
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

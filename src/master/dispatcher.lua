@@ -1065,7 +1065,15 @@ function dispatcher.new(config, adapters)
         end
       end
       if route and holds_route then self.active_routes[owner] = train; rebuild_train_locks(train) end
-      update_route_signals(train)
+      if self.proof then
+        -- E2E-08: a restart is no proof of the track; the old green is not repeated. The blocks of the train stay RED until a sensor event or the operator takes the train up again.
+        for _, block in ipairs(train.route_blocks or {}) do
+          local holder = block.reserved_by or block.occupied_by
+          if holder == nil or holder == train.id then set_block_red(block) end
+        end
+      else
+        update_route_signals(train)
+      end
     end
     for group, active in pairs(snap.active_conflicts or {}) do if not self.active_conflicts[group] then self.active_conflicts[group] = copy_table(active) end end
     self.queue = route_queue.new(); for _, item in ipairs(snap.queue or {}) do self.queue.push(copy_table(item)) end

@@ -3,7 +3,7 @@
 -- id changes with every change of an installed file; the installer writes it into crn_version.txt.
 return {
   version = 1,
-  id = "4bdae231",
+  id = "318ce230",
   files = {
     ["configs/templates/network.create.example.json"] = { 2170, 2381349425 },
     ["configs/templates/network.example.json"] = { 817, 2725163434 },
@@ -60,7 +60,7 @@ return {
     ["src/domain/sensor_guard.lua"] = { 5349, 431292285 },
     ["src/domain/service_plans.lua"] = { 3518, 3991368261 },
     ["src/domain/signal_logic.lua"] = { 988, 1661949641 },
-    ["src/domain/state_delta.lua"] = { 3338, 1651525518 },
+    ["src/domain/state_delta.lua"] = { 3442, 1885171044 },
     ["src/domain/stations.lua"] = { 7452, 2989831112 },
     ["src/domain/status_model.lua"] = { 6748, 1747168213 },
     ["src/domain/switch_locks.lua"] = { 1380, 2507393014 },
@@ -77,7 +77,7 @@ return {
     ["src/fleet/trip.lua"] = { 8141, 4264449121 },
     ["src/master/app.lua"] = { 15645, 4000456465 },
     ["src/master/barrier.lua"] = { 4402, 510111230 },
-    ["src/master/dispatcher.lua"] = { 57250, 3515980601 },
+    ["src/master/dispatcher.lua"] = { 57695, 3306432601 },
     ["src/master/fleet_bridge.lua"] = { 8661, 337908615 },
     ["src/master/guarded_adapters.lua"] = { 2195, 1208479232 },
     ["src/master/ha_wiring.lua"] = { 3882, 677596740 },
