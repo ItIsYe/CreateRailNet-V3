@@ -29,7 +29,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P4 Dual-Commit | Zustandsreplikation auf beide Master, Sperre für Freigaben bis zur Bestätigung | **umgesetzt (offline)**, siehe unten |
 | P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | **umgesetzt (offline)**, siehe unten |
 | P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | **umgesetzt (offline)**, siehe unten |
-| P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | offen |
+| P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | **umgesetzt (offline)**, siehe unten |
 | P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | offen |
 | P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | offen |
 | P10 Integration | 112 Einzeltests + E2E, 300/400 Signale, Freigabestufen | offen |
@@ -132,6 +132,24 @@ Einzelheiten `docs/SIGNAL_NODES.md`. Schalter `signal_transport` (Standard `loca
 Noch nicht Teil von P6: aktive Observer-Nodes (der Detektorpegel der Sensor-Nodes beweist "frei", `docs/PROOF.md`; Train-Observer mit Zugnamen sind in ATM10 8.1 nicht belegt), die Erstellung von
 Bahnsteig-Kandidaten aus dem Netzplaner, die Einrichtung der Bahnhof- und Depot-Peripherie durch einen gefuehrten Assistenten (die Daten stehen im Plan), die Verwendung der Gleiswahl durch Fahrplaene (P7), die
 Umstellung der Weichen ueber Nodes im Netz (Weichen bleiben am Master). Das alte Verhalten bleibt Standard.
+
+## P7 Flotte
+
+Einzelheiten `docs/FLEET.md`. Neue Rolle `fleet` (Flotten-Node), Konfiguration unter `cfg.fleet`.
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| 8.1 feste Paare, Reserve, Partnerausfall sperrt nur das Paar, Versionswiderspruch sperrt | `fleet/pairs.lua`, Dauerhaftigkeit ueber `replica` mit festem Fuehrer | `test_fleet_pairs.lua`, `test_fleet_node.lua` (D-03 bis D-05) |
+| 8.2 Zugprofile, Zustimmung des Bedieners, ausgemusterte IDs nie wieder | `fleet/profile.lua` | `test_fleet_profile.lua` (D-01, D-02) |
+| 8.3 sechs Prioritaetsklassen, FIFO, Anti-Starvation | `fleet/priority.lua` | `test_fleet_priority.lua` (D-09) |
+| 8.4 / 9 Fahrplan: Entwurf, Veroeffentlichung, Takt, Zeitbasen, kein Nachholen, keine Doppelfahrt | `fleet/timetable.lua` | `test_fleet_timetable.lua` (D-06 bis D-08, D-10) |
+| 24.1 Kette NEW_REQUEST bis COMPLETE, UNCERTAIN statt Raten, Storno am sicheren Halt | `fleet/trip.lua`, `fleet/engine.lua` | `test_fleet_trip.lua`, `test_fleet_engine.lua` (C-01, C-03, C-09) |
+| 10 / 24.2 Fracht: nur nachgewiesene Mengen, Teilmengen, Abfahrtsregeln | `fleet/cargo_ledger.lua` | `test_fleet_cargo.lua` |
+| 2.1 Fahrt nur nach Master-Bestaetigung, Schedule genau einmal | `fleet_node.lua`, `fleet_bridge.lua`, `station_node.lua` (`apply_schedule`) | `test_fleet_bridge.lua`, `test_station_apply_schedule.lua`, `test_fleet_e2e.lua` |
+| Konfigurationspruefung | `validate.lua` | `test_fleet_config.lua` |
+
+Noch nicht Teil von P7: der Fahrplaneditor am Bildschirm (P8), Lade- und Entladestellen, die Mengen melden, Depotfahrten und Umlaufrouten im Ablauf, Gueter-Teilmengenregeln pro Linie (die Regeln stehen im Ledger),
+die Uebernahme von Zugpositionen aus Create selbst. Alles, was Create tatsaechlich tut, bleibt Spieltest (0ci bis 0cm).
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

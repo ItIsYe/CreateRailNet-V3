@@ -42,6 +42,7 @@ manifest_builder.ROLES = {
   depot   = { entries = { "src.nodes.depot_node", "scripts/start_depot.lua" } },
   panel   = { entries = { "src.nodes.panel_node", "scripts/start_panel.lua" } },
   arbiter = { entries = { "src.nodes.arbiter_node", "scripts/start_arbiter.lua" } },
+  fleet   = { entries = { "src.nodes.fleet_node", "scripts/start_fleet.lua" } },
 }
 
 local function sorted_keys(t)

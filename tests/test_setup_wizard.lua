@@ -95,6 +95,16 @@ return {
     assert(entry.station_type == "mixed" and entry.display_name == "Hauptbahnhof" and entry.create_station_name == "Haupt Bahnhof")
   end,
 
+  test_a_fleet_node_and_an_arbiter_need_only_a_modem_and_an_id = function()
+    local fleet = setup_world.new()
+    local result = fleet.run({ "--role", "fleet" }, enters(5, { "j" }))
+    assert_done(fleet, result, "fleet", "FLEET-1")
+    assert(node(plan_of(fleet), "FLEET-1").role == "fleet")
+    local arbiter = setup_world.new()
+    result = arbiter.run({ "--role", "arbiter" }, enters(5, { "j" }))
+    assert_done(arbiter, result, "arbiter", "ARB-1")
+  end,
+
   test_depot_and_train_and_panel = function()
     local depot = setup_world.new()
     local result = depot.run({ "--role", "depot" }, enters(9, { "j" }))
@@ -242,7 +252,7 @@ return {
     local world = setup_world.new({ peripherals = { MODEM, SIGNAL } })
     local result = world.run({}, { "x", "99", "2", "", "", "", "", "", "", "j" })
     assert_done(world, result, "signal", "SIG-1")
-    assert(world.text():find("Bitte eine Zahl von 1 bis 9", 1, true))
+    assert(world.text():find("Bitte eine Zahl von 1 bis 10", 1, true))
     assert(world.text():find("[Rolle]  Netzplan  Name  Hardware  Pruefen", 1, true), "the trail shows where you are")
     assert(world.text():find("Netzplan  Name  Hardware  [Pruefen]", 1, true))
   end,

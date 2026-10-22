@@ -42,6 +42,7 @@ local setup_panel = require("src.master.ui.panels.setup")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
 local net_signals = require("src.master.net_signals")
+local fleet_bridge_module = require("src.master.fleet_bridge")
 local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
@@ -174,8 +175,16 @@ function app.new(args)
   -- Wire manual_control into interactive panels once context is built (below)
   ui.set_panel("status")
 
+  -- a plan with a fleet pair: the bridge turns the route requests of the fleet nodes into reservations and tells them what became of them
+  local fleet_bridge
+  if cfg.fleet and cfg.fleet.pairs then
+    local lengths = {}
+    for _, spec in ipairs(cfg.fleet.train_profiles or {}) do lengths[spec.immutable_id] = spec.length end
+    fleet_bridge = fleet_bridge_module.new({ dispatcher = disp, network = network, config = cfg, logger = logger, now = require("src.shared.time").now_s, train_length = function(id) return lengths[id] end })
+  end
+
   context = {
-    ha = ha, replica = replica, barrier = barrier,
+    ha = ha, replica = replica, barrier = barrier, fleet_bridge = fleet_bridge,
     config = cfg,
     logger = logger,
     registry = reg,

@@ -37,7 +37,7 @@ function master_runtime.new(context)
     pairing = context.pairing,
     plan_service = context.plan_service,
     restart = context.restart,
-    replica = context.replica, barrier = context.barrier,  -- dual commit with the other master (src/master/replica.lua, barrier.lua)
+    replica = context.replica, barrier = context.barrier, fleet_bridge = context.fleet_bridge,  -- dual commit with the other master (src/master/replica.lua, barrier.lua)
     ha = context.ha,          -- election with the other master and the arbiter (src/shared/ha.lua); nil in a plan with one master
     restart_needed = false,   -- a computer was accepted: what uses it applies after a restart
     -- config require_release: until the operator releases the operation no train starts a journey (a restart takes the release back)
@@ -411,6 +411,8 @@ function master_runtime.new(context)
     if not runtime.station_registry then runtime.network.ack_for(msg, true); return end
     local payload = msg.payload or {}; local station_id = payload.station_id or msg.src
     audit("station_event", { src = msg.src, station_id = station_id, event_type = payload.type })
+    -- the fleet is told which train stands in which station (the train it waits for)
+    if runtime.fleet_bridge and runtime.active() and (payload.type == "train_arrived_station" or payload.type == "train_left_station") then runtime.fleet_bridge.on_station_event(payload, station_id) end
     if maintenance_enabled() and payload.type == "station_ready_departure" then return reject_maintenance(msg, payload.type) end
     if recovery_locked() and payload.type == "station_ready_departure" then return reject_recovery(msg, payload.type) end
     if release_locked() and payload.type == "station_ready_departure" then return reject_release(msg, payload.type) end
@@ -483,6 +485,11 @@ function master_runtime.new(context)
     runtime.ui.mark_dirty()
   end
 
+  local function handle_fleet_event(msg)
+    if runtime.fleet_bridge then runtime.fleet_bridge.handle(msg); runtime.ui.mark_dirty() end
+    runtime.network.ack_for(msg, true)
+  end
+
   -- Explicit event type routing table — no fragile prefix matching
   local event_routes = {
     sensor                   = handle_sensor_event,
@@ -510,6 +517,12 @@ function master_runtime.new(context)
     -- panel events
     panel_request_snapshot   = handle_panel_event,
     manual_control           = handle_panel_event,
+    -- the fleet pair asks for routes and is told what became of them (src/master/fleet_bridge.lua)
+    fleet_route              = handle_fleet_event,
+    fleet_release            = handle_fleet_event,
+    fleet_hold               = handle_fleet_event,
+    fleet_reconstruct        = handle_fleet_event,
+    fleet_complete           = handle_fleet_event,
     -- OTA update results
     ota_result               = handle_ota_result,
     ota_need                 = handle_ota_need,
@@ -561,6 +574,7 @@ function master_runtime.new(context)
     depot_status = "depot", depot_track_status = "depot", depot_train_ready = "depot", depot_request_dispatch = "depot",
     depot_train_arrived = "depot", depot_train_left = "depot", depot_fault = "depot",
     panel_request_snapshot = "panel", manual_control = "panel",
+    fleet_route = "fleet", fleet_release = "fleet", fleet_hold = "fleet", fleet_reconstruct = "fleet", fleet_complete = "fleet",
   }
 
   -- returns nil when the sender may send this event, else the reason and whether the sender is a computer of the plan at all
@@ -587,6 +601,7 @@ function master_runtime.new(context)
     station_status = true, station_ready_departure = true, station_fault = true, platform_status = true, train_arrived_station = true, train_left_station = true,
     depot_status = true, depot_track_status = true, depot_train_ready = true, depot_request_dispatch = true, depot_train_arrived = true, depot_train_left = true, depot_fault = true,
     manual_control = true,
+    fleet_route = true, fleet_release = true, fleet_hold = true, fleet_reconstruct = true, fleet_complete = true,
   }
 
   handlers.event = function(msg)
@@ -772,6 +787,9 @@ function master_runtime.new(context)
     end
     return proven
   end
+  -- the fleet pair hears what became of its routes and which blocks can be reserved
+  runtime.ticker.every("fleet_bridge", 1, function() if runtime.fleet_bridge and runtime.active() then runtime.fleet_bridge.poll() end end)
+  runtime.ticker.every("fleet_blocks", 2, function() if runtime.fleet_bridge and runtime.active() then runtime.fleet_bridge.report_blocks() end end)
   runtime.ticker.every("prove_free", 2, function() if runtime.active() then runtime.prove_free_blocks() end end)
 
   -- Rolling signal refresh: a few blocks per second, so a signal that lost its state (node reboot, chunk reload, lost

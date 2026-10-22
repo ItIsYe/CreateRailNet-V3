@@ -45,7 +45,7 @@ local EXAMPLE_NOTES = {
 
 netplan.MONITOR_ROLES = { master = true, panel = true, station = true, depot = true, train = true }
 
-local ID_PREFIX = { master = "MASTER", signal = "SIG", sensor = "SEN", switch = "SW", station = "ST", depot = "DEPOT", train = "TRAIN", panel = "PANEL", arbiter = "ARB" }
+local ID_PREFIX = { master = "MASTER", signal = "SIG", sensor = "SEN", switch = "SW", station = "ST", depot = "DEPOT", train = "TRAIN", panel = "PANEL", arbiter = "ARB", fleet = "FLEET" }
 
 -- readable files: the keys people look for come first, the rest alphabetically
 local KEY_ORDER = {

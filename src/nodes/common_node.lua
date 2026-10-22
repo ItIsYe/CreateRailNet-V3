@@ -31,7 +31,7 @@ local function read_version()
 end
 
 -- commands with an effect in the world that must not happen twice (a retry after a restart of this computer carries the same message id)
-local DURABLE_COMMANDS = { set_schedule = true, depart_authorized = true, dispatch_train = true }
+local DURABLE_COMMANDS = { set_schedule = true, depart_authorized = true, dispatch_train = true, apply_schedule = true }
 local LEDGER_PATH = "state/node_commands.log"
 
 local OTA_COMMANDS = { ota_offer = "offer", ota_chunk = "chunk", ota_commit = "commit", ota_abort = "abort", ota_update = "apply" }

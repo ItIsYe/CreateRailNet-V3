@@ -880,6 +880,7 @@ function dispatcher.new(config, adapters)
 
   function self.get_occupancy(block_id) return self.occupancy.get(block_id) end
   function self.get_graph() return self.graph end
+  function self.proof_mode() return self.proof == true end
   function self.get_clearing()
     local out = {}
     for train_id, record in pairs(self.clearing) do

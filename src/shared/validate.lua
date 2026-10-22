@@ -5,7 +5,7 @@ Public API: validate_config(cfg) -> ok, errors.
 
 local validate = {}
 
-local roles = { master = true, signal = true, sensor = true, switch = true, station = true, depot = true, panel = true, train = true, arbiter = true }
+local roles = { master = true, signal = true, sensor = true, switch = true, station = true, depot = true, panel = true, train = true, arbiter = true, fleet = true }
 local station_types = { passenger = true, freight = true, mixed = true }
 local depot_types = { storage = true, staging = true, mixed = true }
 local route_kinds = { passenger = true, freight = true, mixed = true, depot = true }
@@ -143,6 +143,50 @@ local function validate_inner(cfg, errors)
     if cfg[key] ~= nil and (type(cfg[key]) ~= "number" or cfg[key] <= 0) then add(errors, key, "must be a number > 0") end
   end
   if cfg.election_state_file ~= nil and not nonempty(cfg.election_state_file) then add(errors, "election_state_file", "must be non-empty string") end
+  -- the fleet: pairs of fleet nodes, train profiles, lines, platforms (docs/FLEET.md)
+  if cfg.fleet ~= nil then
+    if type(cfg.fleet) ~= "table" then
+      add(errors, "fleet", "must be a table")
+    else
+      local fleet_nodes = {}
+      for _, node in ipairs(cfg.nodes or {}) do if node.role == "fleet" then fleet_nodes[#fleet_nodes + 1] = node.id end end
+      local _, pair_problems = require("src.fleet.pairs").new({ nodes = fleet_nodes, pairs = cfg.fleet.pairs or {} })
+      for _, text in ipairs(pair_problems) do add(errors, "fleet.pairs", text) end
+      local profiles = require("src.fleet.profile").new({})
+      local known_trains = {}
+      for i, spec in ipairs(cfg.fleet.train_profiles or {}) do
+        local ok, err = profiles.register(spec, { operator = "plan", confirmed = true })
+        if not ok then add(errors, "fleet.train_profiles[" .. i .. "]", tostring(err)) else known_trains[spec.immutable_id] = true end
+      end
+      for i, pair in ipairs(cfg.fleet.pairs or {}) do
+        for _, train_id in ipairs(pair.trains or {}) do
+          if not known_trains[train_id] then add(errors, "fleet.pairs[" .. i .. "].trains", "train " .. tostring(train_id) .. " has no profile in fleet.train_profiles") end
+        end
+      end
+      local timetable = require("src.fleet.timetable")
+      local line_ids = {}
+      for i, line in ipairs(cfg.fleet.lines or {}) do
+        for _, text in ipairs(timetable.validate(line)) do add(errors, "fleet.lines[" .. i .. "]", text) end
+        if type(line) == "table" and line.id then
+          if line_ids[line.id] then add(errors, "fleet.lines[" .. i .. "].id", "line " .. tostring(line.id) .. " is defined twice") end
+          line_ids[line.id] = true
+        end
+      end
+      local station_nodes = {}
+      for _, node in ipairs(cfg.nodes or {}) do if node.role == "station" then station_nodes[node.id] = true end end
+      for station, node_id in pairs(cfg.fleet.stations or {}) do
+        if not station_nodes[node_id] then add(errors, "fleet.stations." .. tostring(station), "must reference a node with role station") end
+      end
+      for station, list in pairs(cfg.fleet.platforms or {}) do
+        local seen = {}
+        for j, platform in ipairs(list) do
+          local path = "fleet.platforms." .. tostring(station) .. "[" .. j .. "]"
+          if not nonempty(platform.id) then add(errors, path .. ".id", "must be non-empty string") elseif seen[platform.id] then add(errors, path .. ".id", "platform " .. platform.id .. " is defined twice") else seen[platform.id] = true end
+          if not nonempty(platform.block) then add(errors, path .. ".block", "needs the id of its block") end
+        end
+      end
+    end
+  end
   -- how the signals are commanded (docs/SIGNAL_NODES.md)
   if cfg.signal_transport ~= nil and cfg.signal_transport ~= "local" and cfg.signal_transport ~= "network" then add(errors, "signal_transport", "must be \"local\" or \"network\"") end
   if cfg.signal_transport == "network" then
