@@ -278,8 +278,15 @@ end
 end
 
 
+
 do
 local okf,free=pcall(function()return fs_api and fs_api.getFreeSpace and fs_api.getFreeSpace("/")end)
+local record=read("crn_install.lua")
+local bundle_block=record and record:match("bundle_files%s*=%s*(%b{})")or ""
+for path in bundle_block:gmatch('"([^"]+)"')do
+local body=read(path)
+if body and okf and type(free)=="number" then free=free+math.max(#body,storage_budget.MIN_FILE_COST)end
+end
 if okf and type(free)=="number" and free~=math.huge and free>=8000 and free<storage_budget.OTA_HEADROOM then
 add("space_ota","warn","Fuer ein Update bleibt nur " .. kb(free).. " KB",
 "Ein Update braucht Platz fuer neue Dateien und Sicherungen. Logs und Spuren loeschen, sonst den Installer verwenden (er ersetzt Datei fuer Datei).")

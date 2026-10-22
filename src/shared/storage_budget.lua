@@ -24,7 +24,7 @@ storage_budget.JOURNAL = {
 }
 storage_budget.SNAPSHOT_MAX_BYTES = 30000
 storage_budget.PLAN_MAX_BYTES = 35000
-storage_budget.OTA_HEADROOM = 40000
+storage_budget.OTA_HEADROOM = 100000
 
 -- keys, election, epoch, maintenance, update plan, panel layout and the like: a few hundred bytes each
 local SMALL_FILES = 8

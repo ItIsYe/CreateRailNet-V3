@@ -4,49 +4,12 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 package.path="/?.lua;/?/init.lua;" ..(package.path or "")
 
-local wizard=require("src.setup.wizard")
-local link=require("src.setup.link")
-local plan_fetch=require("src.setup.plan_fetch")
+local setup_bundle=require("src.shared.setup_bundle")
 
-local result=wizard.run({
-args={...},
-env={
-print=print,
-write=write or io.write,
-read=read or function()return io.read()end,
-term=term,
-colors=colors,
-fs=fs,
-peripheral=peripheral,
-os=os,
-host=_HOST,
-link=link.probe,
-fetch=plan_fetch.fetch,
-sleep=sleep,
-redstone=redstone,
-},
-})
-
-if result.aborted then
-print("")
-print("Abgebrochen. Es wurde nichts geaendert.")
+local ok,err=setup_bundle.run("scripts/setup_main.lua",{...},{fs=fs,shell=shell,say=print})
+if not ok then
+if err and err~="failed" then print(err)end
+error("",0)
 end

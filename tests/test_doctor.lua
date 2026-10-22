@@ -267,6 +267,13 @@ return {
     c.fs.set("filler.bin", string.rep("x", 1000000 - 500 - c.fs.used() - 20000 + 500))
     local lvl = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota")
     assert(lvl == "warn", tostring(lvl))
+    -- the setup files (the doctor itself is one) leave the computer when the tool is done: their bytes count as free
+    c.fs.set("src/setup/wizard.lua", string.rep("w", 90000))
+    c.fs.files["filler.bin"] = nil
+    c.fs.set("filler.bin", string.rep("x", 1000000 - c.fs.used() - 30000))
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota") == "warn", "without the record the wizard counts as program")
+    c.fs.set("crn_install.lua", 'return {\n  bundle = true,\n  bundle_files = {\n    "src/setup/wizard.lua",\n  },\n  files = {},\n}\n')
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_ota") == nil, "with the record the 90 KB are free after the tool")
   end,
 
   test_a_startup_without_the_recovery_is_called_out = function()

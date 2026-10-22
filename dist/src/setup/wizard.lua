@@ -1540,6 +1540,8 @@ or "Beim Neustart verschwindet diese Seite, und mit einer roten Pruefung laeuft 
 if reboot==true and env.os and env.os.reboot then
 result.rebooted=true
 t.say("Neustart ...","dim")
+
+if env.before_reboot then pcall(env.before_reboot)end
 env.os.reboot()
 else
 t.say("Spaeter neu starten mit: reboot","dim")

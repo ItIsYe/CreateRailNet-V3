@@ -3,6 +3,7 @@
   "purpose": "Runtime-only file manifest for ingame CC:Tweaked installation.",
   "include": [
     "scripts/setup.lua",
+    "scripts/setup_main.lua",
     "startup.lua",
     "scripts/start_master.lua",
     "scripts/start_train.lua",
@@ -17,7 +18,9 @@
     "scripts/ota_push.lua",
     "scripts/upgrade_startup.lua",
     "scripts/keys.lua",
+    "scripts/keys_main.lua",
     "scripts/auth_bench.lua",
+    "scripts/auth_bench_main.lua",
     "scripts/bind_signals.lua",
     "scripts/bind_monitors.lua",
     "src/setup/**",

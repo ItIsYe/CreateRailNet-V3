@@ -21,7 +21,12 @@ local manifest_builder = {}
 local VERSION = 1
 
 -- every computer: the OTA recovery that startup.lua runs, the setup wizard and the startup upgrade
-local COMMON_ENTRIES = { "src.shared.ota_recovery", "scripts/setup.lua", "scripts/upgrade_startup.lua", "scripts/keys.lua", "scripts/auth_bench.lua" }
+-- (scripts/setup.lua, keys.lua and auth_bench.lua are small stubs that fetch the setup bundle when it is not on the computer: src/shared/setup_bundle.lua)
+local COMMON_ENTRIES = { "src.shared.ota_recovery", "src.shared.setup_bundle", "scripts/setup.lua", "scripts/upgrade_startup.lua", "scripts/keys.lua", "scripts/auth_bench.lua" }
+
+-- the setup bundle: what only the setup tools need (wizard, doctor, key tool, function test, planner ...). It sits on a computer while it is being set up
+-- or while one of the tools runs, and is removed afterwards (installer --slim): a computer holds a fixed 1 000 000 bytes
+local COMMON_SETUP_ENTRIES = { "scripts/setup_main.lua", "scripts/keys_main.lua", "scripts/auth_bench_main.lua" }
 
 local TEMPLATES = {
   "configs/templates/network.example.json",
@@ -33,8 +38,8 @@ local TEMPLATES = {
 }
 
 manifest_builder.ROLES = {
-  -- the planner (scripts/setup.lua --layout) is loaded by name from the wizard, so it is named here
-  master  = { entries = { "src/master/main.lua", "scripts/ota_push.lua", "scripts/start_master.lua", "src.setup.layout", "src.setup.plan_builder", "src.setup.bauliste" } },
+  -- the planner (scripts/setup.lua --layout) is loaded by name from the wizard, so it is named as a setup entry
+  master  = { entries = { "src/master/main.lua", "scripts/ota_push.lua", "scripts/start_master.lua" }, setup_entries = { "src.setup.layout", "src.setup.plan_builder", "src.setup.bauliste" } },
   signal  = { entries = { "src.nodes.signal_node", "scripts/start_signal.lua", "scripts/bind_signals.lua" } },
   sensor  = { entries = { "src.nodes.sensor_node", "scripts/start_sensor.lua" } },
   switch  = { entries = { "src.nodes.switch_node", "scripts/start_switch.lua" } },
@@ -72,6 +77,7 @@ end
 function manifest_builder.build(read_body, runtime_manifest)
   local problems = {}
   local role_sets = {}
+  local bundle_sets = {}
   local files = {}
 
   local function note(text) problems[#problems + 1] = text end
@@ -86,6 +92,20 @@ function manifest_builder.build(read_body, runtime_manifest)
     for _, path in ipairs(TEMPLATES) do paths[#paths + 1] = path end
     table.sort(paths)
     role_sets[role] = set_of(paths)
+    -- the bundle: the closure of the setup entries without what the role needs to run
+    local setup_entries = {}
+    for _, entry in ipairs(COMMON_SETUP_ENTRIES) do setup_entries[#setup_entries + 1] = entry end
+    for _, entry in ipairs(manifest_builder.ROLES[role].setup_entries or {}) do setup_entries[#setup_entries + 1] = entry end
+    local bundle_paths, bundle_problems = require_scan.closure(setup_entries, read_body)
+    for _, name in ipairs(bundle_problems.missing) do note(role .. " (setup): module or file not found: " .. name) end
+    for _, name in ipairs(bundle_problems.external) do note(role .. " (setup): requires " .. name .. ", which is not part of the runtime") end
+    local bundle_list = {}
+    for _, path in ipairs(bundle_paths) do
+      if not role_sets[role][path] then bundle_list[#bundle_list + 1] = path end
+    end
+    table.sort(bundle_list)
+    bundle_sets[role] = bundle_list
+    for _, path in ipairs(bundle_list) do paths[#paths + 1] = path end
     for _, path in ipairs(paths) do
       if not files[path] then
         local body = read_body(path)
@@ -132,7 +152,7 @@ function manifest_builder.build(read_body, runtime_manifest)
     if path:match("^configs/templates/") or path:match("^scripts/start_[%w_]+%.lua$") then seed[#seed + 1] = path end
   end
 
-  return { version = VERSION, id = id, files = files, base = sorted_keys(base_set or {}), roles = roles, seed = seed }, problems
+  return { version = VERSION, id = id, files = files, base = sorted_keys(base_set or {}), roles = roles, seed = seed, bundle = bundle_sets }, problems
 end
 
 local function quote(text) return string.format("%q", text) end
@@ -158,6 +178,12 @@ function manifest_builder.render(manifest)
   for _, role in ipairs(sorted_keys(manifest.roles)) do
     out[#out + 1] = "    " .. role .. " = {\n"
     for _, path in ipairs(manifest.roles[role]) do out[#out + 1] = "      " .. quote(path) .. ",\n" end
+    out[#out + 1] = "    },\n"
+  end
+  out[#out + 1] = "  },\n  bundle = {\n"
+  for _, role in ipairs(sorted_keys(manifest.bundle)) do
+    out[#out + 1] = "    " .. role .. " = {\n"
+    for _, path in ipairs(manifest.bundle[role]) do out[#out + 1] = "      " .. quote(path) .. ",\n" end
     out[#out + 1] = "    },\n"
   end
   out[#out + 1] = "  },\n}\n"

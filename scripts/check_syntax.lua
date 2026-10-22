@@ -131,6 +131,7 @@ local files = {
   "tests/test_legacy_distribution.lua",
   "tests/test_installer_manifest.lua",
   "tests/test_minify.lua",
+  "tests/test_setup_bundle.lua",
   "tests/test_storage_budget.lua",
   "tests/test_installer_http.lua",
   "tests/test_installer_flow.lua",

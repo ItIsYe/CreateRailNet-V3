@@ -580,6 +580,19 @@ return {
     assert(done.ok and master.rebooted == 1, "nothing to carry over: Enter restarts")
   end,
 
+  test_the_setup_files_leave_the_computer_before_it_restarts = function()
+    local world = setup_world.new({ peripherals = { MODEM, MONITOR } })
+    local seen = {}
+    world.before_reboot = function() seen[#seen + 1] = world.rebooted end
+    local result = world.run({ "--role", "master" }, enters(5))
+    assert(result.ok and world.rebooted == 1)
+    assert(#seen == 1 and seen[1] == 0, "the hook ran once, before the restart")
+    -- a failing hook does not keep the computer from restarting
+    local other = setup_world.new({ peripherals = { MODEM, MONITOR } })
+    other.before_reboot = function() error("no network") end
+    assert(other.run({ "--role", "master" }, enters(5)).ok and other.rebooted == 1)
+  end,
+
   test_the_summary_speaks_the_words_of_the_questions = function()
     local station = setup_world.new()
     station.run({ "--role", "station" }, { "", "", "", "", "3", "", "", "", "j" })

@@ -1540,6 +1540,8 @@ function wizard.run(opts)
     if reboot == true and env.os and env.os.reboot then
       result.rebooted = true
       t.say("Neustart ...", "dim")
+      -- the setup files leave the computer before it restarts (they are not needed to run; a fixed 1 MB)
+      if env.before_reboot then pcall(env.before_reboot) end
       env.os.reboot()
     else
       t.say("Spaeter neu starten mit: reboot", "dim")

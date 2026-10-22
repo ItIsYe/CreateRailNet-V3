@@ -24,7 +24,7 @@ fleet={max_entries=300,max_bytes=12000},
 }
 storage_budget.SNAPSHOT_MAX_BYTES=30000
 storage_budget.PLAN_MAX_BYTES=35000
-storage_budget.OTA_HEADROOM=40000
+storage_budget.OTA_HEADROOM=100000
 
 
 local SMALL_FILES=8

@@ -435,7 +435,7 @@ return {
         peripheral = { getNames = function() return { "top" } end, getType = function() return "modem" end, getMethods = function() return {} end },
         os = setmetatable({ reboot = function() rebooted = rebooted + 1 end }, { __index = os }),
       }, { __index = _G })
-      local chunk = assert(installer_world.compile_with_env(read_disk("scripts/setup.lua"), "setup", env))
+      local chunk = assert(installer_world.compile_with_env(read_disk("scripts/setup_main.lua"), "setup", env))
       local unpack_fn = table.unpack or unpack
       local ok, err = pcall(chunk, unpack_fn(argv))
       assert(ok, tostring(err) .. "\n" .. table.concat(lines, "\n"))

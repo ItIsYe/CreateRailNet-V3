@@ -112,12 +112,44 @@ return {
     assert(not seed["src/shared/net.lua"])
   end,
 
-  test_the_planner_is_installed_on_the_master_and_on_no_other_computer = function()
+  test_the_planner_is_part_of_the_setup_bundle_of_the_master_and_of_no_other_computer = function()
     local manifest = load_manifest()
     for _, role in ipairs(plan.ROLES) do
-      local files = assert(plan.files_for_role(manifest, role.key))
+      local running = assert(plan.files_for_role(manifest, role.key))
+      local with_bundle = assert(plan.files_for_role(manifest, role.key, true))
       for _, path in ipairs({ "src/setup/layout.lua", "src/setup/plan_builder.lua", "src/setup/bauliste.lua" }) do
-        assert((files[path] ~= nil) == (role.key == "master"), path .. " on " .. role.key)
+        assert(running[path] == nil, path .. " is not on a running " .. role.key)
+        assert((with_bundle[path] ~= nil) == (role.key == "master"), path .. " in the bundle of " .. role.key)
+      end
+    end
+  end,
+
+  test_the_setup_tools_are_in_the_bundle_and_not_on_a_running_computer = function()
+    local manifest = load_manifest()
+    for _, role in ipairs(plan.ROLES) do
+      local running = assert(plan.files_for_role(manifest, role.key))
+      local with_bundle = assert(plan.files_for_role(manifest, role.key, true))
+      for _, path in ipairs({ "src/setup/wizard.lua", "src/setup/doctor.lua", "src/setup/keys_tool.lua", "scripts/setup_main.lua", "scripts/keys_main.lua" }) do
+        assert(running[path] == nil and with_bundle[path] ~= nil, role.key .. ": " .. path)
+      end
+      for _, path in ipairs({ "scripts/setup.lua", "scripts/keys.lua", "src/shared/setup_bundle.lua" }) do
+        assert(running[path] ~= nil, role.key .. ": the stub " .. path .. " stays")
+      end
+      -- the bundle is closed under require together with the running files, and a running computer needs nothing of it
+      for path in pairs(with_bundle) do
+        if path:match("%.lua$") then
+          for _, name in ipairs(require_scan.modules(manifest_builder.shipped(path, read(path)))) do
+            if name:sub(1, 4) == "src." then assert(with_bundle[require_scan.module_path(name)], role.key .. ": " .. path .. " needs " .. name) end
+          end
+        end
+      end
+      for path in pairs(running) do
+        if path:match("%.lua$") and not path:match("^scripts/setup%.lua$") then
+          for _, name in ipairs(require_scan.modules(read(path))) do
+            local needed = name:sub(1, 4) == "src." and require_scan.module_path(name)
+            assert(not needed or running[needed], role.key .. ": the running file " .. path .. " needs " .. name .. ", which is in the bundle")
+          end
+        end
       end
     end
   end,
@@ -129,6 +161,10 @@ return {
     for _, role in ipairs(plan.ROLES) do
       local counted = 0
       for _, entry in pairs(assert(plan.files_for_role(manifest, role.key))) do counted = counted + math.max(entry.size, storage_budget.MIN_FILE_COST) end
+      -- the setup bundle comes on top while a computer is set up or a tool runs; that has to fit next to the state (an update has to wait until it is gone)
+      local with_bundle = 0
+      for _, entry in pairs(assert(plan.files_for_role(manifest, role.key, true))) do with_bundle = with_bundle + math.max(entry.size, storage_budget.MIN_FILE_COST) end
+      assert(with_bundle + storage_budget.state_worst_case(role.key) <= storage_budget.LIMIT, role.key .. ": program with the setup bundle " .. with_bundle)
       local budget = storage_budget.program_budget(role.key)
       assert(counted <= budget, role.key .. " needs " .. counted .. " bytes of program, the budget is " .. budget .. " (" .. storage_budget.LIMIT .. " minus state " .. storage_budget.state_worst_case(role.key) .. " minus update headroom " .. storage_budget.OTA_HEADROOM .. ")")
       assert(counted + storage_budget.state_worst_case(role.key) + storage_budget.OTA_HEADROOM <= storage_budget.LIMIT)

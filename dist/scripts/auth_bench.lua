@@ -4,12 +4,12 @@
 
 
 
-
-
 package.path="/?.lua;/?/init.lua;" ..(package.path or "")
 
-local auth_bench=require("src.setup.auth_bench")
+local setup_bundle=require("src.shared.setup_bundle")
 
-local arguments={...}
-local result=auth_bench.run({rounds=tonumber(arguments[1])or 200})
-for _,line in ipairs(auth_bench.lines(result))do print(line)end
+local ok,err=setup_bundle.run("scripts/auth_bench_main.lua",{...},{fs=fs,shell=shell,say=print})
+if not ok then
+if err and err~="failed" then print(err)end
+error("",0)
+end

@@ -1,9 +1,11 @@
 --[[
 Purpose: The installation itself: pick the role, fetch the manifest of one ref, replace only what differs, finish with the setup wizard.
 Public API: returns function(deps) -> result table { role, ref, id, installed, unchanged, removed, needs_setup, preview }
+  args.setup / args.slim: only the setup bundle (wizard, doctor, key tool, planner ...) comes or goes; the installed state stays as it is (a bundle of another state is refused),
+  nothing restarts. A computer holds a fixed 1 000 000 bytes: the bundle is on it while it is set up or while a tool runs (scripts/setup.lua fetches and removes it).
   args.preview: steps 1 - 4 only, then a report of what would happen (new / changed / unchanged / removed files, bytes, whether it fits) and
   nothing else: no file is written (not even the copy of the installer), no journal, no restart, no wizard. result.preview = the numbers.
-  deps: ref, args { role, yes, resume, preview }, http, plan, stage, ui, journal, checksum, safe_write, startup_template,
+  deps: ref, args { role, yes, resume, preview, setup, slim }, http, plan, stage, ui, journal, checksum, safe_write, startup_template,
         env { fs, shell, sleep, reboot, now }
 Order (nothing is touched before the space check passes):
   1 existing startup.lua / install record -> role   2 manifest of the ref   3 compare with the disk   4 space check, copy of the installer itself
@@ -18,7 +20,8 @@ return function(deps)
   local ui, plan, stage, journal = deps.ui, deps.plan, deps.stage, deps.journal
   local args = deps.args or {}
   local ref = deps.ref
-  local unattended = args.yes == true or args.resume == true
+  local bundle_mode = args.setup and "setup" or (args.slim and "slim" or nil)
+  local unattended = args.yes == true or args.resume == true or bundle_mode ~= nil
 
   local RECORD = "crn_install.lua"
   local VERSION_FILE = "crn_version.txt"
@@ -49,6 +52,8 @@ return function(deps)
 
   local role = args.role
   if role and not known_roles[role] then error("Unbekannte Rolle: " .. tostring(role), 0) end
+  if bundle_mode and not old_record then error("Dieser Computer ist noch nicht installiert: erst 'installer' ohne --setup/--slim.", 0) end
+  if bundle_mode and not role then role = old_record.role end
   if not role and existing and known_roles[existing.role] then
     ui.info("Vorhandene Rolle: " .. existing.role .. " (" .. existing.id .. ")")
     if unattended or ui.confirm("Rolle '" .. existing.role .. "' behalten?", true) then role = existing.role end
@@ -70,7 +75,17 @@ return function(deps)
   if not manifest then error("Manifest: " .. tostring(parse_err), 0) end
   local valid, valid_err = plan.validate(manifest)
   if not valid then error("Manifest ungueltig: " .. tostring(valid_err), 0) end
-  local files, files_err = plan.files_for_role(manifest, role)
+  if bundle_mode and manifest.id ~= old_record.id then
+    error("Der Stand " .. manifest.id .. " auf dem Server ist nicht der installierte (" .. tostring(old_record.id) .. "): die Einrichtungs-Dateien muessen zum installierten Stand passen. Erst 'installer' (Update) ausfuehren.", 0)
+  end
+  -- the setup bundle: a new computer has it (the wizard needs it), an installed one only while it is there already or on request
+  local with_bundle
+  local interrupted = args.resume and journal.read() or nil
+  if bundle_mode then with_bundle = bundle_mode == "setup"
+  elseif interrupted and interrupted.bundle ~= nil then with_bundle = interrupted.bundle == true
+  elseif old_record then with_bundle = old_record.bundle == true
+  else with_bundle = true end
+  local files, files_err = plan.files_for_role(manifest, role, with_bundle)
   if not files then error(files_err, 0) end
   result.id = manifest.id
   ui.info("Stand " .. manifest.id .. ", " .. (function() local n = 0; for _ in pairs(files) do n = n + 1 end; return n end)() .. " Dateien fuer diese Rolle")
@@ -150,7 +165,7 @@ return function(deps)
 
   -- 5. - 7. install ---------------------------------------------------------------------------------------------
   if #todo > 0 then
-    local ok_journal, journal_err = journal.write("INSTALLING", { ref = ref, role = role, id = manifest.id, files = todo })
+    local ok_journal, journal_err = journal.write("INSTALLING", { ref = ref, role = role, id = manifest.id, files = todo, bundle = with_bundle })
     if not ok_journal then error("Installationsjournal konnte nicht geschrieben werden: " .. tostring(journal_err), 0) end
     ui.info(#todo .. " Dateien werden geladen (" .. unchanged .. " unveraendert)")
     for i, path in ipairs(todo) do
@@ -181,8 +196,13 @@ return function(deps)
     "  role = " .. string.format("%q", role) .. ",\n",
     "  ref = " .. string.format("%q", ref) .. ",\n",
     "  id = " .. string.format("%q", manifest.id) .. ",\n",
-    "  files = {\n",
+    "  bundle = " .. tostring(with_bundle) .. ",\n",
+    "  bundle_files = {\n",
   }
+  if with_bundle then
+    for _, path in ipairs(manifest.bundle and manifest.bundle[role] or {}) do record_lines[#record_lines + 1] = "    " .. string.format("%q", path) .. ",\n" end
+  end
+  record_lines[#record_lines + 1] = "  },\n  files = {\n"
   for _, path in ipairs(installed_paths) do record_lines[#record_lines + 1] = "    " .. string.format("%q", path) .. ",\n" end
   record_lines[#record_lines + 1] = "  },\n}\n"
   local wrote_record, record_err = deps.safe_write.write(RECORD, table.concat(record_lines), { fs = fsys, keep_backup = false })
@@ -193,6 +213,12 @@ return function(deps)
   -- 9. finished ---------------------------------------------------------------------------------------------------
   journal.clear()
   ui.ok("Fertig: " .. role_label .. ". " .. result.installed .. " geladen, " .. result.unchanged .. " unveraendert, " .. result.removed .. " entfernt.")
+
+  if bundle_mode then
+    result.bundle = bundle_mode
+    ui.ok(bundle_mode == "setup" and "Die Einrichtungs-Dateien sind da." or "Die Einrichtungs-Dateien wurden entfernt (Platz).")
+    return result
+  end
 
   -- 10. a new computer gets the setup wizard, an installed one is upgraded and restarted ----------------------------
   if not existing or existing.role ~= role then
