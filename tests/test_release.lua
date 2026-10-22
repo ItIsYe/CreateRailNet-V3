@@ -17,7 +17,7 @@ local netplan = require("src.setup.netplan")
 
 local NODES = {
   { id = "M", role = "master" }, { id = "SIG-1", role = "signal" }, { id = "SEN-1", role = "sensor" }, { id = "ST-1", role = "station" },
-  { id = "DEP-1", role = "depot" }, { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel" },
+  { id = "DEP-1", role = "depot" }, { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel", permission = "admin" },
 }
 
 local function master(opts)
@@ -170,7 +170,7 @@ return {
   test_a_panel_releases_with_a_manual_action_and_a_stranger_cannot = function()
     local m = master({ require_release = true })
     m.everything_up()
-    m.event("PANEL-1", { type = "manual_control", action = "release_operation" })
+    m.event("PANEL-1", { type = "manual_control", action = "release_operation", confirm = true })
     assert(m.runtime.release.released, "the panel of the plan released it")
     local n = master({ require_release = true })
     n.everything_up()

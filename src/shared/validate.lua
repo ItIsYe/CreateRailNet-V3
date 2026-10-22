@@ -121,6 +121,7 @@ local function validate_inner(cfg, errors)
         if not depot_types[kind] then add(errors, tpath .. ".kind", "must be storage, staging, or mixed") end
       end
     elseif node.role == "panel" then
+      if node.permission ~= nil and node.permission ~= "view" and node.permission ~= "operate" and node.permission ~= "admin" then add(errors, path .. ".permission", "must be view, operate or admin") end
       for j, page in ipairs(node.pages or {}) do if not nonempty(page) then add(errors, path .. ".pages[" .. j .. "]", "must be non-empty string") end end
     elseif node.role == "signal" then
       signal_ids[node.id] = true

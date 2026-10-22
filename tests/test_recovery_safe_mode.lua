@@ -40,7 +40,7 @@ local function ctx()
     on_sensor_event_by_sensor = function() return true end
   }
   local context = {
-    config = { nodes = { { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel" } } },
+    config = { nodes = { { id = "TRAIN-1", role = "train" }, { id = "PANEL-1", role = "panel", permission = "admin" } } },
     registry = fake_registry(),
     dispatcher = dispatcher,
     network = network,
@@ -96,7 +96,7 @@ return {
     rt.restore_recovery_state()
     rt.handle_event({ "modem_message", nil, nil, nil, { type = "event", src = "PANEL-1", payload = { type = "manual_control", action = "set_signal" } } })
     assert(manual_count() == 0)
-    rt.handle_event({ "modem_message", nil, nil, nil, { type = "event", src = "PANEL-1", payload = { type = "manual_control", action = "confirm_recovery", reason = "operator checked" } } })
+    rt.handle_event({ "modem_message", nil, nil, nil, { type = "event", src = "PANEL-1", payload = { type = "manual_control", action = "confirm_recovery", confirm = true, reason = "operator checked" } } })
     assert(rt.recovery.required == false)
   end
 }

@@ -23,6 +23,7 @@
     "src/shared/**",
     "src/domain/**",
     "src/fleet/**",
+    "src/panel/**",
     "src/adapter/**",
     "src/master/**",
     "src/nodes/**",

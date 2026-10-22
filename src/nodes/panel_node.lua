@@ -1,6 +1,8 @@
 --[[
 Purpose: External panel node for remote display/touch UI.
 Public API: new_runtime(context_or_args), render_status(monitor, state).
+Notes: the panel knows its permission level (node `permission`), does not send an action above it and asks for a second touch within confirm_window_s (10) before it sends a critical one with confirm = true;
+  without a recent word from its master it is OFFLINE and sends no manual action at all. The master decides in any case (src/panel/permissions.lua).
 ]]
 
 local config = require("src.shared.config")
@@ -14,6 +16,8 @@ local common_node = require("src.nodes.common_node")
 local bootstrap = require("src.nodes.bootstrap")
 local panel_state = require("src.domain.panel_state")
 local renderer = require("src.nodes.panel_renderer")
+local permissions = require("src.panel.permissions")
+local offline_mod = require("src.panel.offline")
 
 local panel_node = {}
 
@@ -38,6 +42,11 @@ function panel_node.new_runtime(args_or_context)
   local monitor, monitor_note = monitors.resolve(context.peripherals, panel_cfg.monitor, panel_cfg.monitor_scale)
   if monitor_note then context.logger.warn("monitor", { note = monitor_note }) end
   local state_model = panel_state.new(context.config, context.id)
+  local clock = context.clock or os.clock
+  local offline = offline_mod.new({ now = clock, timeout_s = panel_cfg.offline_after_s or 10 })
+  local level = permissions.level_of(context.config, context.id)
+  local pending_confirm
+  local confirm_window = panel_cfg.confirm_window_s or 10
 
   local node = common_node.new({
     id = context.id,
@@ -51,6 +60,7 @@ function panel_node.new_runtime(args_or_context)
     handlers = {
       on_cmd = function(payload)
         local cmd = payload and payload.cmd
+        offline.heard({ id = context.config.master_id, epoch = payload and payload.epoch, authenticated = true })
         if cmd == "panel_update" then state_model.update(payload)
         elseif cmd == "set_page" then state_model.set_page(payload.page)
         elseif cmd == "next_page" then state_model.next_page()
@@ -76,6 +86,20 @@ function panel_node.new_runtime(args_or_context)
 
   local function send_manual_action(action)
     if not action then return false end
+    offline.tick()
+    local may, why = offline.may("control")
+    if not may then context.logger.warn("panel_offline", { reason = why }); return false end
+    local allowed, denial = permissions.check(context.config, context.id, action.action, { confirm = true })
+    if not allowed then context.logger.warn("panel_denied", { reason = denial }); return false end
+    if permissions.is_critical(action.action) then
+      local key = tostring(action.action) .. ":" .. tostring(action.train_id or action.id or action.target or "")
+      if not (pending_confirm and pending_confirm.key == key and clock() - pending_confirm.at <= confirm_window) then
+        pending_confirm = { key = key, at = clock() }
+        return false
+      end
+      pending_confirm = nil
+      action.confirm = true
+    end
     action.type = "manual_control"
     action.panel_id = context.id
     -- Manual control commands are critical (e.g. emergency stop)
@@ -84,6 +108,7 @@ function panel_node.new_runtime(args_or_context)
   end
 
   node.ticker.every("refresh", panel_cfg.refresh_seconds or 2, function()
+    offline.tick()
     request_snapshot()
     panel_node.render_status(monitor, state_model.snapshot())
   end)
@@ -112,6 +137,8 @@ function panel_node.new_runtime(args_or_context)
     end
   end
 
+  node.offline = offline
+  node.level = level
   return node
 end
 

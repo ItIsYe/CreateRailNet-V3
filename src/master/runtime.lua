@@ -5,6 +5,7 @@ Public API: new(context) -> runtime with handle_event(event), run(), save_recove
 ]]
 
 local time = require("src.shared.time")
+local permissions = require("src.panel.permissions")
 local ticker = require("src.shared.ticker")
 local once_log = require("src.shared.once_log")
 local status_model = require("src.domain.status_model")
@@ -445,6 +446,15 @@ function master_runtime.new(context)
   local function handle_panel_event(msg)
     if msg.payload and msg.payload.type == "panel_request_snapshot" then audit("panel_snapshot", { src = msg.src }); send_panel_snapshot(msg.src); runtime.network.ack_for(msg, true)
     elseif msg.payload and msg.payload.type == "manual_control" then
+      -- the decisive permission check is here, at the receiver: what the panel hides from its screen protects nothing (Kap. 11.4)
+      local allowed, why = permissions.check(runtime.config, msg.src, msg.payload.action, msg.payload)
+      if not allowed then
+        audit("panel_denied", { src = msg.src, action = msg.payload.action, reason = why })
+        if runtime.logger then runtime.logger.warn("manual control denied", { src = msg.src, action = msg.payload.action, reason = why }) end
+        if runtime.alerts then runtime.alerts.raise("panel_denied:" .. tostring(msg.src), "YELLOW", "Bedienung abgelehnt: " .. tostring(why), nil, { ttl_s = 120 }) end
+        runtime.network.ack_for(msg, true)
+        return true
+      end
       if msg.payload.action == "confirm_recovery" then runtime.confirm_recovery(msg.src, msg.payload.reason); runtime.network.ack_for(msg, true); return true end
       if msg.payload.action == "release_operation" then runtime.release_operation(msg.src); runtime.network.ack_for(msg, true); return true end
       local ok, err = false, "manual control unavailable"

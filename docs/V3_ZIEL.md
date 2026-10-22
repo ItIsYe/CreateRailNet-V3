@@ -30,7 +30,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | **umgesetzt (offline)**, siehe unten |
 | P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | **umgesetzt (offline)**, siehe unten |
 | P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | **umgesetzt (offline)**, siehe unten |
-| P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | offen |
+| P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | **umgesetzt (offline)**, siehe unten |
 | P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | offen |
 | P10 Integration | 112 Einzeltests + E2E, 300/400 Signale, Freigabestufen | offen |
 
@@ -150,6 +150,22 @@ Einzelheiten `docs/FLEET.md`. Neue Rolle `fleet` (Flotten-Node), Konfiguration u
 
 Noch nicht Teil von P7: der Fahrplaneditor am Bildschirm (P8), Lade- und Entladestellen, die Mengen melden, Depotfahrten und Umlaufrouten im Ablauf, Gueter-Teilmengenregeln pro Linie (die Regeln stehen im Ledger),
 die Uebernahme von Zugpositionen aus Create selbst. Alles, was Create tatsaechlich tut, bleibt Spieltest (0ci bis 0cm).
+
+## P8 Panel
+
+Einzelheiten `docs/PANEL.md`. Code unter `src/panel/`, Anbindung in `src/nodes/panel_node.lua` und `src/master/runtime.lua`.
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| 11.4 Rechte view/operate/admin, Pruefung am Master, kritische Aktionen mit Bestaetigung | `panel/permissions.lua`, Pruefung in `master/runtime.lua` (`panel_denied` im Audit), Zwei-Tipp-Bestaetigung in `panel_node.lua` | `test_panel_permissions.lua`, `test_node_apps.lua` |
+| 11.1 mehrere Monitore, feste logische IDs, Erkennung per Grossanzeige, Ersatz, Gruppen teilen nur Zug/Station/Abschnitt | `panel/monitor_registry.lua` | `test_panel_monitors.lua` |
+| 11.3 Gleisbild aus dem Graphen vorgeschlagen, Entwurf -> Vorschau -> bestaetigte Veroeffentlichung, Rueckgabe nur bei gleicher Topologie, Uebernahme bei Aenderung, Ebenen getrennt | `panel/diagram.lua` | `test_panel_diagram.lua` |
+| 11.5 Offline: Entwuerfe ja, Befehle/Veroeffentlichung nein, alte Wuensche verfallen, Rueckkehr mit Pruefung und neuer Bestaetigung | `panel/offline.lua`, `panel_node.lua` | `test_panel_offline.lua`, `test_node_apps.lua` |
+| 11.2 Stoerungszentrale (Quittung loescht keine Ursache, S-11), Seitentabelle mit Mindestrecht und Frischemarke | `panel/fault_center.lua`, `panel/pages.lua` | `test_panel_fault_center.lua` |
+
+Noch nicht Teil von P8: das Zeichnen der Seiten auf mehreren Monitoren gleichzeitig durch `panel_node.lua` (der Knoten bedient weiter einen Monitor; Registry, Gruppen, Gleisbildmodell und Seitentabelle sind fertig und getestet,
+aber noch nicht an den Renderer gehaengt), das Werkzeug zum Binden der Monitore am Computer, der Fahrplaneditor am Bildschirm, das Eintragen der Stoerungszentrale in die Master-Alarme.
+Wie die Monitore im Spiel aussehen und reagieren, bleibt Spieltest (0cn bis 0cs).
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

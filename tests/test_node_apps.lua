@@ -263,6 +263,49 @@ return {
     end)
   end,
 
+  test_a_panel_without_the_level_sends_no_critical_action_and_asks_twice_for_one_it_may_send = function()
+    local entry = { id = "PANEL-1", role = "panel", permission = "operate", pages = { "manual" }, manual_actions = { { label = "Halt", action = "hold_train", train_id = "T1" }, { label = "Freigabe", action = "release_train", train_id = "T1" } } }
+    with_node("panel", entry, nil, function(world)
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      local function touch(row) world.node.handle_event({ "monitor_touch", "monitor_0", 5, row }) end
+      touch(7)
+      assert(#world.sent("manual_control") == 1, "operate may hold a train at once")
+      touch(8); touch(8)
+      assert(#world.sent("manual_control") == 1, "admin action is not sent by an operate panel")
+    end)
+    entry.permission = "admin"
+    with_node("panel", entry, nil, function(world)
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      local function touch(row) world.node.handle_event({ "monitor_touch", "monitor_0", 5, row }) end
+      touch(8)
+      assert(#world.sent("manual_control") == 0, "a critical action waits for the second touch")
+      touch(8)
+      local sent = world.sent("manual_control")
+      assert(#sent == 1 and sent[1].confirm == true and sent[1].action == "release_train", "second touch sends with confirm")
+      touch(8)
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.advance(5); world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.advance(5); world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.advance(5); world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      touch(8)
+      assert(#world.sent("manual_control") == 1, "a second touch after the window starts over and sends nothing")
+    end)
+  end,
+
+  test_a_panel_that_has_not_heard_its_master_sends_no_manual_action = function()
+    local entry = { id = "PANEL-1", role = "panel", pages = { "manual" }, manual_actions = { { label = "Halt", action = "hold_train", train_id = "T1" } } }
+    with_node("panel", entry, nil, function(world)
+      world.node.handle_event({ "monitor_touch", "monitor_0", 5, 7 })
+      assert(#world.sent("manual_control") == 0, "offline: nothing is sent")
+      world.command({ cmd = "panel_update", master_state = "ONLINE" })
+      world.node.handle_event({ "monitor_touch", "monitor_0", 5, 7 })
+      assert(#world.sent("manual_control") == 1, "online again")
+      world.advance(11)
+      world.node.handle_event({ "monitor_touch", "monitor_0", 5, 7 })
+      assert(#world.sent("manual_control") == 1, "silent master: offline again")
+    end)
+  end,
+
   test_a_node_with_no_modem_says_so_and_does_not_crash = function()
     local restore = strict_cc.install({ peripheral = strict_cc.peripheral({}), window = strict_cc.window_api(), redstone = strict_cc.redstone() })
     local ok, err = pcall(function()
