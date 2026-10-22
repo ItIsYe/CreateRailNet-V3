@@ -65,6 +65,7 @@ local function validate_inner(cfg, errors)
   local train_ids, service_plan_ids = {}, {}
   local station_ids, depot_ids = {}, {}
   local signal_ids, sensor_ids, switch_ids = {}, {}, {}
+  local hosted_signal_owner = {}
 
   for i, node in ipairs(cfg.nodes or {}) do
     local path = "nodes[" .. i .. "]"
@@ -75,6 +76,20 @@ local function validate_inner(cfg, errors)
     if node.monitor ~= nil and not nonempty(node.monitor) then add(errors, path .. ".monitor", "must be non-empty string") end
     if node.monitor_scale ~= nil and not valid_text_scale(node.monitor_scale) then add(errors, path .. ".monitor_scale", "must be a number from 0.5 to 5 in steps of 0.5") end
 
+    -- several signals on one computer: the logical signal ids it hosts
+    if node.signals ~= nil then
+      if node.role ~= "signal" then
+        add(errors, path .. ".signals", "only a signal node hosts signals")
+      elseif type(node.signals) ~= "table" or #node.signals == 0 then
+        add(errors, path .. ".signals", "must be a non-empty list of signal ids")
+      else
+        for j, signal_id in ipairs(node.signals) do
+          if not nonempty(signal_id) then add(errors, path .. ".signals[" .. j .. "]", "must be non-empty string")
+          elseif hosted_signal_owner[signal_id] then add(errors, path .. ".signals[" .. j .. "]", "signal " .. signal_id .. " is already hosted by " .. hosted_signal_owner[signal_id])
+          else hosted_signal_owner[signal_id] = node.id end
+        end
+      end
+    end
     if node.role == "train" then
       local train_id = node_train_id(node)
       mark_unique(errors, train_ids, train_id, path .. ".train_id", "train_id")
@@ -107,7 +122,9 @@ local function validate_inner(cfg, errors)
       end
     elseif node.role == "panel" then
       for j, page in ipairs(node.pages or {}) do if not nonempty(page) then add(errors, path .. ".pages[" .. j .. "]", "must be non-empty string") end end
-    elseif node.role == "signal" then signal_ids[node.id] = true
+    elseif node.role == "signal" then
+      signal_ids[node.id] = true
+      if type(node.signals) == "table" then for _, hosted_id in ipairs(node.signals) do if type(hosted_id) == "string" then signal_ids[hosted_id] = true end end end
     elseif node.role == "sensor" then sensor_ids[node.id] = true
     elseif node.role == "switch" then
       switch_ids[node.id] = true
@@ -126,6 +143,21 @@ local function validate_inner(cfg, errors)
     if cfg[key] ~= nil and (type(cfg[key]) ~= "number" or cfg[key] <= 0) then add(errors, key, "must be a number > 0") end
   end
   if cfg.election_state_file ~= nil and not nonempty(cfg.election_state_file) then add(errors, "election_state_file", "must be non-empty string") end
+  -- how the signals are commanded (docs/SIGNAL_NODES.md)
+  if cfg.signal_transport ~= nil and cfg.signal_transport ~= "local" and cfg.signal_transport ~= "network" then add(errors, "signal_transport", "must be \"local\" or \"network\"") end
+  if cfg.signal_transport == "network" then
+    local hosted = {}
+    for _, node in ipairs(cfg.nodes or {}) do
+      if node.role == "signal" then
+        if type(node.signals) == "table" and #node.signals > 0 then for _, id in ipairs(node.signals) do hosted[id] = true end else hosted[node.id] = true end
+      end
+    end
+    for i, block in ipairs(cfg.blocks or {}) do
+      for _, key in ipairs({ "entry_signal", "exit_signal" }) do
+        if block[key] ~= nil and not hosted[block[key]] then add(errors, "blocks[" .. i .. "]." .. key, "signal " .. tostring(block[key]) .. " is hosted by no signal node (signal_transport = network)") end
+      end
+    end
+  end
   -- proof of occupancy and safe stops (docs/PROOF.md)
   if cfg.occupancy_proof ~= nil and cfg.occupancy_proof ~= "on" and cfg.occupancy_proof ~= "off" then add(errors, "occupancy_proof", "must be \"on\" or \"off\"") end
   if cfg.safe_stops ~= nil then

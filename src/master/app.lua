@@ -41,6 +41,7 @@ local restart_module = require("src.master.restart")
 local setup_panel = require("src.master.ui.panels.setup")
 local hardware_config = require("src.adapter.hardware_config")
 local create_signals = require("src.adapter.create_signals")
+local net_signals = require("src.master.net_signals")
 local create_switches = require("src.adapter.create_switches")
 local cc_modem = require("src.adapter.cc_modem")
 local net = require("src.shared.net")
@@ -81,10 +82,23 @@ function app.new(args)
   -- two masters: actuations that give movement wait in a barrier for the dual commit, and a master that does not lead touches no hardware (src/master/ha_wiring.lua)
   local my_id = parsed.id or cfg.master_id
   local ha_prep = ha_wiring.prepare(cfg, my_id, { now_ms = require("src.shared.time").now_ms, logger = logger })
-  local signal_adapter = create_signals.new(peri, { hardware = hw })
+  -- signal_transport = "network": the signals are commanded over the network, the signal nodes (their own peripherals, their own bindings) set them; the default is the master's own wired peripherals
+  local network_ref, disp_ref, net_signal_adapter = {}, {}, nil
+  local signal_adapter
+  if cfg.signal_transport == "network" then
+    net_signal_adapter = net_signals.new({
+      network = { send_reliable = function(...) return network_ref.net.send_reliable(...) end },
+      config = cfg, logger = logger,
+      on_failure = function(signal_id, _, reason) if disp_ref.d then disp_ref.d.signal_failed(signal_id, reason) end end
+    })
+    signal_adapter = net_signal_adapter
+  else
+    signal_adapter = create_signals.new(peri, { hardware = hw })
+  end
   local switch_adapter = create_switches.new(peri, { hardware = hw })
   if ha_prep then signal_adapter, switch_adapter = ha_prep.signals(signal_adapter), ha_prep.switches(switch_adapter) end
   local disp = dispatcher.new(cfg, { signals = signal_adapter, switches = switch_adapter })
+  disp_ref.d = disp
 
   -- the last dispatcher calls are kept for replay offline (traces/*.json, scripts/replay_trace.lua)
   local trace = trace_recorder.new({ capacity = cfg.trace_capacity or 500 })
@@ -92,6 +106,7 @@ function app.new(args)
 
   local network = net.new(modem, cfg.channel, parsed.id or cfg.master_id, logger, nil,
     { auth = auth_setup.build(cfg, parsed.id or cfg.master_id, { master = true, logger = logger }) })
+  network_ref.net = network
   -- two masters (config.masters) and an arbiter: the election decides who commands, the replica gives the standby every change and the commit barrier holds back what gives movement until it confirmed
   local ha, replica, barrier
   if ha_prep then
@@ -103,6 +118,7 @@ function app.new(args)
     logger.error("net message dropped after max retries", { type = msg.type, dst = msg.dst, id = msg.id })
     if reg and reg.mark_down and msg.dst then reg.mark_down(msg.dst) end
   end
+  if net_signal_adapter then net_signal_adapter.install(network) end
   local monitor_found, monitor_note = monitors.resolve(peri, hw.value(parsed.id or cfg.master_id, "monitor") or cfg.monitor, hw.value(parsed.id or cfg.master_id, "monitor_scale") or cfg.monitor_scale)
   if monitor_note then logger.warn("master monitor", { note = monitor_note, using = monitor_found and "first monitor found" or "none (no display)" }) end
   local monitor = monitor_found or fallback_monitor()

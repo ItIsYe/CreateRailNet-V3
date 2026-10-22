@@ -28,7 +28,7 @@ der physischen Abnahme (Kap. 20): das kann dieses Repository nicht herstellen, n
 | P3 Master-Wahl | Master A/B, Schiedsrichter, Epoche, Fencing | **umgesetzt (offline)**, siehe unten |
 | P4 Dual-Commit | Zustandsreplikation auf beide Master, Sperre für Freigaben bis zur Bestätigung | **umgesetzt (offline)**, siehe unten |
 | P5 Graph + Reservierung | gerichteter Graph, Beweisstufen, Wartepunkte, Zugschlussnachweis | **umgesetzt (offline)**, siehe unten |
-| P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | offen |
+| P6 Hardware-Nodes | Multi-Signal, Bahnhof/Depot nach Kap. 6/7, Observer | **umgesetzt (offline)**, siehe unten |
 | P7 Fleet | Flottenpaare, virtuelle Zug-Nodes, Fahrplan, Fracht | offen |
 | P8 Panel | Multi-Monitor, Gleisbildeditor, Rechte, Offline-Entwürfe | offen |
 | P9 OTA/Wartung | Zustände Kap. 18, Wartungssperre, Betreiberbestätigung, Rollback | offen |
@@ -114,6 +114,24 @@ Schalter `occupancy_proof` (Standard aus), Einzelheiten `docs/PROOF.md`.
 
 Noch nicht Teil von P5: Beobachter-Nodes und die aktive Abfrage nach einem Wechsel (P6), die Räumungsprüfung bei Topologieänderung im Betrieb über die Anzeige (P8), die Erzeugung von Wartepunkt-Kandidaten
 aus dem Netzplaner (`safe_stops` werden von Hand eingetragen). Das alte Verhalten bleibt Standard (`occupancy_proof = off`); die Wirkung auf das echte Netz zeigen nur die Spieltests 0ca bis 0cd.
+
+## P6 Hardware-Nodes
+
+Einzelheiten `docs/SIGNAL_NODES.md`. Schalter `signal_transport` (Standard `local`).
+
+| Konzept | Umsetzung | Test |
+|---|---|---|
+| Kap. 6: logical_signal_id -> Peripherie, lokal dauerhaft, mit Bestaetigung | `signal_bindings.lua`, `bind_signals.lua` (`signal_tool.lua`) | `test_signal_bindings.lua`, `test_signal_tool.lua` (B-05) |
+| Kap. 6: keine automatische Umbindung nach Start, Modemaenderung, Hardwaretausch | `verify`, `is_usable`, nur gemeldet | `test_signal_bindings.lua`, `test_signal_host.lua` (B-06) |
+| Kap. 6: 4, 6, 8 Signale an einer Node, Abgleich mit der Master-Topologie | `signal_host.lua`, `signal_node.lua`, `compare_topology` | `test_signal_host.lua`, `test_signal_node_world.lua` |
+| Kap. 2.1: Empfang, Anwendung, physische Wirkung getrennt; Epoche und Befehls-ID | `net_signals.lua` (Befehl ueber das Netz), `err` beendet die Wiederholung (`net.lua`) | `test_net_signals.lua`, `test_signal_node_world.lua` |
+| Signalausfall nimmt die Bloecke ausser Betrieb | `dispatcher.signal_failed`, Heartbeat `signals` | `test_net_signals.lua`, `test_signal_node_world.lua` |
+| Kap. 7.1 / 7.2: Gleiswahl, Alternativen, volles Depot nie als Blockade | `track_choice.lua` | `test_track_choice.lua` (C-06, C-10, C-11) |
+| Platzbedarf des Masters | Budget 1 000 000 Bytes, `computer_space_limit` 2 000 000 noetig, Warnung im Doctor | `test_installer_manifest.lua`, `test_doctor.lua` |
+
+Noch nicht Teil von P6: aktive Observer-Nodes (der Detektorpegel der Sensor-Nodes beweist "frei", `docs/PROOF.md`; Train-Observer mit Zugnamen sind in ATM10 8.1 nicht belegt), die Erstellung von
+Bahnsteig-Kandidaten aus dem Netzplaner, die Einrichtung der Bahnhof- und Depot-Peripherie durch einen gefuehrten Assistenten (die Daten stehen im Plan), die Verwendung der Gleiswahl durch Fahrplaene (P7), die
+Umstellung der Weichen ueber Nodes im Netz (Weichen bleiben am Master). Das alte Verhalten bleibt Standard.
 
 ## Abdeckung der Ingame-Abnahmefälle (Kap. 20)
 

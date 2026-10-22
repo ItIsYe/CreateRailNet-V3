@@ -95,6 +95,7 @@ function memfs.new()
     return total
   end
   f.used = used
+  f.getCapacity = function() return f.capacity end -- nil = no limit
   f.getFreeSpace = function()
     if not f.capacity then return "unlimited" end
     return math.max(0, f.capacity - used())

@@ -276,6 +276,17 @@ function doctor.run(opts)
     end
   end
 
+  -- 8b. the master carries the dispatcher, the replica journal and the setup tools of every role: it needs far more than the 1 MB a computer has by default
+  do
+    if ctx.role == "master" then
+      local okc, capacity = pcall(function() return fs_api and fs_api.getCapacity and fs_api.getCapacity("/") end)
+      if okc and type(capacity) == "number" and capacity > 0 and capacity < 1500000 then
+        add("space_limit", "warn", "Dieser Computer fasst nur " .. kb(capacity) .. " KB",
+          "Der Master braucht auf dem Server computer_space_limit von mindestens 2000000 (docs/INSTALL.md). Mit weniger bleibt kein Platz fuer Journal und Zustand.")
+      end
+    end
+  end
+
   -- 9. which version of the files
   do
     local version = read("crn_version.txt")

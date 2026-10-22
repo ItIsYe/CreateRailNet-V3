@@ -253,6 +253,22 @@ return {
     assert(level(report, "space") == "ok" or level(report, "space") == nil, "no limit: nothing to say")
   end,
 
+  test_a_master_on_a_one_megabyte_computer_is_told_to_raise_the_limit = function()
+    local master = { role = "master", id = "MASTER-1", devices = { MODEM, MONITOR } }
+    local c = computer(master)
+    c.fs.capacity = 1000000
+    local lvl, check = level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_limit")
+    assert(lvl == "warn" and check.title:find("1000", 1, true) and (check.fix or check.hint or ""):find("computer_space_limit", 1, true), tostring(check and check.title))
+    c.fs.capacity = 2000000
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_limit") == nil)
+    c.fs.capacity = nil
+    assert(level(doctor.run({ fs = c.fs, peripheral = c.peripheral }), "space_limit") == nil, "no limit known: nothing to say")
+    local signal = healthy_signal()
+    local s = computer(signal)
+    s.fs.capacity = 1000000
+    assert(level(doctor.run({ fs = s.fs, peripheral = s.peripheral }), "space_limit") == nil, "a node fits on 1 MB")
+  end,
+
   test_a_startup_without_the_recovery_is_called_out = function()
     local spec = healthy_signal()
     spec.startup = 'local CRN_ROLE = "signal"\nlocal CRN_ID = "SIG-1"\nlocal CRN_CONFIG = "configs/network.json"\n'

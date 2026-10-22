@@ -352,6 +352,15 @@ function master_runtime.new(context)
     if announced_role == "sensor" and type(msg.payload) == "table" and type(msg.payload.occupied) == "boolean" then
       runtime.sensor_levels[msg.src] = { occupied = msg.payload.occupied, at = time.now_s() }
     end
+    -- a multi-signal node tells which of its signals it can use: one that is missing, of another type or unknown to the master takes its blocks out of service
+    if announced_role == "signal" and type(msg.payload) == "table" and type(msg.payload.signals) == "table" and runtime.dispatcher.signal_failed and runtime.active() then
+      for signal_id, state in pairs(msg.payload.signals) do
+        if state ~= "OK" and type(signal_id) == "string" then
+          local changed = runtime.dispatcher.signal_failed(signal_id, "node " .. tostring(msg.src) .. " reports " .. tostring(state))
+          if #changed > 0 then audit("signal_unusable", { node_id = msg.src, signal_id = signal_id, state = state, blocks = changed }); runtime.ui.mark_dirty() end
+        end
+      end
+    end
     if not known and announced_role and runtime.registry.register then
       -- after a master restart the nodes keep heartbeating but never register again: adopt them
       runtime.registry.register(msg.src, announced_role, nil)

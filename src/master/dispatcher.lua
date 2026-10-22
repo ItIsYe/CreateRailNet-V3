@@ -859,6 +859,25 @@ function dispatcher.new(config, adapters)
   function self.get_switch_locks() return self.switch_locks.list() end
   function self.get_conflicts() return copy_table(self.active_conflicts) end
   function self.get_deadlocks() return self.deadlocks end
+  -- A signal could not be set (the signal node refused or did not answer): the blocks it guards are out of service until an operator repairs them.
+  -- A train in such a block is not touched: it may be moving.
+  function self.signal_failed(signal_id, reason)
+    local changed = {}
+    for _, block_id in ipairs(sorted_keys(self.blocks)) do
+      local block = self.blocks[block_id]
+      if block.entry_signal == signal_id or block.exit_signal == signal_id then
+        if block.state ~= STATES.FAULT then
+          block.fault_cause = { kind = "signal" }
+          block_domain.fault(block)
+          self.occupancy.set_flag(block_id, "fault", true)
+          if self.logger then self.logger.warn("signal failed, block out of service", { block = block_id, signal = signal_id, reason = reason }) end
+          changed[#changed + 1] = block_id
+        end
+      end
+    end
+    return changed
+  end
+
   function self.get_occupancy(block_id) return self.occupancy.get(block_id) end
   function self.get_graph() return self.graph end
   function self.get_clearing()

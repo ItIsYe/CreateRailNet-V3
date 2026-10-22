@@ -1,7 +1,8 @@
 --[[
 Purpose: Reliable messaging with ack/retry/dedup and heartbeat helpers.
 Public API: new(modem, channel, node_id, logger, time_mod), validate(msg) -> ok, reason, PROTOCOL_VERSION, PROTOCOL_REVISION.
-  net instance: send, send_reliable, ack_for(msg, applied), receive, tick, heartbeat, peer_revision(node_id), on_drop, on_ack.
+  net instance: send, send_reliable, ack_for(msg, applied), receive, tick, heartbeat, peer_revision(node_id), on_drop, on_ack, on_err.
+An "err" with ref_id ends the retries of the message it names and calls on_err(payload, original_message, source).
 Envelope: v is the major version and must match; pv is the revision (additive changes only, older nodes send none and count as 1).
 Receivers reject malformed envelopes (wrong types, oversize ids, unknown message types) instead of guessing.
 An ack says "delivered"; ack_for(msg, true) adds applied = true: the receiver also did what the message asked.
@@ -218,6 +219,12 @@ function net.new(modem, channel, node_id, logger, time_mod, opts)
       self.pending[msg.payload.ack_id] = nil
       if self.on_ack then pcall(self.on_ack, msg.payload, entry and entry.msg) end
       return "ack"
+    end
+    -- an err answers a message: the receiver looked at it and refused it, sending it again changes nothing (it answers duplicates with the same outcome)
+    if msg.type == "err" and msg.payload and msg.payload.ref_id then
+      local entry = self.pending[msg.payload.ref_id]
+      self.pending[msg.payload.ref_id] = nil
+      if self.on_err then pcall(self.on_err, msg.payload, entry and entry.msg, msg.src) end
     end
     return "ok"
   end
