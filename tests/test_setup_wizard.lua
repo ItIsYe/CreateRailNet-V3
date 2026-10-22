@@ -580,6 +580,15 @@ return {
     assert(done.ok and master.rebooted == 1, "nothing to carry over: Enter restarts")
   end,
 
+  test_a_cable_modem_next_to_an_ender_modem_the_ender_modem_is_the_suggestion = function()
+    local world = setup_world.new({ peripherals = { setup_world.WIRED_MODEM, setup_world.ENDER_MODEM, MONITOR } })
+    local result = world.run({ "--role", "master" }, enters(12))
+    assert(result.ok, tostring(result.error) .. "\n" .. world.last_page_text())
+    local plan = world.fs.files[netplan.PATH] or ""
+    assert(plan:find('"modem": "right"', 1, true), plan)
+    assert(world.text():find("right (modem, Funk)", 1, true) and world.text():find("back (modem, Kabel)", 1, true), "both modems are named for what they are")
+  end,
+
   test_the_setup_files_leave_the_computer_before_it_restarts = function()
     local world = setup_world.new({ peripherals = { MODEM, MONITOR } })
     local seen = {}

@@ -1,9 +1,10 @@
 --[[
 Purpose: Looks at the peripherals attached to this computer and tells which are Create devices, modems and monitors.
 Public API:
-  scan(peripheral_api) -> list of { name, type, methods, class }
+  scan(peripheral_api) -> list of { name, type, methods, class, wireless }   wireless: true / false for a modem that says so, else nil
   classify(info) -> "create_station" | "train_observer" | "create_signal" | "monitor" | "modem" | "other"
   of_class(list, class) -> list
+  modem_kind(info) -> "Funk" | "Kabel" | ""      preferred_modem(list) -> the wireless modem if there is one, else the first
   find(list, name) -> entry | nil
   SIDES -> list of { key, label }          the six redstone sides with German words
   side_label(key) -> "links (left)"
@@ -54,6 +55,14 @@ function hardware.scan(peripheral_api)
     end
     local info = { name = name, type = ptype, methods = methods }
     info.class = hardware.classify(info)
+    if info.class == "modem" and peripheral_api.call then
+      local has = false
+      for _, method in ipairs(methods) do if method == "isWireless" then has = true end end
+      if has then
+        local ok_w, wireless = pcall(peripheral_api.call, name, "isWireless")
+        if ok_w and type(wireless) == "boolean" then info.wireless = wireless end
+      end
+    end
     found[#found + 1] = info
   end
   return found
@@ -63,6 +72,20 @@ function hardware.of_class(list, class)
   local out = {}
   for _, info in ipairs(list) do if info.class == class then out[#out + 1] = info end end
   return out
+end
+
+-- "Funk" / "Kabel" / "" for a modem
+function hardware.modem_kind(info)
+  if info.wireless == true then return "Funk" end
+  if info.wireless == false then return "Kabel" end
+  return ""
+end
+
+-- the modem the net uses when none is named: the first wireless one, else the first
+function hardware.preferred_modem(list)
+  local modems = hardware.of_class(list, "modem")
+  for _, info in ipairs(modems) do if info.wireless == true then return info end end
+  return modems[1]
 end
 
 function hardware.find(list, name)
