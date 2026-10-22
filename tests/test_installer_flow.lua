@@ -443,7 +443,7 @@ return {
     end
 
     -- the installer starts it with the role: every question has a suggestion, so Enter all the way
-    local fs, output, rebooted = run_script({ "--role", "signal" }, { "", "", "", "", "", "", "", "j" })
+    local fs, output, rebooted = run_script({ "--role", "signal" }, { "", "", "", "", "", "", "", "", "j" })
     local parsed = startup_template.parse(fs.files["startup.lua"] or "")
     assert(parsed and parsed.role == "signal" and parsed.id == "SIG-1" and parsed.config == netplan.PATH, output)
     assert(not output:find("Welche Aufgabe", 1, true), "no role menu when the installer chose the role")

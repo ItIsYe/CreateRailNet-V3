@@ -1126,7 +1126,7 @@ function wizard.run(opts)
     local ids, seen = {}, {}
     for part in tostring(line):gmatch("[^,;%s]+") do
       if not part:match("^[%w_%-%.]+$") then return nil, "'" .. part .. "' ist kein Signalname (Buchstaben, Ziffern, - _ . erlaubt)." end
-      if false then return nil, "'" .. part .. "' steht zweimal in der Liste." end
+      if seen[part] then return nil, "'" .. part .. "' steht zweimal in der Liste." end
       seen[part] = true
       ids[#ids + 1] = part
     end
@@ -1137,11 +1137,9 @@ function wizard.run(opts)
 
   local function multi_signal_question()
     local found = #hardware.of_class(ctx.peripherals, "create_signal")
-    -- the question comes only where several signals can be meant: with none or one device attached the usual single-signal path stays as it was
-    -- (several signals on one computer can still come with the plan of the master: an entry with `signals`)
-    if found < 2 and not ctx.fields.signals then return SKIP end
+    -- always asked: signals behind a cable modem that is not switched on yet, or not plugged in yet, do not show up, and the computer must not decide for the operator
     page("hardware", role_label(ctx.role))
-    t.say("Create-Signale erkannt: " .. found .. ".", "ok")
+    t.say(found > 0 and ("Create-Signale erkannt: " .. found .. ".") or "Kein Create-Signal erkannt (noch nicht angeschlossen?).", found > 0 and "ok" or "dim")
     local value = ask_choice("Wie viele Signale steuert dieser Computer?", {
       { value = "one", label = "Eines" },
       { value = "several", label = "Mehrere (4, 6, 8 oder mehr)" },

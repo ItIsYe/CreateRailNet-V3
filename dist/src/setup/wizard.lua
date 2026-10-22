@@ -1138,10 +1138,8 @@ end
 local function multi_signal_question()
 local found=#hardware.of_class(ctx.peripherals,"create_signal")
 
-
-if found<2 and not ctx.fields.signals then return SKIP end
 page("hardware",role_label(ctx.role))
-t.say("Create-Signale erkannt: " .. found .. ".","ok")
+t.say(found>0 and("Create-Signale erkannt: " .. found .. ".")or "Kein Create-Signal erkannt (noch nicht angeschlossen?).",found>0 and "ok" or "dim")
 local value=ask_choice("Wie viele Signale steuert dieser Computer?",{
 {value="one",label="Eines"},
 {value="several",label="Mehrere (4, 6, 8 oder mehr)"},
