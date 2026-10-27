@@ -27,7 +27,7 @@ function M.new(opts)
     d.raw.v = 0
     local env = {
       fs = d.fs, peripheral = d.world.peripheral, redstone = d.world.redstone, rednet = d.bus.attach(opts.cid or 1),
-      raw_clock = function() return d.raw.v end, term = d.screen,
+      raw_clock = function() return d.raw.v end, term = d.screen, host = d.env_host or "CC test",
       wrap = function(name) return d.monitors[name] end,
       start_timer = function() return 1 end,
       pull_event = function()

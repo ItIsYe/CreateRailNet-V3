@@ -109,7 +109,7 @@ Zu 5.x: Die Fahrzeit der Linien wird in dieser Stufe nicht geschaetzt; die Tafel
 
 ## Stufe 6: Signal-Node und Knotenpunkt
 
-**Wichtig vorab (Platz):** Eine installierte Version belegt jetzt rund 330 KB. Eine Aktualisierung braucht Platz fuer die neue Version neben der alten (und der Vorversion). Reicht der Platz nicht, sagt der Installer "Zu wenig Platz" und bietet im Dialog "Vorversion loeschen und Platz schaffen" an (oder `installer --drop-prev ROLLE`). Das ist beabsichtigt; danach ist die Rueckkehr zur Vorversion nicht mehr moeglich.
+**Wichtig vorab (Platz):** Eine installierte Version belegt je nach Rolle 215 bis 360 KB (Leitstelle am meisten; jede Rolle bekommt nur ihre Module). Eine Aktualisierung braucht Platz fuer die neue Version neben der alten (und der Vorversion); auf der Leitstelle reicht der Platz fuer drei Kopien nicht. Reicht der Platz nicht, sagt der Installer "Zu wenig Platz" und bietet im Dialog "Vorversion loeschen und Platz schaffen" an (oder `installer --drop-prev ROLLE`). Das ist beabsichtigt; danach ist die Rueckkehr zur Vorversion nicht mehr moeglich.
 
 Aufbau A (Signal-Node): ein Computer mit Rolle "Signal und Strecke", Kabelmodem mit mindestens zwei Signalen (eines davon an einer Stelle, an der ein Zug waehrend des Tests rot bekommen kann) und einem Beobachter; im Assistenten Schritt 4 jedem Gleis seine Signale und Beobachter zuordnen. Aufbau B (Knoten): ein Computer mit Rolle "Knotenpunkt" an einer T-Kreuzung; im Assistenten zuerst die Anschluesse (West, Ost, Sued), die Verbindungen (z.B. West->Ost, Sued->Ost, Ost->West) und die Konflikte eintragen, dann je Anschluss ein **Einfahrtsgleis** (Signal vor der Kreuzung + Beobachter an der Haltestelle vor dem Signal) und ein **Ausfahrtsgleis** (Beobachter hinter der Kreuzung, so dass er erst "train_passed" meldet, wenn das ganze Zug-Ende vorbei ist).
 
@@ -152,3 +152,38 @@ Aufbau: wie Stufe 4 und zusaetzlich ein **Depot** (`depot1`, Rolle "Depot und Ue
 | 7.11 | "Art" (Betriebsart) am Haltepunkt: bedarf -> linie -> manuell -> bedarf | Wechselt nur am Haltepunkt und nicht waehrend eines Auftrags | |
 | 7.12 | Fremden Zug (nicht registriert) in den Bahnhof fahren | Meldung "Unerwarteter Zug ..."; Seite "Fremde" zeigt ihn mit Ort; er wird keinem Auftrag zugeordnet; Zielwahl meidet das Gleis ("belegt von ...") | |
 | 7.13 | Fremden Zug wegfahren lassen, dann auf "Fremde" "Vergessen" | Erst danach moeglich; Belegungen anderer Nachweise bleiben unveraendert | |
+
+## Stufe 8: Stoerung, Wiederanlauf, Ersatzcomputer, Update
+
+Aufbau: wie Stufe 4/5; zusaetzlich ein freier Computer (Funkmodem, wenn moeglich gleiche Create-Geraete angeschlossen wie am zu ersetzenden Bahnhof) fuer den Ersatz.
+
+| Nr | Schritt | Erwartung | Ergebnis |
+|---|---|---|---|
+| 8.1 | Leitstelle, Seite "Stoerungen" ohne Stoerung | "Keine Stoerung bekannt." Unten die Zahl offener Auftraege | |
+| 8.2 | **A15**: Fahrt starten, in "Abfahrt freigegeben" die Leitstelle neu starten | Derselbe Auftrag, kein zweiter; Ausgang bleibt an; die Fahrt endet normal | |
+| 8.3 | Fahrt starten, unterwegs "Halten" (Seite Stoerungen) | Neue Fahrten und Linientermine werden nicht angenommen/gestartet; die laufende Fahrt faehrt weiter, bekommt am Ziel aber keine neue Freigabe zur Rueckfahrt; "Auftraege ... mit Freigabe/unterwegs" zaehlt mit | |
+| 8.4 | "Fortsetzen" (zweimal tippen) | Die Rueckfahrt wird freigegeben und endet normal | |
+| 8.5 | Leitstelle waehrend "Halten" neu starten | Halten bleibt bestehen | |
+| 8.6 | Einen Bahnhofs-Node ausschalten (Strom/Chunk) | Nach ca. 60 s: Stoerung "meldet sich nicht"; keine Freigaben an ihn; Rest laeuft. Wieder einschalten: er meldet sich, nimmt Aufgaben aber erst nach der Abstimmung mit der Leitstelle an (wenige Sekunden) | |
+| 8.7 | Das Create-Geraet eines Bahnhofs entfernen (Kabel/Block) | Stoerung "Geraet nicht verfuegbar", ein Auftrag mit Freigabe dort wird "Klaerung", das Gleis wird nicht als Ziel zugewiesen; nach dem Wiederanschliessen laeuft die Pruefung neu | |
+| 8.8 | Zug waehrend eines Auftrags in Create umbenennen | Meldung "heisst jetzt ..."; Auftrag "Klaerung"; Zugposition "unbekannt"; kein anderer Zug wird "aehnlich" zugeordnet. Namen zurueckaendern: der Zug ist beim naechsten Zustandsbericht wieder am Gleis belegt | |
+| 8.9 | Funkverbindung eines Bahnhofs kurz stoeren (Modem entfernen, Zug faehrt waehrend dessen ab oder kommt an) | Nach dem Wiederanschliessen holt der Bahnhof die Meldungen nach (Ankunft/Abfahrt werden wiederholt, bis bestaetigt); der Auftrag geht korrekt weiter | |
+| 8.10 | **A17 Ersatz**: Auf dem Ersatzcomputer installieren (`installer`), Seite "Einrichtung" -> "Ersatz": Leitstelle und Node-Kennung eintragen, "Holen" | Solange der alte Computer laeuft: "noch aktiv". Nach Ausschalten (60 s) oder "Stilllegen" (Seite Netz, zweimal tippen): "Konfiguration ... empfangen" | |
+| 8.11 | "Uebernehmen", Geraete pruefen, Schritt 5 Pruefungen, "Speichern und aktivieren" | Der Ersatz ist derselbe logische Node (gleiche Kennung), meldet sich bei der Leitstelle; die Leitstelle meldet, dass die alte Node nicht mehr laufen darf. Aufgaben mit alter Aufenthaltsnummer gehen in "Klaerung", nichts wird blind freigegeben | |
+| 8.12 | Alte Node wieder einschalten | Meldung "Zwei Computer melden sich als ..." (Doppelbetrieb), die alte Node ist abzuschalten | |
+| 8.13 | **A18 Update**: "Halten", warten bis keine Fahrt mehr "mit Freigabe/unterwegs" ist; auf allen Nodes `installer` mit der neuen Version; Neustart | Nodes starten; wurde das Modpack (Host/Methoden) geaendert, zeigt der Node "Pruefung noetig" und lehnt Aufgaben ab, bis auf der Seite Uebersicht "Pruefen" bestanden ist. Dann "Fortsetzen" | |
+| 8.14 | Rueckkehr: `installer --rollback` nach einem Update, das das Datenformat geaendert hat (hier: Format 1; ab Format 2 relevant) | Ist das Format neuer als das Programm, startet die Automatik nicht (Seite Uebersicht: "Datenformat zu neu"); `crn/app/main datenstand` zeigt Sicherungen, `crn/app/main daten-zurueck N` spielt sie zurueck | |
+| 8.15 | Datei beschaedigen (z.B. `/crn_data/register.lua` leeren, nur an einem Testsystem) | Beim Start wird die vorherige Generation geladen (Stufe 1), aktive Vorgaenge werden mit den Bahnhoefen abgeglichen | |
+
+## Stufe 9: Betrieb im Grossen
+
+Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind aktiv, mindestens ein Knoten ist eingerichtet. Automatisch geprueft sind bereits 312 Signale an 26 Computern (`tests/test_load.lua`: unter 6 Nachrichten je Sekunde im Ruhebetrieb, Berichte gesammelt je Node).
+
+| Nr | Schritt | Erwartung | Ergebnis |
+|---|---|---|---|
+| 9.1 | Eine Stunde Betrieb mit mindestens zwei Linien und Bedarfsfahrten, niemand greift ein | Keine Meldung "Klaerung" ohne erkennbare Ursache; keine doppelten Auftraege; Seite "Stoerungen" bleibt leer oder erklaert jeden Eintrag | |
+| 9.2 | Serverlast beobachten (TPS/Lag) waehrend 9.1, auf einem Signal-Node `crn/app/main selftest geraete` | Keine spuerbare Verlangsamung durch die Software; Zeiten aus Stufe 2 (Messwert M16: unter 5 ms je Aufruf) gelten weiter | |
+| 9.3 | **A16** Einen Bahnhof oder Signal-Node ausserhalb geladener Chunks bringen (weit weglaufen, ohne Chunkloader), warten, zurueckkehren | Waehrend der Abwesenheit: "meldet sich nicht"; danach meldet er sich, gleicht sich ab (kein Freigeben auf Verdacht), offene Auftraege dort gehen in Klaerung oder laufen korrekt weiter. Bitte genau notieren, was der Computer ausserhalb geladener Chunks tut | |
+| 9.4 | **A16** Chunkgrenze mit fahrendem Zug: Zug faehrt in einen ungeladenen Bereich und zurueck | Der Zug wird nicht doppelt freigegeben; Ankunft/Abfahrt kommen verspaetet oder ueber den Zustandsbericht an | |
+| 9.5 | Alle Spieltest-Schritte aus Stufe 4 bis 8, die noch kein Ergebnis haben, nachholen | Ergebnisse eingetragen | |
+| 9.6 | Rueckmeldung an den Entwickler | Diese Datei mit allen Ergebnissen, die Meldungen der Seite "Meldungen" der Leitstelle, die Ausgabe von `crn/app/main info` und `crn/app/main datenstand` je Computertyp, und alle Abweichungen (Fahrplan-JSON aus Schritt 4.20) | |

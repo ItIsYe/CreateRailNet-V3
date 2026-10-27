@@ -14,7 +14,10 @@ local ser = require("core.ser")
 local M = {}
 
 local HEARTBEAT = 5          -- Sekunden Betriebszeit zwischen Zustandsmeldungen
-local HELLO_REPEAT = 30
+local HELLO_REPEAT = 10      -- bis die Leitstelle antwortet, alle 10 s; danach alle 120 s
+local OUTBOX_RETRY = 10      -- Sekunden bis zur Wiederholung einer unbestaetigten Ereignismeldung
+local OUTBOX_MAX = 100       -- aelteste Meldungen fallen weg, wenn die Leitstelle lange nicht antwortet (der Zustandsbericht holt den Stand nach)
+local EVENT_KINDS = { ankunft = true, abfahrt = true, zug_weg = true, zug_umbenannt = true }
 local STATE_FILE = "/crn_data/station.lua"
 
 function M.new(node)
@@ -25,6 +28,7 @@ function M.new(node)
   local persisted = node.store.load(STATE_FILE) or { tracks = {} }
   persisted.tracks = persisted.tracks or {}
   local hello_acked, last_hello, last_beat = false, -9999, -9999
+  local outbox, outbox_order, dropped = {}, {}, 0             -- Ereignismeldungen, bis die Leitstelle sie bestaetigt
   local board = { rows = nil, asked = -9999, shown = -9999, answered = nil }    -- Tafelantwort der Leitstelle (Seite "Tafel")
   local dirty_report = false
   local confirm_reset = {}
@@ -98,7 +102,15 @@ function M.new(node)
   local function report(kind, tr, extra)
     local payload = { kind = kind, node = config.node.id, track = tr.id, stay = tr.p.stay, train = tr.train, station_name = tr.station_name, t = now() }
     for k, v in pairs(extra or {}) do payload[k] = v end
-    node.send_to(central(), "meldung", payload)
+    local m = node.send_to(central(), "meldung", payload)
+    if m and EVENT_KINDS[kind] then
+      outbox[m.messageId] = { m = m, sent = now(), tries = 1 }
+      outbox_order[#outbox_order + 1] = m.messageId
+      while #outbox_order > OUTBOX_MAX do
+        outbox[table.remove(outbox_order, 1)] = nil
+        dropped = dropped + 1
+      end
+    end
   end
 
   -- Zustand lesen ---------------------------------------------------------------------------------------------------------------------
@@ -193,6 +205,16 @@ function M.new(node)
     local t = now()
     if t - last_hello >= (hello_acked and 120 or HELLO_REPEAT) then role.hello() end
     if t - board.shown < 30 and t - board.asked >= 10 then role.query_board() end
+    for i = #outbox_order, 1, -1 do
+      local id = outbox_order[i]
+      local item = outbox[id]
+      if not item then
+        table.remove(outbox_order, i)
+      elseif t - item.sent >= OUTBOX_RETRY then
+        item.sent, item.tries = t, item.tries + 1
+        node.send_message(item.m)              -- dieselbe Nachricht: die Leitstelle wertet sie nicht doppelt
+      end
+    end
     for _, tr in ipairs(role.tracks) do reconcile(tr) end
     if dirty_report or t - last_beat >= HEARTBEAT then send_state() end
   end
@@ -340,9 +362,28 @@ function M.new(node)
     reply(m, "ok", { train = p.to })
   end
 
+  -- Nach dem Start (14.2) und bei geaenderter Umgebung nimmt der Node keine verandernden Aufgaben an, bis er mit der Leitstelle abgestimmt
+  -- beziehungsweise die Schnittstellenpruefung bestanden ist. Lesende Anfragen laufen weiter.
+  local function gated(handler)
+    return function(m)
+      if node.env_hold then
+        return reply(m, "zurueckgestellt", { grund = "Umgebung geaendert: Schnittstellenpruefung am Node noetig.", retry_in = 10 })
+      end
+      if not hello_acked then
+        return reply(m, "zurueckgestellt", { grund = "Der Node gleicht sich noch mit der Leitstelle ab.", retry_in = 5 })
+      end
+      return handler(m)
+    end
+  end
+
+  local function handle_zustand_senden(m)
+    dirty_report = true
+    reply(m, "ok", {})
+  end
+
   local HANDLERS = {
-    pruefen = handle_pruefen, fahrplan = handle_fahrplan, warteauftrag = handle_warteauftrag,
-    freigabe = handle_freigabe, umbenennen = handle_umbenennen,
+    pruefen = handle_pruefen, fahrplan = gated(handle_fahrplan), warteauftrag = gated(handle_warteauftrag),
+    freigabe = gated(handle_freigabe), umbenennen = gated(handle_umbenennen), zustand_senden = handle_zustand_senden,
   }
 
   -- Fahrplan des stehenden Zuges lesen (Mengenmuster fuer die Leitstelle); aendert nichts
@@ -361,6 +402,10 @@ function M.new(node)
     if status ~= "ok" then return end
     if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "hallo" then
       hello_acked = true
+      return
+    end
+    if m.messageType == "bestaetigung" and m.correlationId and outbox[m.correlationId] then
+      outbox[m.correlationId] = nil
       return
     end
     if m.messageType == "bestaetigung" and m.payload.rows and m.correlationId == board.request then

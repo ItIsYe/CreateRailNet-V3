@@ -53,7 +53,7 @@ function M.info(env)
   return true
 end
 
--- Aufruf: main (Bedienoberflaeche des Nodes), main info, main selftest [...]
+-- Aufruf: main (Bedienoberflaeche des Nodes), main info, main selftest [...], main datenstand, main daten-zurueck N
 function M.run(env, args)
   if args[1] == "selftest" then
     local rest = {}
@@ -61,6 +61,19 @@ function M.run(env, args)
     return require("app.selftest").run(env, rest)
   end
   if args[1] == "info" then return M.info(env) end
+  if args[1] == "datenstand" or args[1] == "daten-zurueck" then
+    local dataformat = require("core.dataformat")
+    local store = require("core.store").new(env.fs)
+    local saved = store.load("/crn_data/format.lua")
+    if args[1] == "datenstand" then
+      env.print("Datenformat auf dem Computer: " .. tostring(saved and saved.format or "unbekannt") .. ", dieses Programm kennt: " .. dataformat.FORMAT)
+      for _, b in ipairs(dataformat.backups(env.fs)) do env.print("Sicherung fuer Format " .. b.format .. ": " .. b.dir) end
+      return true
+    end
+    local ok, err = dataformat.restore(env.fs, store, tonumber(args[2]))
+    env.print(ok and ("Sicherung zurueckgespielt (Datenformat " .. tostring(args[2]) .. "). Bitte neu starten.") or err)
+    return ok == true
+  end
   local node = require("app.node").new(env)
   node.run()
   return true
@@ -79,7 +92,7 @@ function M.real_env()
     end
   end
   return {
-    fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, redstone = redstone, pull = pull,
+    fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, redstone = redstone, pull = pull, host = _HOST,
     term = term.current and term.current() or term,
     wrap = function(name) return peripheral.wrap(name) end,
     start_timer = os.startTimer,

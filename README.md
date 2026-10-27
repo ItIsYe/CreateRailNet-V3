@@ -1,6 +1,6 @@
 # CRN - Create Rail Net
 
-Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage ist das Konzept 1.1; die Umsetzung laeuft nach `docs/STUFENPLAN.md`. Gebaut wird stufenweise; der grosse Spieltest am Ende steht in `docs/GROSSER_TEST.md`. Stand: Stufe 0 (Installer), 1 (Kern: Uhr, sicheres Speichern, Journal, Nachrichten, Funk), 2 (Geraete), 3 (Oberflaeche und Einrichtungsassistent) 4 (erster Bahnhof: Zugregister, Anmeldung, Fahrtauftrag mit Lebenszyklus, Freigabeausgang, Bedarfstaste), 5 (mehrere Gleise, Linien im Takt, Tafel), 6 (Signal- und Knoten-Node) und 7 (Depot, manuelle Zuege, Ausschleusen und Aufnehmen).
+Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage ist das Konzept 1.1; die Umsetzung laeuft nach `docs/STUFENPLAN.md`. Gebaut wird stufenweise; der grosse Spieltest am Ende steht in `docs/GROSSER_TEST.md`. Stand: Stufe 0 (Installer), 1 (Kern: Uhr, sicheres Speichern, Journal, Nachrichten, Funk), 2 (Geraete), 3 (Oberflaeche und Einrichtungsassistent) 4 (erster Bahnhof: Zugregister, Anmeldung, Fahrtauftrag mit Lebenszyklus, Freigabeausgang, Bedarfstaste), 5 (mehrere Gleise, Linien im Takt, Tafel), 6 (Signal- und Knoten-Node) 7 (Depot, manuelle Zuege, Ausschleusen und Aufnehmen), 8 (Stoerungen, Wiederanlauf, Ersatzcomputer, Update-Pruefung) und 9 (Lasttest, Abnahmematrix `docs/ABNAHME.md`). Alle Stufen sind offline getestet; der grosse Spieltest steht in `docs/GROSSER_TEST.md`.
 
 ## Installieren (Stufe 0)
 

@@ -18,6 +18,7 @@ local M = {}
 local REPLY_WAIT = 8          -- Sekunden bis zur Wiederholung einer unbeantworteten Anfrage
 local MAX_TRIES = 12         -- bei Verlusten bleibt der Auftrag lange offen ("Rueckmeldung fehlt"), statt vorschnell zur Klaerung zu werden
 local RETRY_WAITING = 10      -- Sekunden bis ein wartender Auftrag neu geprueft wird
+local EVENT_KINDS = { ankunft = true, abfahrt = true, zug_weg = true, zug_umbenannt = true }
 local NODE_SILENT = 60        -- Sekunden ohne Meldung: Node gilt als nicht erreichbar
 
 function M.new(node)
@@ -36,6 +37,9 @@ function M.new(node)
   role.stations = stationslib.new({ store = node.store, path = DATA .. "/bahnhoefe.lua" })
   role.lines = lineslib.new({ store = node.store, path = DATA .. "/linien.lua", now = now })
   local samples = node.store.load(DATA .. "/muster.lua") or {}
+  local operation = node.store.load(DATA .. "/betrieb.lua") or { hold = false }    -- Wartung/Stoerung: neue Abfahrten zurueckhalten
+  local retired = node.store.load(DATA .. "/stillgelegt.lua") or {}                -- Node-Kennung -> true: ausdruecklich stillgelegt (Ersatz)
+  local later = {}                                                                 -- { at, fn }: spaetere Wiederholungen (z.B. Node gleicht sich noch ab)
   local closed = node.store.load(DATA .. "/gesperrt.lua") or {}    -- Create-Bahnhofsname -> true (betriebliche Sperre)
 
   local nodes = {}        -- node_id -> { name, roles, tracks = {...}, last_seen, active }
@@ -47,10 +51,19 @@ function M.new(node)
   local waiting = {}      -- Auftrag -> true, solange eine Anfrage offen ist
   local flags = {}        -- Auftrag -> { unconfirmed = true }
   local unknown_seen = {}
+  local seen_stay = {}        -- "node:gleis" -> hoechster verarbeiteter Aufenthalt (spaet eintreffende alte Ereignisse bewirken nichts)
+  local boots = {}            -- node -> Startkennung der zuletzt gesehenen Nachricht
   local unknown_trains = {}   -- Name -> { node, track, since, last, present } (fremde Zuege: Belegung, keine Zuordnung)
   local silent_notified = {}
 
   local function notify(level, text) node.notify(level, text) end
+
+  -- Neue Abfahrten sind zurueckgehalten, wenn der Bediener es verlangt (Wartung, Stoerung) oder die Umgebung sich geaendert hat (14.1)
+  local function held()
+    if operation.hold then return true, operation.reason or "vom Bediener" end
+    if node.env_hold then return true, "Umgebung geaendert: Schnittstellen pruefen" end
+    return false
+  end
 
   local function rebuild_dir()
     dir = {}
@@ -145,6 +158,16 @@ function M.new(node)
     return { kind = "freigabe", orderId = order.id, track = entry.track, train = train and train.create_name, stay = stay, min_stay = order.min_stay or 0 }
   end
 
+  -- Antworten auf eine Anfrage gelten nur, solange der Auftrag noch im Zustand und auf dem Abschnitt ist, fuer den sie gestellt wurde
+  -- (eine verspaetete Antwort auf eine wiederholte Anfrage darf nichts zuruecksetzen)
+  local function guarded(order, fn)
+    local state, leg = order.state, order.leg
+    return function(payload)
+      if order.state ~= state or order.leg ~= leg then return end
+      return fn(payload)
+    end
+  end
+
   -- Fahren eines Auftrags: jeder Aufruf macht hoechstens einen Schritt und wartet dann auf die Antwort --------------------------------------
   local drive
 
@@ -155,6 +178,8 @@ function M.new(node)
     if entry.ambiguous then return { problem = "Name nicht eindeutig" } end
     if not reachable(entry.node) then return { problem = "Node " .. entry.node .. " meldet sich nicht" } end
     if closed[create_name] then return { problem = "gesperrt" } end
+    local tstate = track_state[entry.node .. ":" .. entry.track]
+    if tstate and tstate.available == false then return { problem = "Geraet nicht verfuegbar" } end
     local r = payload.reach and payload.reach[create_name]
     if r and not r.ok then return { problem = "nicht erreichbar" .. (r.reason and (" (" .. tostring(r.reason) .. ")") or "") } end
     local st = track_state[entry.node .. ":" .. entry.track]
@@ -212,6 +237,7 @@ function M.new(node)
     order.schedule = schedule
     order.plan = plan
     order.stay = payload.stay
+    order.arrivals = { [order.start.node .. ":" .. order.start.track] = payload.stay }
     order.leg = 1
     order.min_stay = entries[1].wait or 0
     role.orders.save()
@@ -219,6 +245,10 @@ function M.new(node)
   end
 
   local function handle_schedule_reply(order, payload)
+    if payload.status == "zurueckgestellt" then
+      order.retry_at = now() + (payload.retry_in or 5)
+      return
+    end
     if payload.status == "uebergeben" then
       role.orders.transition(order.id, "fahrplan_uebergeben", "Fahrplan uebergeben (Schnittstelle bestaetigt die Uebergabe)")
     elseif payload.klaerung then
@@ -249,6 +279,8 @@ function M.new(node)
         if train then role.register.set_state(train.id, "gesteuert") end
         role.orders.transition(order.id, "abgeschlossen", "Rueckkehr bestaetigt, Warteauftrag erteilt")
       end
+    elseif payload.status == "zurueckgestellt" then
+      order.retry_at = now() + (payload.retry_in or 5)       -- der Node gleicht sich noch mit der Leitstelle ab
     else
       to_clarification(order, "Warteauftrag am Ziel nicht erteilt: " .. tostring(payload.grund))
     end
@@ -259,6 +291,12 @@ function M.new(node)
     local template = role.orders.template(order.template)
     if not template then return role.orders.transition(order.id, "abgelehnt", "Die Vorlage gibt es nicht mehr.") end
     local state = order.state
+    -- zurueckgehalten: Fahrplanuebergabe und Freigaben bleiben aus; Pruefungen, Fahrten und Abschluss laufen weiter
+    if held() then
+      local entries_n = #template.stops + ((template.return_to_start ~= false) and 1 or 0)
+      if state == "vorbereitet" or state == "fahrplan_uebergeben" or (state == "am_ziel" and order.leg < entries_n) then return end
+    end
+    if order.retry_at and now() < order.retry_at and (state == "vorbereitet" or state == "am_ziel") then return end
     if state == "angefordert" then
       role.orders.transition(order.id, "in_pruefung", "Voraussetzungen werden geprueft")
       state = "in_pruefung"
@@ -288,21 +326,21 @@ function M.new(node)
         for _, name in ipairs(role.stations.candidates(entries[i].station)) do targets[#targets + 1] = name end
       end
       order.start = { node = start.node, track = start.track }
-      ask(start.node, "abfrage", { kind = "pruefen", track = start.track, targets = targets }, order, function(payload) handle_check_reply(order, payload) end)
+      ask(start.node, "abfrage", { kind = "pruefen", track = start.track, targets = targets }, order, guarded(order, function(payload) handle_check_reply(order, payload) end))
     elseif state == "vorbereitet" then
       local train = role.register.get(order.train)
       ask(order.start.node, "auftrag", { kind = "fahrplan", orderId = order.id, track = order.start.track, train = train.create_name, schedule = order.schedule }, order,
-        function(payload) handle_schedule_reply(order, payload) end)
+        guarded(order, function(payload) handle_schedule_reply(order, payload) end))
     elseif state == "fahrplan_uebergeben" or (state == "am_ziel" and order.leg < #entries) then
       if order.retry_at and now() < order.retry_at then return end
       order.retry_at = nil
       local at = order.at or order.start
       local entry = { track = at.track }
-      ask(at.node, "auftrag", release_message(order, entry, order.stay), order, function(payload) handle_release_reply(order, payload) end)
+      ask(at.node, "auftrag", release_message(order, entry, order.stay), order, guarded(order, function(payload) handle_release_reply(order, payload) end))
     elseif state == "am_ziel" and order.leg >= #entries then
       local at = order.at
       local train = role.register.get(order.train)
-      ask(at.node, "auftrag", { kind = "warteauftrag", track = at.track, train = train.create_name, wait = 0, expect = order.schedule and schedulelib.hash(order.schedule) or nil }, order, function(payload) handle_wait_reply(order, payload) end)
+      ask(at.node, "auftrag", { kind = "warteauftrag", track = at.track, train = train.create_name, wait = 0, expect = order.schedule and schedulelib.hash(order.schedule) or nil }, order, guarded(order, function(payload) handle_wait_reply(order, payload) end))
     end
   end
 
@@ -345,7 +383,10 @@ function M.new(node)
   local function on_arrival(m)
     local p = m.payload
     local where = p.node .. ":" .. p.track
-    local train = set_position(p.train, "am_bahnhof", where, "meldung", p.t)
+    -- eine verspaetete Meldung eines frueheren Aufenthalts darf die Position nicht zuruecksetzen
+    local stale = p.stay ~= nil and seen_stay[where] ~= nil and p.stay < seen_stay[where]
+    if p.stay then seen_stay[where] = math.max(seen_stay[where] or 0, p.stay) end
+    local train = (not stale) and set_position(p.train, "am_bahnhof", where, "meldung", p.t) or role.register.by_create_name(p.train)
     if not train then
       remember_unknown(p.train, p.node, p.track, true, p.t)
       if not unknown_seen[where .. ":" .. tostring(p.train)] then
@@ -357,12 +398,15 @@ function M.new(node)
     for _, order in ipairs(orders_of_train(p.train)) do
       local template = role.orders.template(order.template)
       local entries = entries_of(template)
-      if order.state == "unterwegs" then
+      order.arrivals = order.arrivals or {}
+      local done = order.arrivals[where]
+      if order.state == "unterwegs" and not (p.stay ~= nil and done ~= nil and p.stay <= done) then
         local expected = order.plan and order.plan[order.leg + 1]
         if expected and p.station_name == expected.station then
           order.leg = order.leg + 1
           order.at = { node = p.node, track = p.track }
           order.stay = p.stay
+          order.arrivals[where] = p.stay
           order.min_stay = entries[order.leg] and entries[order.leg].wait or 0
           role.orders.save()
           role.orders.transition(order.id, "am_ziel", "Zielankunft bestaetigt: " .. tostring(p.station_name))
@@ -380,7 +424,16 @@ function M.new(node)
     if train then role.register.set_position(train.id, "unbekannt", nil, "meldung", p.t) end
     if not train and unknown_trains[p.train] then remember_unknown(p.train, p.node, p.track, false, p.t) end
     for _, order in ipairs(orders_of_train(p.train)) do
-      if order.state == "abfahrt_freigegeben" and p.released then
+      local at_ = order.at or order.start
+      local stale = order.state == "abfahrt_freigegeben" and ((p.stay ~= nil and order.stay ~= nil and p.stay ~= order.stay) or (at_ ~= nil and (at_.node ~= p.node or at_.track ~= p.track)))
+      if stale then
+        -- Abfahrt eines frueheren Aufenthalts: bewirkt nichts
+      elseif order.state == "abfahrt_freigegeben" and p.released then
+        role.orders.transition(order.id, "unterwegs", "Abfahrt bestaetigt")
+      elseif p.released and p.stay ~= nil and p.stay == order.stay and (order.state == "fahrplan_uebergeben" or order.state == "am_ziel")
+        and (function() local at = order.at or order.start return at ~= nil and at.node == p.node and at.track == p.track end)() then
+        -- die Freigabe-Antwort ging verloren, die Abfahrt mit gesetzter Freigabe des Bahnhofs belegt sie
+        role.orders.transition(order.id, "abfahrt_freigegeben", "Freigabe durch die Abfahrtsmeldung belegt")
         role.orders.transition(order.id, "unterwegs", "Abfahrt bestaetigt")
       elseif order.state == "vorbereitet" or order.state == "fahrplan_uebergeben" then
         to_clarification(order, "Der Zug ist ohne Freigabe abgefahren.")
@@ -401,6 +454,21 @@ function M.new(node)
     local p = m.payload
     for _, tr in ipairs(p.tracks or {}) do
       track_state[p.node .. ":" .. tr.id] = tr
+      -- Geraet des Bahnhofs verschwunden: das Gleis ist ungeklaert; keine Fahrplanaenderung auf Verdacht (14.1)
+      if tr.available == false then
+        local where = p.node .. ":" .. tr.id
+        for _, train in ipairs(role.register.list()) do
+          if train.position and train.position.kind == "am_bahnhof" and train.position.where == where then
+            role.register.set_position(train.id, "unbekannt", nil, "meldung", p.t)
+          end
+        end
+        for _, order in ipairs(role.orders.active()) do
+          local at = order.at or order.start
+          if at and at.node == p.node and at.track == tr.id and (order.state == "fahrplan_uebergeben" or order.state == "abfahrt_freigegeben" or order.state == "vorbereitet") then
+            to_clarification(order, "Das Geraet am Gleis " .. tostring(tr.name) .. " ist nicht verfuegbar: Lage klaeren.")
+          end
+        end
+      end
       -- fremde Zuege, die laut Zustandsbericht nicht mehr am Gleis stehen (auch ohne Abfahrtsmeldung oder nach Umbenennung)
       for name, e in pairs(unknown_trains) do
         if e.present and e.node == p.node and e.track == tr.id and (not tr.present or tr.train ~= name) then e.present = false end
@@ -410,7 +478,7 @@ function M.new(node)
       if exit and not tr.present and exit.train then
         for _, order in ipairs(orders_of_train(exit.train)) do
           if order.stay == exit.stay and (order.state == "abfahrt_freigegeben" or order.state == "fahrplan_uebergeben" or order.state == "vorbereitet") then
-            local pp = { node = p.node, track = tr.id, train = exit.train, released = exit.released, t = p.t }
+            local pp = { node = p.node, track = tr.id, train = exit.train, released = exit.released, stay = exit.stay, t = p.t }
             if exit.vanished then on_vanished({ payload = pp }) else on_departure({ payload = pp }) end
           end
         end
@@ -422,7 +490,7 @@ function M.new(node)
           unknown_seen[p.node .. ":" .. tr.id .. ":" .. tostring(tr.train)] = true
           notify("warnung", "Unerwarteter Zug " .. tostring(tr.train) .. " auf Gleis " .. tr.id .. " (" .. p.node .. ").")
         end
-        -- verpasste Ankunftsmeldung: der Zustand beweist die Ankunft
+        -- verpasste Ankunftsmeldung: der Zustand beweist die Ankunft (nur wenn dieser Aufenthalt noch nicht verarbeitet ist)
         for _, order in ipairs(orders_of_train(tr.train)) do
           if order.state == "unterwegs" then
             on_arrival({ payload = { node = p.node, track = tr.id, train = tr.train, station_name = tr.station_name, stay = tr.stay, t = p.t } })
@@ -495,7 +563,9 @@ function M.new(node)
     end
     if p.current_name ~= p.create_name then
       ask(entry.node, "auftrag", { kind = "umbenennen", track = entry.track, from = p.current_name, to = p.create_name }, nil, function(payload)
-        if payload.status == "ok" then finish() else node.reply(m, "abgelehnt", { grund = "Umbenennen nicht moeglich: " .. tostring(payload.grund) }) end
+        if payload.status == "ok" then finish()
+        elseif payload.status == "zurueckgestellt" then node.reply(m, "spaeter", { grund = "Der Bahnhof gleicht sich noch mit der Leitstelle ab." })
+        else node.reply(m, "abgelehnt", { grund = "Umbenennen nicht moeglich: " .. tostring(payload.grund) }) end
       end)
     else
       finish()
@@ -504,6 +574,8 @@ function M.new(node)
 
   -- Anforderung einer Vorlage: nur fuer Zuege im gesteuerten Betrieb (7.3, 7.4)
   function role.demand(template_id, request_id, extra)
+    local is_held, why = held()
+    if is_held then return nil, "Der Betrieb ist zurueckgehalten (" .. why .. "): neue Fahrten werden nicht angenommen." end
     local template = role.orders.template(template_id)
     if template then
       local train = role.register.get((extra and extra.train) or template.train)
@@ -546,7 +618,22 @@ function M.new(node)
   function role.on_message(m, status)
     -- ein verspaetetes "hallo" ist trotzdem eine gueltige Anmeldung des Nodes (Zustandsmeldungen holen den Rest nach)
     if status == "old_sequence" and m.messageType == "meldung" and m.payload.kind == "hallo" then return on_hello(m) end
+    -- Ereignismeldungen gelten auch verspaetet (sie werden vom Bahnhof wiederholt, bis sie bestaetigt sind)
+    if status == "old_sequence" and m.messageType == "meldung" and EVENT_KINDS[m.payload.kind] then status = "ok" end
     if status ~= "ok" then return end
+    if retired[m.senderNodeId] then
+      -- stillgelegt: nur die Anmeldung wird beantwortet (mit Hinweis), sonst nichts
+      if m.messageType == "meldung" and (m.payload.kind == "hallo" or m.payload.kind == "hallo_signale") then node.reply(m, "ok", { stillgelegt = true }) end
+      return
+    end
+    -- neuer Start des Absenders: seine Aufenthaltszaehler koennen von vorn beginnen (z.B. nach Ersatz des Computers)
+    local boot = tostring(m.messageId):match("^[^:]*:([^:]*):")
+    if boot and boots[m.senderNodeId] ~= boot then
+      boots[m.senderNodeId] = boot
+      for key in pairs(seen_stay) do
+        if key:sub(1, #m.senderNodeId + 1) == m.senderNodeId .. ":" then seen_stay[key] = nil end
+      end
+    end
     if m.messageType == "bestaetigung" and m.correlationId and pending[m.correlationId] then
       local p = pending[m.correlationId]
       pending[m.correlationId] = nil
@@ -566,13 +653,22 @@ function M.new(node)
       elseif kind == "hallo_signale" then on_hello_signals(m)
       elseif kind == "signale" then on_signals(m)
       elseif kind == "knoten" then on_knoten(m)
+      elseif kind == "konfig" then role.on_config(m)
       elseif kind == "zustand" then on_state(m)
       elseif kind == "ankunft" then on_arrival(m)
       elseif kind == "abfahrt" then on_departure(m)
       elseif kind == "zug_weg" then on_vanished(m)
       elseif kind == "zug_umbenannt" then
         notify("warnung", "Der Zug " .. tostring(m.payload.before) .. " heisst jetzt " .. tostring(m.payload.train) .. " (" .. tostring(m.payload.node) .. "): die Zuordnung ist ungeklaert.")
+        -- 14.1: nicht allein anhand alter Namen fortfahren; kein anderer Zug wird "aehnlich" zugeordnet
+        local train = role.register.by_create_name(m.payload.before)
+        if train then role.register.set_position(train.id, "unbekannt", nil, "meldung", m.payload.t) end
+        for _, order in ipairs(orders_of_train(m.payload.before)) do
+          to_clarification(order, "Der Zug heisst jetzt " .. tostring(m.payload.train) .. " statt " .. tostring(m.payload.before) .. ": Zuordnung klaeren.")
+        end
       end
+      -- Ereignismeldungen werden bestaetigt; der Bahnhof wiederholt sie sonst (verlorene Meldung)
+      if EVENT_KINDS[kind] then node.reply(m, "ok", {}) end
       drive_all()
     elseif m.messageType == "auftrag" then
       local kind = m.payload.kind
@@ -581,6 +677,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
+      elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
       elseif m.payload.kind == "tafel" then node.reply(m, "ok", { rows = role.board(m.payload.station), t = now() }) end
     end
   end
@@ -617,7 +714,9 @@ function M.new(node)
       local template = role.orders.template(line.template)
       local term = line.next_due
       local served = false
-      if not template then
+      if held() then
+        role.lines.note(line.id, "Termin ausgelassen: Betrieb zurueckgehalten.")
+      elseif not template then
         role.lines.note(line.id, "Die Vorlage " .. line.template .. " gibt es nicht.")
       else
         local train = idle_train(line, template)
@@ -665,6 +764,14 @@ function M.new(node)
 
   function role.tick()
     check_pending()
+    local t = now()
+    for i = #later, 1, -1 do
+      if t >= later[i].at then
+        local item = table.remove(later, i)
+        local ok, err = pcall(item.fn)
+        if not ok then notify("fehler", "Wiederholung: " .. tostring(err)) end
+      end
+    end
     run_lines()
     for id, info in pairs(nodes) do
       if now() - info.last_seen >= NODE_SILENT and not silent_notified[id] then
@@ -745,7 +852,9 @@ function M.new(node)
     local train = role.register.get(train_id)
     if not train then return nil, "Unbekannter Zug." end
     ask(node_id, "auftrag", { kind = "warteauftrag", track = track_id, train = train.create_name, wait = 0, handover = true }, nil, function(payload)
-      if payload.status == "uebergeben" then
+      if payload.status == "zurueckgestellt" then
+        later[#later + 1] = { at = now() + (payload.retry_in or 5), fn = function() role.adopt(train_id, node_id, track_id) end }
+      elseif payload.status == "uebergeben" then
         role.register.set_state(train_id, "gesteuert")
         role.register.set_position(train_id, "am_bahnhof", node_id .. ":" .. track_id, "abfrage", now())
         if train.mode == "manuell" then role.register.set_mode(train_id, "bedarf") end
@@ -862,6 +971,131 @@ function M.new(node)
     if e.present then return nil, "Der Zug steht noch am Gleis: Belegung bleibt." end
     unknown_trains[name] = nil
     return true
+  end
+
+  -- Stoerungen und Wartung (14, 29.2) ------------------------------------------------------------------------------------------------------
+  function role.set_hold(on, reason)
+    local previous = { hold = operation.hold, reason = operation.reason, since = operation.since }
+    operation.hold, operation.reason, operation.since = on and true or false, on and (reason or "vom Bediener") or nil, on and now() or nil
+    local ok, err = node.store.save(DATA .. "/betrieb.lua", operation)
+    if not ok then
+      operation.hold, operation.reason, operation.since = previous.hold, previous.reason, previous.since
+      return nil, err
+    end
+    return true
+  end
+
+  function role.hold_state() return held() end
+
+  -- Fahrten, die nach einer Wartung neu geprueft werden muessen: Anzahl der Auftraege an einer Festlegung
+  function role.drain_state()
+    local active, committed = 0, 0
+    for _, order in ipairs(role.orders.active()) do
+      active = active + 1
+      if order.state == "abfahrt_freigegeben" or order.state == "unterwegs" then committed = committed + 1 end
+    end
+    return { active = active, committed = committed }
+  end
+
+  -- alles, was heute nicht in Ordnung oder ungeklaert ist, mit Ursache (14.1)
+  function role.faults()
+    local list = {}
+    local function add(kind, who, text) list[#list + 1] = { kind = kind, who = who, text = text } end
+    local is_held, why = held()
+    if is_held then add("attention", "Betrieb", "Neue Abfahrten zurueckgehalten: " .. why) end
+    local ids = {}
+    for id in pairs(nodes) do ids[#ids + 1] = id end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+      local info = nodes[id]
+      if retired[id] then
+        add("dim", id, "stillgelegt")
+      elseif not reachable(id) then
+        add("halt", id, "meldet sich nicht (keine neuen zentral abhaengigen Freigaben)")
+      end
+      for _, tr in ipairs(info.tracks or {}) do
+        local st = track_state[id .. ":" .. tr.id]
+        if st and st.available == false then add("halt", id .. "/" .. tr.name, "Bahnhof-Geraet nicht verfuegbar: Gleis ungeklaert, keine Fahrplanaenderung") end
+      end
+    end
+    for _, row in ipairs(role.signal_overview()) do
+      local sg = row.signal
+      if sg.invalid then add("halt", row.node .. "/" .. tostring(sg.track_name), "Signal INVALID: Bereich gestoert") end
+      if sg.foreign then add("attention", row.node .. "/" .. tostring(sg.track_name), "fremde Sperre (wird nicht aufgehoben)") end
+      if sg.missing then add("attention", row.node .. "/" .. tostring(sg.track_name), "eigene Sperre fehlt am Signal") end
+      if not sg.available then add("halt", row.node .. "/" .. tostring(sg.track_name), "Signal nicht verfuegbar") end
+    end
+    for id, entry in pairs(knoten_state) do
+      for _, u in ipairs(entry.uses or {}) do
+        if u.long then add("halt", id, "Knoten: " .. tostring(u.train) .. " an " .. tostring(u.entry) .. " bleibt lange belegt (kein Nachweis)") end
+      end
+    end
+    for _, order in ipairs(role.orders.active()) do
+      if order.state == "klaerung" then add("halt", order.id, "Klaerung: " .. tostring(order.reason))
+      elseif order.state == "wartend" then add("wait", order.id, "wartet: " .. tostring(order.reason)) end
+    end
+    for _, row in ipairs(role.unknown_list()) do
+      if row.present then add("attention", row.name, "fremder Zug an " .. tostring(row.station or row.track) .. " (Belegung)") end
+    end
+    return list
+  end
+
+  -- alle Nodes bitten, ihren Zustand sofort zu melden (Geraete erneut pruefen)
+  function role.refresh_all()
+    local count = 0
+    for id in pairs(nodes) do
+      if reachable(id) then
+        node.send_to(id, "abfrage", { kind = "zustand_senden" })
+        count = count + 1
+      end
+    end
+    return count
+  end
+
+  -- Konfigurationssicherung und Ersatz (29.2) ------------------------------------------------------------------------------------------------
+  local BACKUP_DIR = DATA .. "/nodesich"
+  local function backup_path(id) return BACKUP_DIR .. "/" .. tostring(id):gsub("[^%w%-_]", "_") .. ".lua" end
+
+  function role.on_config(m)
+    local p = m.payload
+    local fs = node.env.fs
+    if not fs.exists(BACKUP_DIR) then fs.makeDir(BACKUP_DIR) end
+    local count = #fs.list(BACKUP_DIR)
+    if count >= 60 and not fs.exists(backup_path(p.node)) then
+      return node.reply(m, "abgelehnt", { grund = "Zu viele gesicherte Nodes." })
+    end
+    local ok, err = node.store.save(backup_path(p.node), { revision = p.revision, config = p.config, t = now() })
+    node.reply(m, ok and "ok" or "abgelehnt", { grund = err })
+  end
+
+  function role.backup_of(id) return node.store.load(backup_path(id)) end
+
+  function role.retire(id)
+    if not nodes[id] then return nil, "Den Node kenne ich nicht." end
+    retired[id] = true
+    nodes[id].retired = true
+    local ok, err = node.store.save(DATA .. "/stillgelegt.lua", retired)
+    if not ok then retired[id], nodes[id].retired = nil, nil return nil, err end
+    return true
+  end
+
+  function role.unretire(id)
+    retired[id] = nil
+    if nodes[id] then nodes[id].retired = nil end
+    return node.store.save(DATA .. "/stillgelegt.lua", retired)
+  end
+
+  function role.handle_fetch_config(m)
+    local id = m.payload.node
+    local entry = role.backup_of(id)
+    if not entry then return node.reply(m, "abgelehnt", { grund = "keine Sicherung von " .. tostring(id) .. "." }) end
+    if nodes[id] and not retired[id] and reachable(id) then
+      return node.reply(m, "abgelehnt", { grund = "Die Node " .. id .. " ist noch aktiv: erst ausschalten oder in der Leitstelle stilllegen." })
+    end
+    -- Uebergabe: ab jetzt gilt der Ersatz; die alte Node darf nicht mehr laufen (Doppelbetrieb wird als Konflikt gemeldet)
+    role.unretire(id)
+    notify("warnung", "Die Konfiguration von " .. id .. " wurde an einen Ersatzcomputer uebergeben. Die alte Node darf nicht mehr laufen.")
+    node.reply(m, "ok", { config = entry.config, revision = entry.revision })
   end
 
   -- Signale (Zusatzsperre eines Signal-Nodes setzen oder aufheben; ausgefuehrt wird dort, bestaetigt erst nach dem Zuruecklesen)
@@ -1033,6 +1267,7 @@ function M.new(node)
       state.list = state.list or { index = 1 }
       local items = {}
       local ids = {}
+      state.ids = {}
       for id in pairs(nodes) do ids[#ids + 1] = id end
       table.sort(ids)
       for _, id in ipairs(ids) do
@@ -1043,9 +1278,34 @@ function M.new(node)
           local st = track_state[id .. ":" .. tr.id]
           tracks[#tracks + 1] = tr.name .. (st and st.present and (":" .. tostring(st.train)) or "")
         end
-        items[#items + 1] = { text = id .. " " .. (info.name or ""), detail = (ok and "erreichbar" or "NICHT ERREICHBAR") .. ", " .. #tracks .. " Gleise" .. (#tracks > 0 and (": " .. table.concat(tracks, ",")) or ""), kind = ok and "ok" or "halt" }
+        items[#items + 1] = { text = id .. " " .. (info.name or ""), detail = (retired[id] and "STILLGELEGT" or (ok and "erreichbar" or "NICHT ERREICHBAR")) .. ", " .. #tracks .. " Gleise" .. (#tracks > 0 and (": " .. table.concat(tracks, ",")) or ""), kind = retired[id] and "dim" or (ok and "ok" or "halt") }
+        state.ids = state.ids or {}
+        state.ids[#items] = id
       end
       W.list(v, "netz", rect, items, state.list, { empty = "Noch kein Node hat sich gemeldet." })
+    end,
+    actions = function(v)
+      local state = v.page_state("netz")
+      local id = state.ids and state.ids[(state.list or { index = 1 }).index]
+      return { { id = "stilllegen", label = id and retired[id] and "Aktivieren" or (arm.retire and "Wirklich?" or "Stilllegen"), kind = "danger", enabled = id ~= nil, reason = "Erst einen Node waehlen." } }
+    end,
+    on_action = function(v, action)
+      if action ~= "act:stilllegen" then return end
+      local state = v.page_state("netz")
+      local id = state.ids and state.ids[state.list.index]
+      if not id then return true end
+      if retired[id] then
+        local ok, err = role.unretire(id)
+        v.hint = ok and ("Node " .. id .. " ist wieder aktiv.") or err
+      elseif not arm.retire then
+        arm.retire = true
+        v.hint = "Nochmal druecken: " .. id .. " wird stillgelegt (nur fuer den Ersatz durch einen anderen Computer). Meldungen von ihr werden nicht mehr beachtet."
+      else
+        arm.retire = false
+        local ok, err = role.retire(id)
+        v.hint = ok and ("Node " .. id .. " ist stillgelegt.") or err
+      end
+      return true
     end,
   }
 
@@ -1437,6 +1697,49 @@ function M.new(node)
         v.hint = ok and "Aus der Liste genommen; Belegungen bleiben ueber ihre eigenen Meldungen bestehen." or why
       end
       return true
+    end,
+  }
+
+  -- Stoerungen und Wartung -------------------------------------------------------------------------------------------------------------------
+  local hold_arm = {}
+  pages[#pages + 1] = {
+    id = "stoerungen", title = "Stoerungen",
+    render = function(v, rect)
+      local state = v.page_state("stoerungen")
+      state.list = state.list or { index = 1 }
+      local items = {}
+      for i, f in ipairs(role.faults()) do items[i] = { text = f.who, detail = f.text, kind = f.kind } end
+      local drain = role.drain_state()
+      W.list(v, "stoerungen", { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 }, items, state.list, { empty = "Keine Stoerung bekannt." })
+      W.label(v, rect.x + 1, rect.y + rect.h - 1, "Auftraege: " .. drain.active .. " offen, " .. drain.committed .. " mit Freigabe/unterwegs", "dim", rect.w - 2)
+    end,
+    actions = function(v)
+      local is_held = held()
+      return {
+        { id = "halten", label = is_held and (hold_arm.resume and "Wirklich?" or "Fortsetzen") or "Halten", kind = is_held and "primary" or "danger" },
+        { id = "pruefen", label = "Pruefen", kind = "secondary" },
+      }
+    end,
+    on_action = function(v, id)
+      if id == "act:halten" then
+        if operation.hold then
+          if not hold_arm.resume then
+            hold_arm.resume = true
+            v.hint = "Nochmal druecken: neue Abfahrten werden wieder freigegeben."
+          else
+            hold_arm.resume = false
+            local ok, err = role.set_hold(false)
+            v.hint = ok and "Betrieb fortgesetzt." or err
+          end
+        else
+          local ok, err = role.set_hold(true, "vom Bediener")
+          v.hint = ok and "Neue Abfahrten sind zurueckgehalten; Fahrten unterwegs laufen weiter." or err
+        end
+        return true
+      elseif id == "act:pruefen" then
+        v.hint = "Zustandsabfrage an " .. role.refresh_all() .. " Nodes gesendet."
+        return true
+      end
     end,
   }
 

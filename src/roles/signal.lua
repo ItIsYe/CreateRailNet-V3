@@ -10,7 +10,7 @@ local W = require("ui.widgets")
 local M = {}
 
 local HEARTBEAT = 5
-local HELLO_REPEAT = 30
+local HELLO_REPEAT = 10      -- bis die Leitstelle antwortet, alle 10 s; danach alle 120 s
 local LOCK_FILE = "/crn_data/sperren.lua"
 
 function M.new(node)

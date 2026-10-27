@@ -178,6 +178,8 @@ return {
     local st = w.world.devices["Create_Station_1"].state
     st.train.name = "Fremdzug"
     st.train.schedule = schedule.waiting("Weizenhof", 99)
+    h.step(6)                    -- die Umbenennung wird gemeldet: Zuordnung ungeklaert, Position unbekannt
+    t.eq(z.node.roles.zentrale.register.get("GZ-001").position.kind, "unbekannt")
     w.node.roles.anmeldung.press("weizen")
     local order
     t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.active_for("weizen") return order and order.state == "wartend" end, 30))
@@ -433,5 +435,21 @@ return {
     zentrale.read_sample("Nirgendwo", "7")
     t.contains(zentrale.sample_status.text, "Nirgendwo")
     t.eq(zentrale.info().samples.item_threshold, nil)
+  end },
+  { "Umbenennung waehrend eines Auftrags: Zuordnung ungeklaert -> Klaerung, die Position wird unbekannt", function()
+    local h, z, w, l, sim = build()
+    register_train(h, z, w, sim)
+    add_template(z)
+    w.node.roles.anmeldung.press("weizen")
+    local order
+    t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.active_for("weizen") return order and order.state == "abfahrt_freigegeben" end, 60))
+    w.world.devices["Create_Station_1"].state.train.name = "Umgetauft"
+    t.ok(h.until_true(function() return order.state == "klaerung" end, 12))
+    t.contains(order.reason, "Umgetauft")
+    t.eq(z.node.roles.zentrale.register.get("GZ-001").position.kind, "unbekannt")
+    -- der alte Name kommt zurueck: der naechste Zustandsbericht belegt den Zug wieder am Gleis
+    w.world.devices["Create_Station_1"].state.train.name = "GZ-001"
+    h.step(8)
+    t.eq(z.node.roles.zentrale.register.get("GZ-001").position.kind, "am_bahnhof")
   end },
 }

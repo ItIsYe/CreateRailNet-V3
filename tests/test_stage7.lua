@@ -92,11 +92,12 @@ return {
     local st = d.world.devices["Create_Station_1"].state
     -- anderer Zug am Gleis
     st.train.name = "Fremdzug"
-    zentrale.activate("GZ-001")
-    h.step(4)
-    t.contains(zentrale.depot_status.text, "Fremdzug")
+    h.step(6)                    -- Umbenennung gemeldet: Position unbekannt, Zuordnung ungeklaert
+    local refused, why = zentrale.activate("GZ-001")
+    t.eq(refused, nil); t.contains(why, "unbekannt")
     t.eq(zentrale.register.get("GZ-001").state, "abgestellt")
     st.train.name = "GZ-001"
+    h.step(8)                    -- der Zustandsbericht belegt den Zug wieder am Gleis
     -- unbekannter Fahrplan
     local waiting = st.train.schedule
     st.train.schedule = schedule.waiting("Depot Gleis 1", 77)

@@ -17,6 +17,10 @@ local viewlib = require("ui.view")
 local W = require("ui.widgets")
 local setup_page = require("setup.page")
 local version = require("core.version")
+local envcheck = require("core.envcheck")
+local dataformat = require("core.dataformat")
+local model = require("setup.model")
+local ser = require("core.ser")
 
 local M = {}
 
@@ -43,6 +47,19 @@ function M.new(env)
   n.config = store.load(CONFIG)
   n.scan = detect.scan(env.peripheral)
 
+  -- Datenformat (29.2): neuere Daten als dieses Programm kennt -> Automatik bleibt aus, bis eine passende Sicherung zurueckgespielt ist
+  local format_status, format_old = dataformat.check(env.fs, store, { program = version.number })
+  n.format_status, n.format_old = format_status, format_old
+  n.format_blocked = format_status == "zu_neu"
+
+  -- Schnittstellen (14.1, A18): nach einem Modpack-Update wartet die Automatik auf die bestandene Pruefung
+  n.env_hold = false
+  if n.config and n.config.status == "aktiv" then
+    local status = envcheck.check(store, DATA .. "/umgebung.lua", n.scan, env.host)
+    n.env_status = status
+    n.env_hold = status == "geaendert"
+  end
+
   function n.notify(level, text)
     n.messages[#n.messages + 1] = { level = level, text = text, t = n.clock.now(), acked = false }
     if #n.messages > MAX_MESSAGES then table.remove(n.messages, 1) end
@@ -51,7 +68,9 @@ function M.new(env)
 
   function n.status()
     if not n.config then return { text = "Einrichtung", kind = "wait" } end
+    if n.format_blocked then return { text = "Datenformat zu neu", kind = "halt" } end
     if n.config.status ~= "aktiv" then return { text = "Entwurf", kind = "attention" } end
+    if n.env_hold then return { text = "Pruefung noetig", kind = "attention" } end
     return { text = "Bereit", kind = "ok" }
   end
 
@@ -78,6 +97,21 @@ function M.new(env)
   local function wireless(name)
     local ok, w = pcall(env.peripheral.call, name, "isWireless")
     return ok and w == true
+  end
+
+  -- Pruefung nach Modpack-Update: alle eingerichteten Geraete muessen da sein, die richtige Art haben und alle erwarteten Methoden bieten
+  function n.confirm_environment()
+    if not n.env_hold then return true, "Es ist keine Pruefung noetig." end
+    n.scan = detect.scan(env.peripheral)
+    for _, p in ipairs(model.validate(n.config, n.scan)) do
+      if p.code == "geraet_fehlt" or p.code == "geraet_art" or p.code == "geraet_methoden" then
+        return false, "Pruefung nicht bestanden: " .. p.text
+      end
+    end
+    envcheck.accept(store, DATA .. "/umgebung.lua", n.scan, env.host)
+    n.env_hold, n.env_status = false, "gleich"
+    n.notify("info", "Schnittstellenpruefung bestanden: die Automatik laeuft wieder.")
+    return true, "Pruefung bestanden."
   end
 
   -- Seiten ------------------------------------------------------------------------------------------------------------------------------
@@ -111,6 +145,20 @@ function M.new(env)
       line("Funk: " .. (#radio > 0 and table.concat(radio, ",") or "KEIN FUNKMODEM"), #radio > 0 and "dim" or "attention")
       local open = #n.journal.pending()
       if open > 0 then line(open .. " offene Vorgaenge im Journal", "wait") end
+      if n.format_blocked then line("Die Daten haben ein neueres Format (" .. tostring(n.format_old) .. ") als dieses Programm: Automatik aus.", "halt") end
+      if n.env_hold then line("Modpack oder Schnittstellen haben sich geaendert: Automatik wartet auf die Pruefung.", "attention") end
+      if n.format_status == "migriert" then line("Daten auf das neue Format gebracht; Sicherung: sicherung_f" .. tostring(n.format_old), "dim") end
+    end,
+    actions = function(v)
+      if n.env_hold then return { { id = "umgebung", label = "Pruefen", kind = "primary" } } end
+      return {}
+    end,
+    on_action = function(v, id)
+      if id == "act:umgebung" then
+        local ok, text = n.confirm_environment()
+        v.hint = text
+        return true
+      end
     end,
   }
 
@@ -187,6 +235,8 @@ function M.new(env)
     config = function() return n.config end,
     modem_is_wireless = wireless,
     notify = n.notify,
+    fetch_config = function(central_id, node_id) return n.fetch_config(central_id, node_id) end,
+    fetch_status = function() return n.fetch_state end,
     on_saved = function(config)
       n.config = config
       n.rebuild_views()
@@ -321,6 +371,7 @@ function M.new(env)
         if v.handle(ev) then n.dirty = true end
       end
     elseif kind == "rednet_message" then
+      if not n.net and n.replace_net then n.replace_receive(ev) end
       if n.net then
         local m, status, extra = n.net.receive(ev)
         if m then
@@ -353,6 +404,58 @@ function M.new(env)
     run_hooks(n.hooks.tick)
   end
 
+
+  -- Konfigurationssicherung und Ersatzcomputer (29.2, A17) ----------------------------------------------------------------------------------
+  -- Jede aktive Node (ausser der Leitstelle) schickt ihre Konfiguration nach jeder Aenderung an die Leitstelle. Ein Ersatzcomputer holt sie dort ab,
+  -- sobald die alte Node dort stillgelegt ist oder sich nicht mehr meldet; danach werden die Geraete gegen den realen Anschluss geprueft.
+  local backup = { acked = nil, sent = -9999, id = nil, rev = nil }
+  table.insert(n.hooks.tick, function()
+    if not n.config or n.config.status ~= "aktiv" or not n.net then return end
+    for _, r in ipairs(n.config.node.roles) do if r == "zentrale" then return end end
+    if backup.acked == n.config.revision then return end
+    local t = n.clock.now()
+    if t - backup.sent < 30 then return end
+    local m = n.send_to(n.central_id(), "meldung", { kind = "konfig", node = n.config.node.id, revision = n.config.revision, config = ser.encode(n.config) })
+    if m then backup.id, backup.rev, backup.sent = m.messageId, n.config.revision, t end
+  end)
+  table.insert(n.hooks.on_message, function(m, status)
+    if status == "ok" and m.messageType == "bestaetigung" and backup.id and m.correlationId == backup.id then backup.acked = backup.rev end
+  end)
+
+  n.fetch_state = nil
+  function n.fetch_config(central_id, node_id)
+    if n.net then n.fetch_state = { kind = "halt", text = "Dieser Computer ist schon eingerichtet." } return end
+    local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
+    if #info.opened == 0 then n.fetch_state = { kind = "halt", text = "Kein Modem gefunden." } return end
+    if not n.replace_net then
+      local boot = n.clock.boot_id()
+      local me = "ersatz-" .. tostring(boot)
+      n.replace_factory = msg.new({ node_id = me, boot_id = boot, epoch = function() return 0 end })
+      n.replace_net = netlib.new({ rednet = env.rednet, factory = n.replace_factory, inbox = msg.inbox({ node_id = me, central_id = central_id }), clock = n.clock })
+    end
+    local m = n.replace_factory.make("abfrage", central_id, { kind = "konfig_holen", node = node_id })
+    n.replace_net.send(central_id, m)
+    n.replace_req = m.messageId
+    n.fetch_state = { kind = "wait", text = "Anfrage an " .. central_id .. " gesendet ..." }
+  end
+
+  function n.replace_receive(ev)
+    local m = n.replace_net.receive(ev)
+    if not m or m.correlationId ~= n.replace_req then return end
+    local p = m.payload
+    if p.status ~= "ok" then
+      n.fetch_state = { kind = "halt", text = "Abgelehnt: " .. tostring(p.grund) }
+      return
+    end
+    local config = ser.decode(p.config)
+    if type(config) ~= "table" or not config.node then
+      n.fetch_state = { kind = "halt", text = "Die Konfiguration ist nicht lesbar." }
+      return
+    end
+    config.status = "entwurf"
+    n.fetch_state = { kind = "ok", text = "Konfiguration von " .. tostring(config.node.id) .. " (Stand " .. tostring(config.revision) .. ") empfangen.", config = config }
+  end
+
   -- Rollen anschliessen (nach Aktivierung und beim Start einer aktiven Node)
   local attached = {}
   function n.attach_roles()
@@ -371,6 +474,10 @@ function M.new(env)
     attached = {}
     n.roles = {}
     if not n.config or n.config.status ~= "aktiv" or not n.net then return end
+    if n.format_blocked then
+      n.notify("fehler", "Die Daten stammen von einem neueren Programm (Format " .. tostring(n.format_old) .. "). Die Automatik startet nicht. Mit 'crn/app/main daten-zurueck N' wird eine Sicherung zurueckgespielt.")
+      return
+    end
     local modules = {}
     for _, role in ipairs(n.config.node.roles) do
       if role == "passagierbahnhof" or role == "gueterbahnhof" or role == "depot" then modules.station = "roles.station"
@@ -437,6 +544,7 @@ function M.new(env)
   n.rebuild_views()
   n.start_services()
   if n.config and n.config.status ~= "aktiv" then n.notify("warnung", "Die Einrichtung ist nur ein Entwurf: die Betriebsfunktion bleibt inaktiv.") end
+  if n.env_hold then n.notify("warnung", "Die Umgebung (Modpack/Schnittstellen) hat sich geaendert: neue Abfahrten bleiben aus, bis die Pruefung auf der Seite Uebersicht bestanden ist.") end
   return n
 end
 

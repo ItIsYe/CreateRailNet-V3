@@ -715,7 +715,23 @@ function M.new(services)
   -- Seite -----------------------------------------------------------------------------------------------------------------------------------
   local function screen_def() return screens[session.screen] end
 
+  -- Ersatzcomputer (29.2): die Konfiguration einer stillgelegten Node von der Leitstelle holen und uebernehmen
+  local function rfields(v)
+    local st = v.page_state("einrichtung")
+    st.rfields = st.rfields or { central = { value = "", max = 30 }, node = { value = "", max = 30 } }
+    return st.rfields
+  end
+
   function page.render(v, rect)
+    if session.replace and not session.wiz then
+      W.label(v, rect.x + 1, rect.y, "Ersatzcomputer: vorhandene Node uebernehmen", "hell", rect.w - 2)
+      local f = rfields(v)
+      W.field(v, "r_central", rect.x + 1, rect.y + 2, math.min(rect.w - 2, 36), "Kennung der Leitstelle", f.central)
+      W.field(v, "r_node", rect.x + 1, rect.y + 5, math.min(rect.w - 2, 36), "Kennung der zu ersetzenden Node", f.node)
+      local st = services.fetch_status and services.fetch_status()
+      if st then W.label(v, rect.x + 1, rect.y + 9, st.text, st.kind, rect.w - 2) end
+      return
+    end
     if not session.wiz then
       W.label(v, rect.x + 1, rect.y, "Einrichtung", "hell")
       local config = services.config()
@@ -735,9 +751,19 @@ function M.new(services)
   end
 
   function page.actions(v)
+    if session.replace and not session.wiz then
+      local st = services.fetch_status and services.fetch_status()
+      return {
+        { id = "r_holen", label = "Holen" },
+        { id = "r_uebernehmen", label = "Uebernehmen", enabled = st ~= nil and st.config ~= nil, reason = "Erst die Konfiguration holen." },
+        { id = "r_abbruch", label = "Abbrechen", kind = "danger", side = "rechts" },
+      }
+    end
     if not session.wiz then
       local config = services.config()
-      return { { id = "start", label = config and "Einrichtung aendern" or "Einrichtung starten" } }
+      local list = { { id = "start", label = config and "Einrichtung aendern" or "Einrichtung starten" } }
+      if not config and services.fetch_config then list[#list + 1] = { id = "ersatz", label = "Ersatz", kind = "secondary" } end
+      return list
     end
     if session.owner ~= v then return {} end
     local def = screen_def()
@@ -790,9 +816,35 @@ function M.new(services)
   end
 
   function page.on_action(v, id)
+    if session.replace and not session.wiz then
+      local f = rfields(v)
+      if id == "act:r_holen" then
+        if f.central.value == "" or f.node.value == "" then v.hint = "Beide Kennungen sind noetig." return true end
+        services.fetch_config(f.central.value, f.node.value)
+        return true
+      elseif id == "act:r_uebernehmen" then
+        local st = services.fetch_status and services.fetch_status()
+        if st and st.config then
+          session.replace = nil
+          start(v, st.config)
+          goto_screen("6.fertig")
+          v.hint = "Konfiguration uebernommen: Geraete pruefen, dann speichern."
+        end
+        return true
+      elseif id == "act:r_abbruch" then
+        session.replace = nil
+        return true
+      elseif id:match("^input:") then
+        return true
+      end
+      return false
+    end
     if not session.wiz then
       if id == "act:start" then
         start(v, services.config())
+        return true
+      elseif id == "act:ersatz" then
+        session.replace = true
         return true
       end
       return false

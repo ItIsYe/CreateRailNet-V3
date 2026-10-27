@@ -77,6 +77,21 @@ function H.new(opts)
     return d
   end
 
+  -- Computer ohne Einrichtung (Ersatzcomputer): gleiche Bauart, aber keine Konfiguration
+  function h.add_blank(spec)
+    local w = create.world()
+    w.add_modem("left", true)
+    w.add_modem("right", false, true)
+    for i, name in ipairs(spec.stations or {}) do w.add_station("Create_Station_" .. i, { station_name = name }) end
+    local cid = #h.order + 1
+    local d = drv.new({ world = w, bus = h.bus, cid = cid })
+    d.boot_t, d.cid, d.id, d.world = h.t, cid, spec.id, w
+    h.nodes[spec.id] = d
+    h.order[#h.order + 1] = d
+    d.restart()
+    return d
+  end
+
   function h.sim(stations, travel)
     local list = {}
     for _, st in ipairs(stations) do
