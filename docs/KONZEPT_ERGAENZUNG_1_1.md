@@ -43,6 +43,8 @@ Grundlage: das Konzept 1.1 (27. Oktober 2026) und die Messwerte M01 bis M16 in `
 2. **Monitore (A12, UI):** `crn_probe` am Master-Computer ausfuehren, an dem die Monitore haengen. Der Bericht nennt Groesse und Farbfaehigkeit.
 3. **Funk:** vorhandener `--linktest` aus der alten Fassung, falls die Reichweite zwischen zwei Standorten wichtig ist.
 
-## 5. Entscheidungen, die ich brauche
+## 5. Entscheidungen
 
-E1 Spielzeit, E5 Download als Hauptweg, E6 Groessenbudget, E7 Ausgaenge, E8 Nachrichtenweg und E9 Datenhaltung gelten als beschlossen, sobald sie bestaetigt sind. Mit E10 und den Angaben aus Abschnitt 3 ist die Grundlage fuer die erste Umsetzungsstufe vollstaendig.
+Am 27. Oktober 2026 vom Betreiber bestaetigt ("alles wie empfohlen"): E1 Spielzeit, E5 Download als Hauptweg, E6 Groessenbudget, E7 Ausgaenge, E8 Nachrichtenweg, E9 Datenhaltung. E2 bis E4 sind Folgerungen aus der Messung und gelten damit ebenfalls.
+
+Offen: E10 (Handtest Ausfallwirkung am Signal), die Angaben aus Abschnitt 3 und der Monitor-Bericht aus Abschnitt 4. Mit ihnen ist die Grundlage fuer die erste Umsetzungsstufe vollstaendig.
