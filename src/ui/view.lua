@@ -47,6 +47,7 @@ function M.new(opts)
     for _, p in ipairs(v.pages) do
       if p.id == id then
         page_id = id
+        v.nav_free = false
         v.hint = ""
         v.input_id = nil
         return true
@@ -115,7 +116,7 @@ function M.new(opts)
         local current = 1
         for i, p in ipairs(pages) do if p.id == page_id then current = i end end
         v.nav_offset = math.max(1, math.min(v.nav_offset or 1, #pages))
-        if current < v.nav_offset then v.nav_offset = current end
+        if not v.nav_free and current < v.nav_offset then v.nav_offset = current end
         local function fits(from, to)
           local sum = (from > 1 and 3 or 0) + (to < #pages and 3 or 0)
           for i = from, to do sum = sum + widths[i] end
@@ -125,7 +126,7 @@ function M.new(opts)
           first = v.nav_offset
           last = first
           while last < #pages and fits(first, last + 1) do last = last + 1 end
-          if current > last and first < current then v.nav_offset = v.nav_offset + 1 else break end
+          if not v.nav_free and current > last and first < current then v.nav_offset = v.nav_offset + 1 else break end
         end
       end
       local x = r.x
@@ -251,6 +252,7 @@ function M.new(opts)
     end
     if id == "navscroll:prev" or id == "navscroll:next" then
       v.nav_offset = math.max(1, (v.nav_offset or 1) + (id == "navscroll:next" and 1 or -1))
+      v.nav_free = true      -- das Blaettern bleibt stehen, bis eine Seite gewaehlt wird
       return
     end
     local list_id, index = id:match("^sel:(.-):(%d+)$")
@@ -301,7 +303,7 @@ function M.new(opts)
     elseif kind == "char" then
       local field = v.input_id and v.fields[v.input_id]
       if field then
-        if ev[2]:match("^[%w _%.%-]$") then
+        if ev[2]:match("^[%w _%.%-:;,/()]$") then
           if field.fresh then field.value = "" field.fresh = nil end
           if #tostring(field.value or "") < (field.max or 40) then field.value = (field.value or "") .. ev[2] end
         end

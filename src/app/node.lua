@@ -246,7 +246,7 @@ function M.new(env)
     if not n.config or n.config.status ~= "aktiv" then return end
     local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
     n.net_info = info
-    n.factory = msg.new({ node_id = n.config.node.id, boot_id = n.clock.boot_id(), epoch = function() return n.inbox.epoch() end })
+    n.factory = msg.new({ node_id = n.config.node.id, boot_id = n.clock.boot_id(), epoch = function() return n.own_epoch or n.inbox.epoch() end })
     n.inbox = msg.inbox({ node_id = n.config.node.id, central_id = n.config.network.central_id or n.config.node.id })
     n.net = netlib.new({ rednet = env.rednet, factory = n.factory, inbox = n.inbox, clock = n.clock })
     if #info.opened == 0 then n.notify("fehler", "Kein Modem fuer den Funk gefunden.")
@@ -256,6 +256,43 @@ function M.new(env)
   function n.start_services()
     setup_net()
     n.router = eventslib.router({ bindings = n.config and bind.routes(n.config.devices) or {}, now = n.clock.now })
+    n.attach_roles()
+  end
+
+  -- Dienste fuer die Rollen -----------------------------------------------------------------------------------------------------------------
+  n.env = env
+  local local_queue = {}
+
+  function n.central_id()
+    if n.config and n.config.network.central_id then return n.config.network.central_id end
+    return n.config and n.config.node.id
+  end
+
+  -- Nachricht ausliefern: an sich selbst lokal (mehrere Rollen auf einem Computer), sonst ueber Funk
+  function n.send_message(m)
+    if n.config and m.targetNodeId == n.config.node.id then
+      local_queue[#local_queue + 1] = m
+      return "lokal"
+    end
+    if not n.net then return nil end
+    return n.net.send(m.targetNodeId, m)
+  end
+
+  function n.send_to(target, message_type, payload, extra)
+    if not n.factory then return nil end
+    local m = n.factory.make(message_type, target, payload, extra)
+    n.send_message(m)
+    return m
+  end
+
+  -- fachliche Antwort; wird fuer wiederholte Anfragen gemerkt (13.3)
+  function n.reply(m, status, payload)
+    local body = { kind = "antwort", status = status, antwort_auf = m.payload.kind }
+    for k, v in pairs(payload or {}) do body[k] = v end
+    local reply = n.factory.make("bestaetigung", m.senderNodeId, body, { correlationId = m.messageId, requestId = m.requestId })
+    n.inbox.remember(m.messageId, reply)
+    n.send_message(reply)
+    return reply
   end
 
   -- Ereignisse ---------------------------------------------------------------------------------------------------------------------------
@@ -263,6 +300,17 @@ function M.new(env)
     for i, fn in ipairs(list) do
       local ok, err = pcall(fn, ...)
       if not ok then n.notify("fehler", "Rolle " .. i .. ": " .. tostring(err)) end
+    end
+  end
+
+  -- lokal gesendete Nachrichten (an die eigene Kennung) wie empfangene behandeln; begrenzt gegen Endlosschleifen
+  local function deliver_local()
+    local rounds = 0
+    while #local_queue > 0 and rounds < 200 do
+      rounds = rounds + 1
+      local m = table.remove(local_queue, 1)
+      local status, extra = n.inbox.accept(m)
+      run_hooks(n.hooks.on_message, m, status, extra)
     end
   end
 
@@ -297,11 +345,52 @@ function M.new(env)
         n.dirty = true
       end
     end
+    deliver_local()
     n.ticker.poll()
   end
 
   function n.tick()
     run_hooks(n.hooks.tick)
+  end
+
+  -- Rollen anschliessen (nach Aktivierung und beim Start einer aktiven Node)
+  local attached = {}
+  function n.attach_roles()
+    for _, entry in ipairs(attached) do
+      for _, list in ipairs({ "on_event", "on_message", "tick", "pages" }) do
+        for i = #n.hooks[list], 1, -1 do
+          if n.hooks[list][i] == entry[list] then table.remove(n.hooks[list], i) end
+        end
+      end
+    end
+    attached = {}
+    n.roles = {}
+    if not n.config or n.config.status ~= "aktiv" or not n.net then return end
+    local modules = {}
+    for _, role in ipairs(n.config.node.roles) do
+      if role == "passagierbahnhof" or role == "gueterbahnhof" then modules.station = "roles.station"
+      elseif role == "zentrale" then modules.zentrale = "roles.zentrale"
+      elseif role == "anmeldung" then modules.anmeldung = "roles.anmeldung" end
+    end
+    local names = {}
+    for name in pairs(modules) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+      local ok, obj = pcall(function() return require(modules[name]).new(n) end)
+      if not ok then
+        n.notify("fehler", "Rolle " .. name .. " konnte nicht starten: " .. tostring(obj))
+      else
+        n.roles[name] = obj
+        local entry = { on_event = obj.on_event, on_message = obj.on_message, tick = obj.tick, pages = obj.page }
+        if obj.on_event then n.hooks.on_event[#n.hooks.on_event + 1] = obj.on_event end
+        if obj.on_message then n.hooks.on_message[#n.hooks.on_message + 1] = obj.on_message end
+        if obj.tick then n.hooks.tick[#n.hooks.tick + 1] = obj.tick end
+        if obj.pages then for _, p in ipairs(obj.pages) do n.hooks.pages[#n.hooks.pages + 1] = p end end
+        if obj.page then n.hooks.pages[#n.hooks.pages + 1] = obj.page end
+        attached[#attached + 1] = entry
+      end
+    end
+    n.rebuild_views()
   end
 
   n.ticker.every("uhr", 30, function() n.clock.save() end)

@@ -16,6 +16,14 @@ if pipe then
 end
 table.sort(files)
 
+-- nach dem Laden aller Pruefungen: neue globale Variablen sind ein Fehler (Namen mit "__" sind fuer Tests erlaubt)
+local function strict_globals()
+  setmetatable(_G, { __newindex = function(t, k, v)
+    if tostring(k):sub(1, 2) == "__" then rawset(t, k, v) return end
+    error("globale Variable '" .. tostring(k) .. "' angelegt", 2)
+  end })
+end
+
 local passed, failed = 0, 0
 for _, file in ipairs(files) do
   if not filter or file:find(filter, 1, true) then
@@ -29,6 +37,7 @@ for _, file in ipairs(files) do
       failed = failed + 1
       print("FEHLER beim Laden von " .. file .. ": " .. tostring(err))
     else
+      strict_globals()
       for _, test in ipairs(list) do
         local ok, problem = pcall(test[2])
         if ok then

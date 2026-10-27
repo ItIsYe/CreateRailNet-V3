@@ -120,6 +120,15 @@ return {
     t.eq((box.accept(m2)), "old_sequence")
     t.eq((box.accept(m3)), "old_sequence")
   end },
+  { "verspaetete Auftraege und Antworten gelten, verspaetete Meldungen nicht; Wiederholung bleibt Duplikat", function()
+    local f, box = pair()
+    local a1 = f.make("auftrag", "zentrale-1", {})
+    local a2 = f.make("auftrag", "zentrale-1", {})
+    t.eq((box.accept(a2)), "ok")
+    local status, extra = box.accept(a1)
+    t.eq(status, "ok"); t.eq(extra.late_sequence, true)
+    t.eq((box.accept(a1)), "duplicate")
+  end },
   { "neuer Start des Absenders setzt die Folge zurueck", function()
     local box = msg.inbox({ node_id = "z" })
     local boot1 = msg.new({ node_id = "n", boot_id = 1 })

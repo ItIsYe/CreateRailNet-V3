@@ -134,7 +134,7 @@ function M.world()
     end,
     setOutput = function(side, on)
       if w.sides[side] == nil then error("Invalid side.", 0) end
-      w.sides[side] = on and true or false
+      if not (w.stuck and w.stuck[side]) then w.sides[side] = on and true or false end     -- w.stuck[seite] = true: der Ausgang reagiert nicht
     end,
   }
 

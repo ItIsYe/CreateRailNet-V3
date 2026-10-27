@@ -261,7 +261,7 @@ return {
     t.eq(seen[2], "train_arrival:station1")
     local all = {}
     for _, m in ipairs(d.node.messages) do all[#all + 1] = m.text end
-    t.contains(table.concat(all, "|"), "Rolle 2: ")
+    t.contains(table.concat(all, "|"), "Rolle kaputt")
     -- unbekanntes Geraet
     d.node.handle({ "train_arrival", "Create_Station_77", "Zug 1" })
     t.contains(table.concat((function() local x = {} for _, m in ipairs(d.node.messages) do x[#x + 1] = m.text end return x end)(), "|"), "unbekanntes Geraet: Create_Station_77")

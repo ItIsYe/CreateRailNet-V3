@@ -92,7 +92,7 @@ function M.inbox(opts)
   end
 
   -- liefert status, zusatz: ok | duplicate | invalid | wrong_target | stale_epoch | old_sequence
-  -- Zusatz bei ok: { gap = Anzahl fehlender Nachrichten, late_epoch = true }
+  -- Zusatz bei ok: { gap = Anzahl fehlender Nachrichten, late_epoch = true, late_sequence = true }
   function box.accept(m)
     local ok, why = M.validate(m)
     if not ok then return "invalid", why end
@@ -111,7 +111,10 @@ function M.inbox(opts)
     if prev and prev.boot == boot then
       if m.sequence <= prev.sequence then
         remember_seen(m.messageId)
-        return "old_sequence"
+        -- nur Meldungen werden vom neueren Stand ueberholt; Auftraege, Abfragen und Antworten gelten auch verspaetet (sie sind ueber ihre ID gegen Doppelausfuehrung gesichert)
+        if m.messageType == "meldung" then return "old_sequence" end
+        extra.late_sequence = true
+        return "ok", extra
       end
       if m.sequence > prev.sequence + 1 then extra.gap = m.sequence - prev.sequence - 1 end
     end
