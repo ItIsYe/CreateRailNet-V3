@@ -4,7 +4,7 @@ Usage: crn_probe                    schreibt den Bericht nach crn_probe.txt und 
        crn_probe --events 60        zusaetzlich 60 Sekunden lang Create-Ereignisse mitschreiben (Zuege fahren lassen)
        crn_probe --reach NAME       zusaetzlich canTrainReach / distanceTo fuer die Zielstation NAME (nur Lesen)
        crn_probe --out datei.txt    anderer Dateiname
-Notes: ruft nur Methoden einer festen Leseliste auf (keine set*, cycle*, assemble, disassemble, kein Redstone-Ausgang, kein rednet). Ein am Computer angeschlossenes Create-Signal steht schon durch den Anschluss unter Computer-Kontrolle; das Lesen aendert daran nichts weiter.
+Notes: bei jeder Zugankunft (train_arrival) im Ereignislauf wird der Fahrplan des haltenden Zuges gelesen. Ruft nur Methoden einer festen Leseliste auf (keine set*, cycle*, assemble, disassemble, kein Redstone-Ausgang, kein rednet). Ein am Computer angeschlossenes Create-Signal steht schon durch den Anschluss unter Computer-Kontrolle; das Lesen aendert daran nichts weiter.
   Den Bericht schickst du so: `pastebin put crn_probe.txt` (gibt einen Code) oder die Datei mit `edit crn_probe.txt` anschauen und abfotografieren.
 ]]
 
@@ -249,6 +249,22 @@ if opts.events > 0 then
       local parts = {}
       for i = 2, ev.n do parts[#parts + 1] = show_value(ev[i]) end
       add(string.format("+%.1fs  %s  %s", os.clock() - t0, ev[1], table.concat(parts, "  ")))
+      -- bei einem Zugereignis den Bahnhof und den Fahrplan genau jetzt lesen (der Zug steht dann dort)
+      if ev[1] == "train_arrival" and type(ev[2]) == "string" then
+        local obj = wrap(ev[2])
+        if obj then
+          for _, method in ipairs({ "getStationName", "isTrainPresent", "getTrainName", "hasSchedule", "getSchedule" }) do
+            if type(obj[method]) == "function" then
+              local ok, text = try(obj[method])
+              add("      " .. method .. "(): " .. (ok and text or ("FEHLER: " .. text)))
+              if method == "getSchedule" and ok and textutils and textutils.serializeJSON then
+                local okj, json = pcall(textutils.serializeJSON, select(2, pcall(obj.getSchedule)))
+                if okj then add("      getSchedule() als JSON: " .. json) end
+              end
+            end
+          end
+        end
+      end
     end
   end
   add("(" .. count .. " Ereignisse)")
