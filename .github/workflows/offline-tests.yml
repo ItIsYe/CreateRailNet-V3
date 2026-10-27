@@ -5,9 +5,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   lua-checks:
     runs-on: ubuntu-latest
@@ -20,37 +17,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lua5.4 lua5.1 luajit
 
-      - name: Syntax check
-        run: lua5.4 scripts/check_syntax.lua
+      # dist/ ist aus src/ gebaut; der Installer verteilt nur dist/
+      - name: dist ist aktuell
+        run: lua5.4 tools/build.lua --check
 
-      - name: Config checks
-        run: lua5.4 scripts/check_configs.lua
+      - name: Groessenbudget je Rolle
+        run: lua5.4 tools/budget.lua
 
-      - name: Offline tests
-        run: lua5.4 scripts/run_tests.lua
+      # CC:Tweaked fuehrt Lua 5.1 aus; 5.4 allein akzeptiert Code, der dort scheitert
+      - name: Pruefung (Lua 5.4)
+        run: lua5.4 tools/check.lua
+      - name: Pruefung (Lua 5.1)
+        run: lua5.1 tools/check.lua
 
-      # CC:Tweaked runs Cobalt (Lua 5.1 semantics); 5.4 alone accepts code that fails there
-      - name: Syntax check (Lua 5.1)
-        run: lua5.1 scripts/check_syntax.lua
-
-      - name: Offline tests (Lua 5.1)
-        run: lua5.1 scripts/run_tests.lua
-
-      - name: Offline tests (LuaJIT)
-        run: luajit scripts/run_tests.lua
-
-      # finds every .lua file itself: parse errors, missing Purpose headers, 5.2+ library calls, accidental globals
-      - name: CC compatibility guard
-        run: lua5.1 scripts/cc_parse_guard.lua
-
-      # the runner executes an explicit list; a test file missing from it would silently never run
-      - name: Test registry
-        run: lua5.4 scripts/check_test_registry.lua
-
-      # install/manifest.lua is what the installer puts on computers (size and checksum of every file): it has to match the files
-      # the installer ships the minified copies in dist/ (a computer holds a fixed 1 000 000 bytes); they have to match the sources
-      - name: Minified files (dist)
-        run: lua5.4 scripts/build_dist.lua --check
-
-      - name: Installer manifest
-        run: lua5.4 scripts/manifest_sync.lua --check
+      - name: Tests (Lua 5.4)
+        run: lua5.4 tools/run_tests.lua
+      - name: Tests (Lua 5.1)
+        run: lua5.1 tools/run_tests.lua
+      - name: Tests (LuaJIT)
+        run: luajit tools/run_tests.lua
