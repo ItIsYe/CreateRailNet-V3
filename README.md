@@ -4,17 +4,18 @@ Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage is
 
 ## Installieren (Stufe 0)
 
-Auf dem Computer (HTTP muss erlaubt sein), Rolle und feste Version angeben:
+Auf dem Computer (HTTP muss erlaubt sein):
 
 ```
 wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<VERSION>/installer.lua installer.lua
-installer zentrale <VERSION>
-crn/app/main
+installer
 ```
+
+`installer` ohne Zusatz startet den Dialog und fragt Schritt fuer Schritt: Menue (installieren, pruefen, zur Vorversion zurueck), Version, Rolle, Zusammenfassung. Mit `z` geht es einen Schritt zurueck, mit `q` bricht man ab; erst nach `j` in der Zusammenfassung wird etwas veraendert.
 
 `<VERSION>` ist ein Tag, ein Commit oder ein Zweig. Ein beweglicher Zweig wie `main` wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
 
-Weitere Aufrufe: `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist).
+Ohne Dialog (fuer Skripte): `installer ROLLE VERSION [--yes]`, dazu `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist), `installer --help`. Gestartet wird mit `crn/app/main`.
 
 ## Entwickeln
 

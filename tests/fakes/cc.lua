@@ -127,9 +127,25 @@ function M.http(routes)
 end
 
 function M.env(fs, http)
-  local env = { fs = fs, http = http, lines = {}, reads = 0 }
-  env.print = function(text) env.lines[#env.lines + 1] = tostring(text) end
-  env.read = function() env.reads = env.reads + 1; return "" end
+  local env = { fs = fs, http = http, lines = {}, since = {}, reads = 0, started = 0 }
+  local function out(text)
+    env.lines[#env.lines + 1] = tostring(text)
+    env.since[#env.since + 1] = tostring(text)
+  end
+  env.print = out
+  env.write = out
+  -- Antworten: entweder eine Liste (env.answers) oder eine Funktion (env.responder), die den Bildschirm seit der letzten Eingabe bekommt
+  env.read = function()
+    env.reads = env.reads + 1
+    if env.reads > 300 then error("zu viele Eingaben: Endlosschleife im Dialog?", 0) end
+    local screen = table.concat(env.since, "\n")
+    env.since = {}
+    if env.answers then return table.remove(env.answers, 1) end
+    if env.responder then return env.responder(screen) end
+    return ""
+  end
+  env.clear = function() env.cleared = (env.cleared or 0) + 1 end
+  env.start = function() env.started = env.started + 1 end
   function env.output() return table.concat(env.lines, "\n") end
   return env
 end

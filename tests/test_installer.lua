@@ -8,30 +8,11 @@ local cc = dofile("tests/fakes/cc.lua")
 _G.__CRN_TEST = true
 local installer = dofile("installer.lua")
 
-local BASE = "https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/"
-
-local function read(path)
-  local fh = assert(io.open(path, "rb"))
-  local text = fh:read("*a")
-  fh:close()
-  return text
-end
-
--- Antworten des "Servers" aus dem echten dist/; ref bestimmt den Pfad, tweak darf Dateien veraendern
-local function routes_for(ref, tweak)
-  local manifest = dofile("dist/manifest.lua")
-  local routes = { [BASE .. ref .. "/dist/manifest.lua"] = read("dist/manifest.lua") }
-  for path in pairs(manifest.files) do routes[BASE .. ref .. "/dist/" .. path] = read("dist/" .. path) end
-  if tweak then tweak(routes, ref) end
-  return routes
-end
-
-local function world(opts)
-  opts = opts or {}
-  local fs = cc.fs(opts.fs)
-  local http = cc.http(routes_for(opts.ref or "v0.1.0", opts.tweak))
-  return fs, http, cc.env(fs, http)
-end
+local w = dofile("tests/lib/world.lua")
+local BASE = w.BASE
+local read = w.read
+local routes_for = w.routes_for
+local world = w.world
 
 local function run(env, ...) return installer.run({ ... }, env) end
 
