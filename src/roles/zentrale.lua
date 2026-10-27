@@ -7,7 +7,10 @@ Notes: Die Leitstelle kennt keine lueckenlose Zugposition (4.1): Aufenthalte tra
 local registerlib = require("domain.register")
 local orderslib = require("domain.orders")
 local schedulelib = require("domain.schedule")
+local stationslib = require("domain.stations")
+local lineslib = require("domain.lines")
 local W = require("ui.widgets")
+local forms = require("ui.forms")
 local model = require("setup.model")
 
 local M = {}
@@ -30,7 +33,10 @@ function M.new(node)
 
   role.register = registerlib.new({ store = node.store, path = DATA .. "/register.lua" })
   role.orders = orderslib.new({ store = node.store, path = DATA .. "/auftraege.lua", now = now })
+  role.stations = stationslib.new({ store = node.store, path = DATA .. "/bahnhoefe.lua" })
+  role.lines = lineslib.new({ store = node.store, path = DATA .. "/linien.lua", now = now })
   local samples = node.store.load(DATA .. "/muster.lua") or {}
+  local closed = node.store.load(DATA .. "/gesperrt.lua") or {}    -- Create-Bahnhofsname -> true (betriebliche Sperre)
 
   local nodes = {}        -- node_id -> { name, roles, tracks = {...}, last_seen, active }
   local dir = {}          -- Bahnhofsname -> { node, track, ambiguous }
@@ -139,6 +145,30 @@ function M.new(node)
   -- Fahren eines Auftrags: jeder Aufruf macht hoechstens einen Schritt und wartet dann auf die Antwort --------------------------------------
   local drive
 
+  -- Zielwahl (10.1): fuer jeden Halt das erste geeignete Gleis; Gruende, wenn keins passt
+  local function track_info(create_name, order, train, payload)
+    local entry = dir[create_name]
+    if not entry then return { problem = "unbekannt" } end
+    if entry.ambiguous then return { problem = "Name nicht eindeutig" } end
+    if not reachable(entry.node) then return { problem = "Node " .. entry.node .. " meldet sich nicht" } end
+    if closed[create_name] then return { problem = "gesperrt" } end
+    local r = payload.reach and payload.reach[create_name]
+    if r and not r.ok then return { problem = "nicht erreichbar" .. (r.reason and (" (" .. tostring(r.reason) .. ")") or "") } end
+    local st = track_state[entry.node .. ":" .. entry.track]
+    if st and st.present and st.train and st.train ~= (train and train.create_name) then return { problem = "belegt von " .. tostring(st.train) } end
+    for _, other in ipairs(role.orders.active()) do
+      if other.id ~= order.id and other.plan then
+        for i = math.max(1, (other.leg or 0) + 1), #other.plan do
+          if other.plan[i].station == create_name then return { problem = "dem Auftrag " .. other.id .. " zugewiesen" } end
+        end
+      end
+    end
+    local length
+    for _, tr in ipairs(nodes[entry.node].tracks or {}) do if tr.id == entry.track then length = tr.length end end
+    if train and train.length and length and train.length > length then return { problem = "zu kurz (" .. length .. " Wagen, Zug " .. train.length .. ")" } end
+    return {}
+  end
+
   local function handle_check_reply(order, payload)
     local template = role.orders.template(order.template)
     local train = role.register.get(order.train)
@@ -156,17 +186,25 @@ function M.new(node)
       return to_clarification(order, "Der Zug hat einen unbekannten Fahrplan: Uebergabe noetig.")
     end
     if payload.output then return waiting_for("Der Freigabeausgang am Start ist eingeschaltet.") end
-    for station, r in pairs(payload.reach or {}) do
-      if not r.ok then return waiting_for("Ziel " .. station .. " nicht erreichbar" .. (r.reason and (": " .. tostring(r.reason)) or "") .. ".") end
-    end
     local entries = entries_of(template)
+    -- Zielgleise festlegen; das Startgleis ist das, auf dem der Zug steht
+    local plan = { { station = payload.station_name, node = order.start.node, track = order.start.track } }
+    for i = 2, #entries do
+      local candidates = role.stations.candidates(entries[i].station)
+      local chosen, reasons = stationslib.choose(candidates, function(name) return track_info(name, order, train, payload) end)
+      if not chosen then
+        return waiting_for("Kein geeignetes Gleis fuer " .. entries[i].station .. " (" .. table.concat(reasons, "; ") .. ").")
+      end
+      plan[i] = { station = chosen, node = dir[chosen].node, track = dir[chosen].track }
+    end
     local stops = {}
-    for _, e in ipairs(entries) do stops[#stops + 1] = e end
+    for i, e in ipairs(entries) do stops[i] = { station = plan[i].station, wait = e.wait, cargo = e.cargo } end
     local schedule, err = schedulelib.order(stops, samples)
     if not schedule then return role.orders.transition(order.id, "abgelehnt", err) end
     local problems = schedulelib.check(schedule)
     if #problems > 0 then return role.orders.transition(order.id, "abgelehnt", problems[1]) end
     order.schedule = schedule
+    order.plan = plan
     order.stay = payload.stay
     order.leg = 1
     order.min_stay = entries[1].wait or 0
@@ -219,13 +257,24 @@ function M.new(node)
       return
     end
     if state == "in_pruefung" then
-      for _, e in ipairs(entries) do
-        local entry, why = locate(e.station)
-        if not entry then return role.orders.transition(order.id, "wartend", why) end
+      -- Startgleis: bei einem Bahnhof mit mehreren Gleisen das, auf dem der Zug nachweislich steht
+      local train = role.register.get(order.train)
+      local start, why
+      for _, name in ipairs(role.stations.candidates(entries[1].station)) do
+        local entry = locate(name)
+        if entry then
+          local st = track_state[entry.node .. ":" .. entry.track]
+          if st and st.present and train and st.train == train.create_name then start = entry break end
+          start = start or entry
+        else
+          why = why or select(2, locate(name))
+        end
       end
-      local start = locate(entries[1].station)
+      if not start then return role.orders.transition(order.id, "wartend", why or ("Der Bahnhof " .. entries[1].station .. " ist unbekannt.")) end
       local targets = {}
-      for i = 2, #template.stops do targets[#targets + 1] = template.stops[i].station end
+      for i = 2, #entries do
+        for _, name in ipairs(role.stations.candidates(entries[i].station)) do targets[#targets + 1] = name end
+      end
       order.start = { node = start.node, track = start.track }
       ask(start.node, "abfrage", { kind = "pruefen", track = start.track, targets = targets }, order, function(payload) handle_check_reply(order, payload) end)
     elseif state == "vorbereitet" then
@@ -241,12 +290,20 @@ function M.new(node)
     elseif state == "am_ziel" and order.leg >= #entries then
       local at = order.at
       local train = role.register.get(order.train)
-      ask(at.node, "auftrag", { kind = "warteauftrag", track = at.track, train = train.create_name, wait = 0 }, order, function(payload) handle_wait_reply(order, payload) end)
+      ask(at.node, "auftrag", { kind = "warteauftrag", track = at.track, train = train.create_name, wait = 0, expect = order.schedule and schedulelib.hash(order.schedule) or nil }, order, function(payload) handle_wait_reply(order, payload) end)
     end
   end
 
   local function drive_all()
-    for _, order in ipairs(role.orders.active()) do
+    -- Reihenfolge (12.2): Bevorzugte zuerst, aber wartende normale Auftraege holen auf
+    local list = role.orders.active()
+    local t = now()
+    table.sort(list, function(a, b)
+      local ra, rb = orderslib.rank(a, t), orderslib.rank(b, t)
+      if ra ~= rb then return ra > rb end
+      return a.number < b.number
+    end)
+    for _, order in ipairs(list) do
       local ok, err = pcall(drive, order)
       if not ok then notify("fehler", "Auftrag " .. order.id .. ": " .. tostring(err)) end
     end
@@ -278,12 +335,12 @@ function M.new(node)
       local template = role.orders.template(order.template)
       local entries = entries_of(template)
       if order.state == "unterwegs" then
-        local expected = entries[order.leg + 1]
+        local expected = order.plan and order.plan[order.leg + 1]
         if expected and p.station_name == expected.station then
           order.leg = order.leg + 1
           order.at = { node = p.node, track = p.track }
           order.stay = p.stay
-          order.min_stay = expected.wait or 0
+          order.min_stay = entries[order.leg] and entries[order.leg].wait or 0
           role.orders.save()
           role.orders.transition(order.id, "am_ziel", "Zielankunft bestaetigt: " .. tostring(p.station_name))
         else
@@ -390,7 +447,7 @@ function M.new(node)
   end
 
   local function handle_demand(m)
-    local order, new = role.orders.request(m.payload.template, m.payload.requestId or m.requestId)
+    local order, new = role.orders.request(m.payload.template, m.payload.requestId or m.requestId, { source = "bedarf" })
     if not order then return node.reply(m, "abgelehnt", { grund = new }) end
     node.reply(m, "angenommen", { order = order.id, state = order.state, neu = new })
     if new then drive_all() end
@@ -401,7 +458,7 @@ function M.new(node)
     for _, template in ipairs(role.orders.templates()) do
       local active = role.orders.active_for(template.id)
       list[#list + 1] = {
-        id = template.id, title = template.title, train = template.train,
+        id = template.id, title = template.title, train = template.train, priority = template.priority,
         active = active and { id = active.id, state = active.state, reason = active.reason, unconfirmed = flags[active.id] and flags[active.id].unconfirmed or nil } or nil,
       }
     end
@@ -453,12 +510,92 @@ function M.new(node)
       elseif kind == "bedarf" then handle_demand(m)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
-      if m.payload.kind == "vorlagen" then handle_templates_query(m) end
+      if m.payload.kind == "vorlagen" then handle_templates_query(m)
+      elseif m.payload.kind == "tafel" then node.reply(m, "ok", { rows = role.board(m.payload.station), t = now() }) end
     end
+  end
+
+  -- Linien: jeder faellige Termin erzeugt hoechstens einen Fahrtwunsch (12.1) --------------------------------------------------------
+  local function idle_train(line, template)
+    local ids = #line.trains > 0 and line.trains or { template.train }
+    -- Rundlauf: hinter dem zuletzt eingesetzten Zug weitersuchen
+    local from = 1
+    for i, id in ipairs(ids) do if id == line.last_train then from = i % #ids + 1 end end
+    local first_name = template.stops[1].station
+    local starts = {}
+    for _, name in ipairs(role.stations.candidates(first_name)) do starts[name] = true end
+    for k = 0, #ids - 1 do
+      local id = ids[(from - 1 + k) % #ids + 1]
+      local train = role.register.get(id)
+      local busy = false
+      for _, order in ipairs(role.orders.active()) do if order.train == id then busy = true end end
+      if train and train.state == "gesteuert" and not busy then
+        local pos = train.position
+        if pos and pos.kind == "am_bahnhof" then
+          for name in pairs(starts) do
+            local entry = dir[name]
+            if entry and pos.where == entry.node .. ":" .. entry.track then return train end
+          end
+        end
+      end
+    end
+    return nil
+  end
+
+  local function run_lines()
+    for _, line in ipairs(role.lines.due()) do
+      local template = role.orders.template(line.template)
+      local term = line.next_due
+      local served = false
+      if not template then
+        role.lines.note(line.id, "Die Vorlage " .. line.template .. " gibt es nicht.")
+      else
+        local train = idle_train(line, template)
+        if train then
+          local order = role.orders.request(line.template, "linie-" .. line.id .. "-" .. term, { train = train.id, priority = line.priority, source = "linie" })
+          served = order ~= nil
+          if served then role.lines.used(line.id, train.id) end
+          role.lines.note(line.id, order and ("Termin bedient: " .. order.id) or "Auftrag nicht angelegt.")
+        else
+          role.lines.note(line.id, "Termin ausgelassen: kein Zug bereit am Start.")
+        end
+      end
+      local info = role.lines.advance(line.id, served)
+      if info and info.skipped > 0 then notify("warnung", "Linie " .. line.id .. ": " .. info.skipped .. " Termine waehrend einer Unterbrechung ausgelassen (keine Nachholfahrten).") end
+    end
+  end
+
+  -- Tafel: Plan (Termin der Linie) und Ist (Auftrag, Meldungen) getrennt (22, 10.3)
+  function role.board(station)
+    local rows = {}
+    for _, line in ipairs(role.lines.list()) do
+      local template = role.orders.template(line.template)
+      local serves = station == nil
+      if template and station then
+        local names = {}
+        for _, name in ipairs(role.stations.candidates(station)) do names[name] = true end
+        for _, stop in ipairs(template.stops) do
+          for _, name in ipairs(role.stations.candidates(stop.station)) do if names[name] or stop.station == station then serves = true end end
+        end
+      end
+      if serves then
+        local row = { line = line.id, title = line.title, interval = line.interval, next_due = line.next_due, in_seconds = line.next_due - now(), missed = line.missed, note = line.note, active = line.active, priority = line.priority }
+        for _, order in ipairs(role.orders.active()) do
+          local ot = role.orders.template(order.template)
+          if ot and order.template == line.template and order.source == "linie" then
+            row.order = { id = order.id, train = order.train, state = order.state, reason = order.reason, leg = order.leg, legs = #entries_of(ot) }
+            break
+          end
+        end
+        rows[#rows + 1] = row
+      end
+    end
+    return rows
   end
 
   function role.tick()
     check_pending()
+    run_lines()
     for id, info in pairs(nodes) do
       if now() - info.last_seen >= NODE_SILENT and not silent_notified[id] then
         silent_notified[id] = true
@@ -514,6 +651,16 @@ function M.new(node)
     if not ok then return nil, e end
     return true
   end
+
+  -- betriebliche Sperre eines Gleises (10.1): ein gesperrtes Gleis wird nicht als Ziel zugewiesen, ein Zug darauf bleibt unberuehrt
+  function role.set_closed(create_name, value)
+    local previous = closed[create_name]
+    closed[create_name] = value and true or nil
+    local ok, err = node.store.save(DATA .. "/gesperrt.lua", closed)
+    if not ok then closed[create_name] = previous return nil, err end
+    return true
+  end
+  function role.is_closed(create_name) return closed[create_name] == true end
 
   function role.set_sample(kind, sample)
     samples[kind] = sample
@@ -672,7 +819,7 @@ function M.new(node)
         local items = {}
         state.templates = {}
         for i, info in ipairs(templates_info()) do
-          items[#items + 1] = { text = info.title, detail = info.active and ("Auftrag " .. info.active.id .. ": " .. (STATE_TEXT[info.active.state] or info.active.state)) or ("Zug " .. info.train), kind = info.active and "wait" or "dim" }
+          items[#items + 1] = { text = info.title .. (info.priority == "bevorzugt" and " (bevorzugt)" or ""), detail = info.active and ("Auftrag " .. info.active.id .. ": " .. (STATE_TEXT[info.active.state] or info.active.state)) or ("Zug " .. info.train), kind = info.active and "wait" or "dim" }
           state.templates[i] = info
         end
         W.list(v, "vorlagen", rect, items, state.list, { empty = "Noch keine Vorlage. Mit 'Neue Vorlage' anlegen." })
@@ -703,7 +850,8 @@ function M.new(node)
         local info = state.templates and state.templates[(state.list or { index = 1 }).index]
         return {
           { id = "anfordern", label = "Anfordern", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
-          { id = "neu", label = "Neue Vorlage", kind = "secondary" },
+          { id = "neu", label = "Neu", kind = "secondary" },
+          { id = "prio", label = "Prio", kind = "secondary", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
           { id = "muster", label = "Muster", kind = "secondary" },
         }
       elseif screen == "muster" then
@@ -727,6 +875,13 @@ function M.new(node)
       elseif id == "act:neu" then
         f.id.value, f.title.value, f.train.value, f.stops.value = "", "", "", ""
         state.screen = "neu1"
+        return true
+      elseif id == "act:prio" then
+        local info = state.templates and state.templates[state.list.index]
+        if info then
+          local ok, err = role.orders.set_priority(info.id, info.priority == "bevorzugt" and "normal" or "bevorzugt")
+          v.hint = ok and ("Prioritaet: " .. (info.priority == "bevorzugt" and "normal" or "bevorzugt")) or err
+        end
         return true
       elseif id == "act:muster" then
         role.sample_status = nil
@@ -752,6 +907,114 @@ function M.new(node)
           v.hint = err
         end
         return true
+      end
+    end,
+  }
+
+  -- Bahnhoefe mit mehreren Gleisen ---------------------------------------------------------------------------------------------------
+  pages[#pages + 1] = forms.page({
+    id = "bahnhoefe", title = "Bahnhoefe", empty = "Noch kein Bahnhof mit mehreren Gleisen. Einzelne Gleise brauchen keinen Eintrag.",
+    new_label = "Neu",
+    items = function()
+      local items, records = {}, {}
+      for i, g in ipairs(role.stations.list()) do
+        local parts = {}
+        for _, member in ipairs(g.members) do parts[#parts + 1] = member .. (closed[member] and " (gesperrt)" or "") end
+        items[i] = { text = g.name, detail = table.concat(parts, ", ") }
+        records[i] = g
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "name", label = "Name (z.B. Hauptbahnhof)", max = 30, width = 34 },
+      { id = "members", label = "Gleise (Create-Namen mit ; trennen)", max = 160, width = 48 },
+    },
+    edit = function(g) return { name = g.name, members = table.concat(g.members, "; ") } end,
+    on_save = function(values)
+      local members = {}
+      for part in (values.members or ""):gmatch("[^;]+") do
+        local name = part:match("^%s*(.-)%s*$")
+        if name ~= "" then members[#members + 1] = name end
+      end
+      return role.stations.set(values.name, members)
+    end,
+    extra = {
+      { id = "loeschen", label = "Loeschen", kind = "danger", run = function(v, g) local ok, err = role.stations.remove(g.name) return ok and "Bahnhof geloescht (die Gleise bleiben)." or err end },
+      { id = "sperren", label = "Sperre", run = function(v, g)
+          local name = g.members[1]
+          local ok, err = role.set_closed(name, not closed[name])
+          return ok and (name .. (closed[name] and " ist gesperrt." or " ist frei.")) or err
+        end },
+    },
+  })
+
+  -- Linien im Takt -------------------------------------------------------------------------------------------------------------------
+  pages[#pages + 1] = forms.page({
+    id = "linien", title = "Linien", empty = "Noch keine Linie. Eine Linie fuehrt eine Vorlage im Takt aus.", new_label = "Neu",
+    items = function()
+      local items, records = {}, {}
+      for i, line in ipairs(role.lines.list()) do
+        local text = line.title .. " alle " .. line.interval .. " s" .. (line.priority == "bevorzugt" and " (bevorzugt)" or "") .. (line.active and "" or " [aus]")
+        local detail = "naechster Termin in " .. math.max(0, math.floor(line.next_due - now())) .. " s, ausgelassen " .. line.missed
+        if line.note then detail = detail .. ": " .. line.note end
+        items[i] = { text = text, detail = detail, kind = line.active and "text" or "dim" }
+        records[i] = line
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "id", label = "Kennung (z.B. pendel)", max = 16, width = 24 },
+      { id = "title", label = "Titel", max = 30, width = 34 },
+      { id = "template", label = "Vorlage (Kennung)", max = 16, width = 24 },
+      { id = "trains", label = "Zuege (Kennungen mit ; trennen)", max = 80, width = 48 },
+      { id = "interval", label = "Takt in Sekunden (Betriebszeit)", max = 6, width = 12, default = "300" },
+      { id = "priority", label = "Prioritaet: normal oder bevorzugt", max = 10, width = 14, default = "normal" },
+    },
+    edit = function(line) return { id = line.id, title = line.title, template = line.template, trains = table.concat(line.trains, "; "), interval = line.interval, priority = line.priority } end,
+    on_save = function(values)
+      local trains = {}
+      for part in (values.trains or ""):gmatch("[^;]+") do
+        local id = part:match("^%s*(.-)%s*$")
+        if id ~= "" then trains[#trains + 1] = id end
+      end
+      for _, id in ipairs(trains) do
+        if not role.register.get(id) then return nil, "Der Zug " .. id .. " ist nicht angemeldet." end
+      end
+      if not role.orders.template(values.template) then return nil, "Die Vorlage " .. tostring(values.template) .. " gibt es nicht." end
+      return role.lines.set({ id = values.id, title = values.title, template = values.template, trains = trains, interval = tonumber(values.interval), priority = values.priority ~= "" and values.priority or "normal" })
+    end,
+    extra = {
+      { id = "aus", label = "Ein/Aus", run = function(v, line)
+          line.active = not line.active
+          role.lines.save()
+          return line.active and "Linie laeuft." or "Linie angehalten: keine neuen Termine."
+        end },
+      { id = "loeschen", label = "Loeschen", kind = "danger", run = function(v, line) local ok, err = role.lines.remove(line.id) return ok and "Linie geloescht (laufende Auftraege bleiben)." or err end },
+    },
+  })
+
+  -- Tafel: Plan und Ist getrennt ------------------------------------------------------------------------------------------------------
+  pages[#pages + 1] = {
+    id = "tafel", title = "Tafel",
+    render = function(v, rect)
+      local rows = role.board()
+      if #rows == 0 then
+        W.label(v, rect.x + 1, rect.y + 1, "Noch keine Linie. Die Tafel zeigt Plan (Termin) und Ist (Zug) getrennt.", "dim", rect.w - 2)
+        return
+      end
+      local y = rect.y
+      for _, row in ipairs(rows) do
+        if y + 1 > rect.y + rect.h - 1 then break end
+        W.label(v, rect.x + 1, y, row.title .. (row.active and "" or " [aus]"), "hell", rect.w - 2)
+        W.label(v, rect.x + 1, y + 1, "Plan:  naechster Termin in " .. math.max(0, math.floor(row.in_seconds)) .. " s (alle " .. row.interval .. " s)" .. (row.missed > 0 and (", ausgelassen " .. row.missed) or ""), "text", rect.w - 2)
+        local ist = "kein Zug unterwegs"
+        local kind = "dim"
+        if row.order then
+          ist = row.order.train .. ": " .. (STATE_TEXT[row.order.state] or row.order.state) .. " (Halt " .. math.min(row.order.leg, row.order.legs) .. "/" .. row.order.legs .. ")"
+          kind = STATE_KIND[row.order.state] or "text"
+        end
+        if y + 2 <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y + 2, "Ist:   " .. ist, kind, rect.w - 2) end
+        y = y + 4
       end
     end,
   }

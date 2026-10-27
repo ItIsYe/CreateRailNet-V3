@@ -29,6 +29,13 @@ local TERMINAL = { abgeschlossen = true, abgelehnt = true, storniert = true }
 local CANCELABLE = { angefordert = true, in_pruefung = true, wartend = true, vorbereitet = true }
 
 -- "Weizenhof:5:640; Zentrallager:3" -> Halte { station, wait, cargo = { count } }; Menge ist optional
+-- Reihenfolge konkurrierender Auftraege (12.2): "bevorzugt" hat einen Vorsprung in Sekunden; mit der Wartezeit holt ein normaler Auftrag auf
+M.PRIORITY_BONUS = 120
+function M.rank(order, now)
+  local waited = now - (order.created or now)
+  return waited + (order.priority == "bevorzugt" and M.PRIORITY_BONUS or 0)
+end
+
 function M.parse_stops(text)
   local stops = {}
   for part in (text or ""):gmatch("[^;]+") do
@@ -88,6 +95,17 @@ function M.new(opts)
     return true
   end
 
+  function o.set_priority(id, priority)
+    local template = data.templates[id]
+    if not template then return nil, "Unbekannte Vorlage." end
+    if priority ~= "normal" and priority ~= "bevorzugt" then return nil, "Die Prioritaet ist normal oder bevorzugt." end
+    local previous = template.priority
+    template.priority = priority
+    local ok, err = o.save()
+    if not ok then template.priority = previous return nil, err end
+    return true
+  end
+
   function o.templates()
     local ids = {}
     for id in pairs(data.templates) do ids[#ids + 1] = id end
@@ -134,7 +152,9 @@ function M.new(opts)
   end
 
   -- liefert den Auftrag und ob er neu ist
-  function o.request(template_id, request_id)
+  -- extra: { train = Zugkennung (sonst der Zug der Vorlage), priority = "normal" | "bevorzugt", source = "bedarf" | "linie" }
+  function o.request(template_id, request_id, extra)
+    extra = extra or {}
     local template = data.templates[template_id]
     if not template then return nil, "Unbekannte Vorlage." end
     if request_id then
@@ -142,13 +162,15 @@ function M.new(opts)
         if order.request_id == request_id then return order, false end
       end
     end
-    local running = o.active_for(template_id)
-    if running then return running, false end
+    local train = extra.train or template.train
+    for _, running in ipairs(o.active()) do
+      if running.template == template_id and running.train == train then return running, false end
+    end
     data.counter = data.counter + 1
     local order = {
-      id = "A-" .. data.counter, number = data.counter, template = template_id, train = template.train, state = "angefordert",
-      request_id = request_id, created = opts.now(), since = opts.now(), leg = 0,
-      history = { { state = "angefordert", t = opts.now() } },
+      id = "A-" .. data.counter, number = data.counter, template = template_id, train = train, state = "angefordert",
+      request_id = request_id, created = opts.now(), since = opts.now(), leg = 0, priority = extra.priority or template.priority or "normal",
+      source = extra.source or "bedarf", history = { { state = "angefordert", t = opts.now() } },
     }
     data.orders[order.id] = order
     prune()

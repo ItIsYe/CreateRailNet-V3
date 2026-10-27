@@ -25,6 +25,7 @@ function M.new(node)
   local persisted = node.store.load(STATE_FILE) or { tracks = {} }
   persisted.tracks = persisted.tracks or {}
   local hello_acked, last_hello, last_beat = false, -9999, -9999
+  local board = { rows = nil, asked = -9999, shown = -9999, answered = nil }    -- Tafelantwort der Leitstelle (Seite "Tafel")
   local dirty_report = false
   local confirm_reset = {}
 
@@ -191,6 +192,7 @@ function M.new(node)
     if node.net == nil then return end
     local t = now()
     if t - last_hello >= (hello_acked and 120 or HELLO_REPEAT) then role.hello() end
+    if t - board.shown < 30 and t - board.asked >= 10 then role.query_board() end
     for _, tr in ipairs(role.tracks) do reconcile(tr) end
     if dirty_report or t - last_beat >= HEARTBEAT then send_state() end
   end
@@ -271,7 +273,8 @@ function M.new(node)
     if not station_name then return reply(m, "abgelehnt", { grund = "Der Bahnhofsname ist nicht lesbar." }) end
     local wanted = schedulelib.waiting(station_name, p.wait or 0)
     local current = tr.station.schedule()
-    local known = current ~= nil and (schedulelib.same(current, wanted) or current_matches(tr, tr.p.order_schedule))
+    -- bekannt: schon der Warteauftrag, der eigene Auftragsfahrplan dieses Gleises oder der Fahrplan, dessen Kennung die Leitstelle nennt (Rueckkehr auf ein anderes Gleis)
+    local known = current ~= nil and (schedulelib.same(current, wanted) or current_matches(tr, tr.p.order_schedule) or (p.expect ~= nil and schedulelib.hash(current) == p.expect))
     if not known and not p.handover and state.has_schedule then
       return reply(m, "abgelehnt", { grund = "Ausgangslage unklar: der Zug hat einen unbekannten Fahrplan (Uebergabe noetig).", klaerung = true })
     end
@@ -358,6 +361,10 @@ function M.new(node)
     if status ~= "ok" then return end
     if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "hallo" then
       hello_acked = true
+      return
+    end
+    if m.messageType == "bestaetigung" and m.payload.rows and m.correlationId == board.request then
+      board.rows, board.answered = m.payload.rows, now()
       return
     end
     if m.messageType ~= "auftrag" and m.messageType ~= "abfrage" then return end
@@ -449,6 +456,42 @@ function M.new(node)
       end
     end,
   }
+
+  -- Tafel: Plan und Ist der Linien, die diesen Bahnhof bedienen (Antwort der Leitstelle); nur abgefragt, solange die Seite gezeigt wird ---------
+  local function query_board()
+    local tr = role.tracks[1]
+    if not tr or not tr.station_name then return end
+    local m = node.send_to(central(), "abfrage", { kind = "tafel", station = tr.station_name })
+    board.asked, board.request = now(), m and m.messageId
+  end
+
+  role.query_board = query_board
+  local gleise_page = role.page
+  role.page = nil
+  role.pages = { gleise_page, {
+    id = "tafel", title = "Tafel",
+    render = function(v, rect)
+      board.shown = now()
+      local tr = role.tracks[1]
+      W.label(v, rect.x + 1, rect.y, tr and tr.station_name and ("Tafel " .. tr.station_name) or "Tafel", "hell", rect.w - 2)
+      if not board.rows then
+        W.label(v, rect.x + 1, rect.y + 2, board.asked > -9999 and "Warte auf die Leitstelle ..." or "Noch keine Daten.", "dim", rect.w - 2)
+        return
+      end
+      if #board.rows == 0 then W.label(v, rect.x + 1, rect.y + 2, "Keine Linie bedient diesen Bahnhof.", "dim", rect.w - 2) return end
+      local y = rect.y + 2
+      for _, row in ipairs(board.rows) do
+        if y + 2 > rect.y + rect.h - 1 then break end
+        local left = math.max(0, math.floor(row.in_seconds - (now() - (board.answered or now()))))
+        W.label(v, rect.x + 1, y, row.title .. (row.active and "" or " [aus]"), "hell", rect.w - 2)
+        W.label(v, rect.x + 1, y + 1, "Plan: naechster Termin in " .. left .. " s", "text", rect.w - 2)
+        local ist, kind = "kein Zug unterwegs", "dim"
+        if row.order then ist, kind = row.order.train .. ": " .. row.order.state .. " (Halt " .. math.min(row.order.leg, row.order.legs) .. "/" .. row.order.legs .. ")", "text" end
+        W.label(v, rect.x + 1, y + 2, "Ist:  " .. ist, kind, rect.w - 2)
+        y = y + 4
+      end
+    end,
+  } }
 
   -- Start -------------------------------------------------------------------------------------------------------------------------------
   refresh_names()

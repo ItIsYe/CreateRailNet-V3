@@ -46,17 +46,7 @@ local function add_template(z)
   }), true)
 end
 
-local function open_page(w, id)
-  local v = w.view()
-  for _ = 1, 8 do
-    if v.touch.find and v.touch.find("nav:" .. id) then break end
-    local ok = pcall(w.tap, v, "nav:" .. id)
-    if ok then return v end
-    w.tap(v, "navscroll:next")
-  end
-  w.tap(v, "nav:" .. id)
-  return v
-end
+local open_page = H.open_page
 
 local function states_of(order)
   local out = {}
@@ -174,7 +164,7 @@ return {
     w.node.roles.anmeldung.press("weizen")
     local order
     t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.active_for("weizen") return order and order.state == "wartend" end, 30))
-    t.contains(order.reason, "Ziel Zentrallager nicht erreichbar")
+    t.contains(order.reason, "Zentrallager: nicht erreichbar")
     t.contains(order.reason, "no-target")
     t.eq(w.world.devices["Create_Station_1"].state.sets, 1, "es wurde nichts uebergeben")
     w.world.devices["Create_Station_1"].state.known = { Zentrallager = 100, Weizenhof = 0 }

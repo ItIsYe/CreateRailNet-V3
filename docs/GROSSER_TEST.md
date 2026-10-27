@@ -82,3 +82,27 @@ Aufbau (drei Computer, alle mit Funkmodem, alle mit `installer` auf die gleiche 
 | 4.20 | Messprogramm `crn_probe` oder Create-Fahrplananzeige: bei 4.4 und 4.8 den Zugfahrplan ansehen | Pro Eintrag eine Bedingungsgruppe, die letzte Bedingung ist "Redstone-Signal an"; keine Alternative, die die Freigabe umgeht | |
 
 Hinweis fuer den Test: Bei 4.9/4.10 hatte die Messung (M12) bisher nur die Zeit-Bedingung gezeigt; ob `create:powered` mit leerem Datenfeld in Create akzeptiert wird und ob Mengenbedingung + Redstone in einer Gruppe in dieser Reihenfolge arbeiten, ist genau das, was dieser Test klaeren soll. Bitte bei Abweichung den Fahrplan (4.20) und die Meldungen der Leitstelle schicken.
+
+## Stufe 5: Zweiter Bahnhof, mehrere Gleise, Linien und Takt, Tafel
+
+Aufbau: wie Stufe 4, dazu ein **Personen-/Hauptbahnhof mit drei Haltegleisen** (`hbf`, Rolle "Passagierbahnhof"; drei Create-Bahnhoefe "Hbf Gleis 1" bis "Hbf Gleis 3", jedes Gleis mit eigenem Freigabeausgang und - falls bekannt - der Gleislaenge in Wagen im Assistenten). Beide Zuege (`GZ-001`, ein zweiter angemeldeter Zug) stehen auf Gleisen des Hauptbahnhofs. Das Gleisnetz verbindet alle Gleise mit dem Zentrallager. Fuer die Anmeldung weiterer Zuege am Hauptbahnhof muss dort eine Anmeldestation gewaehlt sein (Rolle "Anmeldung").
+
+| Nr | Schritt | Erwartung | Ergebnis |
+|---|---|---|---|
+| 5.1 | Leitstelle, Seite "Bahnhoefe", "Neu": Name `Hauptbahnhof`, Gleise `Hbf Gleis 1; Hbf Gleis 2; Hbf Gleis 3` (das bevorzugte zuerst), "Speichern" | Der Bahnhof steht in der Liste mit den drei Gleisen. Ein Gleis in zwei Bahnhoefen wird abgelehnt ("gehoert schon zum Bahnhof ...") | |
+| 5.2 | Seite "Vorlagen", "Neu": Kennung `pendel`, Zug `GZ-001`, Halte `Hauptbahnhof:0; Zentrallager:20`, "Speichern" | Vorlage steht in der Liste (Bahnhofsgruppen und einzelne Bahnhoefe sind als Halte erlaubt) | |
+| 5.3 | "Anfordern" mit dem Zug auf **Gleis 2** | Im Fahrplan des Zuges steht Start "Hbf Gleis 2", Ziel "Zentrallager", danach das **bevorzugte freie Gleis** des Hauptbahnhofs (Gleis 1). Die Fahrt laeuft bis "abgeschlossen"; der Zug wartet danach auf Gleis 1 mit dem Warteauftrag | |
+| 5.4 | Dasselbe, waehrend ein anderer Zug auf Gleis 1 steht | Rueckfahrt zu Gleis 2 (oder 3), nie auf das belegte Gleis; im Auftrag steht kein Fehler | |
+| 5.5 | Seite "Bahnhoefe", Eintrag waehlen, "Sperre" (sperrt das erste Gleis) und eine Fahrt anfordern | Das gesperrte Gleis wird nicht zugewiesen; "Sperre" nochmal hebt die Sperre auf. Ein Zug, der schon auf dem gesperrten Gleis steht, bleibt unberuehrt | |
+| 5.6 | Bei der Laenge: ein Gleis kuerzer als der Zug (im Assistenten Gleislaenge eintragen) | Dieses Gleis wird als Ziel uebersprungen ("zu kurz") | |
+| 5.7 | Alle Gleise des Hauptbahnhofs belegen oder sperren und eine Fahrt anfordern | Auftrag "wartet" mit Begruendung je Gleis; sobald eins frei ist, geht es von selbst weiter (spaetestens nach 10 s) | |
+| 5.8 | Zwei Zuege mit je einer Vorlage zum selben Zielbahnhof anfordern (gleiche Sekunde) | Beide Fahrten kommen zustande; der zweite Zug wartet, bis das Ziel frei ist ("dem Auftrag A-n zugewiesen"), danach faehrt er | |
+| 5.9 | Vorlage waehlen, "Prio" (bevorzugt) und zwei Fahrten konkurrieren | Die bevorzugte bekommt das Zielgleis zuerst; ein normaler Auftrag, der schon laenger als 2 Minuten wartet, wird nicht dauernd verdraengt | |
+| 5.10 | Seite "Linien", "Neu": Kennung `pendel`, Titel `Pendel`, Vorlage `pendel`, Zuege `GZ-001; GZ-002`, Takt `120`, "Speichern" | Erster Termin nach 120 s; die Liste zeigt "naechster Termin in ... s" | |
+| 5.11 | 10 Minuten laufen lassen | Jeder Termin erzeugt genau einen Auftrag (Seite "Auftraege": Quelle Linie); die beiden Zuege wechseln sich ab; ist kein Zug bereit, steht "Termin ausgelassen: kein Zug bereit am Start" und der Zaehler "ausgelassen" steigt, ohne dass Fahrten nachgeholt werden | |
+| 5.12 | "Ein/Aus" bei der Linie | Ausgeschaltet entstehen keine neuen Termine; laufende Fahrten bleiben | |
+| 5.13 | Leitstelle waehrend einer Linienfahrt neu starten | Die Fahrt laeuft weiter; nach dem Start kommt kein Schwall an Terminen, sondern hoechstens einer, falls einer faellig war | |
+| 5.14 | Seite "Tafel" auf der Leitstelle und auf den Bahnhofs-Nodes | Zwei getrennte Zeilen je Linie: **Plan** (naechster Termin in ... s) und **Ist** (Zug, Zustand, Halt k/n) | |
+| 5.15 | Zug bei einer Linienfahrt auf ein anderes Gleis des Ziels umleiten (Create-Eingriff) | Ankunft "an unerwarteter Station" -> Auftrag "KLAERUNG erforderlich", kein stiller Erfolg | |
+
+Zu 5.x: Die Fahrzeit der Linien wird in dieser Stufe nicht geschaetzt; die Tafel zeigt deshalb nur den Plan-Termin der Abfahrt und den gemeldeten Ist-Stand, keine geschaetzte Ankunftszeit.

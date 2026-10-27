@@ -13,6 +13,17 @@ local storelib = require("core.store")
 
 local H = {}
 
+-- Seite im Terminal oeffnen, notfalls durch Blaettern der Reiter
+function H.open_page(d, id)
+  local v = d.view()
+  for _ = 1, 12 do
+    if pcall(d.tap, v, "nav:" .. id) then return v end
+    d.tap(v, "navscroll:next")
+  end
+  d.tap(v, "nav:" .. id)
+  return v
+end
+
 function H.new(opts)
   opts = opts or {}
   local h = { nodes = {}, order = {}, bus = busLib.new(opts.bus), t = 0 }
@@ -38,6 +49,7 @@ function H.new(opts)
       device_ids[track.name] = model.add_device(config, "station", device_names[track.name])
       model.assign(config, tid, "station", device_ids[track.name])
       if track.release_side then config.tracks[tid].release = { side = track.release_side } end
+      if track.length then config.tracks[tid].length = track.length end
       track.tid = tid
     end
     if spec.registration then config.registration_station = device_ids[spec.registration] end
