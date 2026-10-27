@@ -7,16 +7,18 @@ return {
   modules = {
     core = { "core/version.lua", "core/adler.lua", "core/ser.lua", "core/store.lua", "core/journal.lua", "core/clock.lua", "core/ticker.lua", "core/msg.lua", "core/net.lua" },
     dev = { "dev/detect.lua", "dev/station.lua", "dev/signal.lua", "dev/observer.lua", "dev/out.lua", "dev/events.lua", "dev/bind.lua" },
-    app = { "app/main.lua", "app/selftest.lua" },
+    ui = { "ui/palette.lua", "ui/canvas.lua", "ui/layout.lua", "ui/touch.lua", "ui/keymap.lua", "ui/widgets.lua", "ui/view.lua" },
+    setup = { "setup/model.lua", "setup/wizard.lua", "setup/page.lua" },
+    app = { "app/main.lua", "app/selftest.lua", "app/node.lua" },
   },
   -- Rollen nach Konzept Kapitel 4; in Stufe 0 haben alle dieselben Module
   roles = {
-    zentrale = { "core", "dev", "app" },
-    passagierbahnhof = { "core", "dev", "app" },
-    gueterbahnhof = { "core", "dev", "app" },
-    depot = { "core", "dev", "app" },
-    signal = { "core", "dev", "app" },
-    knoten = { "core", "dev", "app" },
-    anmeldung = { "core", "dev", "app" },
+    zentrale = { "core", "dev", "ui", "setup", "app" },
+    passagierbahnhof = { "core", "dev", "ui", "setup", "app" },
+    gueterbahnhof = { "core", "dev", "ui", "setup", "app" },
+    depot = { "core", "dev", "ui", "setup", "app" },
+    signal = { "core", "dev", "ui", "setup", "app" },
+    knoten = { "core", "dev", "ui", "setup", "app" },
+    anmeldung = { "core", "dev", "ui", "setup", "app" },
   },
 }

@@ -53,14 +53,17 @@ function M.info(env)
   return true
 end
 
--- Aufruf: main (Info) oder main selftest [...]
+-- Aufruf: main (Bedienoberflaeche des Nodes), main info, main selftest [...]
 function M.run(env, args)
   if args[1] == "selftest" then
     local rest = {}
     for i = 2, #args do rest[#rest + 1] = args[i] end
     return require("app.selftest").run(env, rest)
   end
-  return M.info(env)
+  if args[1] == "info" then return M.info(env) end
+  local node = require("app.node").new(env)
+  node.run()
+  return true
 end
 
 function M.real_env()
@@ -75,7 +78,13 @@ function M.real_env()
       end
     end
   end
-  return { fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, redstone = redstone, pull = pull }
+  return {
+    fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, redstone = redstone, pull = pull,
+    term = term.current and term.current() or term,
+    wrap = function(name) return peripheral.wrap(name) end,
+    start_timer = os.startTimer,
+    pull_event = function() return { os.pullEvent() } end,
+  }
 end
 
 if rawget(_G, "__CRN_TEST") then return M end
