@@ -1,6 +1,6 @@
 --[[
 Purpose: Startprogramm von CRN in Stufe 0: zeigt Version, Rolle, Dateiverzeichnis und freien Platz. Fahrbetrieb gibt es noch nicht; dieses Programm beweist nur, dass die Installation vollstaendig und startbar ist.
-API: main.run(env) mit env = { fs, print, root } (Tests geben Fakes mit); beim Start auf dem Computer laeuft run() mit der echten Umgebung.
+API: main.info(env) mit env = { fs, print, root }; main.run(env, args) fuer "selftest" (siehe app/selftest.lua); beim Start auf dem Computer laeuft run() mit der echten Umgebung (package.path zeigt auf /crn).
 ]]
 
 local M = {}
@@ -24,7 +24,7 @@ local function load_table(env, path)
   return nil
 end
 
-function M.run(env)
+function M.info(env)
   local root = env.root or "/crn"
   local say = env.print
   local manifest = load_table(env, root .. "/manifest.lua")
@@ -53,5 +53,31 @@ function M.run(env)
   return true
 end
 
+-- Aufruf: main (Info) oder main selftest [...]
+function M.run(env, args)
+  if args[1] == "selftest" then
+    local rest = {}
+    for i = 2, #args do rest[#rest + 1] = args[i] end
+    return require("app.selftest").run(env, rest)
+  end
+  return M.info(env)
+end
+
+function M.real_env()
+  local function pull(timeout)
+    local timer = os.startTimer(timeout)
+    while true do
+      local ev = { os.pullEvent() }
+      if ev[1] == "timer" and ev[2] == timer then return nil end
+      if ev[1] ~= "timer" then
+        os.cancelTimer(timer)
+        return ev
+      end
+    end
+  end
+  return { fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, pull = pull }
+end
+
 if rawget(_G, "__CRN_TEST") then return M end
-M.run({ fs = fs, print = print })
+package.path = "/crn/?.lua;/crn/?/init.lua;" .. package.path
+M.run(M.real_env(), { ... })
