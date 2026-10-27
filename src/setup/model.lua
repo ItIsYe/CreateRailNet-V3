@@ -182,7 +182,7 @@ function M.validate(config, scan)
   for id in pairs(config.tracks) do ids[#ids + 1] = id end
   table.sort(ids)
   local needs_station = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof") or has_role(config, "depot")
-  local needs_signals = has_role(config, "signal")
+  local needs_signals = has_role(config, "signal") or has_role(config, "knoten")
   for _, id in ipairs(ids) do
     local track = config.tracks[id]
     if track.name == "" then add("gleis_name", "Ein Gleis hat keinen Namen.") end
@@ -203,7 +203,16 @@ function M.validate(config, scan)
     for _, s in ipairs(track.signals) do claim(s, "Signal") end
     for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
     if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
-    if needs_signals and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+    if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+    if track.junction then
+      if not config.junction.connections[track.junction.connection] then
+        add("knoten_gleis", "Gleis " .. track.name .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")
+      elseif track.junction.role == "ein" and #track.signals == 0 then
+        add("knoten_gleis", "Einfahrtsgleis " .. track.name .. " braucht ein Signal, das die Einfahrt zusaetzlich sperrt.")
+      elseif #track.observers == 0 then
+        add("knoten_gleis", "Gleis " .. track.name .. " braucht einen Beobachter als Meldepunkt (Einfahrt erkennen, Raeumung nachweisen).")
+      end
+    end
     if track.release then
       local key = output_key(track.release)
       if outputs[key] then
@@ -224,6 +233,17 @@ function M.validate(config, scan)
     for i, move in ipairs(j.moves) do
       if not j.connections[move.from] or not j.connections[move.to] then add("knoten_verbindung", "Verbindung " .. i .. " nennt einen unbekannten Anschluss.") end
       if move.from == move.to then add("knoten_verbindung", "Verbindung " .. i .. " beginnt und endet am selben Anschluss.") end
+    end
+    -- jede Einfahrt braucht ein Einfahrtsgleis, jede Ausfahrt ein Ausfahrtsgleis mit Beobachter
+    local has_in, has_out = {}, {}
+    for _, track in pairs(config.tracks) do
+      if track.junction then
+        if track.junction.role == "ein" then has_in[track.junction.connection] = true else has_out[track.junction.connection] = true end
+      end
+    end
+    for i, move in ipairs(j.moves) do
+      if j.connections[move.from] and not has_in[move.from] then add("knoten_einfahrt", "Der Anschluss " .. move.from .. " hat kein Einfahrtsgleis mit Signal.") end
+      if j.connections[move.to] and not has_out[move.to] then add("knoten_ausfahrt", "Der Anschluss " .. move.to .. " hat kein Ausfahrtsgleis mit Beobachter (ohne ihn gibt es keine Raeumungsmeldung).") end
     end
     for i, conflict in ipairs(j.conflicts) do
       if #conflict.moves < 2 then add("knoten_konflikt", "Konfliktbereich " .. i .. " braucht mindestens zwei Verbindungen.") end

@@ -115,10 +115,10 @@ function M.new(node)
       end
     end
     -- "spaeter": neue Anfrage (eine wiederholte wuerde dieselbe Antwort bekommen)
-    if registration and registration.result and registration.result.status == "spaeter" and registration.tries < 24 and t - registration.sent >= RETRY_LATER then
-      local tries = registration.tries
+    if registration and registration.result and registration.result.status == "spaeter" and (registration.later or 0) < 24 and t - registration.sent >= RETRY_LATER then
+      local later = (registration.later or 0) + 1
       local m = role.submit_registration(registration.fields)
-      if m then registration.tries = tries + 1 end
+      if m then registration.later = later end
     end
   end
 

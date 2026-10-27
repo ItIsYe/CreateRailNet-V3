@@ -162,6 +162,20 @@ function M.new(opts)
     return true
   end
 
+  -- Knoten: Gleis gehoert zu einer Einfahrt oder Ausfahrt eines Anschlusses (nil = keinem)
+  function w.set_junction_link(id, link)
+    local track = w.config.tracks[id]
+    if not track then return false end
+    if link == nil then
+      track.junction = nil
+      return true
+    end
+    if not w.config.junction.connections[link.connection] then return false, "Unbekannter Anschluss." end
+    if link.role ~= "ein" and link.role ~= "aus" then return false, "Einfahrt oder Ausfahrt." end
+    track.junction = { connection = link.connection, role = link.role }
+    return true
+  end
+
   function w.set_direction(id, direction)
     local track = w.config.tracks[id]
     if not track then return false end

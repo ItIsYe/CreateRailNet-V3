@@ -9,8 +9,8 @@ return {
     dev = { "dev/detect.lua", "dev/station.lua", "dev/signal.lua", "dev/observer.lua", "dev/out.lua", "dev/events.lua", "dev/bind.lua" },
     ui = { "ui/palette.lua", "ui/canvas.lua", "ui/layout.lua", "ui/touch.lua", "ui/keymap.lua", "ui/widgets.lua", "ui/forms.lua", "ui/view.lua" },
     setup = { "setup/model.lua", "setup/wizard.lua", "setup/page.lua" },
-    domain = { "domain/schedule.lua", "domain/register.lua", "domain/orders.lua", "domain/stations.lua", "domain/lines.lua" },
-    roles = { "roles/station.lua", "roles/zentrale.lua", "roles/anmeldung.lua" },
+    domain = { "domain/schedule.lua", "domain/register.lua", "domain/orders.lua", "domain/stations.lua", "domain/lines.lua", "domain/areas.lua" },
+    roles = { "roles/station.lua", "roles/zentrale.lua", "roles/anmeldung.lua", "roles/signal.lua", "roles/knoten.lua" },
     app = { "app/main.lua", "app/selftest.lua", "app/node.lua" },
   },
   -- Rollen nach Konzept Kapitel 4; in Stufe 0 haben alle dieselben Module

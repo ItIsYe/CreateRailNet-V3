@@ -357,9 +357,14 @@ function M.new(env)
   local attached = {}
   function n.attach_roles()
     for _, entry in ipairs(attached) do
-      for _, list in ipairs({ "on_event", "on_message", "tick", "pages" }) do
+      for _, list in ipairs({ "on_event", "on_message", "tick" }) do
         for i = #n.hooks[list], 1, -1 do
           if n.hooks[list][i] == entry[list] then table.remove(n.hooks[list], i) end
+        end
+      end
+      for _, page in ipairs(entry.page_list) do
+        for i = #n.hooks.pages, 1, -1 do
+          if n.hooks.pages[i] == page then table.remove(n.hooks.pages, i) end
         end
       end
     end
@@ -368,25 +373,34 @@ function M.new(env)
     if not n.config or n.config.status ~= "aktiv" or not n.net then return end
     local modules = {}
     for _, role in ipairs(n.config.node.roles) do
-      if role == "passagierbahnhof" or role == "gueterbahnhof" then modules.station = "roles.station"
+      if role == "passagierbahnhof" or role == "gueterbahnhof" or role == "depot" then modules.station = "roles.station"
       elseif role == "zentrale" then modules.zentrale = "roles.zentrale"
-      elseif role == "anmeldung" then modules.anmeldung = "roles.anmeldung" end
+      elseif role == "anmeldung" then modules.anmeldung = "roles.anmeldung"
+      elseif role == "signal" or role == "knoten" then modules.signal = "roles.signal"
+        if role == "knoten" then modules.knoten = "roles.knoten" end
+      end
     end
+    -- feste Reihenfolge: der Knoten braucht den Signal-Dienst, der vor ihm entstehen muss
     local names = {}
-    for name in pairs(modules) do names[#names + 1] = name end
-    table.sort(names)
+    for _, name in ipairs({ "station", "zentrale", "anmeldung", "signal", "knoten" }) do
+      if modules[name] then names[#names + 1] = name end
+    end
     for _, name in ipairs(names) do
-      local ok, obj = pcall(function() return require(modules[name]).new(n) end)
+      local ok, obj = pcall(function()
+        if name == "knoten" then return require(modules[name]).new(n, n.roles.signal) end
+        return require(modules[name]).new(n)
+      end)
       if not ok then
         n.notify("fehler", "Rolle " .. name .. " konnte nicht starten: " .. tostring(obj))
       else
         n.roles[name] = obj
-        local entry = { on_event = obj.on_event, on_message = obj.on_message, tick = obj.tick, pages = obj.page }
+        local entry = { on_event = obj.on_event, on_message = obj.on_message, tick = obj.tick, page_list = {} }
         if obj.on_event then n.hooks.on_event[#n.hooks.on_event + 1] = obj.on_event end
         if obj.on_message then n.hooks.on_message[#n.hooks.on_message + 1] = obj.on_message end
         if obj.tick then n.hooks.tick[#n.hooks.tick + 1] = obj.tick end
-        if obj.pages then for _, p in ipairs(obj.pages) do n.hooks.pages[#n.hooks.pages + 1] = p end end
-        if obj.page then n.hooks.pages[#n.hooks.pages + 1] = obj.page end
+        for _, p in ipairs(obj.pages or {}) do entry.page_list[#entry.page_list + 1] = p end
+        if obj.page then entry.page_list[#entry.page_list + 1] = obj.page end
+        for _, p in ipairs(entry.page_list) do n.hooks.pages[#n.hooks.pages + 1] = p end
         attached[#attached + 1] = entry
       end
     end

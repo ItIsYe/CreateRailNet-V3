@@ -101,7 +101,8 @@ return {
     local c = model.new("K", { "knoten" }, { name = "N", central_id = "z" })
     c.junction.connections = { West = true, Ost = true }
     c.junction.moves = { { from = "Ost", to = "Ost" } }
-    local list = model.validate(c, {})
+    local list = {}
+    for _, p in ipairs(model.validate(c, {})) do if p.code == "knoten_verbindung" then list[#list + 1] = p end end
     t.eq(#list, 1)
     t.contains(list[1].text, "beginnt und endet am selben Anschluss")
   end },
@@ -171,6 +172,11 @@ return {
     t.contains(problem_codes(model.validate(c, {})), "knoten_anschluesse")
     c.junction.connections = { West = true, Ost = true, Sued = true }
     t.eq(#model.validate(c, {}), 0)
+    local function structure_problems()
+      local out = {}
+      for _, p in ipairs(model.validate(c, {})) do if p.code ~= "knoten_einfahrt" and p.code ~= "knoten_ausfahrt" then out[#out + 1] = p end end
+      return out
+    end
     c.junction.moves = { { from = "West", to = "Nord" }, { from = "Ost", to = "Ost" } }
     t.contains(problem_codes(model.validate(c, {})), "knoten_verbindung")
     c.junction.moves = { { from = "West", to = "Ost" }, { from = "Sued", to = "Ost" } }
@@ -179,7 +185,38 @@ return {
     c.junction.conflicts = { { moves = { 1, 7 } } }
     t.contains(problem_codes(model.validate(c, {})), "knoten_konflikt")
     c.junction.conflicts = { { moves = { 1, 2 } } }
-    t.eq(#model.validate(c, {}), 0)
+    t.eq(#structure_problems(), 0)
+    t.contains(problem_codes(model.validate(c, {})), "knoten_einfahrt", "ohne Einfahrtsgleis mit Signal ist der Knoten nicht betriebsfaehig")
+    t.contains(problem_codes(model.validate(c, {})), "knoten_ausfahrt")
+  end },
+  { "Knotenpunkt: Einfahrts- und Ausfahrtsgleise mit Signal und Beobachter machen ihn vollstaendig", function()
+    local w = world()
+    w.add_observer("Create_TrainObserver_2")
+    local wiz = start(w)
+    wiz.set_network("N", "z"); wiz.set_mode("join")
+    wiz.set_name("Abzweig"); wiz.toggle_role("knoten")
+    assert(wiz.next()); assert(wiz.next())
+    for _, name in ipairs({ "Create_Signal_5", "Create_TrainObserver_1", "Create_TrainObserver_2" }) do wiz.toggle_device(name) end
+    local ids = {}
+    for id, d in pairs(wiz.config.devices) do ids[d.device] = id end
+    wiz.add_connection("West"); wiz.add_connection("Ost")
+    wiz.add_move("West", "Ost")
+    local g_in = wiz.add_track("Westeinfahrt")
+    local g_out = wiz.add_track("Ostausfahrt")
+    t.eq(wiz.set_junction_link(g_in, { connection = "West", role = "ein" }), true)
+    t.eq(wiz.set_junction_link(g_out, { connection = "Ost", role = "aus" }), true)
+    local ok, why = wiz.set_junction_link(g_in, { connection = "Nord", role = "ein" })
+    t.eq(ok, false); t.contains(why, "Unbekannter Anschluss")
+    ok = wiz.set_junction_link(g_in, { connection = "West", role = "quer" })
+    t.eq(ok, false)
+    t.contains(problem_codes(wiz.warnings()), "knoten_gleis", "Einfahrt ohne Signal, Gleise ohne Beobachter")
+    wiz.toggle_track_device(g_in, "signals", ids.Create_Signal_5)
+    wiz.toggle_track_device(g_in, "observers", ids.Create_TrainObserver_1)
+    wiz.toggle_track_device(g_out, "observers", ids.Create_TrainObserver_2)
+    t.eq(problem_codes(wiz.warnings()), "", "vollstaendig")
+    wiz.set_junction_link(g_in, nil)
+    t.eq(wiz.config.tracks[g_in].junction, nil)
+    t.contains(problem_codes(wiz.warnings()), "knoten_einfahrt")
   end },
   { "Anmeldung braucht eine Station", function()
     local c = model.new("A", { "anmeldung" }, { name = "N", central_id = "z" })
@@ -372,7 +409,9 @@ return {
     t.eq(ok, false); t.contains(why, "schon eingetragen")
     ok = wiz.add_conflict(1, 1)
     t.eq(ok, false)
-    t.eq(#wiz.warnings(), 0, problem_codes(wiz.warnings()))
+    for _, p in ipairs(wiz.warnings()) do
+      t.ok(p.code == "knoten_einfahrt" or p.code == "knoten_ausfahrt", "unerwartetes Problem: " .. p.code)
+    end
     wiz.remove_connection("Ost")
     t.eq(#wiz.config.junction.moves, 0, "Verbindungen ueber den entfernten Anschluss fallen weg")
     t.eq(#wiz.config.junction.conflicts, 0)

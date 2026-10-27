@@ -197,11 +197,13 @@ return {
       while not finished do
         local fs, http, env = world()
         run(env, "depot", "v0.1.0")
-        run(env, "depot", "v0.1.0")
+        w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
+        -- Aktualisierung: eine Version da, die zweite kommt dazu; Rueckkehr: beide Versionen da (Platz fuer eine dritte Kopie gibt es nicht)
+        if action == "rollback" then run(env, "depot", "v0.2.0") end
         fs._state.ops = 0
         fs._state.crash_at = n
         local ok = pcall(function()
-          if action == "update" then run(env, "depot", "v0.1.0") else run(env, "--rollback") end
+          if action == "update" then run(env, "depot", "v0.2.0") else run(env, "--rollback") end
         end)
         fs._state.crash_at = nil
         if ok then finished = true end

@@ -182,7 +182,7 @@ return {
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
     d.restart()
     d.raw.v = 125
-    d.node.journal.begin("freigabe.setzen", { zug = "GZ-001" })
+    d.node.journal.begin("test.vorgang", { zug = "GZ-001" })      -- kein Vorgang, den eine Rolle beim Start abgleicht
     d.node.shutdown()
     d.restart()
     t.eq(d.node.config.node.name, "Depot Nord")
@@ -384,11 +384,13 @@ return {
     d.tap_row(v, "konflikt", "1: West")
     d.tap_row(v, "konflikt", "2: Sued")
     t.ok(d.has(v, "Konflikt eingetragen.") or d.has(v, "Anschluesse und Verbindungen"))
-    d.tap(v, "act:weiter")
+    d.tap(v, "act:weiter")                    -- Gleise
+    d.tap(v, "act:weiter")                    -- Test
     d.tap(v, "act:weiter")
     t.ok(d.has(v, "Schritt 6 von 6: Fertig"))
+    t.ok(d.has(v, "Einfahrtsgleis"), "Warnung: ein Knoten ohne Einfahrts- und Ausfahrtsgleise ist nicht betriebsfaehig\n" .. d.text(v))
     d.tap(v, "act:speichern")
-    t.eq(d.node.config.status, "aktiv")
+    t.eq(d.node.config.status, "entwurf", "nicht vollstaendig: nur als Entwurf gespeichert")
     t.eq(#d.node.config.junction.conflicts, 1)
   end },
   { "main startet die Laufzeit und beendet sich sauber, wenn das Programm abgebrochen wird", function()

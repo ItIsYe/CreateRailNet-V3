@@ -26,10 +26,11 @@ function M.new(services)
     seq[#seq + 1] = "2.name"
     seq[#seq + 1] = "3.geraete"
     local c = session.wiz.config
-    if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") or model.has_role(c, "signal") then
+    -- die Anschluesse des Knotens zuerst: die Gleise verweisen darauf
+    if model.has_role(c, "knoten") then seq[#seq + 1] = "4.knoten" end
+    if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") or model.has_role(c, "signal") or model.has_role(c, "knoten") then
       seq[#seq + 1] = "4.gleise"
     end
-    if model.has_role(c, "knoten") then seq[#seq + 1] = "4.knoten" end
     if model.has_role(c, "anmeldung") then seq[#seq + 1] = "4.anmeldung" end
     seq[#seq + 1] = "5.test"
     seq[#seq + 1] = "6.fertig"
@@ -317,12 +318,53 @@ function M.new(services)
     end,
     next = function(v)
       local c = session.wiz.config
-      if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then
+      if model.has_role(c, "knoten") then
+        push("4.g.anschluss")
+      elseif model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then
         push("4.g.bahnhof")
       elseif model.has_role(c, "signal") then
         push("4.g.signale")
       else
         push("4.g.ausgang")
+      end
+      return true
+    end,
+  }
+
+  -- Knoten: gehoert dieses Gleis zu einer Einfahrt (Signal haelt Zuege) oder zu einer Ausfahrt (Beobachter meldet die Raeumung)?
+  screens["4.g.anschluss"] = {
+    render = function(v, rect)
+      local t = session.wiz.config.tracks[session.track]
+      header(v, rect, nil, "Gehoert Gleis " .. t.name .. " zu einer Einfahrt oder Ausfahrt des Knotens?")
+      local j = session.wiz.config.junction
+      local names = {}
+      for name in pairs(j.connections) do names[#names + 1] = name end
+      table.sort(names)
+      local items = { { text = ((not t.junction) and "(o) " or "( ) ") .. "keinem Anschluss (normales Gleis)" } }
+      session.pick.anschluss = { false }
+      for _, name in ipairs(names) do
+        for _, role in ipairs({ "ein", "aus" }) do
+          local on = t.junction and t.junction.connection == name and t.junction.role == role
+          items[#items + 1] = { text = (on and "(o) " or "( ) ") .. name .. (role == "ein" and ": Einfahrt (Signal)" or ": Ausfahrt (Beobachter)") }
+          session.pick.anschluss[#items] = { connection = name, role = role }
+        end
+      end
+      W.list(v, "anschluss", body_rect(rect, 3), items, list_state(v, "anschluss"), { row_h = 1 })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:anschluss:(%d+)$")
+      if n then
+        local choice = session.pick.anschluss and session.pick.anschluss[tonumber(n)]
+        session.wiz.set_junction_link(session.track, choice or nil)
+        return true
+      end
+    end,
+    next = function(v)
+      local c = session.wiz.config
+      if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then
+        push("4.g.bahnhof")
+      else
+        push("4.g.signale")
       end
       return true
     end,

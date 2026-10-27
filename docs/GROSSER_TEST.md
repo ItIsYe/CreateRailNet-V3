@@ -106,3 +106,49 @@ Aufbau: wie Stufe 4, dazu ein **Personen-/Hauptbahnhof mit drei Haltegleisen** (
 | 5.15 | Zug bei einer Linienfahrt auf ein anderes Gleis des Ziels umleiten (Create-Eingriff) | Ankunft "an unerwarteter Station" -> Auftrag "KLAERUNG erforderlich", kein stiller Erfolg | |
 
 Zu 5.x: Die Fahrzeit der Linien wird in dieser Stufe nicht geschaetzt; die Tafel zeigt deshalb nur den Plan-Termin der Abfahrt und den gemeldeten Ist-Stand, keine geschaetzte Ankunftszeit.
+
+## Stufe 6: Signal-Node und Knotenpunkt
+
+**Wichtig vorab (Platz):** Eine installierte Version belegt jetzt rund 330 KB. Eine Aktualisierung braucht Platz fuer die neue Version neben der alten (und der Vorversion). Reicht der Platz nicht, sagt der Installer "Zu wenig Platz" und bietet im Dialog "Vorversion loeschen und Platz schaffen" an (oder `installer --drop-prev ROLLE`). Das ist beabsichtigt; danach ist die Rueckkehr zur Vorversion nicht mehr moeglich.
+
+Aufbau A (Signal-Node): ein Computer mit Rolle "Signal und Strecke", Kabelmodem mit mindestens zwei Signalen (eines davon an einer Stelle, an der ein Zug waehrend des Tests rot bekommen kann) und einem Beobachter; im Assistenten Schritt 4 jedem Gleis seine Signale und Beobachter zuordnen. Aufbau B (Knoten): ein Computer mit Rolle "Knotenpunkt" an einer T-Kreuzung; im Assistenten zuerst die Anschluesse (West, Ost, Sued), die Verbindungen (z.B. West->Ost, Sued->Ost, Ost->West) und die Konflikte eintragen, dann je Anschluss ein **Einfahrtsgleis** (Signal vor der Kreuzung + Beobachter an der Haltestelle vor dem Signal) und ein **Ausfahrtsgleis** (Beobachter hinter der Kreuzung, so dass er erst "train_passed" meldet, wenn das ganze Zug-Ende vorbei ist).
+
+| Nr | Schritt | Erwartung | Ergebnis |
+|---|---|---|---|
+| 6.1 | Signal-Node starten, Seite "Signale" und auf der Leitstelle Seite "Signale" | Alle Signale mit nativem Zustand (ROT/GRUEN) und "keine zusaetzliche Sperre" | |
+| 6.2 | Auf dem Signal-Node ein Signal waehlen, "Sperre" | Signal wird rot (Sichtpruefung am Signal); Seite zeigt "gesperrt, Sperre von bediener"; die Leitstelle zeigt es nach spaetestens 5 s | |
+| 6.3 | **A09**: Dasselbe, waehrend ein Zug vor dem Signal wartet (Signal ist schon rot), danach "Aufheben" (zweimal tippen) | Nach dem Aufheben bleibt das Signal rot, solange der Zug den Abschnitt belegt (native Rotursache); nur die zusaetzliche Sperre ist weg. Bitte genau notieren, wann es gruen wird | |
+| 6.4 | Leitstelle, Seite "Signale": "Sperre" und "Aufheben" | Wirkt wie 6.2, die Rueckmeldung "Sperre gesetzt." erscheint erst, wenn das Signal die Sperre zurueckgemeldet hat | |
+| 6.5 | Eine Sperre setzen, dann das Signal ueber Redstone/anderes von Hand sperren und die Software-Sperre aufheben | "Sperre von ..." ist weg, das Signal bleibt gesperrt und zeigt **FREMDE SPERRE**; die Software hebt sie nicht auf. "Aufheben" (zweimal tippen) hebt sie auf Wunsch auf | |
+| 6.6 | Signal-Node neu starten (`reboot`) mit gesetzter Sperre | Die Sperre bleibt stehen (kein Freigeben beim Start); Seite zeigt weiter den Besitzer | |
+| 6.7 | **A10**: Computer des Signal-Nodes mit Strg+T anhalten oder das Kabelmodem abziehen, Signal beobachten | Bitte notieren, ob die Sperre bestehen bleibt (Zustand `isForcedRed`/sichtbar). Das Konzept behauptet nichts; das Ergebnis kommt in docs/MESSWERTE.md | |
+| 6.8 | Signal im Spiel auf "INVALID" bringen (z.B. Block entfernen, falls moeglich) | Meldung "meldet INVALID" auf Node und Leitstelle, Signal als "GESTOERT" | |
+| 6.9 | Knoten starten | Alle Einfahrtssignale sind sofort zusaetzlich gesperrt (rot); Seite "Knoten": "Der Knoten ist frei (nachgewiesen)." | |
+| 6.10 | **A11**: Einen langen Zug aus West in Richtung Ost fahren lassen, ein zweiter Zug wartet an Sued | Der erste bekommt gruen (Signal West wird frei), nach dem Einfahren sofort wieder rot; Sued bleibt rot, bis der **ganze** erste Zug am Ost-Beobachter vorbei ist (auch wenn die Spitze schon laengst heraus ist). Dann wird Sued gruen | |
+| 6.11 | Zwei Zuege in unabhaengigen Richtungen (kein Konflikt eingetragen, getrennte Ausgaenge) | Beide bekommen gleichzeitig gruen | |
+| 6.12 | Beobachter-Ereignis fehlt (Beobachter kurz abziehen, waehrend ein Zug ausfaehrt) | Der Bereich bleibt belegt ("LANGE BELEGT" nach 5 Minuten), nichts wird allein wegen Zeit freigegeben. Seite "Knoten": die Nutzung waehlen, "Pruefen+frei" zweimal tippen, nachdem du den Bereich geprueft hast: der naechste Zug wird freigegeben, die Entscheidung steht im Protokoll | |
+| 6.13 | Knoten neu starten, waehrend ein Zug im Bereich ist | Einfahrten bleiben rot, der wartende Zug wird nicht leichtfertig freigegeben; nach dem Raeumungsnachweis geht es weiter | |
+| 6.14 | Ein Zug faehrt trotz Rot ueber den Einfahrtsbeobachter (z.B. Signal war defekt) | Meldung "eingefahren, ohne dass die Einfahrt freigegeben war"; andere Einfahrten bleiben gesperrt, bis er heraus ist | |
+| 6.15 | Seite "Netz"/Leitstelle: Knotennutzung | Die Leitstelle kennt die Nutzungen des Knotens (Meldung alle 5 s) | |
+
+Hinweis zu 6.10: Die Reihenfolge wartender Zuege am Knoten ist die der Ankuendigung (wer zuerst am Einfahrtsbeobachter erscheint). Prioritaeten der Leitstelle wirken hier noch nicht.
+
+## Stufe 7: Depot und manuelle Zuege
+
+Aufbau: wie Stufe 4 und zusaetzlich ein **Depot** (`depot1`, Rolle "Depot und Uebergabe", ein Gleis mit Create-Bahnhof "Depot Gleis 1" und Freigabeausgang). Der Zug `GZ-001` ist angemeldet und steht am Weizenhof. Die Leitstelle hat die Seiten "Depot" und "Fremde".
+
+| Nr | Schritt | Erwartung | Ergebnis |
+|---|---|---|---|
+| 7.1 | Leitstelle, Seite "Depot": `GZ-001` waehlen, "Abstellen", Station `Depot Gleis 1`, "Abstellen" | Normale Fahrt (Seite "Auftraege": "Abstellen GZ-001"), Zug faehrt ohne Rueckfahrt ins Depot und wartet dort. Danach "abgestellt" in der Liste, Ausgaenge aus | |
+| 7.2 | Leitstelle neu starten (`reboot`) | `GZ-001` bleibt "abgestellt"; es entsteht kein Auftrag. Bedarfstaste fuer diesen Zug: "nicht im gesteuerten Betrieb" | |
+| 7.3 | Eine Linie, die `GZ-001` einsetzt, mehrere Termine lang laufen lassen | Der abgestellte Zug wird nicht gestartet ("kein Zug bereit am Start") | |
+| 7.4 | Seite "Depot": `GZ-001` waehlen, "Aktivieren" | "Zug GZ-001 ist aktiv (gesteuert)." Zug ist wieder fuer Auftraege verfuegbar | |
+| 7.5 | Vor 7.4 am Depotgleis den Zug umbenennen oder einen anderen Fahrplan setzen, dann "Aktivieren" | Abgelehnt mit Grund (anderer Zugname bzw. Fahrplan entspricht nicht dem Warteauftrag); der Zug bleibt abgestellt | |
+| 7.6 | Waehrend ein Auftrag laeuft: "Ausschleusen" und "Abstellen" | Nicht moeglich ("laufender Auftrag") | |
+| 7.7 | Zug steht am Bahnhof ohne Auftrag: "Ausschleusen" (zweimal tippen) | Zustand "ausgeschleust", Betriebsart manuell; Hinweis, dass der Create-Fahrplan im Zug bleibt. Bedarfstaste/Linie fassen den Zug nicht mehr an | |
+| 7.8 | Ausgeschleusten Zug von Hand fahren lassen und an einem Bahnhof halten | Seite "Depot"/"Zuege": Position folgt den Meldungen (zuerst "unbekannt" unterwegs, dann der Bahnhof) | |
+| 7.9 | "Aufnehmen" (zweimal tippen), Zug steht am Bahnhof, von Hand mit anderem Fahrplan | Der vereinbarte Warteauftrag ersetzt den alten Fahrplan (Uebergabe ist bestaetigt); Zustand "gesteuert", Betriebsart "bedarf" | |
+| 7.10 | "Aufnehmen", obwohl der Zug nicht mehr am Gleis steht | Abgelehnt: "nicht nachgewiesen" | |
+| 7.11 | "Art" (Betriebsart) am Haltepunkt: bedarf -> linie -> manuell -> bedarf | Wechselt nur am Haltepunkt und nicht waehrend eines Auftrags | |
+| 7.12 | Fremden Zug (nicht registriert) in den Bahnhof fahren | Meldung "Unerwarteter Zug ..."; Seite "Fremde" zeigt ihn mit Ort; er wird keinem Auftrag zugeordnet; Zielwahl meidet das Gleis ("belegt von ...") | |
+| 7.13 | Fremden Zug wegfahren lassen, dann auf "Fremde" "Vergessen" | Erst danach moeglich; Belegungen anderer Nachweise bleiben unveraendert | |
