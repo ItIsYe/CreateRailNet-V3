@@ -6,16 +6,17 @@ Notes: Pfade sind relativ zu src/. Jede Datei unter src/ muss in genau einem Mod
 return {
   modules = {
     core = { "core/version.lua", "core/adler.lua", "core/ser.lua", "core/store.lua", "core/journal.lua", "core/clock.lua", "core/ticker.lua", "core/msg.lua", "core/net.lua" },
+    dev = { "dev/detect.lua", "dev/station.lua", "dev/signal.lua", "dev/observer.lua", "dev/out.lua", "dev/events.lua", "dev/bind.lua" },
     app = { "app/main.lua", "app/selftest.lua" },
   },
   -- Rollen nach Konzept Kapitel 4; in Stufe 0 haben alle dieselben Module
   roles = {
-    zentrale = { "core", "app" },
-    passagierbahnhof = { "core", "app" },
-    gueterbahnhof = { "core", "app" },
-    depot = { "core", "app" },
-    signal = { "core", "app" },
-    knoten = { "core", "app" },
-    anmeldung = { "core", "app" },
+    zentrale = { "core", "dev", "app" },
+    passagierbahnhof = { "core", "dev", "app" },
+    gueterbahnhof = { "core", "dev", "app" },
+    depot = { "core", "dev", "app" },
+    signal = { "core", "dev", "app" },
+    knoten = { "core", "dev", "app" },
+    anmeldung = { "core", "dev", "app" },
   },
 }

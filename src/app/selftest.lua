@@ -1,7 +1,7 @@
 --[[
 Purpose: Selbsttest des Kerns im Spiel (Stufe 1): prueft Uhr, sicheres Speichern, Journal und Funk auf dem echten Computer und zwischen zwei Computern. Schreibt nur in /crn_data/selftest und raeumt danach auf.
-API: selftest.run(env, args): args = {} (lokale Pruefungen), {"listen", node_id} (antwortet auf Pings), {"ping", eigene_id, ziel_id} (fuenf Pings mit Laufzeit in Spielsekunden)
-Notes: env = { fs, raw_clock, peripheral, rednet, pull(timeout) -> Ereignis oder nil, print, real_clock }.
+API: selftest.run(env, args): args = {} (lokale Pruefungen), {"geraete"[, "schreiben"]} (Create-Geraete lesen, auf Wunsch jedes Signal sperren und freigeben), {"listen", node_id} (antwortet auf Pings), {"ping", eigene_id, ziel_id} (fuenf Pings mit Laufzeit in Spielsekunden)
+Notes: env = { fs, raw_clock, peripheral, redstone, rednet, pull(timeout) -> Ereignis oder nil, print }.
 ]]
 
 local storelib = require("core.store")
@@ -10,6 +10,10 @@ local clocklib = require("core.clock")
 local tickerlib = require("core.ticker")
 local msg = require("core.msg")
 local netlib = require("core.net")
+local detect = require("dev.detect")
+local stationlib = require("dev.station")
+local signallib = require("dev.signal")
+local observerlib = require("dev.observer")
 
 local M = {}
 
@@ -141,11 +145,49 @@ function M.ping(env, node_id, target)
   return ok_count == 5
 end
 
+-- Geraetepruefung (Stufe 2): liest alle Create-Geraete; mit "schreiben" wird zusaetzlich jedes Signal kurz gesperrt und zurueckgestellt
+function M.devices(env, write)
+  local results = {}
+  env.print("Geraete am Computer")
+  local scan = detect.scan(env.peripheral)
+  for _, line in ipairs(detect.summary(scan)) do env.print("  " .. line) end
+  local counts = { station = 0, signal = 0, observer = 0 }
+  for _, d in ipairs(scan) do
+    if counts[d.kind] then counts[d.kind] = counts[d.kind] + 1 end
+    if d.kind == "station" then
+      check(env, results, "Methoden von " .. d.name, #detect.missing("station", d) == 0, table.concat(detect.missing("station", d), ","))
+      local state = stationlib.new(env, d.name).read()
+      check(env, results, "Bahnhof lesbar: " .. d.name, state.available == true and #state.errors == 0,
+        state.present and ("Zug " .. tostring(state.train)) or "kein Zug")
+    elseif d.kind == "signal" then
+      check(env, results, "Methoden von " .. d.name, #detect.missing("signal", d) == 0, table.concat(detect.missing("signal", d), ","))
+      local g = signallib.new(env, d.name)
+      local state = g.read()
+      check(env, results, "Signal lesbar: " .. d.name, state.available == true and state.forced ~= nil, tostring(state.state))
+      if write and state.available and state.forced == false then
+        local held = g.hold()
+        local released = g.release()
+        check(env, results, "Sperre setzen und zuruecklesen: " .. d.name, held.confirmed == true)
+        check(env, results, "Sperre aufheben und zuruecklesen: " .. d.name, released.confirmed == true)
+      end
+    elseif d.kind == "observer" then
+      check(env, results, "Methoden von " .. d.name, #detect.missing("observer", d) == 0)
+      check(env, results, "Beobachter lesbar: " .. d.name, observerlib.new(env, d.name).read().available == true)
+    end
+  end
+  check(env, results, "mindestens ein Create-Geraet", counts.station + counts.signal + counts.observer > 0)
+  local failed = 0
+  for _, r in ipairs(results) do if not r.ok then failed = failed + 1 end end
+  env.print(failed == 0 and "Alle Geraetepruefungen bestanden." or (failed .. " Pruefung(en) fehlgeschlagen."))
+  return failed == 0
+end
+
 function M.run(env, args)
+  if args[1] == "geraete" then return M.devices(env, args[2] == "schreiben") end
   if args[1] == "listen" and args[2] then return M.listen(env, args[2]) end
   if args[1] == "ping" and args[2] and args[3] then return M.ping(env, args[2], args[3]) end
   if args[1] == nil or args[1] == "local" then return M.local_checks(env) end
-  env.print("Aufruf: main selftest | main selftest listen ID | main selftest ping EIGENE_ID ZIEL_ID")
+  env.print("Aufruf: main selftest | main selftest geraete [schreiben] | main selftest listen ID | main selftest ping EIGENE_ID ZIEL_ID")
   return false
 end
 

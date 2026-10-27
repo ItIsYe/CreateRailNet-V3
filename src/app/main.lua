@@ -75,7 +75,7 @@ function M.real_env()
       end
     end
   end
-  return { fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, pull = pull }
+  return { fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, redstone = redstone, pull = pull }
 end
 
 if rawget(_G, "__CRN_TEST") then return M end
