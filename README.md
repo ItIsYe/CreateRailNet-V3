@@ -11,7 +11,7 @@ wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<VERSION>/install
 installer
 ```
 
-`installer` ohne Zusatz startet den Dialog und fragt Schritt fuer Schritt: Menue (installieren, pruefen, zur Vorversion zurueck), Version, Rolle, Zusammenfassung. Mit `z` geht es einen Schritt zurueck, mit `q` bricht man ab; erst nach `j` in der Zusammenfassung wird etwas veraendert.
+`installer` ohne Zusatz startet den Dialog und fragt Schritt fuer Schritt: Menue (installieren, pruefen, zur Vorversion zurueck), Version, Rolle, Zusammenfassung. Die Eingabetaste uebernimmt die markierte Vorgabe (zuletzt benutzte oder neueste veroeffentlichte Version, bisherige Rolle). Mit `z` geht es einen Schritt zurueck, mit `q` bricht man ab; erst nach `j` in der Zusammenfassung wird etwas veraendert.
 
 `<VERSION>` ist ein Tag, ein Commit oder ein Zweig. Ein beweglicher Zweig wie `main` wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
 
