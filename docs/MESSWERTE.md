@@ -29,6 +29,12 @@ Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: Compute
 - `os.epoch("ingame")` lieferte keine Veraenderung. Nicht verwenden.
 - Folge: Alle Zeitueberwachungen (Timeouts, Haltezeiten, Heartbeats) in Spielzeit (`os.clock`) rechnen und mit langsamer Spielzeit testen.
 
+## M17 Ausfallwirkung am Signal (A10, vom Betreiber gemessen)
+
+- Sobald das Modem direkt am Signal entfernt wird, faellt das Signal in seinen Ausgangszustand zurueck (zusaetzliche Software-Sperre ist weg). Ob der Computer dabei laeuft oder angehalten ist, spielt keine Rolle; allein das Modem am Signal zaehlt.
+- Folge: Eine Software-Sperre (`setForcedRed`) ist nur so haltbar wie diese eine Modemverbindung. Sie ist kein Notstopp. Der Signal-Node meldet ein verschwundenes Geraet als "nicht verfuegbar" (Leitstelle: Stoerung), und kommt das Signal zurueck, wird eine eigene Sperre durch den Abgleich schuetzend neu gesetzt.
+- Folge fuer den Knoten: Faellt ein Einfahrtssignal aus (Modem weg), ist die Einfahrt nicht mehr zusaetzlich gesperrt. Das ist eine Stoerung des Bereichs und wird angezeigt, nicht still hingenommen.
+
 ## Offen
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen.
