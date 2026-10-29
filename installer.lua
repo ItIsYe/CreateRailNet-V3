@@ -459,7 +459,7 @@ function M.wizard(env)
         default = "1"
       end
       for i, tag in ipairs(state.tags) do
-        local key = "v" .. i
+        local key = tostring(#entries + 1)
         entries[#entries + 1] = { key = key, text = tag .. (i == 1 and " (neueste veroeffentlichte Version)" or "") }
         refs[key] = tag
         if not default and i == 1 then default = key end
@@ -546,7 +546,7 @@ function M.wizard(env)
         show(env, "titel", "Zusammenfassung")
         say("  Rolle:    " .. state.role)
         say("  Version:  " .. m.version .. " (Stand " .. m.id .. ") von " .. state.source.ref)
-        say("  Dateien:  " .. #plan.paths .. ", " .. size_text(plan.need) .. " (frei " .. size_text(plan.free) .. ", danach etwa " .. size_text(math.max(0, plan.free - plan.need)) .. ")")
+        say("  Dateien:  " .. #plan.paths .. ", " .. size_text(plan.need) .. " (frei " .. size_text(plan.free) .. (plan.short and "" or (", danach etwa " .. size_text(plan.free - plan.need))) .. ")")
         if manifest then
           say("  Bisher:   Version " .. tostring(manifest.version) .. " wird zur Vorversion")
           if info and info.role and info.role ~= state.role then
