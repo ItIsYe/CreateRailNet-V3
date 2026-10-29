@@ -162,7 +162,7 @@ return {
       { "Zusammenfassung", { "q" } },
     })
     local out = env2.output()
-    t.contains(out, "bleibt unveraendert (gehoert zu einem anderen Programm)")
+    t.contains(out, "bleibt unveraendert (anderes Programm)")
     t.contains(out, "die Rolle wechselt von depot zu signal")
     t.contains(out, "wird zur Vorversion")
     t.contains(out, "(bisher)")
@@ -286,7 +286,7 @@ return {
       { "Jetzt starten?", { "" } },
     })
     t.eq(ok, true, env.output())
-    t.contains(env.output(), "v0.1.0 (neueste veroeffentlichte Version)")
+    t.contains(env.output(), "v0.1.0 (neueste Version)")
     t.contains(env.output(), "Bitte eine der angegebenen Eingaben waehlen")
     t.eq(env.started, 1, "Vorgabe beim Starten ist Ja")
     t.contains(env.output(), "Naechste Schritte")

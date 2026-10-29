@@ -120,6 +120,30 @@ local function show(env, kind, text)
   if env.paint then env.paint(kind, text) else env.print(text) end
 end
 
+-- mehrfarbige Zeile aus Teilen { art, text }; ohne Farbfaehigkeit schlicht zusammengesetzt
+local WIDTH = 51
+local function line(env, parts)
+  if env.paintline then return env.paintline(parts) end
+  local text = {}
+  for _, part in ipairs(parts) do text[#text + 1] = part[2] end
+  env.print(table.concat(text))
+end
+
+-- Kopf: farbiger Balken mit Name und Schritt, darunter die Frage
+local function header(env, title, step, total)
+  local right = step and ("Schritt " .. step .. " von " .. total) or ""
+  local left = " CRN Installer"
+  local gap = WIDTH - #left - #right - (right ~= "" and 1 or 0)
+  line(env, { { "balken", left .. string.rep(" ", math.max(1, gap)) .. right .. (right ~= "" and " " or "") } })
+  if title then line(env, { { "titel", " " .. title } }) end
+end
+
+local function kv(env, label, value, kind)
+  line(env, { { "dim", "  " .. label }, { kind or "text", value } })
+end
+
+local function rule(env) line(env, { { "dim", " " .. string.rep("-", WIDTH - 2) } }) end
+
 local function load_manifest(env, path)
   local text = read_all(env, path)
   if not text then return nil end
@@ -374,7 +398,10 @@ local function choose(env, entries, default)
   local keys = {}
   for _, entry in ipairs(entries) do
     keys[entry.key] = true
-    env.print(string.format(" %-2s %s%s", entry.key, entry.text, (default == entry.key) and "   <- Eingabetaste" or ""))
+    line(env, {
+      { "text", " " }, { "taste", string.format("[%s]", entry.key) }, { "text", string.rep(" ", 4 - #entry.key - 2) .. entry.text },
+      { "dim", (default == entry.key) and "  <- Enter" or "" },
+    })
   end
   while true do
     local answer = ask(env)
@@ -391,10 +418,10 @@ local function pause(env)
 end
 
 local function startup_text(env)
-  if not env.fs.exists("/startup.lua") then return "wird angelegt (CRN startet beim Einschalten)" end
+  if not env.fs.exists("/startup.lua") then return "wird angelegt (Start beim Einschalten)" end
   local text = read_all(env, "/startup.lua") or ""
   if text:sub(1, #MARK) == MARK then return "bleibt (gehoert zu CRN)" end
-  return "bleibt unveraendert (gehoert zu einem anderen Programm)"
+  return "bleibt unveraendert (anderes Programm)"
 end
 
 function M.wizard(env)
@@ -411,13 +438,14 @@ function M.wizard(env)
     if state.keep then state.keep = nil else clear_screen(env) end
 
     if step == "menu" then
-      show(env, "titel", "CRN Installer")
+      header(env, nil)
       if manifest then
         say("Installiert: Version " .. tostring(manifest.version) .. ", Rolle " .. tostring(info and info.role or "unbekannt"))
       else
         say("Noch nichts installiert.")
       end
-      say("Was moechten Sie tun?")
+      rule(env)
+      line(env, { { "titel", " Was moechten Sie tun?" } })
       local entries, actions = {}, {}
       local function add(action, text)
         local key = tostring(#entries + 1)
@@ -445,7 +473,8 @@ function M.wizard(env)
       end
 
     elseif step == "version" then
-      say("Welche Version soll installiert werden?")
+      header(env, "Welche Version soll installiert werden?", 1, 3)
+      rule(env)
       if state.tags == nil then
         say("(veroeffentlichte Versionen werden gesucht ...)")
         state.tags = M.list_tags(env)
@@ -460,11 +489,11 @@ function M.wizard(env)
       end
       for i, tag in ipairs(state.tags) do
         local key = tostring(#entries + 1)
-        entries[#entries + 1] = { key = key, text = tag .. (i == 1 and " (neueste veroeffentlichte Version)" or "") }
+        entries[#entries + 1] = { key = key, text = tag .. (i == 1 and " (neueste Version)" or "") }
         refs[key] = tag
         if not default and i == 1 then default = key end
       end
-      entries[#entries + 1] = { key = "m", text = "main (beweglich: der Inhalt kann sich aendern)" }
+      entries[#entries + 1] = { key = "m", text = "main (beweglich, kann sich aendern)" }
       entries[#entries + 1] = { key = "e", text = "Version, Tag oder Commit eingeben" }
       entries[#entries + 1] = { key = "z", text = "Zurueck" }
       entries[#entries + 1] = { key = "q", text = "Abbrechen" }
@@ -506,7 +535,8 @@ function M.wizard(env)
 
     elseif step == "role" then
       local source = state.source
-      say("Welche Rolle hat dieser Computer?")
+      header(env, "Welche Rolle hat dieser Computer?", 2, 3)
+      rule(env)
       local entries, roles = {}, {}
       local shown = {}
       local function add(role)
@@ -543,20 +573,22 @@ function M.wizard(env)
         state.keep = true
       else
         local m = state.source.manifest
-        show(env, "titel", "Zusammenfassung")
-        say("  Rolle:    " .. state.role)
-        say("  Version:  " .. m.version .. " (Stand " .. m.id .. ") von " .. state.source.ref)
-        say("  Dateien:  " .. #plan.paths .. ", " .. size_text(plan.need) .. " (frei " .. size_text(plan.free) .. (plan.short and "" or (", danach etwa " .. size_text(plan.free - plan.need))) .. ")")
+        header(env, "Zusammenfassung", 3, 3)
+        rule(env)
+        kv(env, "Rolle:    ", state.role)
+        kv(env, "Version:  ", m.version .. " (Stand " .. m.id .. ") von " .. state.source.ref)
+        kv(env, "Dateien:  ", #plan.paths .. ", " .. size_text(plan.need))
+        kv(env, "Frei:     ", size_text(plan.free) .. (plan.short and "" or (", danach etwa " .. size_text(plan.free - plan.need))), plan.short and "fehler" or "text")
         if manifest then
-          say("  Bisher:   Version " .. tostring(manifest.version) .. " wird zur Vorversion")
+          kv(env, "Bisher:   ", "Version " .. tostring(manifest.version) .. " wird zur Vorversion")
           if info and info.role and info.role ~= state.role then
-            say("  Achtung:  die Rolle wechselt von " .. info.role .. " zu " .. state.role)
+            kv(env, "Achtung:  ", "die Rolle wechselt von " .. info.role .. " zu " .. state.role, "fehler")
           end
         else
-          say("  Bisher:   neue Installation")
+          kv(env, "Bisher:   ", "neue Installation")
         end
-        say("  startup:  " .. startup_text(env))
-        say("  Daten:    /crn_data bleibt unberuehrt")
+        kv(env, "startup:  ", startup_text(env))
+        kv(env, "Daten:    ", "/crn_data bleibt unberuehrt")
         local entries
         if plan.short then
           show(env, "fehler", "Zu wenig Platz: benoetigt " .. size_text(plan.need + MARGIN) .. ", frei " .. size_text(plan.free) .. ".")
@@ -615,9 +647,23 @@ end
 
 function M.real_env()
   local palette = rawget(_G, "colors") or {}
+  local look_of = {
+    balken = { palette.white, palette.blue }, titel = { palette.yellow, palette.black }, taste = { palette.cyan, palette.black },
+    dim = { palette.lightGray, palette.black }, ok = { palette.lime, palette.black }, fehler = { palette.red, palette.black }, text = { palette.white, palette.black },
+  }
   local colors = { titel = palette.yellow, ok = palette.lime, fehler = palette.red }
   local bar_width = 20
   return {
+    paintline = function(parts)
+      local color = term.isColor and term.isColor()
+      for _, part in ipairs(parts) do
+        local look = look_of[part[1]]
+        if color and look then term.setTextColour(look[1]) term.setBackgroundColour(look[2]) end
+        write(part[2])
+        if color then term.setTextColour(palette.white or 1) term.setBackgroundColour(palette.black or 32768) end
+      end
+      print()
+    end,
     paint = function(kind, text)
       local c = term.isColor and term.isColor() and colors[kind]
       if c then term.setTextColour(c) end
