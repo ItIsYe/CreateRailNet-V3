@@ -234,6 +234,11 @@ function M.new(env)
     config_path = CONFIG,
     config = function() return n.config end,
     modem_is_wireless = wireless,
+    role_available = function(role)
+      if not env.fs.exists("/crn/manifest.lua") then return true end
+      local files = { zentrale="zentrale", passagierbahnhof="station", gueterbahnhof="station", depot="station", anmeldung="anmeldung", signal="signal", knoten="knoten" }
+      return files[role] ~= nil and env.fs.exists("/crn/roles/" .. files[role] .. ".lua")
+    end,
     notify = n.notify,
     fetch_config = function(central_id, node_id) return n.fetch_config(central_id, node_id) end,
     fetch_status = function() return n.fetch_state end,

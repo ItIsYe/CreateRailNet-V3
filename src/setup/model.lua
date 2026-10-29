@@ -138,7 +138,7 @@ end
 
 local function output_key(spec)
   if not spec then return nil end
-  return (spec.relay or "computer") .. ":" .. spec.side
+  return (spec.relay or "computer") .. ":" .. tostring(spec.side)
 end
 
 local function has_role(config, role)
@@ -146,6 +146,19 @@ local function has_role(config, role)
   return false
 end
 M.has_role = has_role
+
+-- Rollenprofil ist die gemeinsame Grundlage fuer Auswahl und Pruefung.
+function M.profile(config)
+  local station = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof") or has_role(config, "depot")
+  local signal = has_role(config, "signal") or has_role(config, "knoten")
+  local release = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof")
+  local allowed = { monitor = true }
+  if station or has_role(config, "anmeldung") then allowed.station = true end
+  if station or signal then allowed.signal = true; allowed.observer = true end
+  if release then allowed.relay = true end
+  if has_role(config, "passagierbahnhof") then allowed.displaylink = true end
+  return { station = station, signal = signal, release = release, tracks = station or signal, allowed = allowed }
+end
 
 function M.validate(config, scan)
   local problems = {}
@@ -161,6 +174,8 @@ function M.validate(config, scan)
     add("zentrale", "Die Leitstelle dieses Netzes ist nicht angegeben.")
   end
 
+  local profile = M.profile(config)
+  if profile.tracks and next(config.tracks) == nil then add("gleise_fehlen", "Mindestens ein Gleis muss eingerichtet werden.") end
   -- Geraete: vorhanden, richtige Art, nicht doppelt
   local used_devices = {}
   for id, d in pairs(config.devices) do
@@ -199,6 +214,13 @@ function M.validate(config, scan)
       end
       owner[device_id] = id
     end
+    if track.direction ~= "hin" and track.direction ~= "rueck" and track.direction ~= "beide" then add("gleis_richtung", "Gleis " .. track.name .. ": Richtung fehlt oder ist ungueltig.") end
+    for field, kind in pairs({ station = "station", signals = "signal", observers = "observer" }) do
+      local refs = field == "station" and (track.station and { track.station } or {}) or track[field]
+      for _, ref in ipairs(refs) do
+        if config.devices[ref] and config.devices[ref].kind ~= kind then add("gleis_art", "Gleis " .. track.name .. ": falsche Geraeteart fuer " .. field .. ".") end
+      end
+    end
     claim(track.station, "Bahnhof")
     for _, s in ipairs(track.signals) do claim(s, "Signal") end
     for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
@@ -214,6 +236,13 @@ function M.validate(config, scan)
       end
     end
     if track.release then
+      local valid_side = false
+      for _, side in ipairs(SIDES) do if track.release.side == side then valid_side = true end end
+      if not valid_side then add("ausgang_seite", "Gleis " .. track.name .. ": ungueltige Ausgangsseite.") end
+      if track.release.relay then
+        local relay = detect.find(scan, track.release.relay)
+        if not relay or relay.kind ~= "relay" or #detect.missing("relay", relay) > 0 then add("ausgang_relay", "Gleis " .. track.name .. ": Relay fehlt oder ist nicht verwendbar.") end
+      end
       local key = output_key(track.release)
       if outputs[key] then
         add("ausgang_doppelt", "Der Ausgang " .. key .. " dient zwei Gleisen: " .. outputs[key] .. " und " .. track.name .. ". Gemeinsame Leitungen duerfen keine fremde Freigabe ausloesen.")
@@ -230,6 +259,7 @@ function M.validate(config, scan)
     local count = 0
     for _ in pairs(j.connections) do count = count + 1 end
     if count < 2 then add("knoten_anschluesse", "Ein Knotenpunkt braucht mindestens zwei Anschluesse.") end
+    if #j.moves == 0 then add("knoten_verbindung_fehlt", "Mindestens eine Verbindung muss eingerichtet werden.") end
     for i, move in ipairs(j.moves) do
       if not j.connections[move.from] or not j.connections[move.to] then add("knoten_verbindung", "Verbindung " .. i .. " nennt einen unbekannten Anschluss.") end
       if move.from == move.to then add("knoten_verbindung", "Verbindung " .. i .. " beginnt und endet am selben Anschluss.") end
@@ -257,6 +287,10 @@ function M.validate(config, scan)
     add("anmeldung_station", "Fuer die Anmeldung ist keine Station gewaehlt.")
   end
 
+  if config.registration_station then
+    local d = config.devices[config.registration_station]
+    if not d or d.kind ~= "station" then add("anmeldung_station", "Die Anmeldestation ist ungueltig.") end
+  end
   return problems
 end
 

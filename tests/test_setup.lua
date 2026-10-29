@@ -171,10 +171,11 @@ return {
     local c = model.new("K", { "knoten" }, { name = "N", central_id = "z" })
     t.contains(problem_codes(model.validate(c, {})), "knoten_anschluesse")
     c.junction.connections = { West = true, Ost = true, Sued = true }
-    t.eq(#model.validate(c, {}), 0)
+    t.ok(has_code(model.validate(c, {}), "knoten_verbindung_fehlt"))
+    t.ok(has_code(model.validate(c, {}), "gleise_fehlen"))
     local function structure_problems()
       local out = {}
-      for _, p in ipairs(model.validate(c, {})) do if p.code ~= "knoten_einfahrt" and p.code ~= "knoten_ausfahrt" then out[#out + 1] = p end end
+      for _, p in ipairs(model.validate(c, {})) do if p.code ~= "knoten_einfahrt" and p.code ~= "knoten_ausfahrt" and p.code ~= "gleise_fehlen" then out[#out + 1] = p end end
       return out
     end
     c.junction.moves = { { from = "West", to = "Nord" }, { from = "Ost", to = "Ost" } }
@@ -222,7 +223,10 @@ return {
     local c = model.new("A", { "anmeldung" }, { name = "N", central_id = "z" })
     t.contains(problem_codes(model.validate(c, {})), "anmeldung_station")
     c.registration_station = "station1"
-    t.eq(#model.validate(c, {}), 0)
+    t.ok(has_code(model.validate(c, {}), "anmeldung_station"), "unbekannte Station bleibt ungueltig")
+    local w = world()
+    c.devices.station1 = {kind="station", device="Create_Station_1"}
+    t.eq(#model.validate(c, detect.scan(w.peripheral)), 0)
   end },
   { "Vorlage kopiert Struktur und Standardwerte, aber keine Geraete; Entwurf", function()
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
@@ -410,7 +414,7 @@ return {
     ok = wiz.add_conflict(1, 1)
     t.eq(ok, false)
     for _, p in ipairs(wiz.warnings()) do
-      t.ok(p.code == "knoten_einfahrt" or p.code == "knoten_ausfahrt", "unerwartetes Problem: " .. p.code)
+      t.ok(p.code == "knoten_einfahrt" or p.code == "knoten_ausfahrt" or p.code == "gleise_fehlen", "unerwartetes Problem: " .. p.code)
     end
     wiz.remove_connection("Ost")
     t.eq(#wiz.config.junction.moves, 0, "Verbindungen ueber den entfernten Anschluss fallen weg")

@@ -95,6 +95,21 @@ function M.new(opts)
 
   local function draw_nav()
     local r, c = v.layout.nav, v.canvas
+    local custom = v.current_page().navigation and v.current_page().navigation(v)
+    if custom then
+      c.fill(r.x, r.y, r.w, r.h, S.navigation)
+      if v.layout.mode == "gross" then
+        for i, item in ipairs(custom) do
+          local y = r.y + (i-1)*4
+          c.fill(r.x,y,r.w,3,item.active and S.zeile or S.navigation)
+          c.text(r.x+1,y+1,item.title,item.active and S.hell or S.gedaempft,nil,r.w-2)
+          if item.active then c.fill(r.x,y,1,3,S.auswahl) end
+        end
+      else
+        for _, item in ipairs(custom) do if item.active then c.text(r.x+1,r.y,item.title,S.hell,nil,r.w-2) end end
+      end
+      return
+    end
     local pages = v.visible_pages()
     c.fill(r.x, r.y, r.w, r.h, S.navigation)
     if v.layout.mode == "gross" then
@@ -156,6 +171,17 @@ function M.new(opts)
     local page = v.current_page()
     v.canvas.fill(r.x, r.y, r.w, r.h, S.hintergrund)
     if not page.actions then return end
+    if page.id == "einrichtung" then
+      local x,y=r.x+1,r.y
+      local h=v.layout.action_row_h
+      for _, a in ipairs(page.actions(v)) do
+        local width=math.min(r.w-2,math.max(8,#a.label+2))
+        if x > r.x+1 and x+width > r.x+r.w-1 then x=r.x+1; y=y+h end
+        W.button(v,"act:"..a.id,x,y,width,h,a.label,{kind=a.kind or "primary",enabled=a.enabled,reason=a.reason})
+        x=x+width+1
+      end
+      return
+    end
     local left, right = {}, {}
     for _, a in ipairs(page.actions(v)) do
       if a.side == "rechts" then right[#right + 1] = a else left[#left + 1] = a end
@@ -203,6 +229,20 @@ function M.new(opts)
     if v.layout.mode == "status" then
       draw_status_only()
     else
+      v.layout = layout.compute(size_w, size_h)
+      if v.current_page().id == "einrichtung" then
+        local actions = v.current_page().actions and v.current_page().actions(v) or {}
+        local row_w, rows = 0, 1
+        for _, a in ipairs(actions) do
+          local aw = math.min(v.layout.actions.w-2, math.max(8,#a.label+2))
+          if row_w > 0 and row_w+aw+1 > v.layout.actions.w-2 then rows=rows+1; row_w=0 end
+          row_w=row_w+aw+1
+        end
+        local height=rows*v.layout.action_row_h
+        local delta=math.max(0,height-v.layout.actions.h)
+        v.layout.actions.y=v.layout.actions.y-delta; v.layout.actions.h=v.layout.actions.h+delta
+        v.layout.hint.y=v.layout.hint.y-delta; v.layout.work.h=v.layout.work.h-delta
+      end
       local c = v.canvas
       c.clear(S.hintergrund)
       draw_header()
@@ -246,6 +286,12 @@ function M.new(opts)
 
   local function dispatch(id)
     v.hint = ""
+    if id:sub(1,4) == "act:" then
+      local page = v.current_page()
+      for _, action in ipairs(page.actions and page.actions(v) or {}) do
+        if "act:" .. action.id == id and action.enabled == false then v.hint = action.reason or "Aktion nicht verfuegbar."; return end
+      end
+    end
     if id:sub(1, 4) == "nav:" then
       v.set_page(id:sub(5))
       return

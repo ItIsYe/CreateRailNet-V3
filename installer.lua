@@ -131,6 +131,7 @@ end
 
 -- Kopf: farbiger Balken mit Name und Schritt, darunter die Frage
 local function header(env, title, step, total)
+  if env.set_stage then env.set_stage(step or 1) end
   local right = step and ("Schritt " .. step .. " von " .. total) or ""
   local left = " CRN Installer"
   local gap = WIDTH - #left - #right - (right ~= "" and 1 or 0)
@@ -395,6 +396,7 @@ end
 
 -- zeigt Eintraege { key, text } und liefert den gewaehlten Schluessel; nil bei Eingabeende
 local function choose(env, entries, default)
+  if env.choose then return env.choose(entries, default) end
   local keys = {}
   for _, entry in ipairs(entries) do
     keys[entry.key] = true
@@ -645,6 +647,135 @@ function M.run(args, env)
   return M.install(env, opts)
 end
 
+-- Eigenstaendiger Renderer: der Installer darf keine noch nicht installierten Module laden.
+-- Auswahl per Tastatur/Maus; lange Inhalte und Listen bleiben seitenweise erreichbar.
+function M.dialog_env(env, target, pull)
+  local out = {}
+  for k,v in pairs(env) do out[k]=v end
+  local lines, areas, selected, offset = {}, {}, 1, 0
+  local stage = 1
+  out.set_stage = function(value) stage=value end
+  local width,height = target.getSize()
+  local colour = (target.isColour or target.isColor or function() return false end)()
+  local C={bg=32768,panel=128,text=1,dim=256,blue=2048,cyan=512,green=8192,amber=16}
+  if colour and target.setPaletteColour then
+    for c,rgb in pairs({[32768]=0x101820,[128]=0x21313F,[1]=0xF2F6F8,[256]=0x8397A8,[2048]=0x397CC0,[512]=0x63C6CC,[8192]=0x8DD1A0,[16]=0xE7B66A}) do target.setPaletteColour(c,rgb) end
+  end
+  local function text(x,y,value,fg,bg,w)
+    if y<1 or y>height then return end
+    value=tostring(value):sub(1,w or width-x+1)
+    target.setCursorPos(x,y)
+    target.setTextColour(colour and (fg or C.text) or 1)
+    target.setBackgroundColour(colour and (bg or C.bg) or 32768)
+    target.write(value)
+  end
+  local function fill(x,y,w,h,bg)
+    for row=y,y+h-1 do text(x,row,string.rep(' ',math.max(0,w)),C.text,bg,w) end
+  end
+  local function append(value,kind)
+    lines[#lines+1]={text=tostring(value or ''),kind=kind}
+  end
+  local function render(entries)
+    width,height=target.getSize()
+    local large=width>=100 and height>=40
+    local left=large and 23 or 2
+    local content_w=width-left-1
+    fill(1,1,width,height,C.bg)
+    fill(1,1,width,large and 3 or 1,C.panel)
+    text(2,large and 2 or 1,'CREATERAILNET / INSTALLATION',C.text,C.panel)
+    if large then
+      fill(1,5,20,height-5,C.panel)
+      for i,label in ipairs({'Version waehlen','Rolle waehlen','Pruefen','Installieren','Einrichten'}) do
+        local y=5+(i-1)*4
+        fill(1,y,20,3,i==stage and C.blue or C.panel)
+        text(2,y+1,i..' '..label,i==stage and C.text or C.dim,i==stage and C.blue or C.panel,18)
+      end
+    end
+    local top=large and 5 or 3
+    local row_h=large and 3 or 2
+    local visible=math.min(#(entries or {}),large and 7 or 4)
+    local choices_y=height-visible*row_h-1
+    local bottom=entries and choices_y-2 or height-3
+    local wrapped={}
+    for _,line in ipairs(lines) do
+      local value=line.text
+      if not value:match('^%s*%-+$') and not value:find('CRN Installer',1,true) then
+        repeat
+          local cut=math.min(#value,content_w)
+          if #value>content_w then
+            local space=value:sub(1,content_w):match('^.*() ')
+            if space and space>content_w/2 then cut=space end
+          end
+          wrapped[#wrapped+1]={text=value:sub(1,cut),kind=line.kind}
+          value=value:sub(cut+1)
+        until value==''
+      end
+    end
+    local maxoff=math.max(0,#wrapped-(bottom-top+1))
+    offset=math.max(0,math.min(offset,maxoff))
+    for row=top,bottom do
+      local line=wrapped[offset+row-top+1]
+      if line then text(left,row,line.text,line.kind=='ok' and C.green or line.kind=='fehler' and C.amber or line.kind=='dim' and C.dim or C.text,C.bg,content_w) end
+    end
+    areas={}
+    if entries then
+      local first=math.max(1,selected-visible+1)
+      for i=first,math.min(#entries,first+visible-1) do
+        local y=choices_y+(i-first)*row_h
+        local bg=i==selected and C.blue or C.panel
+        fill(left,y,content_w,row_h-1,bg)
+        text(left+1,y,'['..entries[i].key..'] '..entries[i].text,C.text,bg,content_w-2)
+        areas[#areas+1]={index=i,x=left,y=y,w=content_w,h=row_h-1}
+      end
+    end
+    text(2,height,'Pfeile: Auswahl | Enter: OK | Bild auf/ab: Text',C.dim,C.bg,width-2)
+    if maxoff>0 then text(width-16,2,'Text '..(offset+1)..'/'..#wrapped,C.amber,C.bg,16) end
+    out.ui_state={areas=areas,lines=wrapped,offset=offset,selected=selected}
+  end
+  out.clear=function() lines={}; offset=0; render() end
+  out.print=function(value) append(value); render() end
+  out.paint=function(kind,value) append(value,kind); render() end
+  out.paintline=function(parts)
+    local list={};for _,part in ipairs(parts) do list[#list+1]=part[2] end
+    append(table.concat(list),parts[1] and parts[1][1]); render()
+  end
+  out.write=function() end
+  out.read=function()
+    render()
+    fill(1,height-1,width,1,C.panel);text(2,height-1,'> ',C.text,C.panel)
+    return env.read()
+  end
+  out.choose=function(entries,default)
+    selected=1
+    for i,e in ipairs(entries) do if e.key==default then selected=i end end
+    while true do
+      render(entries)
+      local e={pull()}
+      if e[1]=='char' then
+        for _,entry in ipairs(entries) do if e[2]:lower()==entry.key then return entry.key end end
+      elseif e[1]=='key' then
+        if e[2]==265 then selected=math.max(1,selected-1)
+        elseif e[2]==264 then selected=math.min(#entries,selected+1)
+        elseif e[2]==257 then return entries[selected].key
+        elseif e[2]==266 then offset=math.max(0,offset-5)
+        elseif e[2]==267 then offset=offset+5 end
+      elseif e[1]=='mouse_scroll' then selected=math.max(1,math.min(#entries,selected+e[2]))
+      elseif e[1]=='mouse_click' then
+        for _,a in ipairs(areas) do if e[3]>=a.x and e[3]<a.x+a.w and e[4]>=a.y and e[4]<a.y+a.h then return entries[a.index].key end end
+      end
+    end
+  end
+  out.progress=function(done,total)
+    stage=4
+    render()
+    local w=math.max(1,width-4);local n=math.floor(w*done/math.max(1,total))
+    fill(2,height-2,w,1,C.panel);fill(2,height-2,n,1,C.blue)
+    text(2,height-1,'Dateien geprueft: '..done..' / '..total,C.text,C.bg)
+  end
+  out.progress_done=function() stage=5; append('Dateien vollstaendig geprueft.','ok');render() end
+  return out
+end
+
 function M.real_env()
   local palette = rawget(_G, "colors") or {}
   local look_of = {
@@ -686,4 +817,7 @@ function M.real_env()
 end
 
 if rawget(_G, "__CRN_TEST") then return M end
-M.run({ ... }, M.real_env())
+local args = { ... }
+local env = M.real_env()
+if #args == 0 then env = M.dialog_env(env, term, os.pullEvent) end
+M.run(args, env)

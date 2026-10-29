@@ -139,7 +139,7 @@ return {
     -- Schritt 6
     t.ok(d.has(v, "Schritt 6 von 6: Fertig"))
     t.ok(d.has(v, "Bereit zum Aktivieren."))
-    t.ok(d.has(v, "Speichern und aktivieren"))
+    t.ok(d.has(v, "Aktivieren"))
     d.tap(v, "act:speichern")
     t.eq(d.node.status().text, "Bereit")
     t.eq(d.node.config.status, "aktiv")
@@ -335,10 +335,9 @@ return {
     d.tap(v, "act:weiter")
     d.tap(v, "act:weiter")              -- Pruefungen
     d.tap(v, "act:weiter")              -- Fertig
-    t.ok(d.has(v, "Als Entwurf speichern"), d.text(v))
-    t.ok(not d.has(v, "Speichern und aktivieren"))
-    t.ok(d.has(v, "ENTWURF"))
-    d.tap(v, "act:speichern")
+    t.eq(d.node.setup.session().screen, "5.test", "offene Tests blockieren Weiter")
+    t.eq(d.area(v, "act:weiter").enabled, false)
+    d.tap(v, "act:entwurf")
     t.eq(d.node.config.status, "entwurf")
     t.eq(d.node.status().text, "Entwurf")
     t.eq(d.node.net, nil, "kein Funk fuer einen Entwurf")
@@ -366,7 +365,9 @@ return {
     d.type(v, "zentrale", "hauptstelle"); d.tap(v, "act:weiter")
     d.tap_row(v, "rollen", "Knotenpunkt"); d.tap(v, "act:weiter")
     d.type(v, "name", "Abzweig Sued"); d.tap(v, "act:weiter")
-    d.tap(v, "act:weiter")                    -- Geraete: keine noetig
+    d.tap_row(v, "geraete", "Create_Signal_5")
+    d.tap_row(v, "geraete", "Create_TrainObserver_1")
+    d.tap(v, "act:weiter")                    -- Pflichtgeraete zugeordnet
     t.ok(d.has(v, "Anschluesse und Verbindungen des Knotenpunkts"))
     for _, name in ipairs({ "West", "Ost", "Sued" }) do
       d.type(v, "anschluss", name)
@@ -387,9 +388,9 @@ return {
     d.tap(v, "act:weiter")                    -- Gleise
     d.tap(v, "act:weiter")                    -- Test
     d.tap(v, "act:weiter")
-    t.ok(d.has(v, "Schritt 6 von 6: Fertig"))
-    t.ok(d.has(v, "Einfahrtsgleis"), "Warnung: ein Knoten ohne Einfahrts- und Ausfahrtsgleise ist nicht betriebsfaehig\n" .. d.text(v))
-    d.tap(v, "act:speichern")
+    t.eq(d.node.setup.session().screen, "4.gleise", "Ein Knoten ohne Gleise darf nicht zum Test")
+    t.eq(d.area(v,"act:weiter").enabled,false)
+    d.tap(v, "act:entwurf")
     t.eq(d.node.config.status, "entwurf", "nicht vollstaendig: nur als Entwurf gespeichert")
     t.eq(#d.node.config.junction.conflicts, 1)
   end },
