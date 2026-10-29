@@ -40,19 +40,13 @@ return {
     local fs, http, env = world()
     run(env, "signal", "v0.1.0")
     for _, url in ipairs(http.requests) do t.ok(url:find("/dist/", 1, true), url) end
-    t.eq(#http.requests, 1 + 3, "Verzeichnis plus drei Dateien")
+    t.eq(#http.requests, 1 + w.role_files("signal"), "Verzeichnis plus die Dateien der Rolle")
   end },
   { "Aktualisierung behaelt die Vorversion, Rueckkehr tauscht", function()
     local fs, http, env = world()
     run(env, "depot", "v0.1.0")
-    local first = read("dist/manifest.lua")
-    -- zweite Version: andere Programmdatei
-    local fs2, http2, env2 = fs, http, env
-    http.routes[BASE .. "v0.2.0/dist/manifest.lua"] = (first:gsub('version = "0.1.0"', 'version = "0.2.0"'):gsub('id = "%x+"', 'id = "deadbeef"'))
-    for url, body in pairs(http.routes) do
-      local path = url:match("/v0%.1%.0/dist/(.+)$")
-      if path and path ~= "manifest.lua" then http.routes[BASE .. "v0.2.0/dist/" .. path] = body end
-    end
+    local env2 = env
+    w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
     t.eq(run(env2, "depot", "v0.2.0"), true, env2.output())
     t.ok(fs.exists("/crn_prev/manifest.lua"), "Vorversion vorhanden")
     t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.2.0"')
@@ -203,11 +197,13 @@ return {
       while not finished do
         local fs, http, env = world()
         run(env, "depot", "v0.1.0")
-        run(env, "depot", "v0.1.0")
+        w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
+        -- Aktualisierung: eine Version da, die zweite kommt dazu; Rueckkehr: beide Versionen da (Platz fuer eine dritte Kopie gibt es nicht)
+        if action == "rollback" then run(env, "depot", "v0.2.0") end
         fs._state.ops = 0
         fs._state.crash_at = n
         local ok = pcall(function()
-          if action == "update" then run(env, "depot", "v0.1.0") else run(env, "--rollback") end
+          if action == "update" then run(env, "depot", "v0.2.0") else run(env, "--rollback") end
         end)
         fs._state.crash_at = nil
         if ok then finished = true end

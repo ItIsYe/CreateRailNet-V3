@@ -95,7 +95,7 @@ return {
       { "Jetzt starten?", { "n" } },
     })
     t.eq(ok, true, env.output())
-    t.contains(env.output(), "Bitte eine der angegebenen Eingaben waehlen.")
+    t.contains(env.output(), "Bitte eine der angegebenen Eingaben waehlen")
     t.contains(env.output(), "Ungueltig. Erlaubt sind")
     t.eq(env.started, 0, "Nein startet nicht")
   end },
@@ -134,7 +134,7 @@ return {
       { "Zusammenfassung", { "z" } },
     })
     t.ok(not fs.exists("/crn") and not fs.exists("/crn_new"), "z darf nichts installieren")
-    t.eq(#http.requests, 1, "nur das Verzeichnis wurde geladen")
+    t.eq(#http.requests, 2, "nur die Versionsliste und das Verzeichnis wurden geladen")
   end },
   { "Zusammenfassung: zurueck zur Rolle, dann installieren", function()
     local fs, http, env = w.world()
@@ -162,14 +162,14 @@ return {
       { "Zusammenfassung", { "q" } },
     })
     local out = env2.output()
-    t.contains(out, "bleibt unveraendert (gehoert zu einem anderen Programm)")
+    t.contains(out, "bleibt unveraendert (anderes Programm)")
     t.contains(out, "die Rolle wechselt von depot zu signal")
     t.contains(out, "wird zur Vorversion")
     t.contains(out, "(bisher)")
     t.eq(fs.open("/startup.lua", "r").readAll(), "print('fremd')")
   end },
   { "Platzmangel: Vorversion loeschen anbieten, danach installieren", function()
-    local fs, http, env = w.world({ fs = { capacity = 25000 } })
+    local fs, http, env = w.world({ fs = { capacity = 2 * w.need("depot") + 11000 } })
     t.eq(installer.run({ "depot", "v0.1.0", "--yes" }, env), true, env.output())
     t.eq(installer.run({ "depot", "v0.1.0", "--yes" }, env), true, env.output())
     t.ok(fs.exists("/crn_prev"))
@@ -273,5 +273,43 @@ return {
     t.eq(installer.run({ "depot", "../geheim" }, env2), false)
     t.contains(env2.output(), "Ungueltige Version")
     t.eq(#http.requests, 0, "es wurde nichts abgerufen")
+  end },
+  { "Eingabetaste uebernimmt die Vorgabe: Menue, neueste Version, Rolle bleibt Pflicht", function()
+    local fs, http, env = w.world()
+    http.routes["https://api.github.com/repos/ItIsYe/CreateRailNet-V3/tags?per_page=8"] = '[{"name":"v0.1.0"},{"name":"v0.0.9"}]'
+    local ok = dialog(env, {
+      { MENU, { "" } },
+      { "Welche Version soll", { "" } },
+      { "Welche Rolle", { "" } },
+      { "Bitte eine der angegebenen", { "3" } },
+      { "Zusammenfassung", { "j" } },
+      { "Jetzt starten?", { "" } },
+    })
+    t.eq(ok, true, env.output())
+    t.contains(env.output(), "v0.1.0 (neueste Version)")
+    t.contains(env.output(), "Bitte eine der angegebenen Eingaben waehlen")
+    t.eq(env.started, 1, "Vorgabe beim Starten ist Ja")
+    t.contains(env.output(), "Naechste Schritte")
+  end },
+  { "Versionsliste: ohne Antwort funktioniert der Dialog weiter, Tags werden gefiltert", function()
+    local fs, http, env = w.world()
+    t.eq(#installer.list_tags(env), 0)
+    http.routes["https://api.github.com/repos/ItIsYe/CreateRailNet-V3/tags?per_page=8"] = '[{"name":"v0.2.0"},{"name":"a b"},{"name":"../x"},{"name":"v0.1.0"}]'
+    local tags = installer.list_tags(env)
+    t.eq(#tags, 2); t.eq(tags[1], "v0.2.0"); t.eq(tags[2], "v0.1.0")
+  end },
+  { "Groessen lesbar", function()
+    t.eq(installer.size_text(512), "512 Byte")
+    t.eq(installer.size_text(2048), "2.0 KB")
+    t.eq(installer.size_text(332605), "325 KB")
+  end },
+  { "Fortschrittsanzeige wird benutzt, wenn der Computer sie bietet", function()
+    local fs, http, env = w.world()
+    local calls, finished = 0, false
+    env.progress = function(done, total) calls = calls + 1 end
+    env.progress_done = function() finished = true end
+    t.eq(installer.run({ "signal", "v0.1.0" }, env), true, env.output())
+    t.ok(calls > 10); t.ok(finished)
+    t.ok(not env.output():find("10/", 1, true), "keine Zeilenflut, wenn ein Balken da ist")
   end },
 }

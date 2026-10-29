@@ -1,5 +1,5 @@
 --[[
-Purpose: Strenge Fakes fuer CC:Tweaked: Dateisystem (feste Kapazitaet 1 000 000 Byte, jede Datei zaehlt mindestens 500, move scheitert bei vorhandenem Ziel, Absturz an der n-ten Aenderung und beschaedigtes Schreiben einstellbar) und HTTP (Antworten aus einer Tabelle). Sie bilden nur nach, was das Spiel auch tut.
+Purpose: Strenge Fakes fuer CC:Tweaked: Dateisystem (feste Kapazitaet 1 000 000 Byte, jede Datei zaehlt mindestens 500, move scheitert bei vorhandenem Ziel, Absturz an der n-ten Aenderung mit Merker _state.crashed und beschaedigtes Schreiben einstellbar) und HTTP (Antworten aus einer Tabelle). Sie bilden nur nach, was das Spiel auch tut.
 API: cc.fs(opts) -> fs; cc.http(routes) -> http; cc.env(fs, http) -> env mit gesammelten Ausgaben
 ]]
 
@@ -21,7 +21,11 @@ function M.fs(opts)
 
   local function mutate(kind)
     fake.ops = fake.ops + 1
-    if fake.crash_at and fake.ops == fake.crash_at then error("CRASH bei Aenderung " .. fake.ops .. " (" .. kind .. ")", 0) end
+    -- ab dem eingestellten Abbruch ist der Computer "aus": jede weitere Aenderung scheitert, auch wenn der Aufrufer Fehler abfaengt
+    if fake.crash_at and (fake.crashed or fake.ops == fake.crash_at) then
+      fake.crashed = true
+      error("CRASH bei Aenderung " .. fake.ops .. " (" .. kind .. ")", 0)
+    end
   end
 
   local function used()
@@ -82,6 +86,7 @@ function M.fs(opts)
     end
     if fake.dirs[p] or not fake.dirs[parent(p)] then return nil, "Cannot open" end
     local buffer = {}
+    if mode == "a" or mode == "ab" then buffer[1] = fake.files[p] or "" end
     local handle = {}
     function handle.write(text) buffer[#buffer + 1] = text end
     function handle.close()

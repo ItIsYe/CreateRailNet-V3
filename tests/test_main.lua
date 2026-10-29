@@ -10,7 +10,7 @@ return {
   { "ohne Installation", function()
     local fs = cc.fs()
     local env = cc.env(fs, nil)
-    t.eq(main.run(env), false)
+    t.eq(main.info(env), false)
     t.contains(env.output(), "Kein Dateiverzeichnis")
   end },
   { "mit Installation", function()
@@ -23,7 +23,7 @@ return {
     fh.write('return { role = "signal" }')
     fh.close()
     local env = cc.env(fs, nil)
-    t.eq(main.run(env), true)
+    t.eq(main.info(env), true)
     local out = env.output()
     t.contains(out, "Version: 0.1.0  Stand: abcd1234")
     t.contains(out, "Rolle: signal")

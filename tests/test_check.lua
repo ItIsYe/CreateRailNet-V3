@@ -27,6 +27,9 @@ return {
     t.contains(t1[1], "unpack")
     t.eq(#check.scan_text("a.lua", HEAD .. "local a = math" .. ".type(1)\n"), 1)
   end },
+  { "die Absicherung 'unpack = table.unpack or unpack' ist erlaubt", function()
+    t.eq(#check.scan_text("a.lua", HEAD .. "local unpack = table" .. ".unpack or unpack\nreturn unpack\n"), 0)
+  end },
   { "Kommentare werden nicht gemeldet", function()
     t.eq(#check.scan_text("a.lua", HEAD .. "-- table" .. ".unpack waere hier falsch\nreturn 1\n"), 0)
   end },

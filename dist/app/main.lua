@@ -1,6 +1,6 @@
 --[[
 Purpose: Startprogramm von CRN in Stufe 0: zeigt Version, Rolle, Dateiverzeichnis und freien Platz. Fahrbetrieb gibt es noch nicht; dieses Programm beweist nur, dass die Installation vollstaendig und startbar ist.
-API: main.run(env) mit env = { fs, print, root } (Tests geben Fakes mit); beim Start auf dem Computer laeuft run() mit der echten Umgebung.
+API: main.info(env) mit env = { fs, print, root }; main.run(env, args) fuer "selftest" (siehe app/selftest.lua); beim Start auf dem Computer laeuft run() mit der echten Umgebung (package.path zeigt auf /crn).
 ]]
 
 local M = {}
@@ -24,7 +24,7 @@ local function load_table(env, path)
   return nil
 end
 
-function M.run(env)
+function M.info(env)
   local root = env.root or "/crn"
   local say = env.print
   local manifest = load_table(env, root .. "/manifest.lua")
@@ -53,5 +53,53 @@ function M.run(env)
   return true
 end
 
+-- Aufruf: main (Bedienoberflaeche des Nodes), main info, main selftest [...], main datenstand, main daten-zurueck N
+function M.run(env, args)
+  if args[1] == "selftest" then
+    local rest = {}
+    for i = 2, #args do rest[#rest + 1] = args[i] end
+    return require("app.selftest").run(env, rest)
+  end
+  if args[1] == "info" then return M.info(env) end
+  if args[1] == "datenstand" or args[1] == "daten-zurueck" then
+    local dataformat = require("core.dataformat")
+    local store = require("core.store").new(env.fs)
+    local saved = store.load("/crn_data/format.lua")
+    if args[1] == "datenstand" then
+      env.print("Datenformat auf dem Computer: " .. tostring(saved and saved.format or "unbekannt") .. ", dieses Programm kennt: " .. dataformat.FORMAT)
+      for _, b in ipairs(dataformat.backups(env.fs)) do env.print("Sicherung fuer Format " .. b.format .. ": " .. b.dir) end
+      return true
+    end
+    local ok, err = dataformat.restore(env.fs, store, tonumber(args[2]))
+    env.print(ok and ("Sicherung zurueckgespielt (Datenformat " .. tostring(args[2]) .. "). Bitte neu starten.") or err)
+    return ok == true
+  end
+  local node = require("app.node").new(env)
+  node.run()
+  return true
+end
+
+function M.real_env()
+  local function pull(timeout)
+    local timer = os.startTimer(timeout)
+    while true do
+      local ev = { os.pullEvent() }
+      if ev[1] == "timer" and ev[2] == timer then return nil end
+      if ev[1] ~= "timer" then
+        os.cancelTimer(timer)
+        return ev
+      end
+    end
+  end
+  return {
+    fs = fs, print = print, raw_clock = os.clock, peripheral = peripheral, rednet = rednet, redstone = redstone, pull = pull, host = _HOST,
+    term = term.current and term.current() or term,
+    wrap = function(name) return peripheral.wrap(name) end,
+    start_timer = os.startTimer,
+    pull_event = function() return { os.pullEvent() } end,
+  }
+end
+
 if rawget(_G, "__CRN_TEST") then return M end
-M.run({ fs = fs, print = print })
+package.path = "/crn/?.lua;/crn/?/init.lua;" .. package.path
+M.run(M.real_env(), { ... })

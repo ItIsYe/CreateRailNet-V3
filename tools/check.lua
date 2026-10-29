@@ -6,7 +6,7 @@ Usage: lua tools/check.lua
 -- die verbotenen Namen stehen zerlegt hier, damit diese Datei sich nicht selbst meldet
 local FORBIDDEN = {
   { "goto" .. " ", "goto gibt es in Lua 5.1 nicht" },
-  { "table" .. ".unpack", "table.unpack fehlt in Lua 5.1: lokal 'unpack = table.unpack or unpack' verwenden" },
+  { "table" .. ".unpack", "table.unpack fehlt in Lua 5.1: lokal 'unpack = table.unpack or unpack' verwenden", "table" .. ".unpack or unpack" },
   { "table" .. ".pack", "table.pack fehlt in Lua 5.1" },
   { "table" .. ".move", "table.move fehlt in Lua 5.1" },
   { "utf" .. "8.", "utf8 fehlt in Lua 5.1" },
@@ -30,7 +30,9 @@ function M.scan_text(name, text, opts)
     local code = line:gsub("^%s*%-%-.*$", "")
     if not opts.skip_tokens then
       for _, rule in ipairs(FORBIDDEN) do
-        if code:find(rule[1], 1, true) then problems[#problems + 1] = name .. ":" .. n .. ": " .. rule[2] end
+        if code:find(rule[1], 1, true) and not (rule[3] and code:find(rule[3], 1, true)) then
+          problems[#problems + 1] = name .. ":" .. n .. ": " .. rule[2]
+        end
       end
     end
   end
