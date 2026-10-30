@@ -5,6 +5,8 @@ Notes: Lesende Erkennung und schaltende Pruefungen sind getrennt: ein schaltende
 ]]
 
 local model = require("setup.model")
+local ser = require("core.ser")
+local adler = require("core.adler")
 local detect = require("dev.detect")
 local stationlib = require("dev.station")
 local signallib = require("dev.signal")
@@ -22,8 +24,9 @@ function M.new(opts)
   local w = { step = 1, mode = "create", network_name = "", central_id = "", key = "", name = "", roles = {}, scan = opts.scan() }
   local env = opts.env
   local existing = opts.existing
+  if not existing and opts.role_available and not opts.role_available("zentrale") then w.mode = "join" end
 
-  w.config = existing or model.new("", {}, {})
+  w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
   if existing then
     w.network_name = existing.network.name
     w.central_id = existing.network.central_id or ""
@@ -50,7 +53,13 @@ function M.new(opts)
     for _, r in ipairs(model.ROLES) do if has(w.roles, r) then c.node.roles[#c.node.roles + 1] = r end end
   end
 
-  function w.rescan() w.scan = opts.scan() end
+  function w.rescan()
+    w.scan = opts.scan()
+    for _, d in pairs(w.config.devices) do
+      local found = detect.find(w.scan, d.device)
+      if not found or found.kind ~= d.kind or #detect.missing(d.kind, found) > 0 then w.config.tests = {} end
+    end
+  end
 
   function w.set_mode(mode) w.mode = mode; sync_config() end
   function w.set_network(name, central, key)
@@ -58,7 +67,14 @@ function M.new(opts)
     sync_config()
   end
   function w.set_name(name) w.name = name; sync_config() end
+  function w.available_roles()
+    local roles = {}
+    for _, role in ipairs(model.ROLES) do if not opts.role_available or opts.role_available(role) then roles[#roles+1]=role end end
+    return roles
+  end
+
   function w.toggle_role(role)
+    if not has(w.available_roles(), role) then return false end
     if has(w.roles, role) then
       local kept = {}
       for _, r in ipairs(w.roles) do if r ~= role then kept[#kept + 1] = r end end
@@ -67,29 +83,76 @@ function M.new(opts)
       w.roles[#w.roles + 1] = role
     end
     sync_config()
+    local p = model.profile(w.config)
+    local remove = {}
+    for id, d in pairs(w.config.devices) do if not p.allowed[d.kind] then remove[#remove+1]=id end end
+    for _,id in ipairs(remove) do model.remove_device(w.config,id) end
+    if not p.release then for _,track in pairs(w.config.tracks) do track.release=nil end end
+    if not model.has_role(w.config,"anmeldung") then w.config.registration_station=nil end
+    if not model.has_role(w.config,"knoten") then
+      w.config.junction={connections={},moves={},conflicts={}}
+      for _,track in pairs(w.config.tracks) do track.junction=nil end
+    end
+    if not p.tracks then w.config.tracks={} end
+    w.config.tests={}
+    return true
   end
 
   local function needs(kind_role)
     return model.has_role(w.config, kind_role)
   end
 
+  function w.allowed_devices() return model.profile(w.config).allowed end
+
+  local function fingerprint()
+    local c = w.config
+    local tracks = assert(ser.decode(ser.encode(c.tracks)))
+    for _, track in pairs(tracks) do track.status = nil end
+    local text = ser.encode({ network = c.network, node = c.node, devices = c.devices,
+      tracks = tracks, junction = c.junction, registration_station = c.registration_station })
+    -- Feste Laenge pro Test: keine Kopie der Gesamtanlage fuer jedes Signal speichern.
+    return #text .. ":" .. adler.hex(text)
+  end
+
   function w.step_ok(n)
     sync_config()
     if n == 1 then
-      if w.network_name == "" then return false, "Der Netzname fehlt." end
-      if w.mode == "join" and w.central_id == "" then return false, "Die Kennung der Leitstelle fehlt." end
+      if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
+      if w.mode == "join" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
       return true
     elseif n == 2 then
-      if w.name == "" then return false, "Der Node braucht einen Namen." end
+      if not w.name:match("%S") then return false, "Der Node braucht einen Namen." end
       if #w.roles == 0 then return false, "Bitte mindestens eine Rolle waehlen." end
+      for _,role in ipairs(w.roles) do if not has(w.available_roles(),role) then return false, "Die Programmdateien fuer Rolle " .. role .. " fehlen." end end
       if w.mode == "create" and not has(w.roles, "zentrale") then return false, "Die erste Leitstelle braucht die Rolle Leitstelle." end
       if w.mode == "join" and has(w.roles, "zentrale") then
         return false, "Eine zweite aktive Leitstelle ist nicht vorgesehen. Eine Ersatz-Leitstelle wird ueber 'Vorhandene Node uebernehmen' eingerichtet."
       end
       return true
-    elseif n == 3 then
-      return true
-    elseif n == 4 then
+    elseif n >= 3 then
+      w.rescan()
+      local modem = false
+      for _, d in ipairs(w.scan) do
+        if d.kind == "modem" and #detect.missing("modem", d) == 0 then modem = true end
+      end
+      if not modem then return false, "Ein erreichbares Netzwerkmodem fehlt." end
+      local counts = {}
+      for _, d in pairs(w.config.devices) do
+        local found = detect.find(w.scan, d.device)
+        if not w.allowed_devices()[d.kind] then return false, "Geraet " .. d.device .. " passt nicht zur Rolle. Bitte abwaehlen." end
+        if not found or found.kind ~= d.kind then return false, "Geraet " .. d.device .. " ist nicht erreichbar oder hat die falsche Art." end
+        if #detect.missing(d.kind, found) > 0 then return false, "Geraet " .. d.device .. ": erforderliche Methoden fehlen." end
+        counts[d.kind] = (counts[d.kind] or 0) + 1
+      end
+      local p = model.profile(w.config)
+      if (p.station or needs("anmeldung")) and not counts.station then return false, "Mindestens eine Train Station muss ausgewaehlt werden." end
+      if p.signal and not counts.signal then return false, "Mindestens ein Train Signal muss ausgewaehlt werden." end
+      if needs("knoten") and not counts.observer then return false, "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." end
+      if n >= 4 then
+        local problems = model.validate(w.config, w.scan)
+        if #problems > 0 then return false, problems[1].text end
+      end
+      if n >= 5 and not w.all_tests_ok() then return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen." end
       return true
     end
     return true
@@ -124,7 +187,7 @@ function M.new(opts)
 
   function w.toggle_device(name)
     local found = detect.find(w.scan, name)
-    if not found or not SELECTABLE[found.kind] then return false end
+    if not found or not SELECTABLE[found.kind] or not w.allowed_devices()[found.kind] then return false end
     for id, d in pairs(w.config.devices) do
       if d.device == name then
         model.remove_device(w.config, id)
@@ -311,24 +374,25 @@ function M.new(opts)
     for _, t in ipairs(w.tests()) do if t.id == id then return t end end
   end
 
-  function w.test_state(id)
-    local test = find_test(id)
+  function w.test_state(id, current, test)
+    test = test or find_test(id)
     if not test then return nil end
     local result = w.config.tests[id]
     if not result then return "offen" end
-    if result.spec ~= test.spec then return "offen" end
+    if result.spec ~= test.spec or result.fingerprint ~= (current or fingerprint()) then return "offen" end
     return result.ok and "ok" or "fehler", result.text
   end
 
   function w.all_tests_ok()
+    local current = fingerprint()
     for _, test in ipairs(w.tests()) do
-      if w.test_state(test.id) ~= "ok" then return false end
+      if w.test_state(test.id, current, test) ~= "ok" then return false end
     end
     return true
   end
 
   local function record(test, ok, text)
-    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, at = opts.now() }
+    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fingerprint = fingerprint(), at = opts.now() }
     return ok, text
   end
 
@@ -377,10 +441,15 @@ function M.new(opts)
 
   -- Schritt 6 ----------------------------------------------------------------------------------------------------------------------------------
   -- liefert "aktiv" oder "entwurf" und die offenen Probleme
-  function w.finish(store, path)
+  function w.finish(store, path, draft)
     sync_config()
+    w.rescan()
     local problems = model.validate(w.config, w.scan)
-    local status = (#problems == 0 and w.all_tests_ok()) and "aktiv" or "entwurf"
+    for n = 1, 5 do
+      local ok, reason = w.step_ok(n)
+      if not ok then problems[#problems + 1] = { code = "schritt_" .. n, text = reason } end
+    end
+    local status = (not draft and #problems == 0 and w.all_tests_ok()) and "aktiv" or "entwurf"
     w.config.status = status
     for _, track in pairs(w.config.tracks) do
       track.status = (status == "aktiv" and track.station ~= nil or status == "aktiv" and #track.signals > 0) and "aktiv" or "entwurf"
