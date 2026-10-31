@@ -658,7 +658,11 @@ function M.dialog_env(env, target, pull)
   local width,height = target.getSize()
   local colour = (target.isColour or target.isColor or function() return false end)()
   local C={bg=32768,panel=128,text=1,dim=256,blue=2048,cyan=512,green=8192,amber=16}
+  local saved_palette, restored = {}, false
   if colour and target.setPaletteColour then
+    for c in pairs({[32768]=1,[128]=1,[1]=1,[256]=1,[2048]=1,[512]=1,[8192]=1,[16]=1}) do
+      if target.getPaletteColour then local r,g,b=target.getPaletteColour(c); saved_palette[c]={r,g,b} end
+    end
     for c,rgb in pairs({[32768]=0x101820,[128]=0x21313F,[1]=0xF2F6F8,[256]=0x8397A8,[2048]=0x397CC0,[512]=0x63C6CC,[8192]=0x8DD1A0,[16]=0xE7B66A}) do target.setPaletteColour(c,rgb) end
   end
   local function text(x,y,value,fg,bg,w)
@@ -692,8 +696,9 @@ function M.dialog_env(env, target, pull)
       end
     end
     local top=large and 5 or 3
-    local row_h=large and 3 or 2
-    local visible=math.min(#(entries or {}),large and 7 or 4)
+    local row_h=large and 3 or 1             -- kompakt: eine Zeile je Eintrag, damit der Text darueber Platz behaelt
+    local entry_h=large and row_h-1 or 1
+    local visible=math.min(#(entries or {}),large and 7 or 5)
     local choices_y=height-visible*row_h-1
     local bottom=entries and choices_y-2 or height-3
     local wrapped={}
@@ -723,9 +728,9 @@ function M.dialog_env(env, target, pull)
       for i=first,math.min(#entries,first+visible-1) do
         local y=choices_y+(i-first)*row_h
         local bg=i==selected and C.blue or C.panel
-        fill(left,y,content_w,row_h-1,bg)
+        fill(left,y,content_w,entry_h,bg)
         text(left+1,y,'['..entries[i].key..'] '..entries[i].text,C.text,bg,content_w-2)
-        areas[#areas+1]={index=i,x=left,y=y,w=content_w,h=row_h-1}
+        areas[#areas+1]={index=i,x=left,y=y,w=content_w,h=entry_h}
       end
     end
     text(2,height,'Pfeile: Auswahl | Enter: OK | Bild auf/ab: Text',C.dim,C.bg,width-2)
@@ -773,6 +778,22 @@ function M.dialog_env(env, target, pull)
     text(2,height-1,'Dateien geprueft: '..done..' / '..total,C.text,C.bg)
   end
   out.progress_done=function() stage=5; append('Dateien vollstaendig geprueft.','ok');render() end
+  -- Terminal zurueckgeben: Farben wie vorher, Bildschirm leer, der Verlauf bleibt als normaler Text stehen
+  out.restore=function()
+    if restored then return end
+    restored=true
+    if colour and target.setPaletteColour then
+      for c,rgb in pairs(saved_palette) do if rgb[1] then target.setPaletteColour(c,rgb[1],rgb[2],rgb[3]) end end
+    end
+    target.setBackgroundColour(32768); target.setTextColour(1)
+    target.clear(); target.setCursorPos(1,1)
+    local keep={}
+    for _,line in ipairs(lines) do
+      if not line.text:match('^%s*%-+$') and not line.text:find('CRN Installer',1,true) then keep[#keep+1]=line.text end
+    end
+    for i=math.max(1,#keep-(height-3)),#keep do env.print(keep[i]) end
+  end
+  if env.start then out.start=function(...) out.restore(); return env.start(...) end end
   return out
 end
 
@@ -820,4 +841,6 @@ if rawget(_G, "__CRN_TEST") then return M end
 local args = { ... }
 local env = M.real_env()
 if #args == 0 then env = M.dialog_env(env, term, os.pullEvent) end
-M.run(args, env)
+local ok, err = pcall(M.run, args, env)
+if env.restore then env.restore() end
+if not ok then error(err, 0) end

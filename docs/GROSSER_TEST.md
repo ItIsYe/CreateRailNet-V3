@@ -2,7 +2,7 @@
 
 Der Test findet statt, wenn alle Stufen gebaut sind (Plan: `docs/STUFENPLAN.md`). Jede Stufe traegt hier ihre Schritte ein; du fuehrst sie im Spiel aus und schreibst das Ergebnis in die letzte Spalte. Gebaut ist jeweils nur, was auch ausserhalb des Spiels getestet ist; ob es im Spiel funktioniert, zeigt erst dieser Test.
 
-Installation fuer den ganzen Test: `wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<ZWEIG>/installer.lua installer.lua`, dann `installer` (Dialog). `<ZWEIG>` steht am Ende in der Pull-Request-Beschreibung.
+Installation fuer den ganzen Test: `wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<ZWEIG>/installer.lua installer.lua`, dann `installer` (Dialog). `<ZWEIG>` ist `beta` (Testbranch); der stabile Stand steht auf `main`.
 
 ## Stufe 1: Kern (Uhr, Speichern, Journal, Funk)
 
@@ -41,12 +41,15 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.4 | Schritt 3 (Geraete) | Alle Create-Geraete mit Typ; Funk- und Kabelmodem getrennt genannt (z.B. "Funk: left   Kabel: right"); Antippen setzt "[x]" | |
 | 3.5 | Schritt 4 (Gleise): Gleis anlegen, Bahnhof, Signal, Beobachter und Ausgang zuordnen, "Kopieren" | Ein Geraet laesst sich nur einem Gleis geben, ein Ausgang nur einmal; die Kopie hat keine Geraete | |
 | 3.6 | Schritt 5 (Test): "Alle lesenden", dann ein schaltender Test | Vor dem Schalten erscheint ein Bildschirm mit Geraet und Wirkung; nach "Vorbereitung erledigt: starten" "ok"; Signal/Ausgang sind danach wie vorher | |
-| 3.7 | Schritt 6, "Speichern und aktivieren" | Zustand "Bereit"; nach einem Neustart (`reboot`) startet der Node mit derselben Einrichtung | |
-| 3.8 | Schritt 6 ohne alle Pruefungen | Knopf heisst "Als Entwurf speichern", Zustand "Entwurf", Hinweis in den Meldungen | |
+| 3.7 | Schritt 6, "Aktivieren" | Zustand "Bereit"; nach einem Neustart (`reboot`) startet der Node mit derselben Einrichtung | |
+| 3.8 | Schritt 6 ohne alle Pruefungen | "Aktivieren" ist gesperrt (Hinweis nennt den Grund), "Entwurf" speichert: Zustand "Entwurf", Hinweis in den Meldungen | |
 | 3.9 | Monitor: berühren der Reiter, Einrichtung dort bedienen, waehrend der Terminal eine andere Seite zeigt | Jede Ansicht hat ihre eigene Seite; bearbeitet die eine die Einrichtung, zeigt die andere "Einrichtung wird bearbeitet." | |
 | 3.10 | Monitor verkleinern/vergroessern (Skalierung ueber `monitor.setTextScale` von Hand) oder anderen Monitor nehmen | Layout wechselt zwischen gross (ab 100x40), kompakt (ab 51x19) und Statusansicht; Eingaben bleiben | |
 | 3.11 | Ein Create-Geraet im Betrieb abziehen und anschliessen | Meldungen "Geraet entfernt" und "Geraet angeschlossen" | |
 | 3.12 | Seite "Geraete" und "Meldungen", Meldung quittieren | Quittiert aendert nur die Meldung | |
+| 3.13 | Laufende (aktive) Node: Seite "Einrichtung", "Einrichtung aendern", dann "Entwurf" | "Entwurf" ist gesperrt, Hinweis "Laufende Node: ..."; Zustand bleibt "Bereit"; "Abbrechen" (zweimal) verwirft die Aenderungen | |
+| 3.14 | Schritt 2: eine Rolle abwaehlen, zu der schon Geraete oder Gleise gewaehlt sind | Hinweis nennt, wie viele Geraete und Gleise entfallen; erst das erneute Antippen entfernt sie | |
+| 3.15 | Schritt 3 bis 5 laenger offen lassen, dazwischen ein Geraet abziehen | Die Anzeige liest nicht dauernd neu; "Neu lesen" und "Weiter" erkennen den Ausfall (Weiter sperrt, Tests werden ungueltig) | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 
@@ -169,7 +172,7 @@ Aufbau: wie Stufe 4/5; zusaetzlich ein freier Computer (Funkmodem, wenn moeglich
 | 8.8 | Zug waehrend eines Auftrags in Create umbenennen | Meldung "heisst jetzt ..."; Auftrag "Klaerung"; Zugposition "unbekannt"; kein anderer Zug wird "aehnlich" zugeordnet. Namen zurueckaendern: der Zug ist beim naechsten Zustandsbericht wieder am Gleis belegt | |
 | 8.9 | Funkverbindung eines Bahnhofs kurz stoeren (Modem entfernen, Zug faehrt waehrend dessen ab oder kommt an) | Nach dem Wiederanschliessen holt der Bahnhof die Meldungen nach (Ankunft/Abfahrt werden wiederholt, bis bestaetigt); der Auftrag geht korrekt weiter | |
 | 8.10 | **A17 Ersatz**: Auf dem Ersatzcomputer installieren (`installer`), Seite "Einrichtung" -> "Ersatz": Leitstelle und Node-Kennung eintragen, "Holen" | Solange der alte Computer laeuft: "noch aktiv". Nach Ausschalten (60 s) oder "Stilllegen" (Seite Netz, zweimal tippen): "Konfiguration ... empfangen" | |
-| 8.11 | "Uebernehmen", Geraete pruefen, Schritt 5 Pruefungen, "Speichern und aktivieren" | Der Ersatz ist derselbe logische Node (gleiche Kennung), meldet sich bei der Leitstelle; die Leitstelle meldet, dass die alte Node nicht mehr laufen darf. Aufgaben mit alter Aufenthaltsnummer gehen in "Klaerung", nichts wird blind freigegeben | |
+| 8.11 | "Uebernehmen", Geraete pruefen, Schritt 5 Pruefungen, "Aktivieren" | Der Ersatz ist derselbe logische Node (gleiche Kennung), meldet sich bei der Leitstelle; die Leitstelle meldet, dass die alte Node nicht mehr laufen darf. Aufgaben mit alter Aufenthaltsnummer gehen in "Klaerung", nichts wird blind freigegeben | |
 | 8.12 | Alte Node wieder einschalten | Meldung "Zwei Computer melden sich als ..." (Doppelbetrieb), die alte Node ist abzuschalten | |
 | 8.13 | **A18 Update**: "Halten", warten bis keine Fahrt mehr "mit Freigabe/unterwegs" ist; auf allen Nodes `installer` mit der neuen Version; Neustart | Nodes starten; wurde das Modpack (Host/Methoden) geaendert, zeigt der Node "Pruefung noetig" und lehnt Aufgaben ab, bis auf der Seite Uebersicht "Pruefen" bestanden ist. Dann "Fortsetzen" | |
 | 8.14 | Rueckkehr: `installer --rollback` nach einem Update, das das Datenformat geaendert hat (hier: Format 1; ab Format 2 relevant) | Ist das Format neuer als das Programm, startet die Automatik nicht (Seite Uebersicht: "Datenformat zu neu"); `crn/app/main datenstand` zeigt Sicherungen, `crn/app/main daten-zurueck N` spielt sie zurueck | |

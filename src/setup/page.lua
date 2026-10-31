@@ -67,6 +67,7 @@ function M.new(services)
     session.stack = {}
     session.track = nil
     session.pick = {}
+    session.pending_role = nil
     goto_screen("1.modus")
     -- Felder aus dem Zustand vorbelegen
     local st = v.page_state("einrichtung")
@@ -196,7 +197,18 @@ function M.new(services)
     end,
     action = function(v, id)
       local n = id:match("^sel:rollen:(%d+)$")
-      if n then session.wiz.toggle_role((session.pick.roles or {})[tonumber(n)]); v.hint="Rolle angepasst; unpassende Zuordnungen entfernt, Tests erneuern."; return true end
+      if n then
+        local role = (session.pick.roles or {})[tonumber(n)]
+        local ok, why, effect = session.wiz.toggle_role(role, session.pending_role == role)
+        if why == "bestaetigen" then
+          session.pending_role = role
+          v.hint = "Abwaehlen entfernt " .. effect.devices .. " Geraet(e) und " .. effect.tracks .. " Gleis(e). Zum Bestaetigen erneut antippen."
+        else
+          session.pending_role = nil
+          v.hint = (ok and effect and (effect.devices > 0 or effect.tracks > 0)) and "Rolle entfernt; Tests muessen erneuert werden." or ""
+        end
+        return true
+      end
     end,
   }
 
@@ -715,7 +727,7 @@ function M.new(services)
     end,
     action = function(v, id)
       if id == "act:speichern" then
-        local ok, why = session.wiz.step_ok(5)
+        local ok, why = session.wiz.step_ok(5)       -- liest die Geraete vorher frisch
         if not ok then v.hint = why return true end
         local status, problems, err = session.wiz.finish(services.store, services.config_path)
         if not status then
@@ -805,8 +817,8 @@ function M.new(services)
       if w.mode == "create" and not model.has_role(w.config, "zentrale") then return false, "Die erste Node braucht die Rolle Leitstelle." end
       if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
     end
-    if screen == "2.name" then return w.step_ok(2) end
-    if screen == "3.geraete" then return w.step_ok(3) end
+    if screen == "2.name" then return w.step_ok(2, true) end
+    if screen == "3.geraete" then return w.step_ok(3, true) end
     if screen == "4.g.name" and not fields(v).gleisname.value:match("%S") then return false, "Der Gleisname fehlt." end
     if track then
       if screen == "4.g.bahnhof" and not track.station then return false, "Bitte eine Train Station zuordnen." end
@@ -814,12 +826,12 @@ function M.new(services)
       if screen == "4.g.beobachter" and track.junction and #track.observers == 0 then return false, "Der Meldepunkt braucht einen Beobachter." end
       if screen == "4.g.ausgang" and not track.release then return false, "Bitte einen Freigabeausgang zuordnen." end
     end
-    if screen == "4.gleise" or screen == "4.anmeldung" then return w.step_ok(4) end
+    if screen == "4.gleise" or screen == "4.anmeldung" then return w.step_ok(4, true) end
     if screen == "4.knoten" then
       local j=w.config.junction; local n=0; for _ in pairs(j.connections) do n=n+1 end
       if n<2 or #j.moves==0 then return false, "Zwei Anschluesse und eine Verbindung sind erforderlich." end
     end
-    if screen == "5.test" then return w.step_ok(5) end
+    if screen == "5.test" then return w.step_ok(5, true) end
     return true
   end
 
@@ -866,7 +878,8 @@ function M.new(services)
         list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why }
       end
     end
-    list[#list + 1] = { id = "entwurf", label = "Entwurf", kind = "secondary" }
+    local active = session.wiz and session.wiz.was_active
+    list[#list + 1] = { id = "entwurf", label = "Entwurf", kind = "secondary", enabled = not active, reason = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." }
     list[#list + 1] = { id = "abbrechen", label = session.cancel_armed and "Wirklich?" or "Abbrechen", kind = "danger", side = "rechts" }
     return list
   end
@@ -947,6 +960,7 @@ function M.new(services)
     end
     if session.owner ~= v then return false end
     if id == "act:entwurf" then
+      if session.wiz.was_active then v.hint = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." return true end
       commit(v)
       local status, _, err = session.wiz.finish(services.store, services.config_path, true)
       if not status then v.hint = "Speichern fehlgeschlagen: " .. tostring(err) return true end

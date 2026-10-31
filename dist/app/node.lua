@@ -538,7 +538,16 @@ function M.new(env)
         if ev[1] == "timer" then
           timer = env.start_timer(1)
         end
-        n.handle(ev)
+        -- ein Fehler in einem Ereignis (Touch, Funk, Geraet) beendet das Programm nicht; er wird gemeldet, hoechstens einmal je Minute je Text
+        local handled, problem = pcall(n.handle, ev)
+        if not handled then
+          local text = "Ereignis " .. tostring(ev[1]) .. ": " .. tostring(problem)
+          local at = n.clock.now()
+          if n.last_problem ~= text or at - (n.last_problem_at or -999) >= 60 then
+            n.last_problem, n.last_problem_at = text, at
+            n.notify("fehler", text)
+          end
+        end
         if n.dirty then n.render() end
       end
     end)

@@ -48,7 +48,16 @@ function M.new(w, h, opts)
   end
   if opts.colour ~= false then
     function s.isColour() return true end
-    function s.setPaletteColour(c, r, g, b) s.palette[c] = { r, g, b } end
+    -- wie CC: entweder (farbe, r, g, b) mit Werten 0..1 oder (farbe, 0xRRGGBB)
+    function s.setPaletteColour(c, r, g, b)
+      if g == nil then r, g, b = math.floor(r / 65536) % 256 / 255, math.floor(r / 256) % 256 / 255, r % 256 / 255 end
+      s.palette[c] = { r, g, b }
+    end
+    function s.getPaletteColour(c)
+      local p = s.palette[c]
+      if p then return p[1], p[2], p[3] end
+      return 1, 1, 1
+    end
   else
     function s.isColour() return false end
   end

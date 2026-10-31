@@ -7,6 +7,9 @@ bereits installierte Module vorauszusetzen. Pfeiltasten und Enter oder Maus
 waehlen Aktionen; die Buchstabentasten bleiben erhalten. Bild auf/ab bewegt
 lange Erklaerungen, Pfeiltasten machen auch lange Auswahllisten erreichbar.
 Die Kommandozeileninstallation und die atomare Installation bleiben bestehen.
+Beim Beenden gibt der Dialog die Terminalfarben zurueck, leert den Bildschirm
+und laesst den bisherigen Verlauf als normalen Text stehen. Auf kleinen Flaechen
+(51x19) belegt jeder Auswahleintrag nur eine Zeile, damit der Text Platz behaelt.
 
 Der Setup-Assistent zeigt auf grossen Ausgaben einen festen Schrittstreifen und
 einen Kontextbereich. Die kompakte Ansicht arbeitet mit denselben Pruefungen.
@@ -32,8 +35,14 @@ jeweiligen Hauptschritt geprueft. Die Aktivierung prueft nochmals frisch.
 Gesperrte Aktionen werden auch bei Tastatur und direkter Aktionsausloesung
 abgewiesen. Ein Geraeteausfall entwertet die bisherigen Testnachweise.
 Konfigurationsaenderungen entwerten Tests ueber eine Konfigurationssignatur.
-Ein Entwurf kann jederzeit gespeichert werden und startet keinen aktiven Betrieb.
-Bearbeitung erfolgt auf einer Kopie der bestehenden Konfiguration.
+Ein Entwurf kann bei einer neuen oder bereits als Entwurf gespeicherten Node
+jederzeit gespeichert werden und startet keinen aktiven Betrieb. Bei einer
+laufenden (aktiven) Node ist "Entwurf" gesperrt: die Bearbeitung erfolgt auf
+einer Kopie, die erst mit "Aktivieren" gespeichert wird; "Abbrechen" verwirft sie.
+Das Zeichnen liest die Geraete nicht neu; neu gelesen wird bei "Neu lesen", beim
+Betreten von Schritt 3, bei "Weiter" und bei der Aktivierung.
+Wer eine Rolle abwaehlt, zu der schon Geraete oder Gleise gewaehlt sind, bekommt
+vorher gesagt, was entfaellt, und muss erneut antippen.
 
 ## Spielabnahme (noch offen)
 
@@ -48,3 +57,5 @@ Bearbeitung erfolgt auf einer Kopie der bestehenden Konfiguration.
 7. Zuordnung nach bestandenen Tests aendern: Tests erneut erforderlich.
 
 Offline-Pruefungen ersetzen diese Spielabnahme nicht. Kein automatischer Merge.
+
+Nachtrag: Eine Ausnahme in einem Ereignis (Touch, Funk, Geraet) beendet das Programm nicht mehr; sie erscheint als Meldung "Ereignis ..." (hoechstens einmal je Minute je Text).

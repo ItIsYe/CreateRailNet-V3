@@ -4,7 +4,7 @@ Hier traegst du die Ergebnisse der Tests in der Welt ein. Ein Test zaehlt nur, w
 
 ## Stufe 0: Rahmen und Installer
 
-Vorbereitung: ein leerer Computer (Advanced Computer genuegt), HTTP erlaubt. `<ZWEIG>` ist der Zweig dieser Stufe, solange sie nicht gemergt ist (`claude/stufe-0`), danach ein Tag oder `main`.
+Vorbereitung: ein leerer Computer (Advanced Computer genuegt), HTTP erlaubt. `<ZWEIG>` ist `beta` (Testbranch), fuer den stabilen Stand `main` oder ein Tag.
 
 | Nr | Schritt | Erwartung | Ergebnis |
 |---|---|---|---|
@@ -20,5 +20,7 @@ Vorbereitung: ein leerer Computer (Advanced Computer genuegt), HTTP erlaubt. `<Z
 | 0.10 | `edit crn/core/adler.lua`, ein Zeichen aendern, speichern; `installer`, `2` | "beschaedigt: core/adler.lua" | |
 | 0.11 | Ohne Dialog: `installer lokfuehrer <ZWEIG> --yes`, dann `installer zentrale <ZWEIG> --yes` | Erst die Liste der Rollen und keine Aenderung, dann eine Installation ohne Rueckfrage | |
 | 0.12 | Auf einem Computer mit fremder `startup.lua`: Dialog bis zur Zusammenfassung | Dort steht "bleibt unveraendert (gehoert zu einem anderen Programm)"; nach der Installation ist die Datei unveraendert | |
+| 0.13 | Dialog auf 51x19 bis zur Zusammenfassung: Auswahl mit Pfeiltasten, Enter und Maus | Jeder Eintrag belegt eine Zeile; die Zusammenfassung ist darueber ohne Blaettern lesbar (sonst mit Bild auf/ab erreichbar) | |
+| 0.14 | Dialog mit `q` beenden, danach die CraftOS-Eingabe ansehen | Die gewohnten Terminalfarben sind zurueck, der Bildschirm ist leer und der bisherige Verlauf steht als normaler Text darauf | |
 
 Mit einem festen Tag oder Commit statt eines Zweigs entfaellt die Warnung in 0.2.
