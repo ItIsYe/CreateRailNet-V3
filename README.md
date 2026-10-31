@@ -6,14 +6,25 @@ Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage is
 
 Auf dem Computer (HTTP muss erlaubt sein):
 
+Test (Branch `beta`):
+
 ```
-wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/<VERSION>/installer.lua installer.lua
+wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/installer.lua installer.lua
 installer
 ```
 
+Stabil (Branch `main`):
+
+```
+wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer.lua installer.lua
+installer
+```
+
+Gibt es `installer.lua` schon (`File already exists`), vorher `delete installer.lua`. Im Dialog bei der Version `e` waehlen und den Branch (`beta` oder `main`) eintippen; der Dialog weist dann darauf hin, dass ein Branch beweglich ist. Eine feste Version (Tag wie `v0.1.0`) wird bevorzugt, sobald es eine gibt; dann in der wget-Zeile `beta` durch den Tag ersetzen.
+
 `installer` ohne Zusatz startet den Dialog und fragt Schritt fuer Schritt: Menue (installieren, pruefen, zur Vorversion zurueck), Version, Rolle, Zusammenfassung. Die Eingabetaste uebernimmt die markierte Vorgabe (zuletzt benutzte oder neueste veroeffentlichte Version, bisherige Rolle). Mit `z` geht es einen Schritt zurueck, mit `q` bricht man ab; erst nach `j` in der Zusammenfassung wird etwas veraendert.
 
-`<VERSION>` ist ein Tag, ein Commit oder ein Zweig. Ein beweglicher Zweig wie `main` wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
+Als Version gehen ein Tag, ein Commit oder ein Branch. Ein beweglicher Branch wie `main` oder `beta` wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
 
 Ohne Dialog (fuer Skripte): `installer ROLLE VERSION [--yes]`, dazu `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist), `installer --help`. Gestartet wird mit `crn/app/main`.
 
