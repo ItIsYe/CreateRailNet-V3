@@ -1,5 +1,5 @@
 --[[
-Purpose: Baut dist/ aus src/: kopiert die Dateien aller Rollen und schreibt dist/manifest.lua (Version, Stand, Groesse und Pruefsumme jeder Datei, Dateiliste je Rolle). Prueft das Groessenbudget je Rolle.
+Purpose: Baut dist/ aus src/: kopiert die Dateien aller Rollen und schreibt dist/manifest.lua (Version, Stand, Groesse und Pruefsumme jeder Datei, Dateiliste je Rolle). Prueft das Groessenbudget je Rolle. Erzeugt ausserdem installer_beta.lua aus installer.lua (nur der Kanal ist ein anderer).
 Usage: lua tools/build.lua          schreibt dist/
        lua tools/build.lua --check  prueft, ob dist/ zu src/ passt (CI), schreibt nichts
 ]]
@@ -90,6 +90,16 @@ function M.plan()
   return files
 end
 
+-- installer_beta.lua: derselbe Installer, aber der Kanal ist beta; wer ihn von beta laedt, installiert beta
+local CHANNEL_LINE = 'local CHANNEL = "main"'
+function M.beta_installer()
+  local text = read_file("installer.lua")
+  if not text then return nil, "installer.lua fehlt" end
+  local a, b = text:find(CHANNEL_LINE, 1, true)
+  if not a then return nil, "installer.lua: Zeile " .. CHANNEL_LINE .. " nicht gefunden" end
+  return text:sub(1, a - 1) .. 'local CHANNEL = "beta"' .. text:sub(b + 1)
+end
+
 local function list_dist()
   local found = {}
   local pipe = io.popen('find dist -type f 2>/dev/null')
@@ -105,8 +115,14 @@ function M.main(args)
     io.stderr:write("Build fehlgeschlagen: " .. err .. "\n")
     return 1
   end
+  local beta, berr = M.beta_installer()
+  if not beta then
+    io.stderr:write("Build fehlgeschlagen: " .. berr .. "\n")
+    return 1
+  end
   if args[1] == "--check" then
     local problems = {}
+    if read_file("installer_beta.lua") ~= beta then problems[#problems + 1] = "veraltet oder fehlt: installer_beta.lua" end
     for _, path in ipairs(sorted_keys(files)) do
       if read_file("dist/" .. path) ~= files[path] then problems[#problems + 1] = "veraltet oder fehlt: dist/" .. path end
     end
@@ -120,6 +136,7 @@ function M.main(args)
     print("dist ist aktuell")
     return 0
   end
+  write_file("installer_beta.lua", beta)
   os.execute("rm -rf dist && mkdir -p dist")
   for _, path in ipairs(sorted_keys(files)) do
     local dir = path:match("^(.*)/[^/]+$")

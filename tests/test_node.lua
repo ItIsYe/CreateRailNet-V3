@@ -38,6 +38,8 @@ local function setup_station(d, v)
   d.tap(v, "act:start")
   d.tap(v, "sel:modus:2")
   d.tap(v, "act:weiter")
+  d.tap(v, "sel:netzwahl:1")             -- kein Netz in Reichweite: von Hand eingeben
+  d.tap(v, "act:weiter")
   d.type(v, "netz", "Testnetz")
   d.tap(v, "act:weiter")
   d.type(v, "zentrale", "hauptstelle")
@@ -76,6 +78,10 @@ return {
     t.ok(d.has(v, "Schritt 1 von 6: Anlage"))
     -- Schritt 1: Netz beitreten
     d.tap(v, "sel:modus:2")
+    d.tap(v, "act:weiter")
+    d.tap(v, "act:weiter")
+    t.ok(d.has(v, "Bitte ein Netz waehlen"), "ohne Auswahl geht es nicht weiter:\n" .. d.text(v))
+    d.tap(v, "sel:netzwahl:1")
     d.tap(v, "act:weiter")
     d.tap(v, "act:weiter")
     t.ok(d.has(v, "Der Netzname fehlt") or d.has(v, "Netzname"), "ohne Netzname geht es nicht weiter:\n" .. d.text(v))
@@ -294,6 +300,25 @@ return {
     local saved = storelib.new(d.fs).load("/crn_data/clock.lua")
     t.ok(saved.t >= 40, "Uhr gespeichert")
   end },
+  { "run(): ein Fehler in einem Ereignis beendet die Schleife nicht, wird einmal gemeldet, spaetere Ereignisse laufen weiter", function()
+    local d = new_driver()
+    local v = d.view()
+    local calls = 0
+    local real = v.handle
+    v.handle = function(ev)
+      calls = calls + 1
+      if ev[1] == "mouse_click" then error("kaputter Touch") end
+      return real(ev)
+    end
+    table.insert(d.queue, { "mouse_click", 1, 3, 2 })
+    table.insert(d.queue, { "mouse_click", 1, 3, 2 })    -- derselbe Fehler gleich nochmal: keine zweite Meldung
+    table.insert(d.queue, { "key", 65 })                 -- laeuft danach noch durch
+    d.node.run()
+    t.eq(calls, 3, "alle drei Ereignisse wurden verarbeitet")
+    local found = 0
+    for _, m in ipairs(d.node.messages) do if m.level == "fehler" and m.text:find("kaputter Touch", 1, true) then found = found + 1 end end
+    t.eq(found, 1, "der gleiche Fehler wird nur einmal gemeldet")
+  end },
   { "Wizard: Abbrechen braucht zwei Beruehrungen und laesst die Einrichtung unveraendert", function()
     local d = new_driver()
     local v = d.view()
@@ -361,6 +386,7 @@ return {
     local v = d.view()
     d.tap(v, "nav:einrichtung"); d.tap(v, "act:start")
     d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
+    d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
     d.type(v, "netz", "Testnetz"); d.tap(v, "act:weiter")
     d.type(v, "zentrale", "hauptstelle"); d.tap(v, "act:weiter")
     d.tap_row(v, "rollen", "Knotenpunkt"); d.tap(v, "act:weiter")

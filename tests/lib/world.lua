@@ -58,4 +58,10 @@ function M.add_version(http, from, to, number)
     (manifest:gsub('version = "[^"]+"', 'version = "' .. number .. '"'):gsub('id = "%x+"', 'id = "deadbeef"'))
 end
 
+-- macht aus dem Stand unter "ref" einen neueren (andere Versionsnummer, anderer Stand), wie wenn der Branch weitergekommen waere
+function M.bump(http, ref, number)
+  local url = M.BASE .. ref .. "/dist/manifest.lua"
+  http.routes[url] = (http.routes[url]:gsub('version = "[^"]+"', 'version = "' .. number .. '"'):gsub('id = "%x+"', 'id = "deadbeef"'))
+end
+
 return M

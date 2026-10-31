@@ -24,6 +24,8 @@ function M.new(opts)
   local w = { step = 1, mode = "create", network_name = "", central_id = "", key = "", name = "", roles = {}, scan = opts.scan() }
   local env = opts.env
   local existing = opts.existing
+  -- eine laufende Node wird nie per Entwurf stillgelegt: Aenderungen gelten erst mit "Aktivieren"
+  w.was_active = existing ~= nil and existing.status == "aktiv"
   if not existing and opts.role_available and not opts.role_available("zentrale") then w.mode = "join" end
 
   w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
@@ -73,8 +75,27 @@ function M.new(opts)
     return roles
   end
 
-  function w.toggle_role(role)
+  -- was ein Abwaehlen der Rolle an Zuordnungen entfernen wuerde (Geraete, die zu keiner verbleibenden Rolle passen, und alle Gleise)
+  function w.removal_effect(role)
+    local effect = { devices = 0, tracks = 0 }
+    if not has(w.roles, role) then return effect end
+    local roles = {}
+    for _, r in ipairs(w.roles) do if r ~= role then roles[#roles + 1] = r end end
+    local p = model.profile({ node = { roles = roles } })
+    for _, d in pairs(w.config.devices) do if not p.allowed[d.kind] then effect.devices = effect.devices + 1 end end
+    if not p.tracks then for _ in pairs(w.config.tracks) do effect.tracks = effect.tracks + 1 end end
+    return effect
+  end
+
+  -- liefert true (und was entfernt wurde), false bei unbekannter Rolle, oder false, "bestaetigen", Auswirkung, wenn das Abwaehlen etwas loeschen wuerde und noch nicht bestaetigt ist
+  function w.toggle_role(role, confirmed)
     if not has(w.available_roles(), role) then return false end
+    local removed
+    if has(w.roles, role) then
+      local effect = w.removal_effect(role)
+      if (effect.devices > 0 or effect.tracks > 0) and not confirmed then return false, "bestaetigen", effect end
+      removed = effect
+    end
     if has(w.roles, role) then
       local kept = {}
       for _, r in ipairs(w.roles) do if r ~= role then kept[#kept + 1] = r end end
@@ -95,7 +116,7 @@ function M.new(opts)
     end
     if not p.tracks then w.config.tracks={} end
     w.config.tests={}
-    return true
+    return true, nil, removed
   end
 
   local function needs(kind_role)
@@ -114,7 +135,8 @@ function M.new(opts)
     return #text .. ":" .. adler.hex(text)
   end
 
-  function w.step_ok(n)
+  -- cached = true: die zuletzt gelesene Geraeteliste verwenden (zum Zeichnen); sonst vorher neu lesen
+  function w.step_ok(n, cached)
     sync_config()
     if n == 1 then
       if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
@@ -130,7 +152,7 @@ function M.new(opts)
       end
       return true
     elseif n >= 3 then
-      w.rescan()
+      if not cached then w.rescan() end
       local modem = false
       for _, d in ipairs(w.scan) do
         if d.kind == "modem" and #detect.missing("modem", d) == 0 then modem = true end
@@ -442,11 +464,12 @@ function M.new(opts)
   -- Schritt 6 ----------------------------------------------------------------------------------------------------------------------------------
   -- liefert "aktiv" oder "entwurf" und die offenen Probleme
   function w.finish(store, path, draft)
+    if draft and w.was_active then return nil, {}, "Eine laufende Node wird nicht auf Entwurf gesetzt." end
     sync_config()
     w.rescan()
     local problems = model.validate(w.config, w.scan)
     for n = 1, 5 do
-      local ok, reason = w.step_ok(n)
+      local ok, reason = w.step_ok(n, true)
       if not ok then problems[#problems + 1] = { code = "schritt_" .. n, text = reason } end
     end
     local status = (not draft and #problems == 0 and w.all_tests_ok()) and "aktiv" or "entwurf"

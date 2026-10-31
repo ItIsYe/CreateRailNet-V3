@@ -2,6 +2,10 @@
 
 Neustart nach Konzept 1.1. Vorgehen: `docs/STUFENPLAN.md`; Entscheidungen: `docs/KONZEPT_ERGAENZUNG_1_1.md`; Messwerte vom echten Modpack: `docs/MESSWERTE.md`.
 
+## Branches
+
+Es gibt genau zwei: `main` (stabil) und `beta` (Test- und Arbeitsbranch). Gearbeitet wird nur auf `beta`; nach bestandenem Spieltest und ausdruecklicher Freigabe geht `beta` per Pull-Request nach `main`. Weitere Branches werden nicht angelegt. `installer_beta.lua` (Kanal beta) wird von `tools/build.lua` aus `installer.lua` erzeugt und nie von Hand geaendert; der Befehl fuer `beta` laedt `installer_beta.lua`, der fuer `main` `installer.lua`.
+
 ## Regeln
 
 - Lua 5.1 (Sprache von CC:Tweaked). Keine Globals, keine Funktionen, die es in 5.1 nicht gibt (`tools/check.lua` meldet sie).

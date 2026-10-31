@@ -29,4 +29,31 @@ return {
     t.eq(env.choose(entries),'7')
     t.contains(target.text(),'Rolle 7')
   end},
+  {'Installer-Dialog gibt Farben und Bildschirm zurueck und laesst den Verlauf als Text stehen',function()
+    for _,size in ipairs({{51,19},{100,40}}) do
+      local target=screen.new(size[1],size[2])
+      target.setPaletteColour(32768,0.2,0.4,0.6)       -- Farbe des Spielers vor dem Installer
+      local before={target.getPaletteColour(32768)}
+      local printed={}
+      local env=installer.dialog_env({print=function(text) printed[#printed+1]=text end,read=function() return '' end},target,function() return 'key',257 end)
+      t.ok(target.palette[32768][1]~=before[1],'Dialog setzt eigene Farben')
+      env.print('CRN Installer   Schritt 1 von 3')
+      env.print('Installiert: Version 0.1.0')
+      env.restore()
+      local after={target.getPaletteColour(32768)}
+      t.eq(after[1],before[1]); t.eq(after[2],before[2]); t.eq(after[3],before[3])
+      t.eq(table.concat(printed,'|'),'Installiert: Version 0.1.0','Verlauf ohne Kopfzeile bleibt stehen')
+      env.restore()
+      t.eq(#printed,1,'zweites Aufraeumen tut nichts')
+    end
+  end},
+  {'Installer-Dialog kompakt: Auswahl braucht eine Zeile je Eintrag, die Zusammenfassung bleibt lesbar',function()
+    local target=screen.new(51,19)
+    local env=installer.dialog_env({read=function() return '' end},target,function() return 'key',257 end)
+    for i=1,9 do env.print('Zeile '..i) end
+    env.choose({{key='j',text='Installieren'},{key='z',text='Zurueck'},{key='q',text='Abbrechen'}})
+    local text=target.text()
+    for i=1,9 do t.contains(text,'Zeile '..i) end
+    for _,a in ipairs(env.ui_state.areas) do t.eq(a.h,1) end
+  end},
 }

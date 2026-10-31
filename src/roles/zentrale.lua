@@ -678,6 +678,11 @@ function M.new(node)
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
+      elseif m.payload.kind == "netze" then
+        -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
+        local count = 0
+        for _ in pairs(nodes) do count = count + 1 end
+        node.reply(m, "ok", { netz = node.config.network.name, zentrale = node.config.node.id, nodes = count })
       elseif m.payload.kind == "tafel" then node.reply(m, "ok", { rows = role.board(m.payload.station), t = now() }) end
     end
   end

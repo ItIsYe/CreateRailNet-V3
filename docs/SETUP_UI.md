@@ -2,15 +2,22 @@
 
 ## Aenderung
 
-Der interaktive Installer benutzt einen eigenstaendigen Terminal-Renderer, ohne
+Der interaktive Installer fragt keine Version: der Kanal (`main` oder `beta`) steht in der geladenen Datei (`installer.lua` bzw. `installer_beta.lua`). Er benutzt einen eigenstaendigen Terminal-Renderer, ohne
 bereits installierte Module vorauszusetzen. Pfeiltasten und Enter oder Maus
 waehlen Aktionen; die Buchstabentasten bleiben erhalten. Bild auf/ab bewegt
 lange Erklaerungen, Pfeiltasten machen auch lange Auswahllisten erreichbar.
 Die Kommandozeileninstallation und die atomare Installation bleiben bestehen.
+Beim Beenden gibt der Dialog die Terminalfarben zurueck, leert den Bildschirm
+und laesst den bisherigen Verlauf als normalen Text stehen. Auf kleinen Flaechen
+(51x19) belegt jeder Auswahleintrag nur eine Zeile, damit der Text Platz behaelt.
 
 Der Setup-Assistent zeigt auf grossen Ausgaben einen festen Schrittstreifen und
 einen Kontextbereich. Die kompakte Ansicht arbeitet mit denselben Pruefungen.
 Aktionsflaechen werden umgebrochen; fehlender Platz entfernt keine Aktion.
+
+## Netz beitreten (Netzsuche)
+
+Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vorlaeufige Kennung `neu-...`). Jede laufende Leitstelle in Reichweite antwortet mit Netzname und ihrer Kennung (und der Zahl der bekannten Nodes), sonst nichts. Der Assistent bietet die Treffer zur Auswahl an; die Wahl setzt Netzname und Leitstelle, die beiden Eingabefelder entfallen. "Netz von Hand eingeben" und "Neu suchen" stehen immer zur Verfuegung. Die Antworten sind unbeglaubigt (Rednet ist keine Anmeldung, siehe Konzept 13.5): angenommen werden nur Name und Kennung in der erlaubten Form (Buchstaben, Ziffern, Leerzeichen, - und _, hoechstens 30 Zeichen), und nur als Antwort auf den eigenen Rundruf.
 
 ## Rollen
 
@@ -32,12 +39,18 @@ jeweiligen Hauptschritt geprueft. Die Aktivierung prueft nochmals frisch.
 Gesperrte Aktionen werden auch bei Tastatur und direkter Aktionsausloesung
 abgewiesen. Ein Geraeteausfall entwertet die bisherigen Testnachweise.
 Konfigurationsaenderungen entwerten Tests ueber eine Konfigurationssignatur.
-Ein Entwurf kann jederzeit gespeichert werden und startet keinen aktiven Betrieb.
-Bearbeitung erfolgt auf einer Kopie der bestehenden Konfiguration.
+Ein Entwurf kann bei einer neuen oder bereits als Entwurf gespeicherten Node
+jederzeit gespeichert werden und startet keinen aktiven Betrieb. Bei einer
+laufenden (aktiven) Node ist "Entwurf" gesperrt: die Bearbeitung erfolgt auf
+einer Kopie, die erst mit "Aktivieren" gespeichert wird; "Abbrechen" verwirft sie.
+Das Zeichnen liest die Geraete nicht neu; neu gelesen wird bei "Neu lesen", beim
+Betreten von Schritt 3, bei "Weiter" und bei der Aktivierung.
+Wer eine Rolle abwaehlt, zu der schon Geraete oder Gleise gewaehlt sind, bekommt
+vorher gesagt, was entfaellt, und muss erneut antippen.
 
 ## Spielabnahme (noch offen)
 
-1. Installer auf Advanced Computer mit 51x19 starten. Rolle, Version, Zusammenfassung
+1. Installer auf Advanced Computer mit 51x19 starten (Befehl von `beta` und von `main`: der Kanal in Menue und Zusammenfassung stimmt). Rolle, Zusammenfassung
    und fremdes Startprogramm pruefen. Lange Hinweise und alle Rollen erreichen.
 2. Setup auf 51x19, 100x40 und Schwarzweiss pruefen; Touch, Tastatur und Resize.
 3. Signalrolle: keine Stations-/Depotzuordnung anbieten; ohne Signal nicht weiter.
@@ -48,3 +61,5 @@ Bearbeitung erfolgt auf einer Kopie der bestehenden Konfiguration.
 7. Zuordnung nach bestandenen Tests aendern: Tests erneut erforderlich.
 
 Offline-Pruefungen ersetzen diese Spielabnahme nicht. Kein automatischer Merge.
+
+Nachtrag: Eine Ausnahme in einem Ereignis (Touch, Funk, Geraet) beendet das Programm nicht mehr; sie erscheint als Meldung "Ereignis ..." (hoechstens einmal je Minute je Text).

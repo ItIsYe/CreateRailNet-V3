@@ -1,15 +1,19 @@
 --[[
-Purpose: Installiert CRN per Download auf einen CC:Tweaked Computer: holt das Dateiverzeichnis einer festen Version, laedt nur die Dateien der gewaehlten Rolle, prueft Groesse und Pruefsumme jeder Datei und tauscht erst dann die Installation aus. Die Vorversion bleibt fuer die Rueckkehr erhalten.
-Usage: installer                   Dialog: Schritt fuer Schritt auswaehlen (Menue, Version, Rolle, Zusammenfassung)
-       installer ROLLE [REF]        ohne Dialog installieren oder aktualisieren (REF = Tag, Commit oder Zweig, Standard: main)
+Purpose: Installiert CRN per Download auf einen CC:Tweaked Computer: holt das Dateiverzeichnis der Version seines Kanals (main oder beta), laedt nur die Dateien der gewaehlten Rolle, prueft Groesse und Pruefsumme jeder Datei und tauscht erst dann die Installation aus. Die Vorversion bleibt fuer die Rueckkehr erhalten.
+Usage: installer                   Dialog: Schritt fuer Schritt auswaehlen (Menue, Rolle, Zusammenfassung); die Version ist der Kanal dieser Datei
+       installer ROLLE [REF]        ohne Dialog installieren oder aktualisieren (REF = Tag, Commit oder Zweig, Standard: der Kanal dieser Datei)
        installer --rollback        zur Vorversion zurueckkehren
        installer --status          installierte Version zeigen
        installer --check           installierte Dateien gegen das Verzeichnis pruefen
        Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist)
-Notes: Eine einzelne Datei ohne Abhaengigkeit zur Anwendung. Daten liegen getrennt in /crn_data und werden nie angefasst; Rolle und Herkunft stehen in /crn/install.lua, damit sie mit der Installation zusammen ausgetauscht werden. Bei jedem Abbruch bleibt entweder die alte oder die neue Installation vollstaendig; der naechste Start raeumt auf (recover).
+Notes: Der Kanal (main oder beta) steht in dieser Datei: wer sie von main laedt, installiert main, wer installer_beta.lua von beta laedt, installiert beta. installer_beta.lua wird von tools/build.lua aus dieser Datei erzeugt. Eine einzelne Datei ohne Abhaengigkeit zur Anwendung. Daten liegen getrennt in /crn_data und werden nie angefasst; Rolle und Herkunft stehen in /crn/install.lua, damit sie mit der Installation zusammen ausgetauscht werden. Bei jedem Abbruch bleibt entweder die alte oder die neue Installation vollstaendig; der naechste Start raeumt auf (recover).
 ]]
 
 local M = {}
+
+local CHANNEL = "main"    -- KANAL: tools/build.lua erzeugt daraus installer_beta.lua (nur diese Zeile unterscheidet sich)
+local CHANNEL_TEXT = { main = "stabil", beta = "Test" }
+M.CHANNEL = CHANNEL
 
 local BASE = "https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/"
 local APP, NEW, PREV, TMP, DATA = "/crn", "/crn_new", "/crn_prev", "/crn_tmp", "/crn_data"
@@ -256,17 +260,6 @@ local function is_moving(ref)
   return not ref:match("^v?%d+%.%d+") and not ref:match("^%x%x%x%x%x%x%x+$")
 end
 
--- veroeffentlichte Versionen (Tags), neueste zuerst; ohne Antwort eine leere Liste (der Dialog funktioniert auch ohne)
-function M.list_tags(env)
-  if not env.http then return {} end
-  local text = fetch(env, "https://api.github.com/repos/ItIsYe/CreateRailNet-V3/tags?per_page=8")
-  local out = {}
-  for name in (text or ""):gmatch('"name"%s*:%s*"([^"]+)"') do
-    if valid_ref(name) then out[#out + 1] = name end
-  end
-  return out
-end
-
 -- holt das Dateiverzeichnis einer Version; liefert { manifest, text, url, ref } oder nil und den Fehlertext
 function M.get_manifest(env, ref)
   if not env.http then
@@ -350,12 +343,12 @@ end
 function M.install(env, opts)
   local say, fs = env.print, env.fs
   local role = opts.positional[1]
-  local ref = opts.positional[2] or "main"
+  local ref = opts.positional[2] or CHANNEL
   if not valid_ref(ref) then
     say("Ungueltige Version: '" .. tostring(ref) .. "' (erlaubt: Buchstaben, Ziffern, . _ - /)")
     return false
   end
-  if is_moving(ref) and not opts.yes then
+  if is_moving(ref) and ref ~= CHANNEL and not opts.yes then
     say("Achtung: '" .. ref .. "' ist ein beweglicher Zweig. Besser eine feste Version angeben:")
     say("  installer " .. role .. " v0.1.0")
     say("Weiter mit der Eingabetaste, Abbruch mit Strg+T.")
@@ -446,6 +439,7 @@ function M.wizard(env)
       else
         say("Noch nichts installiert.")
       end
+      say("Kanal: " .. CHANNEL .. " (" .. (CHANNEL_TEXT[CHANNEL] or "eigener Zweig") .. ")")
       rule(env)
       line(env, { { "titel", " Was moechten Sie tun?" } })
       local entries, actions = {}, {}
@@ -462,7 +456,15 @@ function M.wizard(env)
       if key == nil or key == "q" then return stop() end
       local action = actions[key]
       if action == "install" then
-        step = "version"
+        say("Verzeichnis wird geladen ...")
+        local source, err = M.get_manifest(env, CHANNEL)
+        if source then
+          state.source = source
+          step = "role"
+        else
+          say(err)
+          state.keep = true
+        end
       elseif action == "check" then
         M.check(env)
         if not pause(env) then return stop() end
@@ -474,70 +476,9 @@ function M.wizard(env)
         if not pause(env) then return stop() end
       end
 
-    elseif step == "version" then
-      header(env, "Welche Version soll installiert werden?", 1, 3)
-      rule(env)
-      if state.tags == nil then
-        say("(veroeffentlichte Versionen werden gesucht ...)")
-        state.tags = M.list_tags(env)
-      end
-      local entries, refs = {}, {}
-      local last = info and info.ref
-      local default
-      if valid_ref(last) and last ~= "Rueckkehr" then
-        entries[#entries + 1] = { key = "1", text = last .. " (zuletzt verwendet)" }
-        refs["1"] = last
-        default = "1"
-      end
-      for i, tag in ipairs(state.tags) do
-        local key = tostring(#entries + 1)
-        entries[#entries + 1] = { key = key, text = tag .. (i == 1 and " (neueste Version)" or "") }
-        refs[key] = tag
-        if not default and i == 1 then default = key end
-      end
-      entries[#entries + 1] = { key = "m", text = "main (beweglich, kann sich aendern)" }
-      entries[#entries + 1] = { key = "e", text = "Version, Tag oder Commit eingeben" }
-      entries[#entries + 1] = { key = "z", text = "Zurueck" }
-      entries[#entries + 1] = { key = "q", text = "Abbrechen" }
-      local key = choose(env, entries, default)
-      if key == nil or key == "q" then return stop() end
-      if key == "z" then
-        step = "menu"
-      else
-        local ref = refs[key]
-        if key == "m" then ref = "main" end
-        if key == "e" then
-          while not ref do
-            say("Version eingeben (z = zurueck):")
-            local typed = ask(env, true)
-            if typed == nil then return stop() end
-            if typed == "z" then break end
-            if valid_ref(typed) then
-              ref = typed
-            else
-              say("Ungueltig. Erlaubt sind Buchstaben, Ziffern, . _ - /")
-            end
-          end
-        end
-        if ref then
-          if is_moving(ref) then say("Hinweis: '" .. ref .. "' ist ein beweglicher Zweig; der Inhalt kann sich zwischen zwei Aufrufen aendern.") end
-          say("Verzeichnis wird geladen ...")
-          local source, err = M.get_manifest(env, ref)
-          if source then
-            state.source = source
-            step = "role"
-          else
-            say(err)
-            state.keep = true
-          end
-        else
-          state.keep = true
-        end
-      end
-
     elseif step == "role" then
       local source = state.source
-      header(env, "Welche Rolle hat dieser Computer?", 2, 3)
+      header(env, "Welche Rolle hat dieser Computer?", 1, 2)
       rule(env)
       local entries, roles = {}, {}
       local shown = {}
@@ -561,7 +502,7 @@ function M.wizard(env)
       local key = choose(env, entries, default)
       if key == nil or key == "q" then return stop() end
       if key == "z" then
-        step = "version"
+        step = "menu"
       else
         state.role = roles[key]
         step = "summary"
@@ -575,10 +516,11 @@ function M.wizard(env)
         state.keep = true
       else
         local m = state.source.manifest
-        header(env, "Zusammenfassung", 3, 3)
+        header(env, "Zusammenfassung", 2, 2)
         rule(env)
         kv(env, "Rolle:    ", state.role)
-        kv(env, "Version:  ", m.version .. " (Stand " .. m.id .. ") von " .. state.source.ref)
+        kv(env, "Kanal:    ", state.source.ref .. " (" .. (CHANNEL_TEXT[state.source.ref] or "eigener Zweig") .. ")")
+        kv(env, "Version:  ", m.version .. " (Stand " .. m.id .. ")")
         kv(env, "Dateien:  ", #plan.paths .. ", " .. size_text(plan.need))
         kv(env, "Frei:     ", size_text(plan.free) .. (plan.short and "" or (", danach etwa " .. size_text(plan.free - plan.need))), plan.short and "fehler" or "text")
         if manifest then
@@ -627,7 +569,7 @@ end
 local USAGE = {
   "Aufruf:",
   "  installer                       Dialog: alles nach und nach auswaehlen",
-  "  installer ROLLE [VERSION]       ohne Dialog (VERSION = Tag, Commit oder Zweig; Standard main)",
+  "  installer ROLLE [VERSION]       ohne Dialog (VERSION = Tag, Commit oder Zweig; Standard: Kanal dieser Datei)",
   "  installer --status | --check | --rollback",
   "  Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist)",
   "  Rollen: zentrale, passagierbahnhof, gueterbahnhof, depot, signal, knoten, anmeldung",
@@ -658,7 +600,11 @@ function M.dialog_env(env, target, pull)
   local width,height = target.getSize()
   local colour = (target.isColour or target.isColor or function() return false end)()
   local C={bg=32768,panel=128,text=1,dim=256,blue=2048,cyan=512,green=8192,amber=16}
+  local saved_palette, restored = {}, false
   if colour and target.setPaletteColour then
+    for c in pairs({[32768]=1,[128]=1,[1]=1,[256]=1,[2048]=1,[512]=1,[8192]=1,[16]=1}) do
+      if target.getPaletteColour then local r,g,b=target.getPaletteColour(c); saved_palette[c]={r,g,b} end
+    end
     for c,rgb in pairs({[32768]=0x101820,[128]=0x21313F,[1]=0xF2F6F8,[256]=0x8397A8,[2048]=0x397CC0,[512]=0x63C6CC,[8192]=0x8DD1A0,[16]=0xE7B66A}) do target.setPaletteColour(c,rgb) end
   end
   local function text(x,y,value,fg,bg,w)
@@ -685,15 +631,16 @@ function M.dialog_env(env, target, pull)
     text(2,large and 2 or 1,'CREATERAILNET / INSTALLATION',C.text,C.panel)
     if large then
       fill(1,5,20,height-5,C.panel)
-      for i,label in ipairs({'Version waehlen','Rolle waehlen','Pruefen','Installieren','Einrichten'}) do
+      for i,label in ipairs({'Rolle waehlen','Pruefen','Installieren','Einrichten'}) do
         local y=5+(i-1)*4
         fill(1,y,20,3,i==stage and C.blue or C.panel)
         text(2,y+1,i..' '..label,i==stage and C.text or C.dim,i==stage and C.blue or C.panel,18)
       end
     end
     local top=large and 5 or 3
-    local row_h=large and 3 or 2
-    local visible=math.min(#(entries or {}),large and 7 or 4)
+    local row_h=large and 3 or 1             -- kompakt: eine Zeile je Eintrag, damit der Text darueber Platz behaelt
+    local entry_h=large and row_h-1 or 1
+    local visible=math.min(#(entries or {}),large and 7 or 5)
     local choices_y=height-visible*row_h-1
     local bottom=entries and choices_y-2 or height-3
     local wrapped={}
@@ -723,9 +670,9 @@ function M.dialog_env(env, target, pull)
       for i=first,math.min(#entries,first+visible-1) do
         local y=choices_y+(i-first)*row_h
         local bg=i==selected and C.blue or C.panel
-        fill(left,y,content_w,row_h-1,bg)
+        fill(left,y,content_w,entry_h,bg)
         text(left+1,y,'['..entries[i].key..'] '..entries[i].text,C.text,bg,content_w-2)
-        areas[#areas+1]={index=i,x=left,y=y,w=content_w,h=row_h-1}
+        areas[#areas+1]={index=i,x=left,y=y,w=content_w,h=entry_h}
       end
     end
     text(2,height,'Pfeile: Auswahl | Enter: OK | Bild auf/ab: Text',C.dim,C.bg,width-2)
@@ -766,13 +713,29 @@ function M.dialog_env(env, target, pull)
     end
   end
   out.progress=function(done,total)
-    stage=4
+    stage=3
     render()
     local w=math.max(1,width-4);local n=math.floor(w*done/math.max(1,total))
     fill(2,height-2,w,1,C.panel);fill(2,height-2,n,1,C.blue)
     text(2,height-1,'Dateien geprueft: '..done..' / '..total,C.text,C.bg)
   end
-  out.progress_done=function() stage=5; append('Dateien vollstaendig geprueft.','ok');render() end
+  out.progress_done=function() stage=4; append('Dateien vollstaendig geprueft.','ok');render() end
+  -- Terminal zurueckgeben: Farben wie vorher, Bildschirm leer, der Verlauf bleibt als normaler Text stehen
+  out.restore=function()
+    if restored then return end
+    restored=true
+    if colour and target.setPaletteColour then
+      for c,rgb in pairs(saved_palette) do if rgb[1] then target.setPaletteColour(c,rgb[1],rgb[2],rgb[3]) end end
+    end
+    target.setBackgroundColour(32768); target.setTextColour(1)
+    target.clear(); target.setCursorPos(1,1)
+    local keep={}
+    for _,line in ipairs(lines) do
+      if not line.text:match('^%s*%-+$') and not line.text:find('CRN Installer',1,true) then keep[#keep+1]=line.text end
+    end
+    for i=math.max(1,#keep-(height-3)),#keep do env.print(keep[i]) end
+  end
+  if env.start then out.start=function(...) out.restore(); return env.start(...) end end
   return out
 end
 
@@ -820,4 +783,6 @@ if rawget(_G, "__CRN_TEST") then return M end
 local args = { ... }
 local env = M.real_env()
 if #args == 0 then env = M.dialog_env(env, term, os.pullEvent) end
-M.run(args, env)
+local ok, err = pcall(M.run, args, env)
+if env.restore then env.restore() end
+if not ok then error(err, 0) end

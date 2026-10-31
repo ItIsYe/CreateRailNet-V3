@@ -20,8 +20,15 @@ function M.new(services)
   local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, test_pending = nil, pick = {} }
 
   local function sequence()
-    local seq = { "1.modus", "1.netz" }
-    if session.wiz.mode == "join" then seq[#seq + 1] = "1.zentrale" end
+    local seq = { "1.modus" }
+    if session.wiz.mode == "join" and services.search_networks then
+      -- Beitreten: erst die Netze in Reichweite zur Auswahl; Name und Leitstelle von Hand nur, wenn keines passt
+      seq[#seq + 1] = "1.netzwahl"
+      if not (type(session.net_choice) == "table") then seq[#seq + 1] = "1.netz"; seq[#seq + 1] = "1.zentrale" end
+    else
+      seq[#seq + 1] = "1.netz"
+      if session.wiz.mode == "join" then seq[#seq + 1] = "1.zentrale" end
+    end
     seq[#seq + 1] = "2.rollen"
     seq[#seq + 1] = "2.name"
     seq[#seq + 1] = "3.geraete"
@@ -43,6 +50,10 @@ function M.new(services)
     session.screen = screen
     session.wiz.step = step_of(screen) or session.wiz.step
     session.cancel_armed = false
+    if screen == "1.netzwahl" then
+      session.net_choice = nil
+      services.search_networks()
+    end
   end
 
   local function index_of(seq, screen)
@@ -67,6 +78,8 @@ function M.new(services)
     session.stack = {}
     session.track = nil
     session.pick = {}
+    session.pending_role = nil
+    session.net_choice = nil
     goto_screen("1.modus")
     -- Felder aus dem Zustand vorbelegen
     local st = v.page_state("einrichtung")
@@ -165,6 +178,38 @@ function M.new(services)
     end,
   }
 
+  screens["1.netzwahl"] = {
+    render = function(v, rect)
+      header(v, rect, nil, "Welchem Netz soll dieser Computer beitreten?")
+      local st = services.search_status and services.search_status() or { kind = "halt", text = "", networks = {} }
+      W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind or "dim", rect.w - 2)
+      local items = {}
+      session.pick.nets = {}
+      local chosen = session.net_choice
+      for _, net in ipairs(st.networks or {}) do
+        local on = type(chosen) == "table" and chosen.zentrale == net.zentrale
+        items[#items + 1] = { text = (on and "(o) " or "( ) ") .. net.netz, detail = "Leitstelle " .. net.zentrale }
+        session.pick.nets[#items] = net
+      end
+      items[#items + 1] = { text = (chosen == "manuell" and "(o) " or "( ) ") .. "Netz von Hand eingeben" }
+      session.pick.nets[#items] = "manuell"
+      W.list(v, "netzwahl", body_rect(rect, 4), items, list_state(v, "netzwahl"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:netzwahl:(%d+)$")
+      if n then
+        session.net_choice = (session.pick.nets or {})[tonumber(n)]
+        return true
+      end
+      if id == "act:neu_suchen" then
+        session.net_choice = nil
+        services.search_networks()
+        return true
+      end
+    end,
+    actions = function(v) return { { id = "neu_suchen", label = "Neu suchen", kind = "secondary" } } end,
+  }
+
   screens["1.netz"] = {
     render = function(v, rect)
       header(v, rect, nil, "Wie heisst das Netz? (Buchstaben, Ziffern, Leerzeichen, - und _)")
@@ -196,7 +241,18 @@ function M.new(services)
     end,
     action = function(v, id)
       local n = id:match("^sel:rollen:(%d+)$")
-      if n then session.wiz.toggle_role((session.pick.roles or {})[tonumber(n)]); v.hint="Rolle angepasst; unpassende Zuordnungen entfernt, Tests erneuern."; return true end
+      if n then
+        local role = (session.pick.roles or {})[tonumber(n)]
+        local ok, why, effect = session.wiz.toggle_role(role, session.pending_role == role)
+        if why == "bestaetigen" then
+          session.pending_role = role
+          v.hint = "Abwaehlen entfernt " .. effect.devices .. " Geraet(e) und " .. effect.tracks .. " Gleis(e). Zum Bestaetigen erneut antippen."
+        else
+          session.pending_role = nil
+          v.hint = (ok and effect and (effect.devices > 0 or effect.tracks > 0)) and "Rolle entfernt; Tests muessen erneuert werden." or ""
+        end
+        return true
+      end
     end,
   }
 
@@ -715,7 +771,7 @@ function M.new(services)
     end,
     action = function(v, id)
       if id == "act:speichern" then
-        local ok, why = session.wiz.step_ok(5)
+        local ok, why = session.wiz.step_ok(5)       -- liest die Geraete vorher frisch
         if not ok then v.hint = why return true end
         local status, problems, err = session.wiz.finish(services.store, services.config_path)
         if not status then
@@ -798,6 +854,7 @@ function M.new(services)
     commit(v)
     local w, screen = session.wiz, session.screen
     local track = session.track and w.config.tracks[session.track]
+    if screen == "1.netzwahl" and not session.net_choice then return false, "Bitte ein Netz waehlen oder \"von Hand eingeben\"." end
     if screen == "1.netz" and not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
     if screen == "1.zentrale" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
     if screen == "2.rollen" then
@@ -805,8 +862,8 @@ function M.new(services)
       if w.mode == "create" and not model.has_role(w.config, "zentrale") then return false, "Die erste Node braucht die Rolle Leitstelle." end
       if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
     end
-    if screen == "2.name" then return w.step_ok(2) end
-    if screen == "3.geraete" then return w.step_ok(3) end
+    if screen == "2.name" then return w.step_ok(2, true) end
+    if screen == "3.geraete" then return w.step_ok(3, true) end
     if screen == "4.g.name" and not fields(v).gleisname.value:match("%S") then return false, "Der Gleisname fehlt." end
     if track then
       if screen == "4.g.bahnhof" and not track.station then return false, "Bitte eine Train Station zuordnen." end
@@ -814,12 +871,12 @@ function M.new(services)
       if screen == "4.g.beobachter" and track.junction and #track.observers == 0 then return false, "Der Meldepunkt braucht einen Beobachter." end
       if screen == "4.g.ausgang" and not track.release then return false, "Bitte einen Freigabeausgang zuordnen." end
     end
-    if screen == "4.gleise" or screen == "4.anmeldung" then return w.step_ok(4) end
+    if screen == "4.gleise" or screen == "4.anmeldung" then return w.step_ok(4, true) end
     if screen == "4.knoten" then
       local j=w.config.junction; local n=0; for _ in pairs(j.connections) do n=n+1 end
       if n<2 or #j.moves==0 then return false, "Zwei Anschluesse und eine Verbindung sind erforderlich." end
     end
-    if screen == "5.test" then return w.step_ok(5) end
+    if screen == "5.test" then return w.step_ok(5, true) end
     return true
   end
 
@@ -866,7 +923,8 @@ function M.new(services)
         list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why }
       end
     end
-    list[#list + 1] = { id = "entwurf", label = "Entwurf", kind = "secondary" }
+    local active = session.wiz and session.wiz.was_active
+    list[#list + 1] = { id = "entwurf", label = "Entwurf", kind = "secondary", enabled = not active, reason = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." }
     list[#list + 1] = { id = "abbrechen", label = session.cancel_armed and "Wirklich?" or "Abbrechen", kind = "danger", side = "rechts" }
     return list
   end
@@ -876,6 +934,9 @@ function M.new(services)
     commit(v)
     local allowed, reason = can_advance(v)
     if not allowed then v.hint = reason return true end
+    if session.screen == "1.netzwahl" and type(session.net_choice) == "table" then
+      session.wiz.set_network(session.net_choice.netz, session.net_choice.zentrale, nil)
+    end
     if session.screen == "1.netz" and session.wiz.network_name == "" then v.hint = "Der Netzname fehlt." return true end
     if session.screen == "1.zentrale" and session.wiz.central_id == "" then v.hint = "Die Kennung der Leitstelle fehlt." return true end
     if def and def.next then return def.next(v) end
@@ -947,6 +1008,7 @@ function M.new(services)
     end
     if session.owner ~= v then return false end
     if id == "act:entwurf" then
+      if session.wiz.was_active then v.hint = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." return true end
       commit(v)
       local status, _, err = session.wiz.finish(services.store, services.config_path, true)
       if not status then v.hint = "Speichern fehlgeschlagen: " .. tostring(err) return true end

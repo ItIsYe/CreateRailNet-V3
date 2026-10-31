@@ -25,6 +25,20 @@ return {
     local files = build.plan()
     for path, text in pairs(files) do t.eq(read("dist/" .. path), text, "dist/" .. path) end
   end },
+  { "installer_beta.lua ist aktuell und unterscheidet sich nur im Kanal", function()
+    local beta, err = build.beta_installer()
+    t.ok(beta, err)
+    t.eq(read("installer_beta.lua"), beta, "installer_beta.lua veraltet: lua tools/build.lua")
+    local main_text = read("installer.lua")
+    local function lines_of(text) local out = {} for line in (text .. "\n"):gmatch("(.-)\n") do out[#out + 1] = line end return out end
+    local a, b = lines_of(main_text), lines_of(beta)
+    t.eq(#a, #b)
+    local diffs = {}
+    for i = 1, #a do if a[i] ~= b[i] then diffs[#diffs + 1] = i end end
+    t.eq(#diffs, 1, "genau eine Zeile weicht ab")
+    t.contains(a[diffs[1]], 'local CHANNEL = "main"')
+    t.contains(b[diffs[1]], 'local CHANNEL = "beta"')
+  end },
   { "jede Datei unter src liegt in genau einem Modul", function()
     local listed = {}
     for _, paths in pairs(config.modules) do
