@@ -415,18 +415,44 @@ function M.new(env)
   -- Konfigurationssicherung und Ersatzcomputer (29.2, A17) ----------------------------------------------------------------------------------
   -- Jede aktive Node (ausser der Leitstelle) schickt ihre Konfiguration nach jeder Aenderung an die Leitstelle. Ein Ersatzcomputer holt sie dort ab,
   -- sobald die alte Node dort stillgelegt ist oder sich nicht mehr meldet; danach werden die Geraete gegen den realen Anschluss geprueft.
-  local backup = { acked = nil, sent = -9999, id = nil, rev = nil }
+  -- Die Konfiguration eines Nodes mit hunderten Signalen ist viel laenger als eine Funknachricht (etwa 6000 Zeichen): sie geht in Teilen von
+  -- CONFIG_PART Zeichen (part von parts), hoechstens MAX_CONFIG_PARTS Teile, ein paar je Takt. Die Leitstelle antwortet auf den letzten Teil.
+  local CONFIG_PART, MAX_CONFIG_PARTS, PARTS_PER_TICK = 2000, 100, 6
+  local backup = { acked = nil, sent = -9999, id = nil, rev = nil, queue = nil, warned = nil }
   table.insert(n.hooks.tick, function()
     if not n.config or n.config.status ~= "aktiv" or not n.net then return end
     for _, r in ipairs(n.config.node.roles) do if r == "zentrale" then return end end
     if backup.acked == n.config.revision then return end
     local t = n.clock.now()
-    if t - backup.sent < 30 then return end
-    local m = n.send_to(n.central_id(), "meldung", { kind = "konfig", node = n.config.node.id, revision = n.config.revision, config = ser.encode(n.config) })
-    if m then backup.id, backup.rev, backup.sent = m.messageId, n.config.revision, t end
+    if not backup.queue then
+      if t - backup.sent < 30 then return end
+      local text = ser.encode(n.config)
+      local parts = math.max(1, math.ceil(#text / CONFIG_PART))
+      backup.sent = t
+      if parts > MAX_CONFIG_PARTS then
+        if backup.warned ~= n.config.revision then
+          backup.warned = n.config.revision
+          n.notify("warnung", "Die Konfiguration dieses Nodes ist zu gross fuer die Sicherung in der Leitstelle (" .. #text .. " Zeichen); ein Ersatzcomputer muss von Hand eingerichtet werden.")
+        end
+        return
+      end
+      backup.queue = { text = text, parts = parts, next = 1, rev = n.config.revision }
+    end
+    local q = backup.queue
+    local sent = 0
+    while q.next <= q.parts and sent < PARTS_PER_TICK do
+      local piece = q.text:sub((q.next - 1) * CONFIG_PART + 1, q.next * CONFIG_PART)
+      local m = n.send_to(n.central_id(), "meldung", { kind = "konfig", node = n.config.node.id, revision = q.rev, part = q.next, parts = q.parts, config = piece })
+      if not m then backup.queue = nil return end
+      if q.next == q.parts then backup.id, backup.rev = m.messageId, q.rev end
+      q.next, sent = q.next + 1, sent + 1
+    end
+    if q.next > q.parts then backup.queue, backup.sent = nil, t end
   end)
   table.insert(n.hooks.on_message, function(m, status)
-    if status == "ok" and m.messageType == "bestaetigung" and backup.id and m.correlationId == backup.id then backup.acked = backup.rev end
+    if status == "ok" and m.messageType == "bestaetigung" and backup.id and m.correlationId == backup.id and m.payload.status ~= "unvollstaendig" then
+      backup.acked = backup.rev
+    end
   end)
 
   -- Computer ohne Einrichtung sprechen mit einer vorlaeufigen Kennung (Ersatz holen, Netz suchen)
@@ -492,6 +518,30 @@ function M.new(env)
     n.fetch_state = { kind = "wait", text = "Anfrage an " .. central_id .. " gesendet ..." }
   end
 
+  -- Die Konfiguration kommt in Teilen (part von parts, siehe Sicherung): erst wenn alle da sind, wird sie gelesen
+  local function collect_config(p)
+    local parts, part = p.parts or 1, p.part or 1
+    if type(p.config) ~= "string" then return nil end
+    if parts == 1 then return p.config end
+    if type(parts) ~= "number" or type(part) ~= "number" or parts ~= math.floor(parts) or part ~= math.floor(part) or part < 1 or part > parts or parts > MAX_CONFIG_PARTS then
+      return nil
+    end
+    local asm = n.replace_parts
+    if not asm or asm.req ~= n.replace_req or asm.parts ~= parts then
+      asm = { req = n.replace_req, parts = parts, pieces = {}, count = 0 }
+      n.replace_parts = asm
+    end
+    if asm.pieces[part] == nil then asm.count = asm.count + 1 end
+    asm.pieces[part] = p.config
+    if asm.count < parts then
+      n.fetch_state = { kind = "wait", text = "Konfiguration wird empfangen (" .. asm.count .. " von " .. parts .. " Teilen) ..." }
+      n.dirty = true
+      return false
+    end
+    n.replace_parts = nil
+    return table.concat(asm.pieces)
+  end
+
   function n.replace_receive(ev)
     local m, status = n.replace_net.receive(ev)
     if not m then return end
@@ -505,7 +555,9 @@ function M.new(env)
       n.fetch_state = { kind = "halt", text = "Abgelehnt: " .. tostring(p.grund) }
       return
     end
-    local config = ser.decode(p.config)
+    local text = collect_config(p)
+    if text == false then return end                       -- weitere Teile folgen
+    local config = text and ser.decode(text)
     if type(config) ~= "table" or not config.node then
       n.fetch_state = { kind = "halt", text = "Die Konfiguration ist nicht lesbar." }
       return

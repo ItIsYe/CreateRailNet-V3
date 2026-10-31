@@ -46,6 +46,15 @@ function M.new(services)
 
   local function step_of(screen) return tonumber(screen:match("^(%d)")) end
 
+  -- Fortschritt langer Pruefreihen (hunderte Signale): Hinweiszeile setzen und sofort zeichnen
+  local function progress_of(v)
+    if not v then return nil end
+    return function(done, total)
+      v.hint = "Pruefung " .. done .. " von " .. total .. " ..."
+      if v.render then v.render() end
+    end
+  end
+
   local function goto_screen(screen)
     session.screen = screen
     session.wiz.step = step_of(screen) or session.wiz.step
@@ -53,6 +62,12 @@ function M.new(services)
     if screen == "1.netzwahl" then
       session.net_choice = nil
       services.search_networks()
+    elseif screen == "5.test" or screen == "6.fertig" then
+      -- Pruefungen laufen von selbst; schaltende nur, wenn der Zustand beweist, dass nichts betroffen ist, sonst warten sie auf die Bestaetigung
+      local ran, passed, waiting = session.wiz.auto_tests(true, progress_of(session.owner))
+      if session.owner and ran + waiting > 0 then
+        session.owner.hint = ran .. " Pruefung(en) automatisch, " .. passed .. " bestanden" .. (waiting > 0 and (", " .. waiting .. " warten auf Bestaetigung") or "") .. "."
+      end
     end
   end
 
@@ -262,7 +277,17 @@ function M.new(services)
       W.field(v, "name", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Name", fields(v).name)
       local c = session.wiz.config
       if c.node.name ~= "" then W.label(v, rect.x + 1, rect.y + 6, "Kennung im Netz: " .. model.slug(c.node.name), "dim", rect.w - 2) end
+      if rect.h > 9 then W.label(v, rect.x + 1, rect.y + 8, "Oder alles automatisch einrichten (Knopf unten).", "dim", rect.w - 2) end
     end,
+    action = function(v, id)
+      if id == "act:auto" then
+        commit(v)
+        local ok, why = session.wiz.step_ok(2)
+        if not ok then v.hint = why return true end
+        return page.auto_setup(v)
+      end
+    end,
+    actions = function(v) return { { id = "auto", label = "Automatisch einrichten", kind = "secondary" } } end,
   }
 
   screens["3.geraete"] = {
@@ -289,8 +314,13 @@ function M.new(services)
         return true
       end
       if id == "act:neu_scannen" then session.wiz.rescan() v.hint = "Geraete neu gelesen." return true end
+      if id == "act:alle_passenden" then
+        local added = session.wiz.select_suitable()
+        v.hint = added > 0 and (added .. " Geraet(e) gewaehlt.") or "Keine weiteren passenden Geraete."
+        return true
+      end
     end,
-    actions = function(v) return { { id = "neu_scannen", label = "Neu lesen", kind = "secondary" } } end,
+    actions = function(v) return { { id = "alle_passenden", label = "Alle passenden", kind = "secondary" }, { id = "neu_scannen", label = "Neu lesen", kind = "secondary" } } end,
   }
 
   screens["4.gleise"] = {
@@ -337,6 +367,11 @@ function M.new(services)
       elseif id == "act:entfernen" and selected then
         session.wiz.remove_track(selected)
         return true
+      elseif id == "act:auto_gleise" then
+        local ok, notes, count = session.wiz.auto_tracks()
+        if not ok then v.hint = notes return true end
+        v.hint = count .. " Gleis(e) angelegt" .. (#notes > 0 and (": " .. table.concat(notes, "; ")) or ".")
+        return true
       end
     end,
     actions = function(v)
@@ -344,6 +379,7 @@ function M.new(services)
       local reason = "Erst ein Gleis in der Liste waehlen."
       return {
         { id = "neues_gleis", label = "Neu" },
+        { id = "auto_gleise", label = "Automatisch", kind = "secondary", enabled = #session.wiz.tracks() == 0, reason = "Die Automatik legt nur neue Gleise an (Liste ist nicht leer)." },
         { id = "bearbeiten", label = "Bearbeiten", kind = "secondary", enabled = has_selection, reason = reason },
         { id = "kopieren", label = "Kopieren", kind = "secondary", enabled = has_selection, reason = reason },
         { id = "entfernen", label = "Entfernen", kind = "danger", enabled = has_selection, reason = reason },
@@ -668,16 +704,24 @@ function M.new(services)
 
   screens["5.test"] = {
     render = function(v, rect)
-      header(v, rect, nil, "Pruefungen: lesende laufen sofort, schaltende nach Bestaetigung.")
+      header(v, rect, nil, "Pruefungen laufen automatisch; was nicht sicher ist, wartet auf Sie.")
       local items = {}
       session.pick.tests = {}
+      local current = session.wiz.fingerprint()          -- einmal je Zeichnen, nicht je Zeile (bei hunderten Signalen sonst Sekunden)
       for _, test in ipairs(session.wiz.tests()) do
-        local state, text = session.wiz.test_state(test.id)
+        local state, text = session.wiz.test_state(test.id, current, test)
         local kind = (state == "ok") and "ok" or (state == "fehler") and "halt" or "wait"
-        items[#items + 1] = { text = test.title, detail = state .. (test.kind == "schalten" and " (schaltet)" or "") .. (text and state == "fehler" and (": " .. text) or ""), kind = kind }
+        local waiting = session.wiz.auto_waiting and session.wiz.auto_waiting[test.id]
+        local detail = state .. (test.kind == "schalten" and " (schaltet)" or "") .. (text and state == "fehler" and (": " .. text) or "")
+        if state == "offen" and waiting then detail = "wartet: " .. waiting end
+        items[#items + 1] = { text = test.title, detail = detail, kind = kind }
         session.pick.tests[#items] = test
       end
       W.list(v, "tests", body_rect(rect, 3), items, list_state(v, "tests"), { empty = "Keine Pruefungen noetig." })
+      -- die Auswahl nennt den Grund, wenn eine schaltende Pruefung auf die Bestaetigung wartet
+      local picked = session.pick.tests[list_state(v, "tests").index]
+      local why = picked and session.wiz.auto_waiting and session.wiz.auto_waiting[picked.id]
+      if why and session.wiz.test_state(picked.id, current, picked) == "offen" then v.hint = "Wartet auf Bestaetigung: " .. why .. ". Ausfuehren schaltet erst nach der Vorbereitung." end
     end,
     action = function(v, id)
       local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
@@ -690,12 +734,9 @@ function M.new(services)
           v.hint = (ok and "ok: " or "Fehler: ") .. tostring(text)
         end
         return true
-      elseif id == "act:alle_lesen" then
-        local ran = 0
-        for _, test in ipairs(session.wiz.tests()) do
-          if test.kind == "lesen" then session.wiz.run_test(test.id, false) ran = ran + 1 end
-        end
-        v.hint = ran .. " lesende Pruefungen ausgefuehrt."
+      elseif id == "act:alle_pruefen" then
+        local ran, passed, waiting = session.wiz.auto_tests(false, progress_of(v))
+        v.hint = ran .. " Pruefung(en) ausgefuehrt, " .. passed .. " bestanden" .. (waiting > 0 and (", " .. waiting .. " warten auf Bestaetigung") or "") .. "."
         return true
       end
     end,
@@ -703,7 +744,7 @@ function M.new(services)
       local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
       return {
         { id = "ausfuehren", label = "Ausfuehren", enabled = selected ~= nil, reason = "Erst eine Pruefung waehlen." },
-        { id = "alle_lesen", label = "Alle lesenden", kind = "secondary" },
+        { id = "alle_pruefen", label = "Neu pruefen", kind = "secondary" },
       }
     end,
   }
@@ -755,6 +796,10 @@ function M.new(services)
       }
       local tracks = #w.tracks()
       if tracks > 0 then lines[#lines + 1] = "Gleise: " .. tracks end
+      for _, tid in ipairs(w.tracks()) do
+        local t = c.tracks[tid]
+        if t.release then lines[#lines + 1] = "Freigabe " .. t.name .. ": " .. (t.release.relay or "Computer") .. " " .. t.release.side end
+      end
       local problems = w.warnings()
       local tests_ok = w.all_tests_ok()
       lines[#lines + 1] = "Pruefungen: " .. (tests_ok and "alle bestanden" or "offen")
@@ -771,6 +816,8 @@ function M.new(services)
     end,
     action = function(v, id)
       if id == "act:speichern" then
+        session.wiz.rescan()
+        session.wiz.auto_tests(true, progress_of(v))   -- offene Pruefungen laufen vor dem Aktivieren von selbst
         local ok, why = session.wiz.step_ok(5)       -- liest die Geraete vorher frisch
         if not ok then v.hint = why return true end
         local status, problems, err = session.wiz.finish(services.store, services.config_path)
@@ -878,6 +925,31 @@ function M.new(services)
     end
     if screen == "5.test" then return w.step_ok(5, true) end
     return true
+  end
+
+  -- Automatisch einrichten (freiwillig, ab Schritt 2): Geraete waehlen, Gleise anlegen, Pruefungen laufen lassen und dorthin springen, wo noch etwas von Hand noetig ist
+  function page.auto_setup(v)
+    local w = session.wiz
+    w.rescan()
+    local added = w.select_suitable()
+    local made, notes = w.auto_tracks()
+    local function go(screen, hint)
+      session.stack = {}
+      goto_screen(screen)
+      v.hint = hint
+      return true
+    end
+    local ok3, why3 = w.step_ok(3, true)
+    if not ok3 then return go("3.geraete", why3) end
+    if model.has_role(w.config, "knoten") then return go("4.knoten", "Knotenpunkt: Anschluesse, Verbindungen und Gleise bitte von Hand einrichten.") end
+    local extra = type(notes) == "table" and #notes > 0 and (" " .. table.concat(notes, "; ")) or ""
+    if not made and model.profile(w.config).tracks and #w.tracks() == 0 then return go("4.gleise", tostring(notes)) end
+    local ok4, why4 = w.step_ok(4, true)
+    if not ok4 then return go("4.gleise", why4 .. extra) end
+    local ran, passed, waiting = w.auto_tests(true, progress_of(v))
+    local ok5 = w.step_ok(5, true)
+    if ok5 then return go("6.fertig", "Automatisch eingerichtet. Bitte ansehen, dann aktivieren." .. extra) end
+    return go("5.test", ran .. " Pruefung(en) automatisch, " .. waiting .. " warten auf Bestaetigung oder sind fehlgeschlagen." .. extra)
   end
 
   function page.hint(v)

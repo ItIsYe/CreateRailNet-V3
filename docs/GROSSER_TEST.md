@@ -40,7 +40,7 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.3 | Schritt 2: ohne Rolle auf "Weiter"; dann Rolle Leitstelle waehlen oder (Netz beitreten) Passagierbahnhof | Hinweis; danach Eingabe des Namens (nur Buchstaben, Ziffern, Leerzeichen, - und _) | |
 | 3.4 | Schritt 3 (Geraete) | Alle Create-Geraete mit Typ; Funk- und Kabelmodem getrennt genannt (z.B. "Funk: left   Kabel: right"); Antippen setzt "[x]" | |
 | 3.5 | Schritt 4 (Gleise): Gleis anlegen, Bahnhof, Signal, Beobachter und Ausgang zuordnen, "Kopieren" | Ein Geraet laesst sich nur einem Gleis geben, ein Ausgang nur einmal; die Kopie hat keine Geraete | |
-| 3.6 | Schritt 5 (Test): "Alle lesenden", dann ein schaltender Test | Vor dem Schalten erscheint ein Bildschirm mit Geraet und Wirkung; nach "Vorbereitung erledigt: starten" "ok"; Signal/Ausgang sind danach wie vorher | |
+| 3.6 | Schritt 5 (Test) betreten, dabei steht kein Zug am Bahnhof und das Signal zeigt gruen | Die Pruefungen laufen von selbst (Hinweis "n Pruefung(en) automatisch, n bestanden"), auch Sperre und Ausgang; Signal und Ausgang sind danach wie vorher. Steht ein Zug am Bahnhof oder zeigt das Signal nicht gruen, wartet nur diese Pruefung ("wartet: Zug am Bahnhof"); "Ausfuehren" zeigt Geraet und Wirkung, nach "Vorbereitung erledigt: starten" "ok" | |
 | 3.7 | Schritt 6, "Aktivieren" | Zustand "Bereit"; nach einem Neustart (`reboot`) startet der Node mit derselben Einrichtung | |
 | 3.8 | Schritt 6 ohne alle Pruefungen | "Aktivieren" ist gesperrt (Hinweis nennt den Grund), "Entwurf" speichert: Zustand "Entwurf", Hinweis in den Meldungen | |
 | 3.9 | Monitor: berühren der Reiter, Einrichtung dort bedienen, waehrend der Terminal eine andere Seite zeigt | Jede Ansicht hat ihre eigene Seite; bearbeitet die eine die Einrichtung, zeigt die andere "Einrichtung wird bearbeitet." | |
@@ -49,6 +49,10 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.12 | Seite "Geraete" und "Meldungen", Meldung quittieren | Quittiert aendert nur die Meldung | |
 | 3.13 | Laufende (aktive) Node: Seite "Einrichtung", "Einrichtung aendern", dann "Entwurf" | "Entwurf" ist gesperrt, Hinweis "Laufende Node: ..."; Zustand bleibt "Bereit"; "Abbrechen" (zweimal) verwirft die Aenderungen | |
 | 3.14 | Schritt 2: eine Rolle abwaehlen, zu der schon Geraete oder Gleise gewaehlt sind | Hinweis nennt, wie viele Geraete und Gleise entfallen; erst das erneute Antippen entfernt sie | |
+| 3.18 | Neuer Computer (Gueterbahnhof mit einem Bahnhof, Signal, Beobachter), Schritt 2: Name eintippen, "Automatisch einrichten" | Der Assistent springt zu Schritt 6 "Fertig": Geraete gewaehlt, ein Gleis, "Freigabe Gleis 1: Computer <Seite>" (erste freie Seite ohne Modem), Pruefungen bestanden, "Aktivieren" moeglich. Die genannte Seite danach verdrahten | |
+| 3.19 | Dasselbe mit zwei Bahnhoefen und Signalen | Zwei Gleise mit eigenen Ausgaengen; die Signale werden keinem Gleis zugeordnet (Hinweis), Zuordnung von Hand | |
+| 3.20 | Dasselbe als Knotenpunkt, als Signal-Node und ohne Bahnhof | Knotenpunkt: Geraete gewaehlt, weiter bei den Anschluessen (Handarbeit). Signal-Node: ein Gleis mit allen Signalen. Ohne Bahnhof: zurueck zur Geraeteauswahl mit Begruendung | |
+| 3.21 | Schritt 3: "Alle passenden"; Schritt 4: "Automatisch" (bei leerer Gleisliste) | Bahnhoefe, Signale, Beobachter, Monitore werden gewaehlt (Relais nie); die Gleise werden angelegt wie bei der Automatik | |
 | 3.15 | Schritt 3 bis 5 laenger offen lassen, dazwischen ein Geraet abziehen | Die Anzeige liest nicht dauernd neu; "Neu lesen" und "Weiter" erkennen den Ausfall (Weiter sperrt, Tests werden ungueltig) | |
 | 3.16 | Zweiter Computer (zum Beispiel Signal), Einrichtung starten, "Diesem bestehenden Netz beitreten", Weiter. Die Leitstelle laeuft in Funkreichweite (Ender-Modem) | Seite "Welchem Netz soll dieser Computer beitreten?": nach wenigen Sekunden steht dort das Netz der Leitstelle mit "Leitstelle <Kennung>". Auswaehlen und Weiter fuehrt direkt zur Rolle (Netzname und Leitstelle werden nicht mehr getippt) | |
 | 3.17 | Dasselbe mit ausgeschalteter Leitstelle oder ausser Reichweite | "Kein Netz gefunden ..."; "Netz von Hand eingeben" fuehrt zu den Feldern Netzname und Leitstelle; "Neu suchen" wiederholt die Suche | |
@@ -182,7 +186,7 @@ Aufbau: wie Stufe 4/5; zusaetzlich ein freier Computer (Funkmodem, wenn moeglich
 
 ## Stufe 9: Betrieb im Grossen
 
-Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind aktiv, mindestens ein Knoten ist eingerichtet. Automatisch geprueft sind bereits 312 Signale an 26 Computern (`tests/test_load.lua`: unter 6 Nachrichten je Sekunde im Ruhebetrieb, Berichte gesammelt je Node).
+Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind aktiv, mindestens ein Knoten ist eingerichtet. Automatisch geprueft sind bereits 312 Signale an 26 Computern (`tests/test_load.lua`: unter 6 Nachrichten je Sekunde im Ruhebetrieb, Berichte gesammelt je Node) und ein einziger Node mit 450 Signalen (Meldungen in Teilen unter der Funkgrenze, auch bei Verlust, Verdopplung und Vertauschung; Konfigurationssicherung in Teilen).
 
 | Nr | Schritt | Erwartung | Ergebnis |
 |---|---|---|---|
@@ -192,3 +196,6 @@ Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind
 | 9.4 | **A16** Chunkgrenze mit fahrendem Zug: Zug faehrt in einen ungeladenen Bereich und zurueck | Der Zug wird nicht doppelt freigegeben; Ankunft/Abfahrt kommen verspaetet oder ueber den Zustandsbericht an | |
 | 9.5 | Alle Spieltest-Schritte aus Stufe 4 bis 8, die noch kein Ergebnis haben, nachholen | Ergebnisse eingetragen | |
 | 9.6 | Rueckmeldung an den Entwickler | Diese Datei mit allen Ergebnissen, die Meldungen der Seite "Meldungen" der Leitstelle, die Ausgabe von `crn/app/main info` und `crn/app/main datenstand` je Computertyp, und alle Abweichungen (Fahrplan-JSON aus Schritt 4.20) | |
+| 9.7 | **Viele Signale an einem Computer**: Signal-Node mit moeglichst vielen Signalen (ab 100, gern 400 und mehr) ueber Kabelmodems einrichten: Schritt 2 Name, "Automatisch einrichten". Zeit stoppen | Die Hinweiszeile zeigt "Pruefung n von m ..." und der Assistent bleibt dabei bedienbar bis auf das Warten; am Ende "Fertig", alle Pruefungen bestanden. Bitte die Dauer und die Zahl der Signale notieren (Schaetzung: etwa eine Minute bei 450) | |
+| 9.8 | Danach aktivieren und 2 Minuten laufen lassen. Leitstelle, Seite "Signale": blaettern bis ans Ende; ein Signal am Ende der Liste in Create auf Rot stellen (oder sperren) | Alle Signale des Nodes stehen in der Liste, nicht "VERALTET"; die Aenderung erscheint binnen weniger Sekunden; keine Meldung "Nachricht zu gross" | |
+| 9.9 | Am Signal-Node nach 40 s die Seite "Meldungen" ansehen | Keine Fehlermeldung ("Nachricht zu gross" darf nie vorkommen); nur bei einer Konfiguration ueber rund 200 KB steht einmal die Warnung "zu gross fuer die Sicherung" | |

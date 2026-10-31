@@ -5,12 +5,16 @@ Notes: Nur eine bestaetigte Sperre (isForcedRed nach dem Setzen) gilt als gesetz
 ]]
 
 local signallib = require("dev.signal")
+local ser = require("core.ser")
 local W = require("ui.widgets")
 
 local M = {}
 
 local HEARTBEAT = 5
 local HELLO_REPEAT = 10      -- bis die Leitstelle antwortet, alle 10 s; danach alle 120 s
+local GROUP = 30             -- Signale je Berichtsteil (Grundeinteilung; ein grosser Node meldet in Teilen, eine Sicht hat etwa 150 Zeichen)
+local BUDGET = 5000          -- Zeichen Nutzlast je Nachricht; mit dem Umschlag (etwa 300) bleibt es unter der Grenze der Funkschicht von 6000
+local MAX_PER_TICK = 6       -- Berichtsteile je Takt: ein Node mit hunderten Signalen ueberflutet die Leitstelle nicht
 local LOCK_FILE = "/crn_data/sperren.lua"
 
 function M.new(node)
@@ -20,8 +24,10 @@ function M.new(node)
   local now = function() return node.clock.now() end
   local persisted = node.store.load(LOCK_FILE) or { locks = {} }
   persisted.locks = persisted.locks or {}
-  local last_beat, last_hello, hello_acked = -9999, -9999, false
-  local dirty = true
+  local last_beat, last_hello, hello_acked = now(), -9999, false
+  local pending = {}       -- Nummer des Berichtsteils -> true: muss noch gesendet werden
+  local cursor = 1         -- ab hier wird weitergesendet (rundum): ein Teil steht nicht dauernd an der ungluenstigsten Stelle
+  local views = {}         -- Position -> zuletzt gelesene Sicht
   local confirm = {}
   local started_at = now()
 
@@ -38,11 +44,24 @@ function M.new(node)
       if config.devices[did] then
         local sg = { id = did, track = tid, track_name = spec.name, device = config.devices[did].device, last = {} }
         sg.dev = signallib.new(env, sg.device)
+        sg.pos = #role.signals + 1
         role.signals[did] = sg
         role.signals[#role.signals + 1] = sg
       end
     end
   end
+
+  -- Berichtsteile: jedes Signal gehoert zu einer festen Gruppe; geaendert wird nur gemeldet, was sich geaendert hat
+  local function group_count() return math.max(1, math.ceil(#role.signals / GROUP)) end
+  local function mark(id)
+    local sg = role.signals[id]
+    if sg then pending[math.floor((sg.pos - 1) / GROUP) + 1] = true end
+  end
+  local function full_round()
+    for g = 1, group_count() do pending[g] = true end
+    last_beat = now()
+  end
+  full_round()
 
   local function owners_of(id)
     local entry = persisted.locks[id]
@@ -89,7 +108,7 @@ function M.new(node)
     local jid = node.journal.begin("sperre.setzen", { signal = id, owner = owner, reason = reason })
     local result = sg.dev.hold()
     node.journal.finish(jid, { confirmed = result.confirmed, error = result.error })
-    dirty = true
+    mark(id)
     if not result.confirmed then
       return nil, "Die Sperre wurde nicht bestaetigt" .. (result.error and (": " .. result.error) or ".")
     end
@@ -110,7 +129,7 @@ function M.new(node)
       entry.owners[owner] = { reason = "wiederhergestellt", t = now() }
       return nil, err
     end
-    dirty = true
+    mark(id)
     if remaining > 0 then return true end                                   -- andere Besitzer halten das Signal weiter
     local jid = node.journal.begin("sperre.loesen", { signal = id, owner = owner })
     local result = sg.dev.release()
@@ -127,29 +146,63 @@ function M.new(node)
     local jid = node.journal.begin("sperre.fremd_loesen", { signal = id })
     local result = sg.dev.release()
     node.journal.finish(jid, { confirmed = result.confirmed })
-    dirty = true
+    mark(id)
     return result.confirmed or nil, not result.confirmed and "Das Aufheben wurde nicht bestaetigt." or nil
   end
 
   -- Berichte -------------------------------------------------------------------------------------------------------------------------------
-  local function send_state()
-    local list = role.states()
-    node.send_to(central(), "meldung", { kind = "signale", node = config.node.id, signals = list, t = now() })
-    last_beat, dirty = now(), false
+  -- Eine Nachricht darf nur etwa 6000 Zeichen tragen: ein Node mit hunderten Signalen meldet deshalb in Teilen. Jeder Teil nennt seine
+  -- Startposition (first) und die Gesamtzahl (total); die Leitstelle setzt ihn an diese Stelle. Ein verlorener Teil heilt mit dem naechsten
+  -- vollstaendigen Durchlauf (alle HEARTBEAT Sekunden), ein doppelter oder vertauschter Teil schadet nicht.
+  local function split_send(first, last, fill, send)
+    local part = {}
+    for i = first, last do part[#part + 1] = fill(i) end
+    if last > first and #ser.encode(part) > BUDGET then
+      local mid = math.floor((first + last) / 2)
+      split_send(first, mid, fill, send)
+      split_send(mid + 1, last, fill, send)
+      return
+    end
+    send(first, part)
+  end
+
+  local function send_state_part(first, last)
+    split_send(first, last, function(i) return views[i] or read(role.signals[i]) end, function(from, part)
+      node.send_to(central(), "meldung", { kind = "signale", node = config.node.id, first = from, total = #role.signals, signals = part, t = now() })
+    end)
+  end
+
+  local function send_pending()
+    local count, sent, start = group_count(), 0, cursor
+    for k = 0, count - 1 do
+      local g = (start - 1 + k) % count + 1
+      if pending[g] then
+        if sent >= MAX_PER_TICK then return end          -- der Rest folgt im naechsten Takt
+        pending[g] = nil
+        cursor = g % count + 1
+        send_state_part((g - 1) * GROUP + 1, math.min(#role.signals, g * GROUP))
+        sent = sent + 1
+      end
+    end
   end
 
   function role.hello()
     local list = {}
     for _, sg in ipairs(role.signals) do list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device } end
-    node.send_to(central(), "meldung", {
-      kind = "hallo_signale", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
-      signals = list, active = config.status == "aktiv",
-    })
+    for first = 1, math.max(1, #list), GROUP do
+      split_send(first, math.min(#list, first + GROUP - 1), function(i) return list[i] end, function(from, part)
+        local payload = { kind = "hallo_signale", node = config.node.id, first = from, total = #list, signals = part }
+        if from == 1 then
+          payload.name, payload.roles, payload.revision, payload.active = config.node.name, config.node.roles, config.revision, config.status == "aktiv"
+        end
+        node.send_to(central(), "meldung", payload)
+      end)
+    end
     last_hello = now()
   end
 
   function role.on_event(ev)
-    if ev.kind == "signal" and role.signals[ev.id] then dirty = true end
+    if ev.kind == "signal" then mark(ev.id) end
   end
 
   function role.on_message(m, status)
@@ -173,12 +226,13 @@ function M.new(node)
   function role.tick()
     local t = now()
     if t - last_hello >= (hello_acked and 120 or HELLO_REPEAT) then role.hello() end
-    for _, sg in ipairs(role.signals) do
+    for i, sg in ipairs(role.signals) do
       local view = read(sg)
+      views[i] = view
       local key = tostring(view.available) .. tostring(view.state) .. tostring(view.forced) .. table.concat(view.owners, ",") .. tostring(view.foreign) .. tostring(view.missing)
       if seen[sg.id] ~= key then
         seen[sg.id] = key
-        dirty = true
+        mark(sg.id)
         if view.invalid then node.notify("fehler", "Signal " .. sg.track_name .. " (" .. sg.device .. ") meldet INVALID: der Bereich gilt als gestoert.") end
         if view.foreign then node.notify("warnung", "Signal " .. sg.track_name .. ": Es ist gesperrt, ohne dass diese Anlage die Sperre kennt (fremde Sperre). Sie wird nicht aufgehoben.") end
       end
@@ -188,10 +242,11 @@ function M.new(node)
         local jid = node.journal.begin("sperre.setzen", { signal = sg.id, owner = "abgleich" })
         local result = sg.dev.hold()
         node.journal.finish(jid, { confirmed = result.confirmed })
-        dirty = true
+        mark(sg.id)
       end
     end
-    if dirty or t - last_beat >= HEARTBEAT then send_state() end
+    if t - last_beat >= HEARTBEAT then full_round() end
+    send_pending()
   end
 
   -- Wiederanlauf: offene Absichten gegen den gelesenen Zustand abgleichen

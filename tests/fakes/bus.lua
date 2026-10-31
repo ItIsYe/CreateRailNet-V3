@@ -7,7 +7,7 @@ local M = {}
 
 function M.new(opts)
   opts = opts or {}
-  local b = { nodes = {}, sent = 0 }
+  local b = { nodes = {}, sent = 0, bytes = 0, max_len = 0 }
   local state = (opts.seed or 1) % 2147483647
   if state <= 0 then state = 1 end
   local function rand()
@@ -19,6 +19,8 @@ function M.new(opts)
     local box = b.nodes[to]
     if not box then return end
     b.sent = b.sent + 1
+    b.bytes = b.bytes + #text
+    if #text > b.max_len then b.max_len = #text end
     if opts.drop and rand() < opts.drop then return end
     local copies = (opts.dup and rand() < opts.dup) and 2 or 1
     for _ = 1, copies do box.queue[#box.queue + 1] = { "rednet_message", from, text, proto } end
