@@ -50,6 +50,8 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.13 | Laufende (aktive) Node: Seite "Einrichtung", "Einrichtung aendern", dann "Entwurf" | "Entwurf" ist gesperrt, Hinweis "Laufende Node: ..."; Zustand bleibt "Bereit"; "Abbrechen" (zweimal) verwirft die Aenderungen | |
 | 3.14 | Schritt 2: eine Rolle abwaehlen, zu der schon Geraete oder Gleise gewaehlt sind | Hinweis nennt, wie viele Geraete und Gleise entfallen; erst das erneute Antippen entfernt sie | |
 | 3.15 | Schritt 3 bis 5 laenger offen lassen, dazwischen ein Geraet abziehen | Die Anzeige liest nicht dauernd neu; "Neu lesen" und "Weiter" erkennen den Ausfall (Weiter sperrt, Tests werden ungueltig) | |
+| 3.16 | Zweiter Computer (zum Beispiel Signal), Einrichtung starten, "Diesem bestehenden Netz beitreten", Weiter. Die Leitstelle laeuft in Funkreichweite (Ender-Modem) | Seite "Welchem Netz soll dieser Computer beitreten?": nach wenigen Sekunden steht dort das Netz der Leitstelle mit "Leitstelle <Kennung>". Auswaehlen und Weiter fuehrt direkt zur Rolle (Netzname und Leitstelle werden nicht mehr getippt) | |
+| 3.17 | Dasselbe mit ausgeschalteter Leitstelle oder ausser Reichweite | "Kein Netz gefunden ..."; "Netz von Hand eingeben" fuehrt zu den Feldern Netzname und Leitstelle; "Neu suchen" wiederholt die Suche | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

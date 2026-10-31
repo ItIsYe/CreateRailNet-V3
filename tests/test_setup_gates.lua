@@ -79,6 +79,7 @@ return {
     local v=d.view();v.set_page('einrichtung')
     d.tap(v,'act:start')
     d.tap(v,'sel:modus:2');d.tap(v,'act:weiter')
+    d.tap(v,'sel:netzwahl:1');d.tap(v,'act:weiter')
     d.type(v,'netz','Testnetz');d.tap(v,'act:weiter')
     d.type(v,'zentrale','zentrale');d.tap(v,'act:weiter')
     d.tap(v,'sel:rollen:3');d.tap(v,'act:weiter')

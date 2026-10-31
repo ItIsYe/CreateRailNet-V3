@@ -242,6 +242,8 @@ function M.new(env)
     notify = n.notify,
     fetch_config = function(central_id, node_id) return n.fetch_config(central_id, node_id) end,
     fetch_status = function() return n.fetch_state end,
+    search_networks = function() return n.search_networks() end,
+    search_status = function() return n.search_status() end,
     on_saved = function(config)
       n.config = config
       n.rebuild_views()
@@ -427,17 +429,63 @@ function M.new(env)
     if status == "ok" and m.messageType == "bestaetigung" and backup.id and m.correlationId == backup.id then backup.acked = backup.rev end
   end)
 
+  -- Computer ohne Einrichtung sprechen mit einer vorlaeufigen Kennung (Ersatz holen, Netz suchen)
+  local function temporary_net(central_id)
+    if not n.replace_net then
+      local boot = n.clock.boot_id()
+      local me = "neu-" .. tostring(boot)
+      n.replace_factory = msg.new({ node_id = me, boot_id = boot, epoch = function() return 0 end })
+      n.replace_net = netlib.new({ rednet = env.rednet, factory = n.replace_factory, inbox = msg.inbox({ node_id = me, central_id = central_id }), clock = n.clock })
+    end
+    return n.replace_net
+  end
+
+  -- Netzsuche (Assistent, Beitreten): Rundruf, die Leitstellen in Reichweite nennen Netzname und Kennung
+  local SEARCH_SECONDS = 4
+  n.search_state = nil
+  function n.search_networks()
+    if n.net then n.search_state = { kind = "halt", text = "Dieser Computer ist schon eingerichtet.", networks = {} } return end
+    local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
+    if #info.opened == 0 then n.search_state = { kind = "halt", text = "Kein Modem gefunden: das Netz von Hand eingeben.", networks = {} } return end
+    local net = temporary_net(nil)
+    local m = n.replace_factory.make("abfrage", "*", { kind = "netze" })
+    net.broadcast(m)
+    n.search_req, n.search_until = m.messageId, n.clock.now() + SEARCH_SECONDS
+    n.search_state = { kind = "wait", text = "Suche laeuft ...", networks = {} }
+  end
+
+  function n.search_status()
+    local st = n.search_state
+    if st and st.kind == "wait" and n.clock.now() >= n.search_until then
+      if #st.networks > 0 then
+        st.kind, st.text = "ok", #st.networks .. " Netz(e) gefunden."
+      else
+        st.kind, st.text = "halt", "Kein Netz gefunden. Leitstelle in Funkreichweite (Ender-Modem)? Sonst von Hand eingeben."
+      end
+    end
+    return st
+  end
+
+  -- Antworten sind unbeglaubigt (Rednet ist keine Anmeldung): nur Name und Kennung in der erlaubten Form werden uebernommen
+  local function collect_network(m)
+    local st, p = n.search_state, m.payload
+    if not st or st.kind ~= "wait" or type(p) ~= "table" or p.status ~= "ok" then return end
+    local name, central = p.netz, p.zentrale
+    if type(name) ~= "string" or type(central) ~= "string" then return end
+    if #name == 0 or #name > 30 or not name:match("^[%w _%-]+$") then return end
+    if #central == 0 or #central > 30 or not central:match("^[%w_%-]+$") then return end
+    for _, known in ipairs(st.networks) do if known.zentrale == central then return end end
+    st.networks[#st.networks + 1] = { netz = name, zentrale = central, nodes = tonumber(p.nodes) or 0 }
+    table.sort(st.networks, function(a, b) if a.netz ~= b.netz then return a.netz < b.netz end return a.zentrale < b.zentrale end)
+    n.dirty = true
+  end
+
   n.fetch_state = nil
   function n.fetch_config(central_id, node_id)
     if n.net then n.fetch_state = { kind = "halt", text = "Dieser Computer ist schon eingerichtet." } return end
     local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
     if #info.opened == 0 then n.fetch_state = { kind = "halt", text = "Kein Modem gefunden." } return end
-    if not n.replace_net then
-      local boot = n.clock.boot_id()
-      local me = "ersatz-" .. tostring(boot)
-      n.replace_factory = msg.new({ node_id = me, boot_id = boot, epoch = function() return 0 end })
-      n.replace_net = netlib.new({ rednet = env.rednet, factory = n.replace_factory, inbox = msg.inbox({ node_id = me, central_id = central_id }), clock = n.clock })
-    end
+    temporary_net(central_id)
     local m = n.replace_factory.make("abfrage", central_id, { kind = "konfig_holen", node = node_id })
     n.replace_net.send(central_id, m)
     n.replace_req = m.messageId
@@ -445,8 +493,13 @@ function M.new(env)
   end
 
   function n.replace_receive(ev)
-    local m = n.replace_net.receive(ev)
-    if not m or m.correlationId ~= n.replace_req then return end
+    local m, status = n.replace_net.receive(ev)
+    if not m then return end
+    if m.correlationId == n.search_req then
+      if status == "ok" then collect_network(m) end
+      return
+    end
+    if m.correlationId ~= n.replace_req then return end
     local p = m.payload
     if p.status ~= "ok" then
       n.fetch_state = { kind = "halt", text = "Abgelehnt: " .. tostring(p.grund) }

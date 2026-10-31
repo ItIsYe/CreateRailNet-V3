@@ -20,8 +20,15 @@ function M.new(services)
   local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, test_pending = nil, pick = {} }
 
   local function sequence()
-    local seq = { "1.modus", "1.netz" }
-    if session.wiz.mode == "join" then seq[#seq + 1] = "1.zentrale" end
+    local seq = { "1.modus" }
+    if session.wiz.mode == "join" and services.search_networks then
+      -- Beitreten: erst die Netze in Reichweite zur Auswahl; Name und Leitstelle von Hand nur, wenn keines passt
+      seq[#seq + 1] = "1.netzwahl"
+      if not (type(session.net_choice) == "table") then seq[#seq + 1] = "1.netz"; seq[#seq + 1] = "1.zentrale" end
+    else
+      seq[#seq + 1] = "1.netz"
+      if session.wiz.mode == "join" then seq[#seq + 1] = "1.zentrale" end
+    end
     seq[#seq + 1] = "2.rollen"
     seq[#seq + 1] = "2.name"
     seq[#seq + 1] = "3.geraete"
@@ -43,6 +50,10 @@ function M.new(services)
     session.screen = screen
     session.wiz.step = step_of(screen) or session.wiz.step
     session.cancel_armed = false
+    if screen == "1.netzwahl" then
+      session.net_choice = nil
+      services.search_networks()
+    end
   end
 
   local function index_of(seq, screen)
@@ -68,6 +79,7 @@ function M.new(services)
     session.track = nil
     session.pick = {}
     session.pending_role = nil
+    session.net_choice = nil
     goto_screen("1.modus")
     -- Felder aus dem Zustand vorbelegen
     local st = v.page_state("einrichtung")
@@ -164,6 +176,38 @@ function M.new(services)
       local n = id:match("^sel:modus:(%d+)$")
       if n then session.wiz.set_mode((session.pick.modes or {})[tonumber(n)] or "join") return true end
     end,
+  }
+
+  screens["1.netzwahl"] = {
+    render = function(v, rect)
+      header(v, rect, nil, "Welchem Netz soll dieser Computer beitreten?")
+      local st = services.search_status and services.search_status() or { kind = "halt", text = "", networks = {} }
+      W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind or "dim", rect.w - 2)
+      local items = {}
+      session.pick.nets = {}
+      local chosen = session.net_choice
+      for _, net in ipairs(st.networks or {}) do
+        local on = type(chosen) == "table" and chosen.zentrale == net.zentrale
+        items[#items + 1] = { text = (on and "(o) " or "( ) ") .. net.netz, detail = "Leitstelle " .. net.zentrale }
+        session.pick.nets[#items] = net
+      end
+      items[#items + 1] = { text = (chosen == "manuell" and "(o) " or "( ) ") .. "Netz von Hand eingeben" }
+      session.pick.nets[#items] = "manuell"
+      W.list(v, "netzwahl", body_rect(rect, 4), items, list_state(v, "netzwahl"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:netzwahl:(%d+)$")
+      if n then
+        session.net_choice = (session.pick.nets or {})[tonumber(n)]
+        return true
+      end
+      if id == "act:neu_suchen" then
+        session.net_choice = nil
+        services.search_networks()
+        return true
+      end
+    end,
+    actions = function(v) return { { id = "neu_suchen", label = "Neu suchen", kind = "secondary" } } end,
   }
 
   screens["1.netz"] = {
@@ -810,6 +854,7 @@ function M.new(services)
     commit(v)
     local w, screen = session.wiz, session.screen
     local track = session.track and w.config.tracks[session.track]
+    if screen == "1.netzwahl" and not session.net_choice then return false, "Bitte ein Netz waehlen oder \"von Hand eingeben\"." end
     if screen == "1.netz" and not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
     if screen == "1.zentrale" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
     if screen == "2.rollen" then
@@ -889,6 +934,9 @@ function M.new(services)
     commit(v)
     local allowed, reason = can_advance(v)
     if not allowed then v.hint = reason return true end
+    if session.screen == "1.netzwahl" and type(session.net_choice) == "table" then
+      session.wiz.set_network(session.net_choice.netz, session.net_choice.zentrale, nil)
+    end
     if session.screen == "1.netz" and session.wiz.network_name == "" then v.hint = "Der Netzname fehlt." return true end
     if session.screen == "1.zentrale" and session.wiz.central_id == "" then v.hint = "Die Kennung der Leitstelle fehlt." return true end
     if def and def.next then return def.next(v) end

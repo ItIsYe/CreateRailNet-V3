@@ -15,6 +15,10 @@ Der Setup-Assistent zeigt auf grossen Ausgaben einen festen Schrittstreifen und
 einen Kontextbereich. Die kompakte Ansicht arbeitet mit denselben Pruefungen.
 Aktionsflaechen werden umgebrochen; fehlender Platz entfernt keine Aktion.
 
+## Netz beitreten (Netzsuche)
+
+Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vorlaeufige Kennung `neu-...`). Jede laufende Leitstelle in Reichweite antwortet mit Netzname und ihrer Kennung (und der Zahl der bekannten Nodes), sonst nichts. Der Assistent bietet die Treffer zur Auswahl an; die Wahl setzt Netzname und Leitstelle, die beiden Eingabefelder entfallen. "Netz von Hand eingeben" und "Neu suchen" stehen immer zur Verfuegung. Die Antworten sind unbeglaubigt (Rednet ist keine Anmeldung, siehe Konzept 13.5): angenommen werden nur Name und Kennung in der erlaubten Form (Buchstaben, Ziffern, Leerzeichen, - und _, hoechstens 30 Zeichen), und nur als Antwort auf den eigenen Rundruf.
+
 ## Rollen
 
 - Leitstelle: keine lokalen Gleise erforderlich, Monitor freiwillig.
