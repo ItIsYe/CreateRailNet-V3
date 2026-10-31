@@ -15,6 +15,16 @@ Der Setup-Assistent zeigt auf grossen Ausgaben einen festen Schrittstreifen und
 einen Kontextbereich. Die kompakte Ansicht arbeitet mit denselben Pruefungen.
 Aktionsflaechen werden umgebrochen; fehlender Platz entfernt keine Aktion.
 
+## Automatik (freiwillig)
+
+Neben der Handarbeit gibt es drei Abkuerzungen, die sich mischen lassen:
+
+- **Automatisch einrichten** (Schritt 2, neben "Weiter"): waehlt alle passenden Geraete (Bahnhoefe, Signale, Beobachter, Monitore, nie Relais), legt die Gleise an, laesst die Pruefungen laufen und springt zu "Fertig", oder dorthin, wo von Hand etwas noetig ist (Knotenpunkt, fehlender Bahnhof, offene Pruefung).
+- **Alle passenden** (Schritt 3) und **Automatisch** (Schritt 4, nur bei leerer Gleisliste): dasselbe in einzelnen Schritten.
+- Die Gleise entstehen so: je Bahnhof ein Gleis; gibt es nur ein Gleis, gehoeren alle Signale und Beobachter dazu; ein Signal-Node bekommt ein Gleis mit allen Signalen. Bei mehreren Bahnhoefen werden Signale und Beobachter nicht geraten (Hinweis, Zuordnung von Hand). Freigabeausgaenge gehen der Reihe nach an freie Computerseiten (Seiten mit Modem oder Monitor sind belegt); die Seite steht auf der Seite "Fertig", danach wird verdrahtet. Knotenpunkte bleiben Handarbeit.
+
+Die Pruefungen (Schritt 5) laufen beim Betreten und vor dem Aktivieren von selbst. Lesende immer. Schaltende nur, wenn der gelesene Zustand beweist, dass sie nichts treffen: die Sperre nur bei einem gruenen, nicht gesperrten Signal ohne gemeldeten Zug, der Ausgang nur, wenn am Bahnhof des Gleises kein Zug steht, naht oder faehrt. Alles andere wartet auf die Bestaetigung von Hand (Grund in der Zeile und im Hinweis); "Neu pruefen" wiederholt alle, auch fehlgeschlagene.
+
 ## Netz beitreten (Netzsuche)
 
 Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vorlaeufige Kennung `neu-...`). Jede laufende Leitstelle in Reichweite antwortet mit Netzname und ihrer Kennung (und der Zahl der bekannten Nodes), sonst nichts. Der Assistent bietet die Treffer zur Auswahl an; die Wahl setzt Netzname und Leitstelle, die beiden Eingabefelder entfallen. "Netz von Hand eingeben" und "Neu suchen" stehen immer zur Verfuegung. Die Antworten sind unbeglaubigt (Rednet ist keine Anmeldung, siehe Konzept 13.5): angenommen werden nur Name und Kennung in der erlaubten Form (Buchstaben, Ziffern, Leerzeichen, - und _, hoechstens 30 Zeichen), und nur als Antwort auf den eigenen Rundruf.

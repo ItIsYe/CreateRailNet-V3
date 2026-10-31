@@ -1,5 +1,5 @@
 return {
-  id = "80656bb8",
+  id = "49726c20",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4089, sum = "1e272b16" },
@@ -35,8 +35,8 @@ return {
     ["roles/station.lua"] = { size = 28147, sum = "8bc43053" },
     ["roles/zentrale.lua"] = { size = 93707, sum = "d182cd1c" },
     ["setup/model.lua"] = { size = 14730, sum = "9f18f22b" },
-    ["setup/page.lua"] = { size = 47040, sum = "67a20e54" },
-    ["setup/wizard.lua"] = { size = 21672, sum = "d2d54229" },
+    ["setup/page.lua"] = { size = 51144, sum = "afee2497" },
+    ["setup/wizard.lua"] = { size = 28125, sum = "e6034b29" },
     ["ui/canvas.lua"] = { size = 4289, sum = "86cf0bab" },
     ["ui/forms.lua"] = { size = 4660, sum = "120aa5d5" },
     ["ui/keymap.lua"] = { size = 755, sum = "879fed75" },

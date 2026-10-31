@@ -220,6 +220,19 @@ function M.new(opts)
     return true
   end
 
+  -- Automatik (freiwillig): alle erkannten, erreichbaren Geraete waehlen, die zu den Rollen passen (Bahnhoefe, Signale, Beobachter, Monitore; Relais nie)
+  local AUTO_KINDS = { station = true, signal = true, observer = true, monitor = true }
+  function w.select_suitable()
+    sync_config()
+    local added = 0
+    for _, d in ipairs(w.scan) do
+      if AUTO_KINDS[d.kind] and w.allowed_devices()[d.kind] and #detect.missing(d.kind, d) == 0 and not w.device_selected(d.name) then
+        if w.toggle_device(d.name) then added = added + 1 end
+      end
+    end
+    return added
+  end
+
   -- Schritt 4 ----------------------------------------------------------------------------------------------------------------------------
   function w.tracks()
     local ids = {}
@@ -312,6 +325,78 @@ function M.new(opts)
   function w.set_registration(device_id)
     w.config.registration_station = device_id
     return true
+  end
+
+  -- Automatik (freiwillig): legt die Gleise aus den gewaehlten Geraeten an. Eindeutig ist nur, was die Software wissen kann:
+  -- je Bahnhof ein Gleis; gibt es nur ein Gleis, gehoeren alle Signale und Beobachter dazu; Signal-Node: ein Gleis mit allen Signalen.
+  -- Freigabeausgaenge werden der Reihe nach an freie Computerseiten vergeben (Seiten mit Modem oder Monitor sind belegt) und im Ergebnis genannt, damit man danach verdrahten kann.
+  function w.auto_tracks()
+    sync_config()
+    local p = model.profile(w.config)
+    if model.has_role(w.config, "knoten") then return false, "Knotenpunkt: Anschluesse, Verbindungen und Gleise bitte von Hand einrichten." end
+    local by_kind = { station = {}, signal = {}, observer = {} }
+    local ids = {}
+    for id in pairs(w.config.devices) do ids[#ids + 1] = id end
+    table.sort(ids, function(a, b) return w.config.devices[a].device < w.config.devices[b].device end)
+    for _, id in ipairs(ids) do
+      local list = by_kind[w.config.devices[id].kind]
+      if list then list[#list + 1] = id end
+    end
+    if not p.tracks then
+      -- nur Anmeldung: keine Gleise, aber eine Anmeldestation
+      if model.has_role(w.config, "anmeldung") then
+        if #by_kind.station == 1 then
+          w.set_registration(by_kind.station[1])
+          return true, {}, 0
+        end
+        return false, "Anmeldestation bitte von Hand waehlen (genau ein Bahnhof gewaehlt sein muss, damit die Automatik es entscheiden kann)."
+      end
+      return false, "Diese Rollen brauchen keine Gleise."
+    end
+    if next(w.config.tracks) ~= nil then return false, "Es gibt schon Gleise; die Automatik legt nur neue an." end
+    local made, notes = {}, {}
+    if p.station then
+      if #by_kind.station == 0 then return false, "Kein Bahnhof gewaehlt (Schritt 3)." end
+      for i, sid in ipairs(by_kind.station) do
+        local tid = w.add_track("Gleis " .. i)
+        w.toggle_track_device(tid, "station", sid)
+        made[#made + 1] = tid
+      end
+    else
+      if #by_kind.signal == 0 then return false, "Kein Signal gewaehlt (Schritt 3)." end
+      local tid = w.add_track(w.name:match("%S") and w.name or "Strecke")
+      made[#made + 1] = tid
+    end
+    if #made == 1 then
+      for _, sid in ipairs(by_kind.signal) do w.toggle_track_device(made[1], "signals", sid) end
+      for _, oid in ipairs(by_kind.observer) do w.toggle_track_device(made[1], "observers", oid) end
+    else
+      local loose = #by_kind.signal + #by_kind.observer
+      if loose > 0 then notes[#notes + 1] = loose .. " Signal(e)/Beobachter gehoeren zu keinem Gleis: bitte von Hand zuordnen." end
+    end
+    if p.release then
+      local free = {}
+      for _, o in ipairs(model.outputs(w.scan)) do
+        if not o.relay and not detect.find(w.scan, o.side) then free[#free + 1] = o end
+      end
+      for i, tid in ipairs(made) do
+        local o = free[i]
+        if o then
+          w.set_release(tid, { side = o.side })
+          notes[#notes + 1] = w.config.tracks[tid].name .. ": Ausgang " .. o.label
+        else
+          notes[#notes + 1] = w.config.tracks[tid].name .. ": kein freier Computerausgang, bitte Relais waehlen."
+        end
+      end
+    end
+    if model.has_role(w.config, "anmeldung") then
+      if #by_kind.station == 1 then
+        w.set_registration(by_kind.station[1])
+      else
+        notes[#notes + 1] = "Anmeldestation bitte von Hand waehlen."
+      end
+    end
+    return true, notes, #made
   end
 
   -- Knotenpunkt
@@ -459,6 +544,62 @@ function M.new(opts)
       return record(test, true, "Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
     end
     return false, "unbekannte Pruefung"
+  end
+
+  -- Pruefungen ohne Rueckfrage (Automatik am Ende): lesende immer; schaltende nur, wenn der gelesene Zustand beweist, dass sie nichts treffen:
+  -- Sperre nur bei einem gruenen, nicht gesperrten Signal ohne gemeldeten Zug; Ausgang nur, wenn am Bahnhof des Gleises kein Zug steht, naht oder faehrt.
+  -- Alles andere wartet auf die Bestaetigung von Hand. only_open = true: nur Pruefungen, die noch nie liefen oder durch eine Aenderung ungueltig wurden.
+  local function switching_is_safe(test)
+    local kind, ref = test.id:match("^(%a+):(.+)$")
+    if kind == "sperre" then
+      local s = signallib.new(env, w.config.devices[ref].device).read()
+      if not s.available then return false, "Signal nicht lesbar" end
+      if s.forced then return false, "Signal schon gesperrt" end
+      if s.state ~= "GREEN" then return false, "Signal nicht gruen" end
+      if s.blocking and #s.blocking > 0 then return false, "Zug am Signal gemeldet" end
+      return true
+    elseif kind == "ausgang" then
+      local track = w.config.tracks[ref]
+      local station = track and track.station and w.config.devices[track.station]
+      if not station then return false, "kein Bahnhof am Gleis" end
+      local s = stationlib.new(env, station.device).read()
+      if not s.available then return false, "Bahnhof nicht lesbar" end
+      if s.present or s.imminent or s.enroute then return false, "Zug am Bahnhof" end
+      return true
+    end
+    return false, "unbekannte Pruefung"
+  end
+
+  w.auto_waiting = {}
+  function w.auto_tests(only_open)
+    local ran, ok_count = 0, 0
+    w.auto_waiting = {}
+    local current = fingerprint()
+    local pending = {}
+    for _, test in ipairs(w.tests()) do
+      if not only_open or w.test_state(test.id, current, test) == "offen" then
+        if test.kind == "lesen" then
+          local ok = w.run_test(test.id, false)
+          ran = ran + 1
+          if ok then ok_count = ok_count + 1 end
+        else
+          pending[#pending + 1] = test
+        end
+      end
+    end
+    for _, test in ipairs(pending) do
+      local safe, why = switching_is_safe(test)
+      if safe then
+        local ok = w.run_test(test.id, true)
+        ran = ran + 1
+        if ok then ok_count = ok_count + 1 end
+      else
+        w.auto_waiting[test.id] = why
+      end
+    end
+    local waiting = 0
+    for _ in pairs(w.auto_waiting) do waiting = waiting + 1 end
+    return ran, ok_count, waiting
   end
 
   -- Schritt 6 ----------------------------------------------------------------------------------------------------------------------------------
