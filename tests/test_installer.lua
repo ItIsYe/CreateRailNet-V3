@@ -127,12 +127,12 @@ return {
     t.ok(not fs.exists("/crn"))
   end },
   { "bewegliche Version fragt nach, --yes nicht", function()
-    local fs, http, env = world({ ref = "main" })
-    t.eq(run(env, "zentrale"), true, env.output())
+    local fs, http, env = world({ ref = "develop" })
+    t.eq(run(env, "zentrale", "develop"), true, env.output())
     t.eq(env.reads, 1)
     t.contains(env.output(), "beweglicher Zweig")
-    local fs2, http2, env2 = world({ ref = "main" })
-    t.eq(run(env2, "zentrale", "main", "--yes"), true)
+    local fs2, http2, env2 = world({ ref = "develop" })
+    t.eq(run(env2, "zentrale", "develop", "--yes"), true)
     t.eq(env2.reads, 0)
   end },
   { "fremde startup.lua bleibt unveraendert, eigene bleibt", function()

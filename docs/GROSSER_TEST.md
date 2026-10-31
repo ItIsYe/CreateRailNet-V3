@@ -2,7 +2,7 @@
 
 Der Test findet statt, wenn alle Stufen gebaut sind (Plan: `docs/STUFENPLAN.md`). Jede Stufe traegt hier ihre Schritte ein; du fuehrst sie im Spiel aus und schreibst das Ergebnis in die letzte Spalte. Gebaut ist jeweils nur, was auch ausserhalb des Spiels getestet ist; ob es im Spiel funktioniert, zeigt erst dieser Test.
 
-Installation fuer den ganzen Test: `wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/installer.lua installer.lua`, dann `installer` (Dialog). Das ist der Testbranch `beta`; der stabile Stand steht auf `main` (dann dort `beta` durch `main` ersetzen).
+Installation fuer den ganzen Test (Testbranch `beta`): `wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/installer_beta.lua installer.lua`, dann `installer` (Dialog, fragt keine Version: sie ergibt sich aus dem Befehl). Der stabile Stand steht auf `main`: `wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer.lua installer.lua`.
 
 ## Stufe 1: Kern (Uhr, Speichern, Journal, Funk)
 

@@ -6,10 +6,12 @@ Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage is
 
 Auf dem Computer (HTTP muss erlaubt sein):
 
+Welche Version installiert wird, bestimmt der Befehl, nicht der Dialog:
+
 Test (Branch `beta`):
 
 ```
-wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/installer.lua installer.lua
+wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/installer_beta.lua installer.lua
 installer
 ```
 
@@ -20,13 +22,13 @@ wget https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/main/installer.lu
 installer
 ```
 
-Gibt es `installer.lua` schon (`File already exists`), vorher `delete installer.lua`. Im Dialog bei der Version `e` waehlen und den Branch (`beta` oder `main`) eintippen; der Dialog weist dann darauf hin, dass ein Branch beweglich ist. Eine feste Version (Tag wie `v0.1.0`) wird bevorzugt, sobald es eine gibt; dann in der wget-Zeile `beta` durch den Tag ersetzen.
+Der Installer kennt seinen Kanal (`main` oder `beta`) aus der Datei, die man geladen hat, und holt alles nur von dort; `installer_beta.lua` wird von `tools/build.lua` aus `installer.lua` erzeugt (nur eine Zeile ist anders). Gibt es `installer.lua` schon (`File already exists`), vorher `delete installer.lua`.
 
-`installer` ohne Zusatz startet den Dialog und fragt Schritt fuer Schritt: Menue (installieren, pruefen, zur Vorversion zurueck), Version, Rolle, Zusammenfassung. Die Eingabetaste uebernimmt die markierte Vorgabe (zuletzt benutzte oder neueste veroeffentlichte Version, bisherige Rolle). Mit `z` geht es einen Schritt zurueck, mit `q` bricht man ab; erst nach `j` in der Zusammenfassung wird etwas veraendert.
+`installer` ohne Zusatz startet den Dialog und fragt Schritt fuer Schritt: Menue (installieren, pruefen, zur Vorversion zurueck), Rolle, Zusammenfassung. Eine Versionsfrage gibt es nicht. Die Eingabetaste uebernimmt die markierte Vorgabe (bisherige Rolle). Mit `z` geht es einen Schritt zurueck, mit `q` bricht man ab; erst nach `j` in der Zusammenfassung wird etwas veraendert.
 
-Als Version gehen ein Tag, ein Commit oder ein Branch. Ein beweglicher Branch wie `main` oder `beta` wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
+Ohne Dialog (Skripte) geht zusaetzlich ein Tag, ein Commit oder ein anderer Branch als Version; ein fremder beweglicher Branch wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Der eigene Kanal wird nicht beanstandet. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
 
-Ohne Dialog (fuer Skripte): `installer ROLLE VERSION [--yes]`, dazu `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist), `installer --help`. Gestartet wird mit `crn/app/main`.
+Ohne Dialog (fuer Skripte): `installer ROLLE [VERSION] [--yes]` (ohne VERSION gilt der Kanal), dazu `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist), `installer --help`. Gestartet wird mit `crn/app/main`.
 
 ## Entwickeln
 

@@ -1,5 +1,5 @@
 --[[
-Purpose: Der Installationsdialog (installer ohne Argumente): Menue, Version, Rolle, Zusammenfassung, Zurueck, Abbrechen, falsche Eingaben, Platzmangel, Rueckkehr zur Vorversion. Die Antworten haengen am jeweiligen Bildschirm, nicht an der Reihenfolge.
+Purpose: Der Installationsdialog (installer ohne Argumente): Menue, Rolle, Zusammenfassung (die Version ergibt sich aus dem Kanal der Datei), Zurueck, Abbrechen, falsche Eingaben, Platzmangel, Rueckkehr zur Vorversion. Die Antworten haengen am jeweiligen Bildschirm, nicht an der Reihenfolge.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -8,6 +8,7 @@ local w = dofile("tests/lib/world.lua")
 
 _G.__CRN_TEST = true
 local installer = dofile("installer.lua")
+local beta_installer = dofile("installer_beta.lua")
 
 -- rules = { { "Text auf dem Bildschirm", { "Antwort 1", "Antwort 2", ... } }, ... }: jede Regel hat ihre eigene Antwortliste
 local function script(env, rules)
@@ -34,18 +35,20 @@ end
 local MENU = "Was moechten Sie tun?"
 
 return {
-  { "Neuinstallation: Menue, Version eingeben, Rolle, Zusammenfassung, starten", function()
-    local fs, http, env = w.world()
+  { "Neuinstallation: Menue, Rolle, Zusammenfassung, starten; keine Versionsfrage", function()
+    local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "v0.1.0" } },
       { "Welche Rolle", { "3" } },
       { "Zusammenfassung", { "j" } },
       { "Jetzt starten?", { "j" } },
     })
     t.eq(ok, true, env.output())
     local out = env.output()
+    t.not_contains(out, "Welche Version", "die Version ergibt sich aus dem Befehl, nicht aus dem Dialog")
+    t.not_contains(out, "Version eingeben")
+    t.contains(out, "Kanal: main (stabil)")
+    t.contains(out, "Kanal:    main (stabil)")
     t.contains(out, "Noch nichts installiert.")
     t.not_contains(out, "Installation pruefen", "ohne Installation gibt es nichts zu pruefen")
     t.not_contains(out, "Zur Vorversion", "keine Rueckkehr ohne Vorversion")
@@ -58,12 +61,37 @@ return {
     t.contains(fs.open("/crn/install.lua", "r").readAll(), 'role = "gueterbahnhof"')
     t.ok((env.cleared or 0) > 0, "Bildschirm wird zwischen den Schritten geleert")
   end },
+  { "Der Kanal kommt aus der Datei: installer_beta.lua installiert beta, installer.lua installiert main", function()
+    t.eq(installer.CHANNEL, "main")
+    t.eq(beta_installer.CHANNEL, "beta")
+    local fs, http, env = w.world({ ref = "beta" })
+    local ok = (function()
+      env.responder = function(screen)
+        if screen:find(MENU, 1, true) then return "1" end
+        if screen:find("Welche Rolle", 1, true) then return "2" end
+        if screen:find("Zusammenfassung", 1, true) then return "j" end
+        return "n"
+      end
+      return beta_installer.run({}, env)
+    end)()
+    t.eq(ok, true, env.output())
+    t.contains(env.output(), "Kanal: beta (Test)")
+    t.contains(env.output(), "Kanal:    beta (Test)")
+    t.eq(http.requests[1], w.BASE .. "beta/dist/manifest.lua", "es wird nur beta angefragt")
+    for _, url in ipairs(http.requests) do t.contains(url, "/beta/dist/") end
+    t.contains(fs.open("/crn/install.lua", "r").readAll(), 'ref = "beta"')
+    -- dieselbe Welt mit dem main-Installer: dort gibt es keinen Stand unter main
+    local fs2, http2, env2 = w.world({ ref = "beta" })
+    local answers2 = { "1", "q" }
+    env2.responder = function() return table.remove(answers2, 1) end
+    t.eq(installer.run({}, env2), false)
+    t.contains(env2.output(), "Verzeichnis nicht erreichbar")
+    t.contains(http2.requests[1], "/main/dist/")
+  end },
   { "Rollenliste zeigt Beschreibungen und alle sieben Rollen", function()
-    local fs, http, env = w.world()
+    local fs, http, env = w.world({ ref = "main" })
     dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "v0.1.0" } },
       { "Welche Rolle", { "q" } },
     })
     local out = env.output()
@@ -76,7 +104,6 @@ return {
     local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "1", "q" } },
-      { "Welche Version soll", { "m", "z" } },
       { "Welche Rolle", { "z" } },
     })
     t.eq(ok, false)
@@ -84,64 +111,55 @@ return {
     t.ok(not fs.exists("/crn"))
   end },
   { "falsche Eingaben werden abgewiesen und neu abgefragt", function()
-    local fs, http, env = w.world()
+    local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "x" } },
       { "Bitte eine der angegebenen", { "7", "9", "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "a b", "../x", "v0.1.0" } },
       { "Welche Rolle", { "1" } },
       { "Zusammenfassung", { "j" } },
       { "Jetzt starten?", { "n" } },
     })
     t.eq(ok, true, env.output())
     t.contains(env.output(), "Bitte eine der angegebenen Eingaben waehlen")
-    t.contains(env.output(), "Ungueltig. Erlaubt sind")
     t.eq(env.started, 0, "Nein startet nicht")
   end },
-  { "Version nicht erreichbar: Meldung, zurueck zur Versionswahl", function()
-    local fs, http, env = w.world()
+  { "Kanal nicht erreichbar: Meldung, danach wieder das Menue", function()
+    local fs, http, env = w.world({ ref = "v9.9.9" })     -- unter main liegt nichts
     local ok = dialog(env, {
-      { MENU, { "1" } },
-      { "Welche Version soll", { "e", "q" } },
-      { "Version eingeben (z", { "v9.9.9" } },
+      { MENU, { "1", "q" } },
     })
     t.eq(ok, false)
     t.contains(env.output(), "Verzeichnis nicht erreichbar")
     local first = env.output():find("Verzeichnis nicht erreichbar", 1, true)
-    local second = env.output():find("Welche Version soll", first, true)
-    t.ok(second, "danach wird die Version erneut abgefragt")
+    local second = env.output():find(MENU, first, true)
+    t.ok(second, "danach wird das Menue erneut gezeigt")
+    t.ok(not fs.exists("/crn"))
   end },
-  { "bewegliche Version wird im Dialog angezeigt und ist in der Zusammenfassung sichtbar", function()
+  { "Zusammenfassung nennt den Kanal und warnt nicht vor beweglichem Zweig", function()
     local fs, http, env = w.world({ ref = "main" })
     dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "m" } },
       { "Welche Rolle", { "2" } },
       { "Zusammenfassung", { "q" } },
     })
-    t.contains(env.output(), "beweglicher Zweig")
-    t.contains(env.output(), "von main")
+    t.contains(env.output(), "Kanal:    main (stabil)")
+    t.not_contains(env.output(), "beweglicher Zweig", "der eigene Kanal ist kein Grund zur Warnung")
     t.ok(not fs.exists("/crn"))
   end },
   { "Zusammenfassung: zurueck installiert nichts", function()
-    local fs, http, env = w.world()
+    local fs, http, env = w.world({ ref = "main" })
     dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "v0.1.0" } },
       { "Welche Rolle", { "1", "q" } },
       { "Zusammenfassung", { "z" } },
     })
     t.ok(not fs.exists("/crn") and not fs.exists("/crn_new"), "z darf nichts installieren")
-    t.eq(#http.requests, 2, "nur die Versionsliste und das Verzeichnis wurden geladen")
+    t.eq(#http.requests, 1, "nur das Verzeichnis wurde geladen")
   end },
   { "Zusammenfassung: zurueck zur Rolle, dann installieren", function()
-    local fs, http, env = w.world()
+    local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "v0.1.0" } },
       { "Welche Rolle", { "1", "5" } },
       { "Zusammenfassung", { "z", "j" } },
       { "Jetzt starten?", { "n" } },
@@ -150,14 +168,13 @@ return {
     t.contains(fs.open("/crn/install.lua", "r").readAll(), 'role = "signal"')
   end },
   { "fremde startup.lua und Rollenwechsel stehen vor dem Installieren in der Zusammenfassung", function()
-    local fs, http, env = w.world()
-    t.eq(installer.run({ "depot", "v0.1.0", "--yes" }, env), true)
+    local fs, http, env = w.world({ ref = "main" })
+    t.eq(installer.run({ "depot", "--yes" }, env), true)
     fs.delete("/startup.lua")
     local fh = fs.open("/startup.lua", "w"); fh.write("print('fremd')"); fh.close()
     local env2 = cc.env(fs, http)
     dialog(env2, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "1" } },
       { "Welche Rolle", { "5" } },
       { "Zusammenfassung", { "q" } },
     })
@@ -169,14 +186,13 @@ return {
     t.eq(fs.open("/startup.lua", "r").readAll(), "print('fremd')")
   end },
   { "Platzmangel: Vorversion loeschen anbieten, danach installieren", function()
-    local fs, http, env = w.world({ fs = { capacity = 2 * w.need("depot") + 11000 } })
-    t.eq(installer.run({ "depot", "v0.1.0", "--yes" }, env), true, env.output())
-    t.eq(installer.run({ "depot", "v0.1.0", "--yes" }, env), true, env.output())
+    local fs, http, env = w.world({ ref = "main", fs = { capacity = 2 * w.need("depot") + 11000 } })
+    t.eq(installer.run({ "depot", "--yes" }, env), true, env.output())
+    t.eq(installer.run({ "depot", "--yes" }, env), true, env.output())
     t.ok(fs.exists("/crn_prev"))
     local env2 = cc.env(fs, http)
     local ok = dialog(env2, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "1" } },
       { "Welche Rolle", { "4" } },
       { "Zu wenig Platz", { "d" } },
       { "Zusammenfassung", { "j" } },
@@ -187,11 +203,9 @@ return {
     t.eq(installer.check(cc.env(fs, http)), true)
   end },
   { "Platzmangel ohne Vorversion: nur zurueck oder abbrechen", function()
-    local fs, http, env = w.world({ fs = { capacity = 5000 } })
+    local fs, http, env = w.world({ ref = "main", fs = { capacity = 5000 } })
     dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "v0.1.0" } },
       { "Welche Rolle", { "1" } },
       { "Zu wenig Platz", { "q" } },
     })
@@ -201,10 +215,10 @@ return {
     t.ok(not fs.exists("/crn"))
   end },
   { "Menue: pruefen und zur Vorversion zurueckkehren", function()
-    local fs, http, env = w.world()
-    t.eq(installer.run({ "depot", "v0.1.0", "--yes" }, env), true)
-    w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
-    t.eq(installer.run({ "depot", "v0.2.0", "--yes" }, env), true, env.output())
+    local fs, http, env = w.world({ ref = "main" })
+    t.eq(installer.run({ "depot", "--yes" }, env), true)
+    w.bump(http, "main", "0.2.0")                          -- main ist weitergekommen
+    t.eq(installer.run({ "depot", "--yes" }, env), true, env.output())
     local env2 = cc.env(fs, http)
     dialog(env2, {
       { MENU, { "2", "3", "q" } },
@@ -218,10 +232,10 @@ return {
     t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.1.0"')
   end },
   { "Rueckkehr im Dialog kann verneint werden", function()
-    local fs, http, env = w.world()
-    installer.run({ "depot", "v0.1.0", "--yes" }, env)
-    w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
-    installer.run({ "depot", "v0.2.0", "--yes" }, env)
+    local fs, http, env = w.world({ ref = "main" })
+    installer.run({ "depot", "--yes" }, env)
+    w.bump(http, "main", "0.2.0")
+    installer.run({ "depot", "--yes" }, env)
     local env2 = cc.env(fs, http)
     dialog(env2, {
       { MENU, { "3", "q" } },
@@ -230,23 +244,36 @@ return {
     })
     t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.2.0"')
   end },
+  { "Aktualisieren holt den neuen Stand des eigenen Kanals", function()
+    local fs, http, env = w.world({ ref = "main" })
+    t.eq(installer.run({ "depot", "--yes" }, env), true)
+    w.bump(http, "main", "0.3.0")
+    local env2 = cc.env(fs, http)
+    local ok = dialog(env2, {
+      { MENU, { "1" } },
+      { "Welche Rolle", { "4" } },
+      { "Zusammenfassung", { "j" } },
+      { "Jetzt starten?", { "n" } },
+    })
+    t.eq(ok, true, env2.output())
+    t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.3.0"')
+    t.ok(fs.exists("/crn_prev"), "die bisherige Version bleibt als Vorversion")
+  end },
   { "Eingabeende bricht sauber ab", function()
-    local fs, http, env = w.world()
+    local fs, http, env = w.world({ ref = "main" })
     env.responder = function() return nil end
     t.eq(installer.run({}, env), false)
     t.contains(env.output(), "Beendet. Es wurde nichts veraendert.")
-    local fs2, http2, env2 = w.world()
-    local answers = { "1", "e" }
+    local fs2, http2, env2 = w.world({ ref = "main" })
+    local answers = { "1", "z" }
     env2.responder = function() return table.remove(answers, 1) end
     t.eq(installer.run({}, env2), false)
     t.ok(not fs2.exists("/crn"))
   end },
   { "Fehler beim Laden im Dialog: Meldung, nichts veraendert", function()
-    local fs, http, env = w.world({ tweak = function(routes, ref) routes[w.BASE .. ref .. "/dist/core/adler.lua"] = nil end })
+    local fs, http, env = w.world({ ref = "main", tweak = function(routes, ref) routes[w.BASE .. ref .. "/dist/core/adler.lua"] = nil end })
     local ok = dialog(env, {
       { MENU, { "1" } },
-      { "Welche Version soll", { "e" } },
-      { "Version eingeben (z", { "v0.1.0" } },
       { "Welche Rolle", { "1" } },
       { "Zusammenfassung", { "j" } },
       { "Weiter mit der Eingabetaste", { "" } },
@@ -256,12 +283,11 @@ return {
     t.contains(env.output(), "Es wurde nichts veraendert.")
     t.ok(not fs.exists("/crn") and not fs.exists("/crn_new"))
   end },
-  { "ohne HTTP meldet der Dialog es bei der Versionswahl", function()
-    local fs, http, env = w.world()
+  { "ohne HTTP meldet der Dialog es sofort nach der Wahl von Installieren", function()
+    local fs, http, env = w.world({ ref = "main" })
     env.http = nil
     dialog(env, {
-      { MENU, { "1" } },
-      { "Welche Version soll", { "m", "q" } },
+      { MENU, { "1", "q" } },
     })
     t.contains(env.output(), "HTTP ist auf diesem Computer nicht verfuegbar")
   end },
@@ -274,29 +300,34 @@ return {
     t.contains(env2.output(), "Ungueltige Version")
     t.eq(#http.requests, 0, "es wurde nichts abgerufen")
   end },
-  { "Eingabetaste uebernimmt die Vorgabe: Menue, neueste Version, Rolle bleibt Pflicht", function()
-    local fs, http, env = w.world()
-    http.routes["https://api.github.com/repos/ItIsYe/CreateRailNet-V3/tags?per_page=8"] = '[{"name":"v0.1.0"},{"name":"v0.0.9"}]'
+  { "Eingabetaste uebernimmt die Vorgabe: Menue, Rolle bleibt Pflicht", function()
+    local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "" } },
-      { "Welche Version soll", { "" } },
       { "Welche Rolle", { "" } },
       { "Bitte eine der angegebenen", { "3" } },
       { "Zusammenfassung", { "j" } },
       { "Jetzt starten?", { "" } },
     })
     t.eq(ok, true, env.output())
-    t.contains(env.output(), "v0.1.0 (neueste Version)")
     t.contains(env.output(), "Bitte eine der angegebenen Eingaben waehlen")
     t.eq(env.started, 1, "Vorgabe beim Starten ist Ja")
     t.contains(env.output(), "Naechste Schritte")
   end },
-  { "Versionsliste: ohne Antwort funktioniert der Dialog weiter, Tags werden gefiltert", function()
-    local fs, http, env = w.world()
-    t.eq(#installer.list_tags(env), 0)
-    http.routes["https://api.github.com/repos/ItIsYe/CreateRailNet-V3/tags?per_page=8"] = '[{"name":"v0.2.0"},{"name":"a b"},{"name":"../x"},{"name":"v0.1.0"}]'
-    local tags = installer.list_tags(env)
-    t.eq(#tags, 2); t.eq(tags[1], "v0.2.0"); t.eq(tags[2], "v0.1.0")
+  { "Kommandozeile: ohne Versionsangabe gilt der Kanal, fremde Zweige werden beanstandet", function()
+    local fs, http, env = w.world({ ref = "main" })
+    t.eq(installer.run({ "depot" }, env), true, env.output())
+    t.eq(env.reads, 0, "der eigene Kanal braucht keine Rueckfrage")
+    t.not_contains(env.output(), "beweglicher Zweig")
+    t.eq(http.requests[1], w.BASE .. "main/dist/manifest.lua")
+    local fs2, http2, env2 = w.world({ ref = "beta" })
+    t.eq(beta_installer.run({ "depot" }, env2), true, env2.output())
+    t.eq(env2.reads, 0)
+    t.eq(http2.requests[1], w.BASE .. "beta/dist/manifest.lua", "installer_beta.lua nimmt ohne Angabe beta")
+    local fs3, http3, env3 = w.world({ ref = "beta" })
+    installer.run({ "depot", "beta" }, env3)
+    t.contains(env3.output(), "beweglicher Zweig")
+    t.eq(env3.reads, 1, "main-Installer fragt bei beta nach")
   end },
   { "Groessen lesbar", function()
     t.eq(installer.size_text(512), "512 Byte")
@@ -304,11 +335,11 @@ return {
     t.eq(installer.size_text(332605), "325 KB")
   end },
   { "Fortschrittsanzeige wird benutzt, wenn der Computer sie bietet", function()
-    local fs, http, env = w.world()
+    local fs, http, env = w.world({ ref = "main" })
     local calls, finished = 0, false
     env.progress = function(done, total) calls = calls + 1 end
     env.progress_done = function() finished = true end
-    t.eq(installer.run({ "signal", "v0.1.0" }, env), true, env.output())
+    t.eq(installer.run({ "signal" }, env), true, env.output())
     t.ok(calls > 10); t.ok(finished)
     t.ok(not env.output():find("10/", 1, true), "keine Zeilenflut, wenn ein Balken da ist")
   end },

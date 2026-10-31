@@ -2,7 +2,7 @@
 
 ## Aenderung
 
-Der interaktive Installer benutzt einen eigenstaendigen Terminal-Renderer, ohne
+Der interaktive Installer fragt keine Version: der Kanal (`main` oder `beta`) steht in der geladenen Datei (`installer.lua` bzw. `installer_beta.lua`). Er benutzt einen eigenstaendigen Terminal-Renderer, ohne
 bereits installierte Module vorauszusetzen. Pfeiltasten und Enter oder Maus
 waehlen Aktionen; die Buchstabentasten bleiben erhalten. Bild auf/ab bewegt
 lange Erklaerungen, Pfeiltasten machen auch lange Auswahllisten erreichbar.
@@ -46,7 +46,7 @@ vorher gesagt, was entfaellt, und muss erneut antippen.
 
 ## Spielabnahme (noch offen)
 
-1. Installer auf Advanced Computer mit 51x19 starten. Rolle, Version, Zusammenfassung
+1. Installer auf Advanced Computer mit 51x19 starten (Befehl von `beta` und von `main`: der Kanal in Menue und Zusammenfassung stimmt). Rolle, Zusammenfassung
    und fremdes Startprogramm pruefen. Lange Hinweise und alle Rollen erreichen.
 2. Setup auf 51x19, 100x40 und Schwarzweiss pruefen; Touch, Tastatur und Resize.
 3. Signalrolle: keine Stations-/Depotzuordnung anbieten; ohne Signal nicht weiter.

@@ -4,7 +4,7 @@ Neustart nach Konzept 1.1. Vorgehen: `docs/STUFENPLAN.md`; Entscheidungen: `docs
 
 ## Branches
 
-Es gibt genau zwei: `main` (stabil) und `beta` (Test- und Arbeitsbranch). Gearbeitet wird nur auf `beta`; nach bestandenem Spieltest und ausdruecklicher Freigabe geht `beta` per Pull-Request nach `main`. Weitere Branches werden nicht angelegt.
+Es gibt genau zwei: `main` (stabil) und `beta` (Test- und Arbeitsbranch). Gearbeitet wird nur auf `beta`; nach bestandenem Spieltest und ausdruecklicher Freigabe geht `beta` per Pull-Request nach `main`. Weitere Branches werden nicht angelegt. `installer_beta.lua` (Kanal beta) wird von `tools/build.lua` aus `installer.lua` erzeugt und nie von Hand geaendert; der Befehl fuer `beta` laedt `installer_beta.lua`, der fuer `main` `installer.lua`.
 
 ## Regeln
 
