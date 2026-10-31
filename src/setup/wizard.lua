@@ -481,6 +481,9 @@ function M.new(opts)
     for _, t in ipairs(w.tests()) do if t.id == id then return t end end
   end
 
+  -- Konfigurationssignatur (teuer: bei vielen Pruefungen einmal berechnen und an test_state/run_test/record weitergeben)
+  function w.fingerprint() return fingerprint() end
+
   function w.test_state(id, current, test)
     test = test or find_test(id)
     if not test then return nil end
@@ -498,13 +501,15 @@ function M.new(opts)
     return true
   end
 
-  local function record(test, ok, text)
-    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fingerprint = fingerprint(), at = opts.now() }
+  -- current: Konfigurationssignatur, wenn der Aufrufer sie schon hat (bei vielen Geraeten nicht je Pruefung neu berechnen)
+  local function record(test, ok, text, current)
+    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fingerprint = current or fingerprint(), at = opts.now() }
     return ok, text
   end
 
-  function w.run_test(id, confirmed)
-    local test = find_test(id)
+  function w.run_test(id, confirmed, known_test, current)
+    local test = known_test or find_test(id)
+    local function rec(ok, text) return record(test, ok, text, current) end
     if not test then return false, "unbekannte Pruefung" end
     if test.kind == "schalten" and confirmed ~= true then
       return false, "Schaltende Pruefung: erst die Vorbereitung bestaetigen."
@@ -517,31 +522,31 @@ function M.new(opts)
       elseif d.kind == "signal" then adapter = signallib.new(env, d.device)
       else adapter = observerlib.new(env, d.device) end
       local state = adapter.read()
-      if not state.available then return record(test, false, "nicht erreichbar: " .. tostring(state.errors and state.errors[1] or "")) end
-      if state.errors and #state.errors > 0 then return record(test, false, state.errors[1]) end
-      return record(test, true, "lesbar")
+      if not state.available then return rec(false, "nicht erreichbar: " .. tostring(state.errors and state.errors[1] or "")) end
+      if state.errors and #state.errors > 0 then return rec(false, state.errors[1]) end
+      return rec(true, "lesbar")
     elseif kind == "sperre" then
       local d = w.config.devices[ref]
       local g = signallib.new(env, d.device)
       local before = g.read()
-      if not before.available then return record(test, false, "nicht erreichbar") end
-      if before.forced then return record(test, false, "Das Signal ist schon gesperrt; bitte zuerst die Sperre aufheben.") end
+      if not before.available then return rec(false, "nicht erreichbar") end
+      if before.forced then return rec(false, "Das Signal ist schon gesperrt; bitte zuerst die Sperre aufheben.") end
       local held = g.hold()
       local released = g.release()
-      if not held.confirmed then return record(test, false, "Sperre nicht bestaetigt" .. (held.error and (": " .. held.error) or "")) end
-      if not released.confirmed then return record(test, false, "ACHTUNG: Sperre blieb gesetzt. Bitte von Hand pruefen.") end
-      return record(test, true, "Sperre gesetzt und aufgehoben (zurueckgelesen)")
+      if not held.confirmed then return rec(false, "Sperre nicht bestaetigt" .. (held.error and (": " .. held.error) or "")) end
+      if not released.confirmed then return rec(false, "ACHTUNG: Sperre blieb gesetzt. Bitte von Hand pruefen.") end
+      return rec(true, "Sperre gesetzt und aufgehoben (zurueckgelesen)")
     elseif kind == "ausgang" then
       local track = w.config.tracks[ref]
       local o = outlib.new(env, track.release)
       local before = o.get()
-      if before == nil then return record(test, false, "Ausgang nicht lesbar") end
-      if before == true then return record(test, false, "Der Ausgang ist schon eingeschaltet; bitte von Hand pruefen.") end
+      if before == nil then return rec(false, "Ausgang nicht lesbar") end
+      if before == true then return rec(false, "Der Ausgang ist schon eingeschaltet; bitte von Hand pruefen.") end
       local on = o.set(true)
       local off = o.set(false)
-      if not off.confirmed then return record(test, false, "ACHTUNG: Ausgang blieb eingeschaltet. Bitte von Hand pruefen.") end
-      if not on.confirmed then return record(test, false, "Ausgang liess sich nicht einschalten") end
-      return record(test, true, "Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
+      if not off.confirmed then return rec(false, "ACHTUNG: Ausgang blieb eingeschaltet. Bitte von Hand pruefen.") end
+      if not on.confirmed then return rec(false, "Ausgang liess sich nicht einschalten") end
+      return rec(true, "Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
     end
     return false, "unbekannte Pruefung"
   end
@@ -571,30 +576,39 @@ function M.new(opts)
   end
 
   w.auto_waiting = {}
-  function w.auto_tests(only_open)
+  -- progress(fertig, gesamt) wird alle PROGRESS_EVERY Pruefungen aufgerufen: bei hunderten Signalen dauern die schaltenden Pruefungen
+  -- eine Weile (jede Sperre ist ein Aufruf auf dem Server-Takt), die Oberflaeche zeigt dann den Fortschritt statt stillzustehen.
+  local PROGRESS_EVERY = 10
+  function w.auto_tests(only_open, progress)
     local ran, ok_count = 0, 0
     w.auto_waiting = {}
-    local current = fingerprint()
-    local pending = {}
+    local current = fingerprint()           -- einmal: die Konfiguration aendert sich waehrend der Pruefungen nicht
+    local reading, pending = {}, {}
     for _, test in ipairs(w.tests()) do
       if not only_open or w.test_state(test.id, current, test) == "offen" then
-        if test.kind == "lesen" then
-          local ok = w.run_test(test.id, false)
-          ran = ran + 1
-          if ok then ok_count = ok_count + 1 end
-        else
-          pending[#pending + 1] = test
-        end
+        if test.kind == "lesen" then reading[#reading + 1] = test else pending[#pending + 1] = test end
       end
+    end
+    local total = #reading + #pending
+    local function done()
+      if progress and (ran % PROGRESS_EVERY == 0 or ran == total) then progress(ran, total) end
+    end
+    for _, test in ipairs(reading) do
+      local ok = w.run_test(test.id, false, test, current)
+      ran = ran + 1
+      if ok then ok_count = ok_count + 1 end
+      done()
     end
     for _, test in ipairs(pending) do
       local safe, why = switching_is_safe(test)
       if safe then
-        local ok = w.run_test(test.id, true)
+        local ok = w.run_test(test.id, true, test, current)
         ran = ran + 1
         if ok then ok_count = ok_count + 1 end
+        done()
       else
         w.auto_waiting[test.id] = why
+        total = total - 1
       end
     end
     local waiting = 0

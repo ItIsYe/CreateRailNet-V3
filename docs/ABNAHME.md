@@ -23,4 +23,4 @@ Jede Pruefung aus Konzept 17.2 mit dem automatischen Test (laeuft ohne Spiel, je
 | A17 | Computer ersetzen | tests/test_stage8.lua | 8.10, 8.11, 8.12 |
 | A18 | Update des Modpacks | tests/test_stage8.lua, tests/test_installer.lua | 8.13, 8.14 |
 
-Last (Konzept 16, Stufe 9): `tests/test_load.lua` mit 312 Signalen an 26 Computern; im Spiel `docs/GROSSER_TEST.md` Abschnitt Stufe 9.
+Last (Konzept 16, Stufe 9): `tests/test_load.lua` mit 312 Signalen an 26 Computern und mit einem Node mit 450 Signalen (Berichte und Konfigurationssicherung in Teilen); im Spiel `docs/GROSSER_TEST.md` Abschnitt Stufe 9.

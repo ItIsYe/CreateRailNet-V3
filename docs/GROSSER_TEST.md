@@ -186,7 +186,7 @@ Aufbau: wie Stufe 4/5; zusaetzlich ein freier Computer (Funkmodem, wenn moeglich
 
 ## Stufe 9: Betrieb im Grossen
 
-Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind aktiv, mindestens ein Knoten ist eingerichtet. Automatisch geprueft sind bereits 312 Signale an 26 Computern (`tests/test_load.lua`: unter 6 Nachrichten je Sekunde im Ruhebetrieb, Berichte gesammelt je Node).
+Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind aktiv, mindestens ein Knoten ist eingerichtet. Automatisch geprueft sind bereits 312 Signale an 26 Computern (`tests/test_load.lua`: unter 6 Nachrichten je Sekunde im Ruhebetrieb, Berichte gesammelt je Node) und ein einziger Node mit 450 Signalen (Meldungen in Teilen unter der Funkgrenze, auch bei Verlust, Verdopplung und Vertauschung; Konfigurationssicherung in Teilen).
 
 | Nr | Schritt | Erwartung | Ergebnis |
 |---|---|---|---|
@@ -196,3 +196,6 @@ Dies ist der Abschluss des grossen Tests. Alle Nodes laufen, mehrere Linien sind
 | 9.4 | **A16** Chunkgrenze mit fahrendem Zug: Zug faehrt in einen ungeladenen Bereich und zurueck | Der Zug wird nicht doppelt freigegeben; Ankunft/Abfahrt kommen verspaetet oder ueber den Zustandsbericht an | |
 | 9.5 | Alle Spieltest-Schritte aus Stufe 4 bis 8, die noch kein Ergebnis haben, nachholen | Ergebnisse eingetragen | |
 | 9.6 | Rueckmeldung an den Entwickler | Diese Datei mit allen Ergebnissen, die Meldungen der Seite "Meldungen" der Leitstelle, die Ausgabe von `crn/app/main info` und `crn/app/main datenstand` je Computertyp, und alle Abweichungen (Fahrplan-JSON aus Schritt 4.20) | |
+| 9.7 | **Viele Signale an einem Computer**: Signal-Node mit moeglichst vielen Signalen (ab 100, gern 400 und mehr) ueber Kabelmodems einrichten: Schritt 2 Name, "Automatisch einrichten". Zeit stoppen | Die Hinweiszeile zeigt "Pruefung n von m ..." und der Assistent bleibt dabei bedienbar bis auf das Warten; am Ende "Fertig", alle Pruefungen bestanden. Bitte die Dauer und die Zahl der Signale notieren (Schaetzung: etwa eine Minute bei 450) | |
+| 9.8 | Danach aktivieren und 2 Minuten laufen lassen. Leitstelle, Seite "Signale": blaettern bis ans Ende; ein Signal am Ende der Liste in Create auf Rot stellen (oder sperren) | Alle Signale des Nodes stehen in der Liste, nicht "VERALTET"; die Aenderung erscheint binnen weniger Sekunden; keine Meldung "Nachricht zu gross" | |
+| 9.9 | Am Signal-Node nach 40 s die Seite "Meldungen" ansehen | Keine Fehlermeldung ("Nachricht zu gross" darf nie vorkommen); nur bei einer Konfiguration ueber rund 200 KB steht einmal die Warnung "zu gross fuer die Sicherung" | |

@@ -129,6 +129,59 @@ return {
     d.tap(v, "act:speichern")
     t.eq(d.node.status().text, "Bereit")
   end },
+  { "Signal-Node mit 45 Signalen: die Pruefungen melden ihren Fortschritt, die Anzeige wird dabei neu gezeichnet", function()
+    local names = {}
+    for i = 1, 45 do names[i] = "Sig_" .. i end
+    local w = world({ signals = names })
+    local d, v = to_name(w, 5)
+    d.type(v, "name", "Strecke Gross")
+    local renders, hints = 0, {}
+    local real_render = v.render
+    v.render = function(...) renders = renders + 1; hints[#hints + 1] = v.hint; return real_render(...) end
+    d.tap(v, "act:auto")
+    v.render = real_render
+    t.eq(screen(d), "6.fertig", d.text(v))
+    local wiz = d.node.setup.session().wiz
+    t.eq(#wiz.config.tracks[wiz.tracks()[1]].signals, 45)
+    -- 45 lesende + 45 schaltende Pruefungen: alle zehn eine Zeichnung mit "Pruefung n von 90"
+    local seen = {}
+    for _, h in ipairs(hints) do if h:find("^Pruefung %d+ von 90") then seen[#seen + 1] = h end end
+    t.ok(#seen >= 8, "Fortschritt gezeigt: " .. #seen .. " Mal")
+    t.eq(seen[1], "Pruefung 10 von 90 ...")
+    t.eq(seen[#seen], "Pruefung 90 von 90 ...")
+    t.ok(wiz.all_tests_ok(), "alle Pruefungen bestanden")
+  end },
+  { "Pruefungen: der Fortschrittsaufruf kommt alle zehn Pruefungen und am Ende; ohne Aufruf geht es genauso", function()
+    local names = {}
+    for i = 1, 13 do names[i] = "Sig_" .. i end
+    local w = world({ signals = names })
+    local d, v = to_name(w, 5)
+    d.type(v, "name", "Strecke")
+    d.tap(v, "act:auto")
+    local wiz = d.node.setup.session().wiz
+    local calls = {}
+    local ran, passed = wiz.auto_tests(false, function(done, total) calls[#calls + 1] = done .. "/" .. total end)
+    t.eq(ran, 26); t.eq(passed, 26)
+    t.eq(table.concat(calls, " "), "10/26 20/26 26/26")
+    local ran2 = wiz.auto_tests(false)
+    t.eq(ran2, 26)
+  end },
+  { "Pruefungsliste mit vielen Zeilen: die Konfigurationssignatur wird je Zeichnen nur wenige Male berechnet, nicht je Zeile", function()
+    local names = {}
+    for i = 1, 30 do names[i] = "Sig_" .. i end
+    local w = world({ signals = names })
+    local d, v = to_name(w, 5)
+    d.type(v, "name", "Strecke")
+    d.tap(v, "act:auto")
+    d.tap(v, "act:zurueck")
+    t.eq(screen(d), "5.test", d.text(v))
+    local adler = require("core.adler")
+    local real, calls = adler.hex, 0
+    adler.hex = function(...) calls = calls + 1 return real(...) end
+    d.node.render()
+    adler.hex = real
+    t.ok(calls <= 8, "Signaturberechnungen beim Zeichnen von 60 Zeilen (je Zeile waeren es 60): " .. calls)
+  end },
   { "Knotenpunkt bleibt Handarbeit: Geraete werden gewaehlt, dann geht es zu den Anschluessen", function()
     local w = world({ signals = { "Sig_W" }, observers = { "Obs_W" } })
     local d, v = to_name(w, 6)

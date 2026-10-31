@@ -46,6 +46,15 @@ function M.new(services)
 
   local function step_of(screen) return tonumber(screen:match("^(%d)")) end
 
+  -- Fortschritt langer Pruefreihen (hunderte Signale): Hinweiszeile setzen und sofort zeichnen
+  local function progress_of(v)
+    if not v then return nil end
+    return function(done, total)
+      v.hint = "Pruefung " .. done .. " von " .. total .. " ..."
+      if v.render then v.render() end
+    end
+  end
+
   local function goto_screen(screen)
     session.screen = screen
     session.wiz.step = step_of(screen) or session.wiz.step
@@ -55,7 +64,7 @@ function M.new(services)
       services.search_networks()
     elseif screen == "5.test" or screen == "6.fertig" then
       -- Pruefungen laufen von selbst; schaltende nur, wenn der Zustand beweist, dass nichts betroffen ist, sonst warten sie auf die Bestaetigung
-      local ran, passed, waiting = session.wiz.auto_tests(true)
+      local ran, passed, waiting = session.wiz.auto_tests(true, progress_of(session.owner))
       if session.owner and ran + waiting > 0 then
         session.owner.hint = ran .. " Pruefung(en) automatisch, " .. passed .. " bestanden" .. (waiting > 0 and (", " .. waiting .. " warten auf Bestaetigung") or "") .. "."
       end
@@ -698,8 +707,9 @@ function M.new(services)
       header(v, rect, nil, "Pruefungen laufen automatisch; was nicht sicher ist, wartet auf Sie.")
       local items = {}
       session.pick.tests = {}
+      local current = session.wiz.fingerprint()          -- einmal je Zeichnen, nicht je Zeile (bei hunderten Signalen sonst Sekunden)
       for _, test in ipairs(session.wiz.tests()) do
-        local state, text = session.wiz.test_state(test.id)
+        local state, text = session.wiz.test_state(test.id, current, test)
         local kind = (state == "ok") and "ok" or (state == "fehler") and "halt" or "wait"
         local waiting = session.wiz.auto_waiting and session.wiz.auto_waiting[test.id]
         local detail = state .. (test.kind == "schalten" and " (schaltet)" or "") .. (text and state == "fehler" and (": " .. text) or "")
@@ -711,7 +721,7 @@ function M.new(services)
       -- die Auswahl nennt den Grund, wenn eine schaltende Pruefung auf die Bestaetigung wartet
       local picked = session.pick.tests[list_state(v, "tests").index]
       local why = picked and session.wiz.auto_waiting and session.wiz.auto_waiting[picked.id]
-      if why and session.wiz.test_state(picked.id) == "offen" then v.hint = "Wartet auf Bestaetigung: " .. why .. ". Ausfuehren schaltet erst nach der Vorbereitung." end
+      if why and session.wiz.test_state(picked.id, current, picked) == "offen" then v.hint = "Wartet auf Bestaetigung: " .. why .. ". Ausfuehren schaltet erst nach der Vorbereitung." end
     end,
     action = function(v, id)
       local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
@@ -725,7 +735,7 @@ function M.new(services)
         end
         return true
       elseif id == "act:alle_pruefen" then
-        local ran, passed, waiting = session.wiz.auto_tests(false)
+        local ran, passed, waiting = session.wiz.auto_tests(false, progress_of(v))
         v.hint = ran .. " Pruefung(en) ausgefuehrt, " .. passed .. " bestanden" .. (waiting > 0 and (", " .. waiting .. " warten auf Bestaetigung") or "") .. "."
         return true
       end
@@ -807,7 +817,7 @@ function M.new(services)
     action = function(v, id)
       if id == "act:speichern" then
         session.wiz.rescan()
-        session.wiz.auto_tests(true)                  -- offene Pruefungen laufen vor dem Aktivieren von selbst
+        session.wiz.auto_tests(true, progress_of(v))   -- offene Pruefungen laufen vor dem Aktivieren von selbst
         local ok, why = session.wiz.step_ok(5)       -- liest die Geraete vorher frisch
         if not ok then v.hint = why return true end
         local status, problems, err = session.wiz.finish(services.store, services.config_path)
@@ -936,7 +946,7 @@ function M.new(services)
     if not made and model.profile(w.config).tracks and #w.tracks() == 0 then return go("4.gleise", tostring(notes)) end
     local ok4, why4 = w.step_ok(4, true)
     if not ok4 then return go("4.gleise", why4 .. extra) end
-    local ran, passed, waiting = w.auto_tests(true)
+    local ran, passed, waiting = w.auto_tests(true, progress_of(v))
     local ok5 = w.step_ok(5, true)
     if ok5 then return go("6.fertig", "Automatisch eingerichtet. Bitte ansehen, dann aktivieren." .. extra) end
     return go("5.test", ran .. " Pruefung(en) automatisch, " .. waiting .. " warten auf Bestaetigung oder sind fehlgeschlagen." .. extra)

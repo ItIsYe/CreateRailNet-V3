@@ -25,6 +25,18 @@ Neben der Handarbeit gibt es drei Abkuerzungen, die sich mischen lassen:
 
 Die Pruefungen (Schritt 5) laufen beim Betreten und vor dem Aktivieren von selbst. Lesende immer. Schaltende nur, wenn der gelesene Zustand beweist, dass sie nichts treffen: die Sperre nur bei einem gruenen, nicht gesperrten Signal ohne gemeldeten Zug, der Ausgang nur, wenn am Bahnhof des Gleises kein Zug steht, naht oder faehrt. Alles andere wartet auf die Bestaetigung von Hand (Grund in der Zeile und im Hinweis); "Neu pruefen" wiederholt alle, auch fehlgeschlagene.
 
+## Grosse Netze (hunderte Signale)
+
+Wer sehr viele Signale hat, richtet sie nicht einzeln ein: Am Signal-Node reicht "Automatisch einrichten" (Schritt 2: Rolle Signal, Name eintippen). Alle am Computer erkannten Signale und Beobachter landen in einem Gleis (die Gleise des Signal-Nodes sind nur Namen), die Pruefungen laufen von selbst. Gemessen am Fake: 450 Signale mit 112 Beobachtern in etwa 0,2 s Rechenzeit (die Pruefungen berechnen die Konfigurationssignatur einmal, nicht je Pruefung; sonst waren es 9 s, und das Zeichnen der Pruefungsliste brauchte je Bild ebenso lange). Im Spiel kommt die Wartezeit der Create-Aufrufe dazu: jede schaltende Pruefung setzt und loest eine Sperre (zwei Aufrufe auf dem Server-Takt, jeweils etwa ein Tick), das ergibt grob eine Minute bei 450 Signalen (Schaetzung, bitte beim Spieltest notieren). Waehrenddessen zeigt die Hinweiszeile "Pruefung n von m ..."; den Computer in dieser Zeit nicht neu starten.
+
+Das Netz selbst traegt solche Mengen:
+
+- Ein Signal-Node meldet seine Signale in Teilen (hoechstens 30 Signale und etwa 5000 Zeichen je Nachricht; die Funkschicht erlaubt rund 6000). Jeder Teil nennt Startposition und Gesamtzahl, die Leitstelle setzt ihn an seine Stelle. Aenderungen gehen sofort und nur fuer den betroffenen Teil, ein vollstaendiger Durchlauf folgt alle 5 s (hoechstens 6 Teile je Sekunde und Node). Ein verlorener Teil heilt mit dem naechsten Durchlauf.
+- Die Konfigurationssicherung fuer den Ersatzcomputer geht in Teilen zu je 2000 Zeichen (hoechstens 100 Teile, rund 200 KB, ungefaehr 2400 Signale an einem Node). Darueber warnt der Node einmal und sichert nicht; ein Ersatz muss dann von Hand eingerichtet werden.
+- Die Leitstelle nimmt hoechstens 5000 Signale je Node an.
+
+Besser verteilt es sich trotzdem: mehrere Signal-Nodes mit je einigen dutzend Signalen halten die Wartezeiten der Pruefungen, die Funkmenge je Computer und den Schaden eines ausgefallenen Computers klein.
+
 ## Netz beitreten (Netzsuche)
 
 Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vorlaeufige Kennung `neu-...`). Jede laufende Leitstelle in Reichweite antwortet mit Netzname und ihrer Kennung (und der Zahl der bekannten Nodes), sonst nichts. Der Assistent bietet die Treffer zur Auswahl an; die Wahl setzt Netzname und Leitstelle, die beiden Eingabefelder entfallen. "Netz von Hand eingeben" und "Neu suchen" stehen immer zur Verfuegung. Die Antworten sind unbeglaubigt (Rednet ist keine Anmeldung, siehe Konzept 13.5): angenommen werden nur Name und Kennung in der erlaubten Form (Buchstaben, Ziffern, Leerzeichen, - und _, hoechstens 30 Zeichen), und nur als Antwort auf den eigenen Rundruf.

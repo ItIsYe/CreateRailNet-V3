@@ -509,23 +509,50 @@ function M.new(node)
     node.reply(m, "ok", {})
   end
 
+  -- Ein Signal-Node mit hunderten Signalen meldet in Teilen (first = Startposition, total = Gesamtzahl): jeder Teil wird an seine Stelle gesetzt.
+  -- Ohne first kommt die ganze Liste (aelteres Format). Fehlende Teile bleiben Luecken, bis der naechste vollstaendige Durchlauf sie fuellt.
+  local MAX_SIGNALS = 5000
+  local function merge_slice(list, p)
+    local incoming = p.signals or {}
+    if p.first == nil then return incoming end
+    local first, total = p.first, p.total or (p.first + #incoming - 1)
+    if type(first) ~= "number" or type(total) ~= "number" or first < 1 or total < 0 or first ~= math.floor(first) or total ~= math.floor(total)
+      or first > MAX_SIGNALS or total > MAX_SIGNALS then
+      return list
+    end
+    list = list or {}
+    for i, sg in ipairs(incoming) do
+      if first + i - 1 <= MAX_SIGNALS then list[first + i - 1] = sg end
+    end
+    for i = total + 1, math.max(list.n or 0, #list) do list[i] = nil end
+    list.n = total
+    return list
+  end
+
   -- Signal-Nodes melden sich getrennt (ein Computer kann Bahnhof und Signale tragen)
   local function on_hello_signals(m)
     local p = m.payload
-    local old = nodes[p.node]
-    if old then
-      old.signals, old.last_seen = p.signals, now()
-      old.roles = old.roles or p.roles
-    else
-      nodes[p.node] = { name = p.name, roles = p.roles, tracks = {}, last_seen = now(), active = p.active, revision = p.revision, signals = p.signals }
+    local entry = nodes[p.node]
+    if not entry then
+      entry = { name = p.name or p.node, roles = p.roles or {}, tracks = {}, last_seen = now(), active = p.active, revision = p.revision, provisional = p.name == nil or nil }
+      nodes[p.node] = entry
+    elseif p.name ~= nil and entry.provisional then
+      -- der erste Teil kam nach einem spaeteren Teil an: jetzt stimmen die Angaben des Nodes
+      entry.name, entry.roles, entry.active, entry.revision, entry.provisional = p.name, p.roles or {}, p.active, p.revision, nil
     end
+    entry.last_seen = now()
+    entry.roles = entry.roles or p.roles
+    entry.signals = merge_slice(entry.signals, p)
     silent_notified[p.node] = nil
-    node.reply(m, "ok", {})
+    if (p.first or 1) == 1 then node.reply(m, "ok", {}) end
   end
 
   local function on_signals(m)
     local p = m.payload
-    signal_state[p.node] = { t = now(), signals = p.signals }
+    local entry = signal_state[p.node] or { signals = {} }
+    entry.t = now()
+    entry.signals = merge_slice(entry.signals, p)
+    signal_state[p.node] = entry
     for _, sg in ipairs(p.signals or {}) do
       if sg.invalid and not unknown_seen["inv:" .. p.node .. sg.id] then
         unknown_seen["inv:" .. p.node .. sg.id] = true
@@ -618,6 +645,8 @@ function M.new(node)
   function role.on_message(m, status)
     -- ein verspaetetes "hallo" ist trotzdem eine gueltige Anmeldung des Nodes (Zustandsmeldungen holen den Rest nach)
     if status == "old_sequence" and m.messageType == "meldung" and m.payload.kind == "hallo" then return on_hello(m) end
+    -- ein Berichtsteil der Signalliste (hallo_signale) ist unveraenderliche Stammdaten: auch verspaetet an seine Stelle setzen
+    if status == "old_sequence" and m.messageType == "meldung" and m.payload.kind == "hallo_signale" then return on_hello_signals(m) end
     -- Ereignismeldungen gelten auch verspaetet (sie werden vom Bahnhof wiederholt, bis sie bestaetigt sind)
     if status == "old_sequence" and m.messageType == "meldung" and EVENT_KINDS[m.payload.kind] then status = "ok" end
     if status ~= "ok" then return end
@@ -1061,8 +1090,30 @@ function M.new(node)
   local BACKUP_DIR = DATA .. "/nodesich"
   local function backup_path(id) return BACKUP_DIR .. "/" .. tostring(id):gsub("[^%w%-_]", "_") .. ".lua" end
 
+  -- Die Konfiguration kommt in Teilen (part von parts, je ein Stueck Text); beantwortet wird der letzte Teil: "ok" nur, wenn alle da waren
+  local CONFIG_PART, MAX_CONFIG_PARTS = 2000, 100
+  local config_parts = {}                                 -- Node -> { revision, parts, pieces, count }
+
   function role.on_config(m)
     local p = m.payload
+    local parts, part = p.parts or 1, p.part or 1
+    if type(p.config) ~= "string" or type(parts) ~= "number" or type(part) ~= "number" or parts ~= math.floor(parts) or part ~= math.floor(part)
+      or part < 1 or part > parts or parts > MAX_CONFIG_PARTS then
+      return node.reply(m, "abgelehnt", { grund = "Die Konfigurationssicherung ist ungueltig oder zu gross." })
+    end
+    if parts > 1 then
+      local asm = config_parts[p.node]
+      if not asm or asm.revision ~= p.revision or asm.parts ~= parts then
+        asm = { revision = p.revision, parts = parts, pieces = {}, count = 0 }
+        config_parts[p.node] = asm
+      end
+      if asm.pieces[part] == nil then asm.count = asm.count + 1 end
+      asm.pieces[part] = p.config
+      if part < parts then return end                     -- Zwischenteil: noch keine Antwort
+      config_parts[p.node] = nil
+      if asm.count < parts then return node.reply(m, "unvollstaendig", { grund = "Es fehlen Teile der Konfiguration." }) end
+      p = { node = p.node, revision = p.revision, config = table.concat(asm.pieces) }
+    end
     local fs = node.env.fs
     if not fs.exists(BACKUP_DIR) then fs.makeDir(BACKUP_DIR) end
     local count = #fs.list(BACKUP_DIR)
@@ -1100,7 +1151,12 @@ function M.new(node)
     -- Uebergabe: ab jetzt gilt der Ersatz; die alte Node darf nicht mehr laufen (Doppelbetrieb wird als Konflikt gemeldet)
     role.unretire(id)
     notify("warnung", "Die Konfiguration von " .. id .. " wurde an einen Ersatzcomputer uebergeben. Die alte Node darf nicht mehr laufen.")
-    node.reply(m, "ok", { config = entry.config, revision = entry.revision })
+    -- lange Konfigurationen gehen in Teilen (jeder Teil ist eine eigene Antwort auf dieselbe Anfrage)
+    local text = entry.config
+    local parts = math.max(1, math.ceil(#text / CONFIG_PART))
+    for i = 1, parts do
+      node.reply(m, "ok", { config = text:sub((i - 1) * CONFIG_PART + 1, i * CONFIG_PART), revision = entry.revision, part = i, parts = parts })
+    end
   end
 
   -- Signale (Zusatzsperre eines Signal-Nodes setzen oder aufheben; ausgefuehrt wird dort, bestaetigt erst nach dem Zuruecklesen)
@@ -1128,8 +1184,10 @@ function M.new(node)
     table.sort(ids)
     for _, id in ipairs(ids) do
       local entry = signal_state[id]
-      for _, sg in ipairs(entry.signals or {}) do
-        out[#out + 1] = { node = id, signal = sg, fresh = reachable(id) and now() - entry.t < NODE_SILENT }
+      local list = entry.signals or {}
+      for i = 1, list.n or #list do
+        local sg = list[i]
+        if sg then out[#out + 1] = { node = id, signal = sg, fresh = reachable(id) and now() - entry.t < NODE_SILENT } end
       end
     end
     return out
