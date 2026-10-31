@@ -330,6 +330,19 @@ function M.new(opts)
   -- Automatik (freiwillig): legt die Gleise aus den gewaehlten Geraeten an. Eindeutig ist nur, was die Software wissen kann:
   -- je Bahnhof ein Gleis; gibt es nur ein Gleis, gehoeren alle Signale und Beobachter dazu; Signal-Node: ein Gleis mit allen Signalen.
   -- Freigabeausgaenge werden der Reihe nach an freie Computerseiten vergeben (Seiten mit Modem oder Monitor sind belegt) und im Ergebnis genannt, damit man danach verdrahten kann.
+  -- Reihenfolge nach Geraetenamen mit Zahlen "natuerlich": Create_Signal_2 vor Create_Signal_10
+  local function natural_less(a, b)
+    local pa, na = a:match("^(.-)(%d*)$")
+    local pb, nb = b:match("^(.-)(%d*)$")
+    if pa ~= pb then return a < b end
+    if na ~= "" and nb ~= "" and tonumber(na) ~= tonumber(nb) then return tonumber(na) < tonumber(nb) end
+    return a < b
+  end
+
+  -- Signal-Node: bis zu AUTO_SIGNAL_TRACKS Signale bekommen je ein Gleis ("Gleis 1" ...), damit die Leitstelle sie unterscheiden kann;
+  -- welches Signal an welchem echten Gleis steht, ist nicht lesbar (Create nennt keine Lage): die Namen sind vorlaeufig und werden bei Bedarf umbenannt
+  local AUTO_SIGNAL_TRACKS = 24
+
   function w.auto_tracks()
     sync_config()
     local p = model.profile(w.config)
@@ -337,7 +350,7 @@ function M.new(opts)
     local by_kind = { station = {}, signal = {}, observer = {} }
     local ids = {}
     for id in pairs(w.config.devices) do ids[#ids + 1] = id end
-    table.sort(ids, function(a, b) return w.config.devices[a].device < w.config.devices[b].device end)
+    table.sort(ids, function(a, b) return natural_less(w.config.devices[a].device, w.config.devices[b].device) end)
     for _, id in ipairs(ids) do
       local list = by_kind[w.config.devices[id].kind]
       if list then list[#list + 1] = id end
@@ -364,14 +377,32 @@ function M.new(opts)
       end
     else
       if #by_kind.signal == 0 then return false, "Kein Signal gewaehlt (Schritt 3)." end
-      local tid = w.add_track(w.name:match("%S") and w.name or "Strecke")
-      made[#made + 1] = tid
+      if #by_kind.signal > 1 and #by_kind.signal <= AUTO_SIGNAL_TRACKS then
+        for i, sid in ipairs(by_kind.signal) do
+          local tid = w.add_track("Gleis " .. i)
+          w.toggle_track_device(tid, "signals", sid)
+          made[#made + 1] = tid
+        end
+        notes[#notes + 1] = "je Signal ein Gleis (Gleis 1 bis " .. #made .. "); welches Signal wo steht, kann der Computer nicht lesen: bei Bedarf umbenennen"
+      else
+        local tid = w.add_track(w.name:match("%S") and w.name or "Strecke")
+        made[#made + 1] = tid
+      end
     end
     if #made == 1 then
       for _, sid in ipairs(by_kind.signal) do w.toggle_track_device(made[1], "signals", sid) end
       for _, oid in ipairs(by_kind.observer) do w.toggle_track_device(made[1], "observers", oid) end
     else
-      local loose = #by_kind.signal + #by_kind.observer
+      local assigned = {}
+      for _, tid in ipairs(made) do
+        local track = w.config.tracks[tid]
+        for _, id in ipairs(track.signals) do assigned[id] = true end
+        for _, id in ipairs(track.observers) do assigned[id] = true end
+      end
+      local loose = 0
+      for _, kind in ipairs({ "signal", "observer" }) do
+        for _, id in ipairs(by_kind[kind]) do if not assigned[id] then loose = loose + 1 end end
+      end
       if loose > 0 then notes[#notes + 1] = loose .. " Signal(e)/Beobachter gehoeren zu keinem Gleis: bitte von Hand zuordnen." end
     end
     if p.release then

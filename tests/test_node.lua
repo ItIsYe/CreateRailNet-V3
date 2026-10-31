@@ -55,7 +55,6 @@ local function setup_station(d, v)
   -- Gleisliste
   d.tap(v, "act:neues_gleis")
   d.type(v, "gleisname", "Gleis 1")
-  d.tap(v, "act:weiter")                    -- Richtung
   d.tap(v, "act:weiter")                    -- Bahnhof
   return d
 end
@@ -110,9 +109,7 @@ return {
     t.ok(d.has(v, "Schritt 4 von 6: Gleise"))
     d.tap(v, "act:neues_gleis")
     d.type(v, "gleisname", "Gleis 1")
-    d.tap(v, "act:weiter")
-    d.tap_row(v, "richtung", "hin")
-    d.tap(v, "act:weiter")
+    d.tap(v, "act:weiter")                  -- keine Richtungsfrage mehr: es geht gleich zu den Geraeten
     d.tap_row(v, "bahnhof", "Create_Station_1")
     d.tap(v, "act:weiter")
     d.tap_row(v, "signale", "Create_Signal_5")

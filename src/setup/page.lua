@@ -11,7 +11,6 @@ local W = require("ui.widgets")
 
 local M = {}
 
-local DIRECTIONS = { { id = "hin", text = "hin (eine Richtung)" }, { id = "rueck", text = "rueck (Gegenrichtung)" }, { id = "beide", text = "beide Richtungen" } }
 
 function M.new(services)
   local page = { id = "einrichtung", title = "Einrichtung" }
@@ -392,28 +391,11 @@ function M.new(services)
       local t = session.wiz.config.tracks[session.track]
       header(v, rect, nil, "Gleis bearbeiten: " .. (t and t.name or "?"))
       W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
-      if t then W.label(v, rect.x + 1, rect.y + 6, "Richtung: " .. t.direction .. "   (Taste 'Weiter' fuehrt durch die Einstellungen)", "dim", rect.w - 2) end
+      W.label(v, rect.x + 1, rect.y + 6, "Taste 'Weiter' fuehrt durch die Geraete dieses Gleises.", "dim", rect.w - 2)
     end,
     next = function(v)
       session.wiz.rename_track(session.track, fields(v).gleisname.value)
-      push("4.g.richtung")
-      return true
-    end,
-  }
-
-  screens["4.g.richtung"] = {
-    render = function(v, rect)
-      local t = session.wiz.config.tracks[session.track]
-      header(v, rect, nil, "In welche Richtung wird das Gleis befahren? " .. t.name)
-      local items = {}
-      for _, d in ipairs(DIRECTIONS) do items[#items + 1] = { text = (t.direction == d.id and "(o) " or "( ) ") .. d.text } end
-      W.list(v, "richtung", body_rect(rect, 3), items, list_state(v, "richtung"), { row_h = v.layout.mode == "gross" and 3 or 1 })
-    end,
-    action = function(v, id)
-      local n = id:match("^sel:richtung:(%d+)$")
-      if n then session.wiz.set_direction(session.track, DIRECTIONS[tonumber(n)].id) return true end
-    end,
-    next = function(v)
+      -- weiter zu den Geraeten dieser Rolle (die Richtung entfaellt: sie ist nicht lesbar und wird nirgends gebraucht, sie bleibt "beide")
       local c = session.wiz.config
       if model.has_role(c, "knoten") then
         push("4.g.anschluss")

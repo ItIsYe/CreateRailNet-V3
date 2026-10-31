@@ -114,20 +114,46 @@ return {
     local wiz2 = d2.node.setup.session().wiz
     t.eq(wiz2.auto_waiting[next(wiz2.auto_waiting)], "Zug am Signal gemeldet")
   end },
-  { "Signal-Node: ein Gleis mit allen Signalen und Beobachtern, kein Ausgang", function()
-    local w = world({ signals = { "Sig_A", "Sig_B" }, observers = { "Obs_A" } })
+  { "Signal-Node mit mehreren Signalen: je Signal ein Gleis, in Zahlenreihenfolge, kein Ausgang, Beobachter werden genannt", function()
+    local w = world({ signals = { "Sig_10", "Sig_2", "Sig_1", "Sig_3" }, observers = { "Obs_A" } })
     local d, v = to_name(w, 5)
     d.type(v, "name", "Strecke Nord")
     d.tap(v, "act:auto")
     t.eq(screen(d), "6.fertig", d.text(v))
     local wiz = d.node.setup.session().wiz
     local ids = wiz.tracks()
-    t.eq(#ids, 1)
-    local track = wiz.config.tracks[ids[1]]
-    t.eq(track.name, "Strecke Nord")
-    t.eq(#track.signals, 2); t.eq(#track.observers, 1); t.eq(track.release, nil)
+    t.eq(#ids, 4, "vier Signale, vier Gleise")
+    local devices = wiz.config.devices
+    local want = { "Sig_1", "Sig_2", "Sig_3", "Sig_10" }
+    for i, tid in ipairs(ids) do
+      local track = wiz.config.tracks[tid]
+      t.eq(track.name, "Gleis " .. i)
+      t.eq(#track.signals, 1); t.eq(devices[track.signals[1]].device, want[i], "Zahlenreihenfolge, nicht Buchstabenreihenfolge")
+      t.eq(#track.observers, 0); t.eq(track.release, nil)
+    end
+    t.contains(v.hint, "je Signal ein Gleis")
+    t.contains(v.hint, "1 Signal(e)/Beobachter gehoeren zu keinem Gleis")
     d.tap(v, "act:speichern")
     t.eq(d.node.status().text, "Bereit")
+  end },
+  { "Signal-Node mit einem Signal: ein Gleis nach dem Node benannt; mit mehr als 24 Signalen alle in einem Gleis", function()
+    local w = world({ signals = { "Sig_A" }, observers = { "Obs_A" } })
+    local d, v = to_name(w, 5)
+    d.type(v, "name", "Strecke Nord")
+    d.tap(v, "act:auto")
+    local wiz = d.node.setup.session().wiz
+    t.eq(#wiz.tracks(), 1)
+    local track = wiz.config.tracks[wiz.tracks()[1]]
+    t.eq(track.name, "Strecke Nord"); t.eq(#track.signals, 1); t.eq(#track.observers, 1)
+    local names = {}
+    for i = 1, 25 do names[i] = "Sig_" .. i end
+    local w2 = world({ signals = names })
+    local d2, v2 = to_name(w2, 5)
+    d2.type(v2, "name", "Strecke Gross")
+    d2.tap(v2, "act:auto")
+    local wiz2 = d2.node.setup.session().wiz
+    t.eq(#wiz2.tracks(), 1, "ab 25 Signalen bleibt es bei einem Gleis")
+    t.eq(#wiz2.config.tracks[wiz2.tracks()[1]].signals, 25)
   end },
   { "Signal-Node mit 45 Signalen: die Pruefungen melden ihren Fortschritt, die Anzeige wird dabei neu gezeichnet", function()
     local names = {}
