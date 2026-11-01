@@ -55,6 +55,7 @@ local function setup_station(d, v)
   -- Gleisliste
   d.tap(v, "act:neues_gleis")
   d.type(v, "gleisname", "Gleis 1")
+  d.tap(v, "act:weiter")                    -- Richtung
   d.tap(v, "act:weiter")                    -- Bahnhof
   return d
 end
@@ -109,7 +110,9 @@ return {
     t.ok(d.has(v, "Schritt 4 von 6: Gleise"))
     d.tap(v, "act:neues_gleis")
     d.type(v, "gleisname", "Gleis 1")
-    d.tap(v, "act:weiter")                  -- keine Richtungsfrage mehr: es geht gleich zu den Geraeten
+    d.tap(v, "act:weiter")
+    d.tap_row(v, "richtung", "hin")
+    d.tap(v, "act:weiter")
     d.tap_row(v, "bahnhof", "Create_Station_1")
     d.tap(v, "act:weiter")
     d.tap_row(v, "signale", "Create_Signal_5")
@@ -124,9 +127,19 @@ return {
     d.tap(v, "act:weiter")
     -- Schritt 5: Pruefungen
     t.ok(d.has(v, "Schritt 5 von 6: Test"))
-    -- die Pruefungen laufen beim Betreten von selbst: kein Zug am Bahnhof, Signal gruen, also auch die schaltenden
-    t.ok(d.has(v, "5 Pruefung(en) automatisch, 5 bestanden"), d.text(v))
-    t.eq(w.devices["Create_Signal_5"].state.forced, false, "die Sperre wurde gesetzt und wieder aufgehoben")
+    d.tap(v, "act:alle_lesen")
+    t.ok(d.has(v, "3 lesende Pruefungen ausgefuehrt"))
+    d.tap_row(v, "tests", "Sperre: Create_Signal_5")
+    d.tap(v, "act:ausfuehren")
+    t.ok(d.has(v, "Schaltende Pruefung bestaetigen"))
+    t.ok(d.has(v, "Das Signal Create_Signal_5 wird kurz"), "Erklaerung der Wirkung:\n" .. d.text(v))
+    t.eq(w.devices["Create_Signal_5"].state.forced, false, "noch nichts geschaltet")
+    d.tap(v, "act:start_test")
+    t.ok(d.has(v, "ok: Sperre gesetzt und aufgehoben"), d.text(v))
+    d.tap_row(v, "tests", "Ausgang: Gleis 1")
+    d.tap(v, "act:ausfuehren")
+    d.tap(v, "act:start_test")
+    t.ok(d.has(v, "ok: Ausgang geschaltet"))
     t.eq(w.sides.back, false)
     d.tap(v, "act:weiter")
     -- Schritt 6
@@ -345,7 +358,6 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap_row(v, "ausgang", "Computer back")
     d.tap(v, "act:weiter")
-    w.arrive("Create_Station_1", "Zug A")   -- ein Zug steht: der schaltende Ausgangstest wartet auf die Bestaetigung
     d.tap(v, "act:weiter")              -- Pruefungen
     d.tap(v, "act:weiter")              -- Fertig
     t.eq(d.node.setup.session().screen, "5.test", "offene Tests blockieren Weiter")
