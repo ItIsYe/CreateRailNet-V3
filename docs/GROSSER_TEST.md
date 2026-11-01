@@ -64,6 +64,11 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.31 | Leitstelle, Seite "Anschluesse": bei einem Bereich ein Ende auf "offen" stellen, dann den Zustand ansehen | Der Bereich steht auf "im bau"; "betriebsbereit" ist erst nach dem Festlegen des Anschlusses moeglich | |
 | 3.32 | Seite "Betriebsstellen": einen Personenbahnhof und ein Depot mit demselben Standort anlegen; Seite "Beziehungen": ein Gleis als Bahnhofsgleis und eines als Verbindung mit Fahrtrichtung verbinden | Der Standort erscheint einmal; ein zweites Mal als Bahnhofsgleis derselben Gleis-Kennung wird mit Hinweis abgelehnt | |
 | 3.33 | Seite "Knoten": Knoten anlegen, zwei Anschluesse aus Gleisenden (Bereich / Gleis; ...) eintragen, "Auto" | Fahrwege und Konflikte stehen als UNBESTAETIGT; auf einer Knoten-Node ist davon nichts zu sehen, bis "Bestaet." gedrueckt ist | |
+| 3.34 | Computer mit nur dem Signal-Paket installiert: Einrichtung starten, Beitreten, Netz waehlen | Es folgt gleich "Bereich waehlen" (keine Rollenauswahl) | |
+| 3.35 | Auf "Bereich waehlen" bei leerem Netz "Neu": Name, zwei Anschluesse, Gleisanzahl, "Vorlage", "Anlegen"; danach in der Leitstelle Seite "Bereiche" ansehen | Der Bereich steht in der Leitstelle genau einmal und ist auf der Node gewaehlt (auch nach kurzem Funkausfall beim Anlegen kein Doppeleintrag) | |
+| 3.36 | Bei der Signal-Zuordnung "Gleis": Name aendern und "Richtung" weiterschalten, "Speichern"; in der Leitstelle Seite "Gleise" | Die Leitstelle zeigt den neuen Namen und die neue Richtung; die Node zeigt dasselbe | |
+| 3.37 | Bei einem Bereich mit Richtung "beide": Signale zuordnen, "Weiter" | "Wirkrichtung fehlt"; unter "Details" Richtung waehlen (und Funktion/Standort ansehen), dann geht es weiter | |
+| 3.38 | Aktive Signal-Node; in der Leitstelle ein Gleis umbenennen und die Richtung aendern; auf der Node Seite "Signale", "Abgleich" | "Abweichung" wird gezeigt und einmal gemeldet; "Uebernehmen" setzt Name und Richtung, die Leitstelle zeigt das Signal danach unter dem neuen Gleisnamen | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

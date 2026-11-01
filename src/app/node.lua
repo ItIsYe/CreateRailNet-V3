@@ -320,6 +320,8 @@ function M.new(env)
     elseif info.fallback then n.notify("warnung", "Kein Funkmodem: es wird das Kabelmodem benutzt.") end
   end
 
+  function n.save_config() return store.save(CONFIG, n.config) end
+
   function n.set_label(text)
     if type(text) == "string" and env.set_label then return pcall(env.set_label, text) end
     return false

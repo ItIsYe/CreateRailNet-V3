@@ -5,6 +5,7 @@
 
 
 local signallib = require("dev.signal")
+local ser = require("core.ser")
 local W = require("ui.widgets")
 
 local M = {}
@@ -24,6 +25,11 @@ local last_beat, last_hello, hello_acked = -9999, -9999, false
 local dirty = true
 local confirm = {}
 local started_at = now()
+
+local SYNC_FIRST, SYNC_EVERY, SYNC_WAIT = 20, 600, 15
+local sync = { next_at = SYNC_FIRST, req = nil, state = "offen", diffs = {}, note = nil, t = nil }
+role.sync = sync
+local on_sync_reply
 
 local function save() return node.store.save(LOCK_FILE, persisted) end
 local function central() return node.central_id() end
@@ -159,6 +165,10 @@ if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload
 hello_acked = true
 return
 end
+if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "verzeichnis_gleise" then
+if sync.req and m.correlationId == sync.req and sync.state == "frage" then sync.req = nil; on_sync_reply(m.payload) end
+return
+end
 if m.messageType ~= "auftrag" or m.payload.kind ~= "sperre" then return end
 local p = m.payload
 if not role.signals[p.signal] then return node.reply(m, "abgelehnt", { grund = "Signal unbekannt" }) end
@@ -170,9 +180,132 @@ node.reply(m, ok and "ok" or "abgelehnt", { signal = p.signal, grund = err, owne
 end
 
 
+
+
+local function claimed_area() return config.node.claimed and config.node.area or nil end
+
+function role.sync_request()
+if not claimed_area() then return nil, "Diese Node ist nicht ueber das Netzverzeichnis eingerichtet." end
+if sync.state == "frage" and now() - (sync.asked or 0) < SYNC_WAIT then return nil, "Die Frage laeuft noch." end
+local m = node.send_to(central(), "abfrage", { kind = "verzeichnis_gleise", area = claimed_area() })
+sync.req, sync.state, sync.asked = m and m.messageId or nil, "frage", now()
+sync.next_at = now() + SYNC_EVERY
+return true
+end
+
+local function valid_id(v) return type(v) == "string" and v:match("^A%d%d%d%d+$") ~= nil and #v <= 12 end
+local function valid_name(v) return type(v) == "string" and #v > 0 and #v <= 30 and v:match("^[%w _%-]+$") ~= nil end
+
+local function compare(area)
+local theirs = {}
+for _, t in ipairs(area.tracks) do theirs[t.id] = t end
+local diffs = {}
+for tid, track in pairs(config.tracks) do
+if track.dir then
+local c = theirs[track.dir.id]
+if not c then
+diffs[#diffs + 1] = { track = tid, id = track.dir.id, kind = "fehlt", name = track.name }
+else
+if c.name ~= track.name then diffs[#diffs + 1] = { track = tid, id = track.dir.id, kind = "name", from = track.name, to = c.name } end
+if c.direction ~= track.dir.direction then diffs[#diffs + 1] = { track = tid, id = track.dir.id, kind = "richtung", name = track.name, from = track.dir.direction, to = c.direction, rev = c.rev } end
+if c.name == track.name and c.direction == track.dir.direction and (c.rev or 0) ~= (track.dir.rev or 0) then
+track.dir.rev = c.rev
+end
+end
+end
+end
+table.sort(diffs, function(a, b) if a.id ~= b.id then return a.id < b.id end return a.kind < b.kind end)
+return diffs
+end
+
+local function describe(d)
+if d.kind == "fehlt" then return "Gleis " .. d.name .. " fehlt im Verzeichnis" end
+if d.kind == "name" then return "Gleis " .. d.from .. " heisst jetzt " .. d.to end
+return "Gleis " .. d.name .. ": Richtung " .. tostring(d.from) .. " -> " .. tostring(d.to)
+end
+role.describe_difference = describe
+
+function on_sync_reply(p)
+sync.t = now()
+if p.status ~= "ok" then sync.state, sync.note = "abgelehnt", tostring(type(p.grund) == "string" and p.grund:sub(1, 80) or "") return end
+local a = p.area
+local shape = type(a) == "table" and type(a.tracks) == "table" and #a.tracks <= 40
+if shape then
+for _, t in ipairs(a.tracks) do
+if type(t) ~= "table" or not valid_id(t.id) or not valid_name(t.name) or not valid_name(t.direction) then shape = false break end
+end
+end
+if not shape then sync.state, sync.note = "unlesbar", "Unerwartete Antwort der Leitstelle." return end
+sync.diffs = compare(a)
+sync.note = nil
+if #sync.diffs == 0 then sync.state = "gleich" return end
+sync.state = "abweichend"
+local signature = {}
+for _, d in ipairs(sync.diffs) do signature[#signature + 1] = d.id .. d.kind .. tostring(d.to) end
+signature = table.concat(signature, ",")
+if sync.notified ~= signature then
+sync.notified = signature
+node.notify("warnung", "Abweichung zum Netzverzeichnis: " .. describe(sync.diffs[1]) .. (#sync.diffs > 1 and (" (+" .. (#sync.diffs - 1) .. " weitere)") or "") .. ". Auf der Seite Signale uebernehmen.")
+end
+end
+
+
+function role.sync_apply()
+local todo = {}
+for _, d in ipairs(sync.diffs) do if d.kind ~= "fehlt" then todo[#todo + 1] = d end end
+if #todo == 0 then return nil, "Nichts zu uebernehmen." end
+local before = ser.decode(ser.encode(config.tracks))
+local devices_before = ser.decode(ser.encode(config.devices))
+local revision = config.revision
+local function ends_ok(name)
+local seen = {}
+for _, tr in pairs(config.tracks) do if tr.dir and tr.dir.direction ~= "beide" then seen[tr.dir.direction] = true end end
+return seen[name] == true or (config.node.area_ends and (config.node.area_ends[1] == name or config.node.area_ends[2] == name))
+end
+for _, d in ipairs(todo) do
+local track = config.tracks[d.track]
+if track and track.dir then
+if d.kind == "name" then
+track.name = d.to
+for _, sg in ipairs(role.signals) do if sg.track == d.track then sg.track_name = d.to end end
+else
+track.dir.direction, track.dir.rev = d.to, d.rev or track.dir.rev
+local unique = (d.to ~= "beide") and d.to or nil
+for _, did in ipairs(track.signals or {}) do
+local info = config.devices[did] and config.devices[did].signal
+if info then
+if unique then info.effect, info.place = unique, unique
+elseif info.effect ~= nil and not ends_ok(info.effect) then info.effect, info.place = nil, nil end
+for _, sg in ipairs(role.signals) do if sg.id == did then sg.effect, sg.place = info.effect, info.place end end
+end
+end
+end
+end
+end
+config.revision = (config.revision or 0) + 1
+local ok, err = node.save_config()
+if not ok then
+config.tracks, config.devices, config.revision = before, devices_before, revision
+return nil, "Speichern fehlgeschlagen: " .. tostring(err)
+end
+local remaining = {}
+for _, d in ipairs(sync.diffs) do if d.kind == "fehlt" then remaining[#remaining + 1] = d end end
+sync.diffs = remaining
+sync.state = (#remaining == 0) and "gleich" or "abweichend"
+sync.notified = nil
+role.hello()
+dirty = true
+return #todo
+end
+
+
 local seen = {}
 function role.tick()
 local t = now()
+if claimed_area() then
+if sync.state == "frage" and t - (sync.asked or 0) >= SYNC_WAIT then sync.state, sync.note = "keine Antwort", "Die Leitstelle antwortet nicht; die lokale Einrichtung bleibt unveraendert." end
+if t >= sync.next_at and sync.state ~= "frage" then role.sync_request() end
+end
 if t - last_hello >= (hello_acked and 120 or HELLO_REPEAT) then role.hello() end
 for _, sg in ipairs(role.signals) do
 local view = read(sg)
@@ -235,21 +368,46 @@ local kind = (view.invalid or not view.available) and "halt" or (view.foreign or
 items[i] = { text = text, detail = #detail > 0 and table.concat(detail, ", ") or "keine zusaetzliche Sperre", kind = kind }
 state.items[i] = view
 end
-W.list(v, "signale", rect, items, state.list, { empty = "Keine Signale eingerichtet." })
+local has_sync = claimed_area() ~= nil
+W.list(v, "signale", has_sync and { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 } or rect, items, state.list, { empty = "Keine Signale eingerichtet." })
+if has_sync then
+local text, kind
+if sync.state == "abweichend" then text, kind = "Abweichung: " .. describe(sync.diffs[1]) .. (#sync.diffs > 1 and (" (+" .. (#sync.diffs - 1) .. ")") or ""), "attention"
+elseif sync.state == "gleich" then text, kind = "Netzverzeichnis: Namen und Richtungen stimmen.", "ok"
+elseif sync.state == "frage" then text, kind = "Netzverzeichnis: frage die Leitstelle ...", "wait"
+elseif sync.state == "offen" then text, kind = "Netzverzeichnis: noch nicht abgeglichen.", "dim"
+else text, kind = "Netzverzeichnis: " .. tostring(sync.note or sync.state), "wait" end
+W.label(v, rect.x + 1, rect.y + rect.h - 1, text, kind, rect.w - 2)
+end
 end,
 actions = function(v)
 local state = v.page_state("signale")
 local view = state.items and state.items[(state.list or { index = 1 }).index]
 local own = view and view.owners and #view.owners > 0
-return {
+local list = {
 { id = "sperre", label = "Sperre", enabled = view ~= nil, reason = "Erst ein Signal waehlen." },
 { id = "aufheben", label = confirm.armed and "Wirklich?" or "Aufheben", kind = "danger", enabled = view ~= nil and (own or view.foreign),
 reason = "Keine Sperre vorhanden." },
 }
+if claimed_area() then
+list[#list + 1] = { id = "abgleich", label = (#sync.diffs > 0 and sync.state == "abweichend") and "Uebernehmen" or "Abgleich", kind = "secondary",
+enabled = sync.state ~= "frage", reason = "Die Frage an die Leitstelle laeuft." }
+end
+return list
 end,
 on_action = function(v, id)
 local state = v.page_state("signale")
 local view = state.items and state.items[state.list.index]
+if id == "act:abgleich" then
+if sync.state == "abweichend" then
+local n_changed, why = role.sync_apply()
+v.hint = n_changed and (n_changed .. " Aenderung(en) aus dem Verzeichnis uebernommen.") or why
+else
+local ok, why = role.sync_request()
+v.hint = ok and "Frage die Leitstelle ..." or why
+end
+return true
+end
 if not view then return true end
 if id == "act:sperre" then
 local ok, err = role.lock(view.id, "bediener", "vom Bediener")

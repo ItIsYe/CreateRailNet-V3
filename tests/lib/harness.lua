@@ -61,6 +61,7 @@ function H.new(opts)
         if track.signal_info then config.devices[did].signal = track.signal_info end
       end
       for _, name in ipairs(track.observers or {}) do model.assign(config, tid, "observers", model.add_device(config, "observer", name)) end
+      if track.dir then config.tracks[tid].dir = track.dir end
       if track.junction then config.tracks[tid].junction = track.junction end
       if track.release_side then config.tracks[tid].release = { side = track.release_side } end
       if track.length then config.tracks[tid].length = track.length end
@@ -68,6 +69,7 @@ function H.new(opts)
     end
     if spec.junction then config.junction = spec.junction end
     if spec.registration then config.registration_station = device_ids[spec.registration] end
+    if spec.area then config.node.claimed, config.node.area, config.node.area_ends = true, spec.area, spec.area_ends end
     config.status = "aktiv"
     d.fs.makeDir("/crn_data")
     storelib.new(d.fs).save("/crn_data/config.lua", config)
