@@ -75,6 +75,9 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.42 | Leitstelle, Seite "Knoten": Knoten mit zwei Anschluessen (je zwei Gleisenden) und zwei Fahrwegen anlegen, "Auto", "Bestaet."; neuer Computer: Beitreten, Rolle Knotenpunkt | Der Knoten steht in der Liste; unbestaetigt ist er als UNBESTAETIGT markiert und nicht waehlbar; nach dem Bestaetigen zeigt die Uebersicht Anschluesse, Verbindungen, Konflikte, Einfahrten und Ausfahrten | |
 | 3.43 | Kennung anfordern, Geraete waehlen, bei den Gleisen "Zuordnen": Einfahrten bekommen Signal und Beobachter, Ausfahrten den Beobachter; Test; Aktivieren | Label `N000x \| KNO \| K0001`; ein Zug, der die Einfahrt ansteuert, wird wie bisher angekuendigt, die Einfahrt erst bei freiem Knoten freigegeben | |
 | 3.44 | In der Leitstelle am aktiven Knoten etwas aendern (zum Beispiel Namen); auf der Knoten-Node Seite "Knoten", "Abgleich" | "Der Knoten wurde in der Leitstelle geaendert" wird gezeigt und einmal gemeldet; nichts an der Freigabe aendert sich | |
+| 3.45 | Eine schon laufende Signal-Node (bisherige Einrichtung): in der Leitstelle einen Bereich mit gleichnamigen Gleisen anlegen; auf der Node "Einrichtung aendern", beitreten, "Netz von Hand eingeben", Bereich waehlen, Gleise uebernehmen | Die bisherigen Signale stehen bei den Gleisen (kein "Signal fehlt"); die Leitstelle zeigt eine reservierte Kennung `N000x` | |
+| 3.46 | Pruefen und aktivieren (die laufende Node bekommt kurze eigene Testsperren) | Die Node behaelt ihre bisherige Kennung, bekommt das Label `N000x \| SIG \| B000y`, die Leitstelle fuehrt `N000x` danach als aktiv | |
+| 3.47 | Dasselbe mit einem Gleis, das im Bereich keinen gleichnamigen Partner hat | Meldung "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht", in der Leitstelle ist keine Kennung reserviert | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

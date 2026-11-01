@@ -1133,10 +1133,12 @@ end,
 
 next = function(v)
 local d = session.dir
+local pre, why = session.wiz.knoten_precheck()
+if not pre then v.hint = why return true end
 d.claim = d.claim or services.new_claim()
 d.claiming = { junction = d.junction }
 services.directory_reset()
-services.directory_claim(session.wiz.central_id, d.claim, "knoten", nil, nil, d.junction.id)
+services.directory_claim(session.wiz.central_id, d.claim, "knoten", nil, nil, d.junction.id, session.wiz.legacy_id())
 v.hint = "Frage die Leitstelle nach der Kennung ..."
 return true
 end,
@@ -1173,9 +1175,11 @@ for _, t in ipairs(d.area.tracks) do
 if d.selected[t.id] then chosen[#chosen + 1] = t.id; info[#info + 1] = t end
 end
 if #chosen == 0 then v.hint = "Mindestens ein Gleis uebernehmen." return true end
+local pre, why = session.wiz.guided_precheck(info)
+if not pre then v.hint = why return true end
 d.claim = d.claim or services.new_claim()
 d.claiming = { tracks = info }
-services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen)
+services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen, nil, session.wiz.legacy_id())
 v.hint = "Frage die Leitstelle nach der Kennung ..."
 return true
 end,
@@ -1824,7 +1828,8 @@ v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
 push("3.geraete")
 return
 end
-session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, role = role })
+local began, why_begin = session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, role = role })
+if not began then v.hint = why_begin return end
 v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
 if role == "signal" then
 ensure_check()

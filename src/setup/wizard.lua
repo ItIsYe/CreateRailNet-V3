@@ -342,8 +342,29 @@ function M.new(opts)
   -- Gefuehrte Einrichtung ---------------------------------------------------------------------------------------------------------------
   -- info = { area = { id, name }, claim, node = { id, name, label }, tracks = { { id, name, direction }, ... } (nur die uebernommenen) }
   -- Die Gleise kommen aus dem Netzverzeichnis (track.dir = { id, area, direction }); bereits zugeordnete Signale bleiben erhalten, wenn das Gleis uebernommen bleibt.
+  -- Bisherige Einrichtung (ohne Verzeichnis, eine bereits eingerichtete Node): ihre Gleise werden anhand des Namens den Gleisen des Bereichs zugeordnet und
+  -- behalten ihre Geraete; was sich nicht zuordnen laesst, wird genannt (es wird nie still entfernt oder doppelt angelegt).
+  function w.legacy_id()
+    return (existing ~= nil and existing.node.claimed ~= true) and existing.node.id or nil
+  end
+
+  function w.guided_precheck(tracks)
+    local names, orphans = {}, {}
+    for _, t in ipairs(tracks) do names[t.name:lower()] = true end
+    for _, track in pairs(w.config.tracks) do
+      if not track.dir and not names[track.name:lower()] then orphans[#orphans + 1] = track.name end
+    end
+    if #orphans > 0 then
+      table.sort(orphans)
+      return nil, "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht (nach Namen): " .. table.concat(orphans, ", ") .. "."
+    end
+    return true
+  end
+
   function w.guided_begin(info)
     local role = info.role or "signal"
+    local pre, why_pre = w.guided_precheck(info.tracks)
+    if not pre then return nil, why_pre end
     w.mode = "join"
     w.roles = { role }
     w.claimed_id = info.node.id
@@ -353,8 +374,21 @@ function M.new(opts)
     local c = w.config
     c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
     c.node.area_ends = info.area.ends and { info.area.ends[1], info.area.ends[2] } or c.node.area_ends
-    local wanted, by_dir = {}, {}
+    local wanted, by_dir, taken = {}, {}, {}
     for _, t in ipairs(info.tracks) do wanted[t.id] = t end
+    for _, track in pairs(c.tracks) do if track.dir then taken[track.dir.id] = true end end
+    -- bisherige Gleise ohne Verzeichnis: gleicher Name, gleiches Gleis
+    for _, track in pairs(c.tracks) do
+      if not track.dir then
+        for _, t in ipairs(info.tracks) do
+          if not taken[t.id] and t.name:lower() == track.name:lower() then
+            track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
+            taken[t.id] = true
+            break
+          end
+        end
+      end
+    end
     for tid, track in pairs(c.tracks) do
       if track.dir then
         if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
@@ -366,15 +400,32 @@ function M.new(opts)
       local track = c.tracks[tid]
       track.name = t.name
       track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
+      -- Signale der bisherigen Einrichtung bekommen die Angaben nach Konzept 5.4 (Vorgabe aus eindeutiger Richtung)
+      if role == "signal" then
+        local unique = (t.direction ~= "beide") and t.direction or nil
+        for _, did in ipairs(track.signals) do
+          local d = c.devices[did]
+          if d and not d.signal then d.signal = { use = "strecke", effect = unique, place = unique } end
+        end
+      end
     end
     return true
   end
 
   -- Knoten-Node aus dem Verzeichnis: Anschluesse, Verbindungen und Konflikte kommen aus dem bestaetigten Knoten, die Gleisenden werden Gleise mit Einfahrt-
   -- (Signal) oder Ausfahrtsrolle (Beobachter); Geraete werden danach zugeordnet. info = { junction = Daten des Knotens, claim, node = { id, name, label } }
+  function w.knoten_precheck()
+    for _, track in pairs(w.config.tracks) do
+      if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (Gleis " .. track.name .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
+    end
+    return true
+  end
+
   function w.knoten_begin(info)
     local t, why = model.junction_from_directory(info.junction)
     if not t then return nil, why end
+    local pre, why_pre = w.knoten_precheck()
+    if not pre then return nil, why_pre end
     w.mode = "join"
     w.roles = { "knoten" }
     w.claimed_id = info.node.id

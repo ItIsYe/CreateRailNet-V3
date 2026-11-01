@@ -113,11 +113,15 @@ return {
     local st = settle(h, blank)
     t.eq(st.kind, "halt"); t.contains(st.text, "gehoert nicht")
   end },
-  { "Ein schon eingerichteter Computer fragt nicht ueber die vorlaeufige Verbindung", function()
+  { "Ein schon eingerichteter Computer fragt ueber seinen eigenen Funk mit seiner Kennung, nicht ueber die vorlaeufige Verbindung", function()
     local h, z, blank, netz = network()
+    netz.add_area({ name = "West-Ost", ends = { "West", "Ost" }, count = 2 })
     local s = h.add_node({ id = "strecke", roles = { "signal" }, central = "hauptstelle", tracks = { { name = "Nord", signals = { "Sig_N" } } } })
     s.node.directory_areas("hauptstelle")
-    t.eq(s.node.directory_status().kind, "halt"); t.contains(s.node.directory_status().text, "schon eingerichtet")
+    local st = settle(h, s)
+    t.eq(st.kind, "ok", st.text)
+    t.eq(#st.areas, 1)
+    t.ok(not s.node.replace_net, "keine vorlaeufige Verbindung aufgebaut")
   end },
   { "Ueber einen Funkweg mit Verlust: nach erneutem Versuch kommt die Antwort", function()
     local h, z, blank, netz = network({ bus = { seed = 3, drop = 0.5 } })

@@ -248,7 +248,7 @@ search_status = function() return n.search_status() end,
 mark_dirty = function() n.dirty = true end,
 directory_areas = function(central_id) return n.directory_areas(central_id) end,
 directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
-directory_claim = function(central_id, claim, role, area_id, track_ids, junction_id) return n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id) end,
+directory_claim = function(central_id, claim, role, area_id, track_ids, junction_id, legacy_id) return n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id) end,
 directory_junctions = function(central_id) return n.directory_junctions(central_id) end,
 directory_junction = function(central_id, junction_id) return n.directory_junction(central_id, junction_id) end,
 directory_area_create = function(central_id, token, spec) return n.directory_area_create(central_id, token, spec) end,
@@ -315,7 +315,12 @@ local function setup_net()
 if not n.config or n.config.status ~= "aktiv" then return end
 local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
 n.net_info = info
+
+
+if not (n.factory and n.factory_id == n.config.node.id) then
 n.factory = msg.new({ node_id = n.config.node.id, boot_id = n.clock.boot_id(), epoch = function() return n.own_epoch or n.inbox.epoch() end })
+n.factory_id = n.config.node.id
+end
 n.inbox = msg.inbox({ node_id = n.config.node.id, central_id = n.config.network.central_id or n.config.node.id })
 n.net = netlib.new({ rednet = env.rednet, factory = n.factory, inbox = n.inbox, clock = n.clock })
 if #info.opened == 0 then n.notify("fehler", "Kein Modem fuer den Funk gefunden.")
@@ -526,13 +531,20 @@ n.dir_state = nil
 local function dir_id(v, prefix) return type(v) == "string" and v:match("^" .. prefix .. "%d%d%d%d+$") ~= nil and #v <= 12 end
 local function dir_name(v) return type(v) == "string" and #v > 0 and #v <= 30 and v:match("^[%w _%-]+$") ~= nil end
 
+
+
 local function dir_send(central_id, payload, handler)
-if n.net then n.dir_state = { kind = "halt", text = "Dieser Computer ist schon eingerichtet." } return end
+local m
+if n.net and n.factory then
+m = n.send_to(central_id, "abfrage", payload)
+if not m then n.dir_state = { kind = "halt", text = "Kein Funk." } return end
+else
 local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
 if #info.opened == 0 then n.dir_state = { kind = "halt", text = "Kein Modem gefunden." } return end
 temporary_net(central_id)
-local m = n.replace_factory.make("abfrage", central_id, payload)
+m = n.replace_factory.make("abfrage", central_id, payload)
 n.replace_net.send(central_id, m)
+end
 n.dir_req, n.dir_until, n.dir_handler = m.messageId, n.clock.now() + DIR_TIMEOUT, handler
 n.dir_state = { kind = "wait", text = "Frage die Leitstelle ..." }
 end
@@ -636,8 +648,8 @@ end)
 end)
 end
 
-function n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id)
-dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, area = area_id, tracks = track_ids, junction = junction_id }, function(p)
+function n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id)
+dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, area = area_id, tracks = track_ids, junction = junction_id, legacy = legacy_id }, function(p)
 local node = p.node
 if type(node) ~= "table" or not dir_id(node.id, "N") or type(node.name) ~= "string" or #node.name > 60 or not node.name:match("^[%w _%-]+$")
 or type(node.label) ~= "string" or #node.label > 60 or not node.label:match("^[%w _%-|]+$") then
@@ -682,11 +694,10 @@ function n.new_claim()
 return string.format("c%d-%06d%06d", n.clock.boot_id(), math.random(0, 999999), math.random(0, 999999))
 end
 
-function n.replace_receive(ev)
-local m, status = n.replace_net.receive(ev)
-if not m then return end
-if n.dir_req and m.correlationId == n.dir_req then
-if status ~= "ok" then return end
+
+local function dir_reply(m, status)
+if not (n.dir_req and m.correlationId == n.dir_req) then return false end
+if status ~= "ok" then return true end
 local handler = n.dir_handler
 n.dir_req, n.dir_handler = nil, nil
 local p = m.payload
@@ -698,8 +709,16 @@ if not ok then dir_bad() end
 end
 n.dirty = true
 if n.setup and n.setup.poll then n.setup.poll() end
-return
+return true
 end
+n.hooks.on_message[#n.hooks.on_message + 1] = function(m, status)
+if m.messageType == "bestaetigung" then dir_reply(m, status) end
+end
+
+function n.replace_receive(ev)
+local m, status = n.replace_net.receive(ev)
+if not m then return end
+if dir_reply(m, status) then return end
 if m.correlationId == n.search_req then
 if status == "ok" then collect_network(m) end
 return

@@ -1011,7 +1011,7 @@ function M.new(spec)
 
   -- Nodes ----------------------------------------------------------------------------------------------------------------------------------
   local function view(id, node)
-    return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
+    return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, legacy = node.legacy, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
   end
 
   -- Anforderung einer Node-Kennung. Normale Rollen betreuen Gleise eines Bereichs (area, tracks); die Rolle knoten betreut einen Knoten des Verzeichnisses
@@ -1052,10 +1052,19 @@ function M.new(spec)
         if #wanted == 0 then return nil, "Mindestens ein Gleis muss uebernommen werden." end
         area_id, where_name, where_code = spec2.area, area.name, spec2.area
       end
+      -- eine bereits eingerichtete Node behaelt ihre bisherige Kennung (legacy); das Verzeichnis kennt sie unter der neuen Kennung und ordnet ihre Meldungen zu
+      local legacy = spec2.legacy
+      if legacy ~= nil then
+        if type(legacy) ~= "string" or #legacy == 0 or #legacy > 30 or legacy:find("[^%w_%-]") then return nil, "Die bisherige Node-Kennung ist ungueltig." end
+        for id, node in pairs(data.nodes) do
+          if node.legacy == legacy and node.claim ~= claim and node.state ~= "verworfen" then return nil, "Die Node " .. legacy .. " ist schon als " .. id .. " im Verzeichnis." end
+        end
+      end
       -- dieselbe Anforderung noch einmal: dieselbe Kennung, neue Angaben
       for id, node in pairs(data.nodes) do
         if node.claim == claim then
           if node.state == "verworfen" then return nil, "Diese Anforderung wurde verworfen." end
+          node.legacy = legacy
           node.role, node.area, node.junction, node.tracks = spec2.role, area_id, junction_id, wanted
           node.name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id
           node.label = id .. " | " .. code .. " | " .. where_code
@@ -1067,7 +1076,7 @@ function M.new(spec)
       if count >= M.MAX_NODES then return nil, "Es gibt schon " .. M.MAX_NODES .. " Nodes im Verzeichnis." end
       local id = new_id("node", "N")
       data.nodes[id] = {
-        claim = claim, role = spec2.role, area = area_id, junction = junction_id, tracks = wanted, state = "reserviert",
+        claim = claim, role = spec2.role, area = area_id, junction = junction_id, legacy = legacy, tracks = wanted, state = "reserviert",
         name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id,
         label = id .. " | " .. code .. " | " .. where_code,
       }
@@ -1078,6 +1087,12 @@ function M.new(spec)
   -- eine Node hat sich im Betrieb gemeldet
   function n.mark_active(id)
     local node = data.nodes[id]
+    if not node then
+      -- eine bereits eingerichtete Node meldet sich unter ihrer bisherigen Kennung
+      for _, other in pairs(data.nodes) do
+        if other.legacy == id and other.state == "reserviert" then node = other break end
+      end
+    end
     if not node or node.state ~= "reserviert" then return true end
     return change(function() node.state = "aktiv" return true end)
   end
