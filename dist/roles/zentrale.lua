@@ -1462,6 +1462,160 @@ function M.new(node)
     },
   })
 
+  local function find_station_by_name(name)
+    local wanted = tostring(name or ""):match("^%s*(.-)%s*$"):lower()
+    for _, st in ipairs(role.netz.stations()) do
+      if st.name:lower() == wanted then return st end
+    end
+  end
+
+  local KIND_TEXT = { personenbahnhof = "Personenbahnhof", gueterbahnhof = "Gueterbahnhof", depot = "Depot" }
+  local function station_kind(text)
+    local want = tostring(text or ""):match("^%s*(.-)%s*$"):lower()
+    if want == "personen" or want == "personenbahnhof" or want == "p" then return "personenbahnhof" end
+    if want == "gueter" or want == "gueterbahnhof" or want == "g" then return "gueterbahnhof" end
+    if want == "depot" or want == "d" then return "depot" end
+    return want
+  end
+
+  -- Anschluesse eines Bereichs: Name, Betriebsstelle, Nachbarbereich oder offenes Ende (Konzept 4.3)
+  local END_TEXT = { name = "Name", betriebsstelle = "Betriebsstelle", bereich = "Nachbarbereich", offen = "offen (im Bau)" }
+  pages[#pages + 1] = forms.page({
+    id = "anschluesse", title = "Anschluesse", new_label = "Neu",
+    empty = "Noch kein Bereich. Anschluesse gehoeren zu einem Bereich (Seite Bereiche).",
+    items = function()
+      local items, records = {}, {}
+      for _, a in ipairs(role.netz.areas()) do
+        local full = role.netz.area(a.id)
+        for nr = 1, 2 do
+          items[#items + 1] = {
+            text = a.name .. " / Anschluss " .. nr .. ": " .. a.ends[nr],
+            detail = END_TEXT[full.end_kinds[nr]] .. (full.state == "im bau" and ", Bereich IM BAU" or ""),
+            kind = (full.end_kinds[nr] == "offen") and "wait" or "text",
+          }
+          records[#items] = { area = a.id, area_name = a.name, nr = nr, kind = full.end_kinds[nr], name = a.ends[nr], state = full.state, rev = full.rev }
+        end
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "bereich", label = "Bereich (Name)", max = 30, width = 34 },
+      { id = "nr", label = "Anschluss 1 oder 2", max = 1, width = 6, default = "1" },
+      { id = "art", label = "Art: name, betriebsstelle, bereich, offen", max = 14, width = 24, default = "name" },
+      { id = "ziel", label = "Ziel (Name der Betriebsstelle/des Bereichs/des Endes)", max = 30, width = 34 },
+    },
+    edit = function(r) return { bereich = r.area_name, nr = tostring(r.nr), art = r.kind, ziel = r.name } end,
+    on_save = function(values, record)
+      local found = find_area_by_name(values.bereich)
+      if not found then return nil, "Den Bereich '" .. tostring(values.bereich) .. "' gibt es nicht." end
+      local kind = tostring(values.art or ""):match("^%s*(.-)%s*$"):lower()
+      local spec = { kind = kind, name = values.ziel, if_rev = record and record.area == found.id and record.rev or nil }
+      if kind == "betriebsstelle" then
+        local st = find_station_by_name(values.ziel)
+        if not st then return nil, "Die Betriebsstelle '" .. tostring(values.ziel) .. "' gibt es nicht." end
+        spec.ref = st.id
+      elseif kind == "bereich" then
+        local other = find_area_by_name(values.ziel)
+        if not other then return nil, "Den Nachbarbereich '" .. tostring(values.ziel) .. "' gibt es nicht." end
+        spec.ref = other.id
+      end
+      return role.netz.set_end(found.id, tonumber(values.nr), spec)
+    end,
+    extra = {
+      { id = "bau", label = function(r) return r and r.state == "im bau" and "Freigeben" or "Im Bau" end, kind = "secondary",
+        run = function(v, r)
+          local ok, err = role.netz.set_area_state(r.area, r.state == "im bau" and "betriebsbereit" or "im bau")
+          return ok and "Zustand geaendert." or err
+        end },
+    },
+  })
+
+  -- Betriebsstellen (Konzept 6): Personenbahnhof, Gueterbahnhof, Depot, optional mit Standort
+  pages[#pages + 1] = forms.page({
+    id = "betriebsstellen", title = "Betriebsstellen", new_label = "Neu",
+    empty = "Noch keine Betriebsstelle. Ein Personenbahnhof, Gueterbahnhof oder Depot wird hier einmal angelegt.",
+    items = function()
+      local items, records = {}, {}
+      for i, st in ipairs(role.netz.stations()) do
+        items[i] = { text = st.name .. "  (" .. st.id .. ")", detail = KIND_TEXT[st.kind] .. (st.site_name and (", Standort " .. st.site_name) or "") .. ", " .. st.links .. " Gleis(e)" }
+        records[i] = st
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "name", label = "Name der Betriebsstelle", max = 30, width = 34 },
+      { id = "art", label = "Art: personenbahnhof, gueterbahnhof, depot", max = 16, width = 24, default = "personenbahnhof" },
+      { id = "standort", label = "Standort (Name, leer = keiner)", max = 30, width = 34 },
+    },
+    edit = function(st) return { name = st.name, art = st.kind, standort = st.site_name or "" } end,
+    on_save = function(values, record)
+      local kind = station_kind(values.art)
+      if record then
+        return role.netz.set_station(record.id, { name = values.name, kind = kind, site = values.standort, if_rev = record.rev })
+      end
+      local id, err = role.netz.add_station({ name = values.name, kind = kind, site = values.standort })
+      if not id then return nil, err end
+      return true
+    end,
+    extra = {
+      { id = "loeschen", label = function(st) return st and netz_arm.station == st.id and "Wirklich?" or "Loeschen" end, kind = "danger",
+        run = function(v, st) return two_step("station", st.id, "die Betriebsstelle " .. st.name .. " wird geloescht.", function() return role.netz.remove_station(st.id) end) end },
+    },
+  })
+
+  -- Beziehungen zwischen Betriebsstellen und Gleisen: vorbei, verbindung, bahnhofsgleis (Konzept 6.1, 6.2)
+  pages[#pages + 1] = forms.page({
+    id = "beziehungen", title = "Beziehungen", new_label = "Neu",
+    empty = "Noch keine Beziehung. Sie legt fest, ob ein Gleis an einer Betriebsstelle vorbeifuehrt, eine Verbindung dorthin hat oder dazu gehoert.",
+    items = function()
+      local items, records = {}, {}
+      for _, st in ipairs(role.netz.stations()) do
+        for _, link in ipairs(role.netz.station(st.id).links) do
+          local area = link.area and role.netz.area(link.area)
+          items[#items + 1] = {
+            text = st.name .. " / " .. (area and area.name or "?") .. " / " .. link.name,
+            detail = link.relation .. (link.directions and (", nur Richtung " .. table.concat(link.directions, ", ")) or ""),
+          }
+          records[#items] = { station = st.id, station_name = st.name, track = link.track, area_name = area and area.name or "", track_name = link.name, relation = link.relation, directions = link.directions }
+        end
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "betriebsstelle", label = "Betriebsstelle (Name)", max = 30, width = 34 },
+      { id = "bereich", label = "Bereich (Name)", max = 30, width = 34 },
+      { id = "gleis", label = "Gleis (Name)", max = 30, width = 34 },
+      { id = "beziehung", label = "Beziehung: vorbei, verbindung, bahnhofsgleis", max = 14, width = 24, default = "vorbei" },
+      { id = "richtungen", label = "Fahrtrichtungen bei verbindung (Anschlussnamen mit ; trennen)", max = 70, width = 48 },
+    },
+    edit = function(r) return { betriebsstelle = r.station_name, bereich = r.area_name, gleis = r.track_name, beziehung = r.relation, richtungen = r.directions and table.concat(r.directions, "; ") or "" } end,
+    on_save = function(values)
+      local st = find_station_by_name(values.betriebsstelle)
+      if not st then return nil, "Die Betriebsstelle '" .. tostring(values.betriebsstelle) .. "' gibt es nicht." end
+      local area = find_area_by_name(values.bereich)
+      if not area then return nil, "Den Bereich '" .. tostring(values.bereich) .. "' gibt es nicht." end
+      local track
+      for _, t in ipairs(role.netz.area(area.id).tracks) do
+        if t.name:lower() == tostring(values.gleis or ""):match("^%s*(.-)%s*$"):lower() then track = t end
+      end
+      if not track then return nil, "Das Gleis '" .. tostring(values.gleis) .. "' gibt es in diesem Bereich nicht." end
+      local relation = tostring(values.beziehung or ""):match("^%s*(.-)%s*$"):lower()
+      local directions
+      if relation == "verbindung" and tostring(values.richtungen or ""):match("%S") then
+        directions = {}
+        for part in tostring(values.richtungen):gmatch("[^;]+") do
+          local want = part:match("^%s*(.-)%s*$")
+          directions[#directions + 1] = canonical_direction(area, want)
+        end
+      end
+      return role.netz.link_station(st.id, track.id, relation, directions)
+    end,
+    extra = {
+      { id = "loesen", label = function(r) return r and netz_arm.link == r.station .. r.track and "Wirklich?" or "Loesen" end, kind = "danger",
+        run = function(v, r) return two_step("link", r.station .. r.track, "die Beziehung wird gelost.", function() return role.netz.unlink_station(r.station, r.track) end) end },
+    },
+  })
+
   pages[#pages + 1] = {
     id = "vorlagen", title = "Vorlagen",
     render = function(v, rect)
@@ -1896,7 +2050,12 @@ function M.new(node)
     end,
   }
 
-  role.pages = pages
+  -- Betriebsseiten zuerst, die Seiten des Netzverzeichnisses (Einrichtungsarbeit) zum Schluss
+  local directory_pages = { bereiche = true, gleise = true, anschluesse = true, betriebsstellen = true, beziehungen = true, knoten = true }
+  local ordered = {}
+  for _, pg in ipairs(pages) do if not directory_pages[pg.id] then ordered[#ordered + 1] = pg end end
+  for _, pg in ipairs(pages) do if directory_pages[pg.id] then ordered[#ordered + 1] = pg end end
+  role.pages = ordered
   return role
 end
 

@@ -814,7 +814,7 @@ function M.new(services)
       session.pick.areas = {}
       for _, a in ipairs(d.areas or {}) do
         local on = d.chosen and d.chosen.id == a.id
-        items[#items + 1] = { text = (on and "(o) " or "( ) ") .. a.name, detail = a.ends[1] .. " - " .. a.ends[2] .. ", " .. a.tracks .. " Gleis(e)" }
+        items[#items + 1] = { text = (on and "(o) " or "( ) ") .. a.name, detail = a.ends[1] .. " - " .. a.ends[2] .. ", " .. a.tracks .. " Gleis(e)" .. (a.state == "im bau" and ", IM BAU" or ""), kind = (a.state == "im bau") and "wait" or nil }
         session.pick.areas[#items] = a
       end
       local empty = (st and st.kind == "ok" and d.areas) and "Das Netz hat noch keinen Bereich. In der Leitstelle auf der Seite Bereiche anlegen, dann 'Neu laden'." or ""

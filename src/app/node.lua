@@ -545,7 +545,7 @@ function M.new(env)
             or type(a.tracks) ~= "number" or a.tracks < 0 or a.tracks > 40 then
             return dir_bad()
           end
-          acc[#acc + 1] = { id = a.id, name = a.name, ends = { a.ends[1], a.ends[2] }, tracks = a.tracks }
+          acc[#acc + 1] = { id = a.id, name = a.name, ends = { a.ends[1], a.ends[2] }, tracks = a.tracks, state = (a.state == "im bau") and "im bau" or nil }
         end
         if p.more and #acc < DIR_MAX_AREAS and #acc > 0 then return page(acc[#acc].id) end
         n.dir_state = { kind = "ok", text = #acc .. " Bereich(e) im Netz.", areas = acc }

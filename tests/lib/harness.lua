@@ -16,7 +16,7 @@ local H = {}
 -- Seite im Terminal oeffnen, notfalls durch Blaettern der Reiter
 function H.open_page(d, id)
   local v = d.view()
-  for _ = 1, 12 do
+  for _ = 1, 30 do
     if pcall(d.tap, v, "nav:" .. id) then return v end
     d.tap(v, "navscroll:next")
   end

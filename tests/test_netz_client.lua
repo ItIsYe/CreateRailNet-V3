@@ -36,6 +36,11 @@ return {
     t.eq(#st.areas, 35, "beide Seiten")
     t.eq(st.areas[1].id, "B0001"); t.eq(st.areas[35].id, "B0035")
     t.eq(st.areas[1].tracks, 3); t.eq(st.areas[1].ends[2], "Ost")
+    t.eq(st.areas[1].state, nil)
+    netz.set_end("B0002", 2, { kind = "offen", name = "Verlaengerung" })
+    blank.node.directory_areas("hauptstelle")
+    st = settle(h, blank)
+    t.eq(st.areas[2].state, "im bau", "ein Bereich im Bau wird als solcher gemeldet")
   end },
   { "Gleise eines Bereichs holen", function()
     local h, z, blank, netz = network()
