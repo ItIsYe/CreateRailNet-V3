@@ -36,7 +36,8 @@ for _, tid in ipairs(track_ids) do
 local spec = config.tracks[tid]
 for _, did in ipairs(spec.signals or {}) do
 if config.devices[did] then
-local sg = { id = did, track = tid, track_name = spec.name, device = config.devices[did].device, last = {} }
+local info = config.devices[did].signal or {}
+local sg = { id = did, track = tid, track_name = spec.name, device = config.devices[did].device, last = {}, use = info.use, effect = info.effect, place = info.place }
 sg.dev = signallib.new(env, sg.device)
 role.signals[did] = sg
 role.signals[#role.signals + 1] = sg
@@ -140,7 +141,7 @@ end
 
 function role.hello()
 local list = {}
-for _, sg in ipairs(role.signals) do list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device } end
+for _, sg in ipairs(role.signals) do list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device, use = sg.use, effect = sg.effect, place = sg.place } end
 node.send_to(central(), "meldung", {
 kind = "hallo_signale", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
 signals = list, active = config.status == "aktiv",

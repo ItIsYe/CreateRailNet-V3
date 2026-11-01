@@ -4,6 +4,7 @@ API: H.new(opts) -> h; h.add_node(spec) -> node-Eintrag; h.sim(stations, travel)
 Notes: spec = { id, roles, tracks = { { name, station_name, release_side } }, central, registration (Gleisname), world_setup(w) }. Die Konfiguration wird wie vom Assistenten erzeugt und aktiv gespeichert.
 ]]
 
+local cc = dofile("tests/fakes/cc.lua")
 local drv = dofile("tests/lib/ui_driver.lua")
 local create = dofile("tests/fakes/create.lua")
 local busLib = dofile("tests/fakes/bus.lua")
@@ -54,7 +55,11 @@ function H.new(opts)
         device_ids[track.name] = model.add_device(config, "station", device_names[track.name])
         model.assign(config, tid, "station", device_ids[track.name])
       end
-      for _, name in ipairs(track.signals or {}) do model.assign(config, tid, "signals", model.add_device(config, "signal", name)) end
+      for _, name in ipairs(track.signals or {}) do
+        local did = model.add_device(config, "signal", name)
+        model.assign(config, tid, "signals", did)
+        if track.signal_info then config.devices[did].signal = track.signal_info end
+      end
       for _, name in ipairs(track.observers or {}) do model.assign(config, tid, "observers", model.add_device(config, "observer", name)) end
       if track.junction then config.tracks[tid].junction = track.junction end
       if track.release_side then config.tracks[tid].release = { side = track.release_side } end
@@ -84,7 +89,17 @@ function H.new(opts)
     w.add_modem("right", false, true)
     for i, name in ipairs(spec.stations or {}) do w.add_station("Create_Station_" .. i, { station_name = name }) end
     local cid = #h.order + 1
-    local d = drv.new({ world = w, bus = h.bus, cid = cid, width = spec.width, height = spec.height })
+    local fs
+    if spec.installed then
+      -- nur diese Rollenpakete sind installiert (Datei je Paket unter /crn/roles)
+      fs = cc.fs()
+      fs.makeDir("/crn"); fs.makeDir("/crn/roles")
+      local fh = fs.open("/crn/manifest.lua", "w"); fh.write('return { version = "0.0.0", id = "test", files = {}, roles = {} }'); fh.close()
+      for _, file in ipairs(spec.installed) do
+        local f = fs.open("/crn/roles/" .. file .. ".lua", "w"); f.write("return {}"); f.close()
+      end
+    end
+    local d = drv.new({ world = w, bus = h.bus, cid = cid, width = spec.width, height = spec.height, fs = fs })
     d.boot_t, d.cid, d.id, d.world = h.t, cid, spec.id, w
     h.nodes[spec.id] = d
     h.order[#h.order + 1] = d

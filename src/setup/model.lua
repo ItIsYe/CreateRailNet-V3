@@ -222,7 +222,12 @@ function M.validate(config, scan)
       end
     end
     claim(track.station, "Bahnhof")
-    for _, s in ipairs(track.signals) do claim(s, "Signal") end
+    for _, s in ipairs(track.signals) do
+      claim(s, "Signal")
+      -- Konzept 5.4: bei Signalen der gefuehrten Einrichtung muss die Wirkrichtung bekannt sein
+      local info = config.devices[s] and config.devices[s].signal
+      if info and not info.effect then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
+    end
     for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
     if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
     if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end

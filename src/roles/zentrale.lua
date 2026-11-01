@@ -1162,8 +1162,12 @@ function M.new(node)
     table.sort(ids)
     for _, id in ipairs(ids) do
       local entry = signal_state[id]
+      -- Funktion, Wirkrichtung und Standort melden die Signale mit ihrer Anmeldung (Konzept 5.4)
+      local hello = {}
+      for _, h in ipairs(nodes[id] and nodes[id].signals or {}) do hello[h.id] = h end
       for _, sg in ipairs(entry.signals or {}) do
-        out[#out + 1] = { node = id, signal = sg, fresh = reachable(id) and now() - entry.t < NODE_SILENT }
+        local h = hello[sg.id]
+        out[#out + 1] = { node = id, signal = sg, fresh = reachable(id) and now() - entry.t < NODE_SILENT, use = h and h.use, effect = h and h.effect, place = h and h.place }
       end
     end
     return out
@@ -1975,6 +1979,7 @@ function M.new(node)
         if sg.foreign then detail[#detail + 1] = "FREMDE SPERRE" end
         if sg.missing then detail[#detail + 1] = "Sperre fehlt" end
         if sg.invalid then detail[#detail + 1] = "GESTOERT" end
+        if row.effect then detail[#detail + 1] = (row.use == "einfahrt" and "Knoteneinfahrt" or row.use == "ausfahrt" and "Knotenausfahrt" or "Streckensignal") .. " Richtung " .. tostring(row.effect) end
         local kind = (sg.invalid or not sg.available or not row.fresh) and "halt" or (sg.foreign or sg.missing) and "attention" or (sg.forced and "wait" or "ok")
         items[i] = { text = row.node .. " / " .. tostring(sg.track_name) .. "  " .. (sg.available and tostring(sg.state) or "nicht verfuegbar"), detail = #detail > 0 and table.concat(detail, ", ") or "keine zusaetzliche Sperre", kind = kind }
         state.rows[i] = row

@@ -20,6 +20,10 @@ local SELECTABLE = { station = true, signal = true, observer = true, relay = tru
 
 M.STEPS = { "Anlage", "Rolle", "Geraete", "Gleise", "Test", "Fertig" }
 
+-- Funktion eines Signals (Konzept 5.4); die Wirkrichtung ist ein Anschlussname des Bereichs, der oertliche Bezug ein Anschlussname oder "mitte"
+M.SIGNAL_USES = { "strecke", "einfahrt", "ausfahrt" }
+M.USE_TEXT = { strecke = "Streckensignal", einfahrt = "Knoteneinfahrt", ausfahrt = "Knotenausfahrt" }
+
 function M.new(opts)
   local w = { step = 1, mode = "create", network_name = "", central_id = "", key = "", name = "", roles = {}, scan = opts.scan() }
   local env = opts.env
@@ -331,6 +335,7 @@ function M.new(opts)
     sync_config()
     local c = w.config
     c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
+    c.node.area_ends = info.area.ends and { info.area.ends[1], info.area.ends[2] } or c.node.area_ends
     local wanted, by_dir = {}, {}
     for _, t in ipairs(info.tracks) do wanted[t.id] = t end
     for tid, track in pairs(c.tracks) do
@@ -367,7 +372,11 @@ function M.new(opts)
       local track = w.config.tracks[tid]
       local signals = {}
       for _, did in ipairs(track.signals) do
-        if w.config.devices[did] then signals[#signals + 1] = { id = did, device = w.config.devices[did].device } end
+        local d = w.config.devices[did]
+        if d then
+          local info = d.signal or {}
+          signals[#signals + 1] = { id = did, device = d.device, use = info.use or "strecke", effect = info.effect, place = info.place }
+        end
       end
       rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, signals = signals }
     end
@@ -393,7 +402,92 @@ function M.new(opts)
     end
     local did = model.add_device(w.config, "signal", device_name)
     model.assign(w.config, tid, "signals", did)
+    -- Wirkrichtung und Standort ergeben sich aus der Gleisrichtung, wenn sie eindeutig ist; sonst muss der Bediener waehlen
+    local direction = track.dir.direction
+    local unique = (direction ~= "beide") and direction or nil
+    w.config.devices[did].signal = { use = "strecke", effect = unique, place = unique }
     return true
+  end
+
+  -- die beiden Anschlussnamen des Bereichs (aus dem Verzeichnis; bei aelteren Entwuerfen aus den Gleisrichtungen)
+  function w.area_ends()
+    local ends = w.config.node.area_ends
+    if ends and ends[1] and ends[2] then return { ends[1], ends[2] } end
+    local seen, list = {}, {}
+    for _, track in pairs(w.config.tracks) do
+      local d = track.dir and track.dir.direction
+      if d and d ~= "beide" and not seen[d] then seen[d] = true; list[#list + 1] = d end
+    end
+    table.sort(list)
+    return list
+  end
+
+  local function next_of(list, current)
+    for i, v in ipairs(list) do if v == current then return list[i % #list + 1] end end
+    return list[1]
+  end
+
+  -- Funktion, Wirkrichtung oder oertlichen Bezug eines Signals der Reihe nach weiterschalten
+  function w.signal_cycle(did, field)
+    local d = w.config.devices[did]
+    if not d or d.kind ~= "signal" then return false, "Das Signal gibt es nicht." end
+    d.signal = d.signal or { use = "strecke" }
+    local ends = w.area_ends()
+    if field == "use" then
+      d.signal.use = next_of(M.SIGNAL_USES, d.signal.use)
+    elseif field == "effect" then
+      if #ends == 0 then return false, "Der Bereich hat keine benannten Anschluesse." end
+      d.signal.effect = next_of(ends, d.signal.effect)
+      if d.signal.place == nil then d.signal.place = d.signal.effect end
+    elseif field == "place" then
+      local options = {}
+      for _, e in ipairs(ends) do options[#options + 1] = e end
+      options[#options + 1] = "mitte"
+      d.signal.place = next_of(options, d.signal.place)
+    else
+      return false, "Unbekanntes Feld."
+    end
+    return true
+  end
+
+  -- Signale ohne Wirkrichtung: { { id, device, track_name } ... }
+  function w.signal_problems()
+    local list = {}
+    for _, row in ipairs(w.guided_rows()) do
+      for _, sg in ipairs(row.signals) do
+        if not sg.effect then list[#list + 1] = { id = sg.id, device = sg.device, track_name = row.name } end
+      end
+    end
+    return list
+  end
+
+  -- Nach einer Aenderung der Gleisrichtung: Signale, deren Wirkrichtung nicht mehr zum Gleis passt, werden neu bewertet
+  -- (eindeutige Richtung uebernommen, sonst offen); gibt die Zahl der betroffenen Signale zurueck
+  function w.guided_direction_changed(tid)
+    local track = w.config.tracks[tid]
+    if not track or not track.dir then return 0 end
+    local direction = track.dir.direction
+    local unique = (direction ~= "beide") and direction or nil
+    local changed = 0
+    local function is_end(name)
+      for _, e in ipairs(w.area_ends()) do if e == name then return true end end
+      return false
+    end
+    for _, did in ipairs(track.signals) do
+      local d = w.config.devices[did]
+      if d then
+        d.signal = d.signal or { use = "strecke" }
+        local effect = d.signal.effect
+        if unique then
+          if effect ~= unique then d.signal.effect, d.signal.place = unique, unique; changed = changed + 1 end
+        elseif effect ~= nil and not is_end(effect) then
+          d.signal.effect, d.signal.place = nil, nil
+          changed = changed + 1
+        end
+      end
+    end
+    if changed > 0 then w.config.tests = {} end
+    return changed
   end
 
   -- das zuletzt zugeordnete Signal des Gleises wieder loesen
