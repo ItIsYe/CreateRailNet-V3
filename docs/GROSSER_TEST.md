@@ -69,6 +69,9 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.36 | Bei der Signal-Zuordnung "Gleis": Name aendern und "Richtung" weiterschalten, "Speichern"; in der Leitstelle Seite "Gleise" | Die Leitstelle zeigt den neuen Namen und die neue Richtung; die Node zeigt dasselbe | |
 | 3.37 | Bei einem Bereich mit Richtung "beide": Signale zuordnen, "Weiter" | "Wirkrichtung fehlt"; unter "Details" Richtung waehlen (und Funktion/Standort ansehen), dann geht es weiter | |
 | 3.38 | Aktive Signal-Node; in der Leitstelle ein Gleis umbenennen und die Richtung aendern; auf der Node Seite "Signale", "Abgleich" | "Abweichung" wird gezeigt und einmal gemeldet; "Uebernehmen" setzt Name und Richtung, die Leitstelle zeigt das Signal danach unter dem neuen Gleisnamen | |
+| 3.39 | Computer mit Train Station und Redstone-Ausgaengen: Beitreten, Netz, Rolle Passagierbahnhof, Bereich (zum Beispiel ein Bahnhofsbereich) waehlen, Gleise uebernehmen | Die Leitstelle vergibt eine Kennung `N000x`; es folgen Geraete und Gleise; bei den Gleisen nur "Zuordnen" (kein Neu/Kopieren/Entfernen) | |
+| 3.40 | Schritt Test: nichts antippen, Liste ansehen; dann "Alle pruefen" | Die lesenden Pruefungen stehen schon auf ok; der Bestaetigungsbildschirm nennt alle Ausgaenge; nach "alle starten" werden die Ausgaenge kurz geschaltet und stehen danach wieder aus; kein wartender Zug faehrt ab | |
+| 3.41 | Nach dem Aktivieren Computerlabel ansehen und in der Leitstelle die Seite "Netz" | Label `N000x \| PBF \| B000y`; die Node steht als aktiv | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

@@ -83,6 +83,7 @@ return {
     d.type(v,'netz','Testnetz');d.tap(v,'act:weiter')
     d.type(v,'zentrale','zentrale');d.tap(v,'act:weiter')
     d.tap(v,'sel:rollen:3');d.tap(v,'act:weiter')
+    d.tap(v,'act:von_hand')
     d.type(v,'name','Hof');d.tap(v,'act:weiter')
     d.tap_row(v,'geraete','Create_Station_1')
     local before=names

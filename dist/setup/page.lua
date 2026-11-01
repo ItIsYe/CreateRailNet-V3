@@ -30,6 +30,7 @@ local GUIDED_TITLE = {
 local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
 
 local ensure_check, select_next_open
+local first_device_screen
 
 local function guided_mode()
 local w = session.wiz
@@ -51,6 +52,13 @@ local role = preset_role()
 if role and #session.wiz.roles == 0 then session.wiz.toggle_role(role) end
 end
 
+
+local STATION_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true }
+local function station_mode()
+local w = session.wiz
+return w ~= nil and w.mode == "join" and #w.roles == 1 and STATION_ROLES[w.roles[1]] == true and not session.manual and services.directory_areas ~= nil
+end
+
 local function sequence()
 apply_preset()
 local seq = { "1.modus" }
@@ -65,6 +73,10 @@ end
 if not preset_role() then seq[#seq + 1] = "2.rollen" end
 if guided_mode() then
 for _, id in ipairs(GUIDED_SEQUENCE) do seq[#seq + 1] = id end
+return seq
+end
+if station_mode() then
+for _, id in ipairs({ "2.bereich", "3.gleise", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
 return seq
 end
 seq[#seq + 1] = "2.name"
@@ -88,6 +100,12 @@ session.screen = screen
 session.wiz.step = step_of(screen) or session.wiz.step
 session.cancel_armed = false
 if not screen:match("^1%.") then apply_preset() end
+
+if screen == "5.test" and not session.wiz.guided then
+for _, test in ipairs(session.wiz.tests()) do
+if test.kind == "lesen" and session.wiz.test_state(test.id, nil, test) ~= "ok" then session.wiz.run_test(test.id, false) end
+end
+end
 if screen == "1.netzwahl" then
 session.net_choice = nil
 services.search_networks()
@@ -147,6 +165,11 @@ session.known_signals = nil
 goto_screen("4.zuordnung")
 select_next_open(v, 0)
 v.hint = note or "Entwurf geladen: Signale zuordnen und pruefen."
+elseif existing and existing.node.claimed == true and existing.node.area and existing.status ~= "aktiv" and #existing.node.roles == 1 and STATION_ROLES[existing.node.roles[1]] then
+
+session.dir = { claim = existing.node.claim }
+goto_screen("3.geraete")
+v.hint = "Entwurf geladen: Geraete und Gleise zuordnen, dann pruefen."
 end
 end
 
@@ -365,7 +388,7 @@ if t.release then parts[#parts + 1] = "Ausgang" end
 items[#items + 1] = { text = t.name, detail = (#parts > 0 and table.concat(parts, ", ") or "leer") .. " - " .. t.status, kind = (t.status == "aktiv") and "ok" or "wait" }
 session.pick.tracks[#items] = id
 end
-W.list(v, "gleise", body_rect(rect, 3), items, list_state(v, "gleise"), { empty = "Noch kein Gleis. 'Neues Gleis' legt eines an." })
+W.list(v, "gleise", body_rect(rect, 3), items, list_state(v, "gleise"), { empty = session.wiz.config.node.claimed and "Keine Gleise uebernommen." or "Noch kein Gleis. 'Neues Gleis' legt eines an." })
 local problems = session.wiz.warnings()
 if #problems > 0 and rect.h > 8 then v.hint = problems[1].text end
 end,
@@ -381,7 +404,8 @@ return true
 elseif id == "act:bearbeiten" and selected then
 session.track = selected
 fields(v).gleisname.value = session.wiz.config.tracks[selected].name
-push("4.g.name")
+
+push(session.wiz.config.node.claimed and first_device_screen() or "4.g.name")
 return true
 elseif id == "act:kopieren" and selected then
 local src = session.wiz.config.tracks[selected]
@@ -399,6 +423,10 @@ end,
 actions = function(v)
 local has_selection = session.pick.tracks and session.pick.tracks[list_state(v, "gleise").index] ~= nil
 local reason = "Erst ein Gleis in der Liste waehlen."
+if session.wiz.config.node.claimed then
+
+return { { id = "bearbeiten", label = "Zuordnen", enabled = has_selection, reason = reason } }
+end
 return {
 { id = "neues_gleis", label = "Neu" },
 { id = "bearbeiten", label = "Bearbeiten", kind = "secondary", enabled = has_selection, reason = reason },
@@ -422,6 +450,15 @@ return true
 end,
 }
 
+
+function first_device_screen()
+local c = session.wiz.config
+if model.has_role(c, "knoten") then return "4.g.anschluss"
+elseif model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then return "4.g.bahnhof"
+elseif model.has_role(c, "signal") then return "4.g.signale" end
+return "4.g.ausgang"
+end
+
 screens["4.g.richtung"] = {
 render = function(v, rect)
 local t = session.wiz.config.tracks[session.track]
@@ -435,16 +472,7 @@ local n = id:match("^sel:richtung:(%d+)$")
 if n then session.wiz.set_direction(session.track, DIRECTIONS[tonumber(n)].id) return true end
 end,
 next = function(v)
-local c = session.wiz.config
-if model.has_role(c, "knoten") then
-push("4.g.anschluss")
-elseif model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then
-push("4.g.bahnhof")
-elseif model.has_role(c, "signal") then
-push("4.g.signale")
-else
-push("4.g.ausgang")
-end
+push(first_device_screen())
 return true
 end,
 }
@@ -723,6 +751,12 @@ end
 end,
 }
 
+local function summarize_tests(result)
+local text = result.ok .. " ok, " .. result.failed .. " Fehler"
+if result.stopped then text = text .. ". GESTOPPT nach " .. result.stopped .. " (Zustand unklar): " .. result.open .. " Pruefung(en) nicht gelaufen." end
+return text
+end
+
 screens["5.test"] = {
 render = function(v, rect)
 header(v, rect, nil, "Pruefungen: lesende laufen sofort, schaltende nach Bestaetigung.")
@@ -754,13 +788,60 @@ if test.kind == "lesen" then session.wiz.run_test(test.id, false) ran = ran + 1 
 end
 v.hint = ran .. " lesende Pruefungen ausgefuehrt."
 return true
+elseif id == "act:alle_pruefen" then
+
+local open = session.wiz.run_open_tests(false)
+if open.open > 0 then
+push("5.alle_bestaetigen")
+else
+v.hint = summarize_tests(open)
+end
+return true
 end
 end,
 actions = function(v)
 local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
 return {
-{ id = "ausfuehren", label = "Ausfuehren", enabled = selected ~= nil, reason = "Erst eine Pruefung waehlen." },
-{ id = "alle_lesen", label = "Alle lesenden", kind = "secondary" },
+{ id = "alle_pruefen", label = "Alle pruefen" },
+{ id = "ausfuehren", label = "Einzeln", kind = "secondary", enabled = selected ~= nil, reason = "Erst eine Pruefung waehlen." },
+{ id = "alle_lesen", label = "Lesende", kind = "secondary" },
+}
+end,
+}
+
+screens["5.alle_bestaetigen"] = {
+hide_nav_buttons = true,
+render = function(v, rect)
+header(v, rect, nil, "Alle offenen Pruefungen starten")
+local y = rect.y + 2
+local lines = { "Folgende Pruefungen schalten kurz und stellen den Ausgangszustand wieder her:" }
+for _, test in ipairs(session.wiz.tests()) do
+if test.kind == "schalten" and session.wiz.test_state(test.id, nil, test) ~= "ok" then lines[#lines + 1] = "- " .. test.title end
+end
+lines[#lines + 1] = "Der Testbereich muss vorbereitet sein: kein Zug darf auf eine Freigabe warten, kein Signal darf einen Zug schuetzen."
+for _, line in ipairs(lines) do
+for _, part in ipairs(W.wrap(line, rect.w - 2)) do
+if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, "text", rect.w - 2) end
+y = y + 1
+end
+end
+end,
+action = function(v, id)
+if id == "act:alle_starten" then
+local result = session.wiz.run_open_tests(true)
+pop()
+v.hint = summarize_tests(result)
+return true
+elseif id == "act:alle_abbruch" then
+pop()
+v.hint = "Pruefungen nicht gestartet."
+return true
+end
+end,
+actions = function(v)
+return {
+{ id = "alle_starten", label = "Vorbereitung erledigt: alle starten" },
+{ id = "alle_abbruch", label = "Abbrechen", kind = "secondary" },
 }
 end,
 }
@@ -973,7 +1054,7 @@ end
 if #chosen == 0 then v.hint = "Mindestens ein Gleis uebernehmen." return true end
 d.claim = d.claim or services.new_claim()
 d.claiming = { tracks = info }
-services.directory_claim(session.wiz.central_id, d.claim, "signal", d.area.id, chosen)
+services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen)
 v.hint = "Frage die Leitstelle nach der Kennung ..."
 return true
 end,
@@ -1599,13 +1680,18 @@ if st.area and d.want == "area" then d.area, d.want = st.area, nil end
 if st.node and d.claiming then
 local claiming = d.claiming
 d.claiming = nil
-session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks })
+local role = session.wiz.roles[1]
+session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, role = role })
+v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+if role == "signal" then
 ensure_check()
 session.known_signals = {}
 for _, dev in ipairs(session.wiz.guided_free_signals()) do session.known_signals[dev.name] = true end
-v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
 push("4.zuordnung")
 select_next_open(v, 0)
+else
+push("3.geraete")
+end
 end
 elseif st.kind == "halt" and d.claiming then
 d.claiming = nil

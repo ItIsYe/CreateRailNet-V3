@@ -34,7 +34,8 @@ function M.new(opts)
 
   w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
   -- gefuehrte Einrichtung (Signal-Node nach dem Netzverzeichnis): die Kennung kommt von der Leitstelle, die Abschlusspruefung ist w.pruefung
-  w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv") or nil
+  local function single_role(list, name) return #list == 1 and list[1] == name end
+  w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv" and single_role(existing.node.roles, "signal")) or nil
   w.claimed_id = (existing ~= nil and existing.node.claimed == true) and existing.node.id or nil
   if existing then
     w.network_name = existing.network.name
@@ -134,13 +135,28 @@ function M.new(opts)
 
   function w.allowed_devices() return model.profile(w.config).allowed end
 
-  local function fingerprint()
+  -- Stand der Dinge, auf dem ein Pruefergebnis beruht (Konzept 13.5): das Geraet beziehungsweise der Ausgang und die Zuordnung seines Gleises (Richtung,
+  -- Geraete, Knotenanschluss). Name und Status des Gleises, andere Gleise und Netzangaben gehoeren nicht dazu: sie entwerten nichts.
+  local function test_fingerprint(kind, ref)
     local c = w.config
-    local tracks = assert(ser.decode(ser.encode(c.tracks)))
-    for _, track in pairs(tracks) do track.status = nil end
-    local text = ser.encode({ network = c.network, node = c.node, devices = c.devices,
-      tracks = tracks, junction = c.junction, registration_station = c.registration_station })
-    -- Feste Laenge pro Test: keine Kopie der Gesamtanlage fuer jedes Signal speichern.
+    local function track_part(track)
+      local copy = assert(ser.decode(ser.encode(track)))
+      copy.name, copy.status = nil, nil
+      return copy
+    end
+    local part = {}
+    if kind == "ausgang" then
+      if c.tracks[ref] then part.track = track_part(c.tracks[ref]) end
+    else
+      part.device = c.devices[ref]
+      for _, track in pairs(c.tracks) do
+        local owns = track.station == ref
+        for _, did in ipairs(track.signals) do if did == ref then owns = true end end
+        for _, did in ipairs(track.observers) do if did == ref then owns = true end end
+        if owns then part.track = track_part(track) end
+      end
+    end
+    local text = ser.encode(part)
     return #text .. ":" .. adler.hex(text)
   end
 
@@ -327,11 +343,12 @@ function M.new(opts)
   -- info = { area = { id, name }, claim, node = { id, name, label }, tracks = { { id, name, direction }, ... } (nur die uebernommenen) }
   -- Die Gleise kommen aus dem Netzverzeichnis (track.dir = { id, area, direction }); bereits zugeordnete Signale bleiben erhalten, wenn das Gleis uebernommen bleibt.
   function w.guided_begin(info)
+    local role = info.role or "signal"
     w.mode = "join"
-    w.roles = { "signal" }
+    w.roles = { role }
     w.claimed_id = info.node.id
     w.name = info.node.name
-    w.guided = true
+    w.guided = (role == "signal") or nil          -- nur Signal-Nodes pruefen ueber setup/pruefung.lua; Bahnhoefe und Depots behalten die bisherigen Pruefungen
     sync_config()
     local c = w.config
     c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
@@ -565,13 +582,13 @@ function M.new(opts)
       local d = w.config.devices[id]
       if d.kind == "station" or d.kind == "signal" or d.kind == "observer" then
         list[#list + 1] = {
-          id = "lesen:" .. id, kind = "lesen", title = "Lesen: " .. d.device, spec = d.device,
+          id = "lesen:" .. id, kind = "lesen", title = "Lesen: " .. d.device, spec = d.device, fp = test_fingerprint("geraet", id),
           explain = "Der Zustand von " .. d.device .. " wird nur gelesen.",
         }
       end
       if d.kind == "signal" then
         list[#list + 1] = {
-          id = "sperre:" .. id, kind = "schalten", title = "Sperre: " .. d.device, spec = d.device,
+          id = "sperre:" .. id, kind = "schalten", title = "Sperre: " .. d.device, spec = d.device, fp = test_fingerprint("geraet", id),
           explain = "Das Signal " .. d.device .. " wird kurz zusaetzlich auf Rot gesperrt und wieder freigegeben. Es darf gerade keinen Zug schuetzen; ein belegtes Signal bleibt nach dem Aufheben rot.",
         }
       end
@@ -582,7 +599,7 @@ function M.new(opts)
       if track.release then
         local key = (track.release.relay or "Computer") .. " " .. track.release.side
         list[#list + 1] = {
-          id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key,
+          id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key, fp = test_fingerprint("ausgang", tid),
           explain = "Der Freigabeausgang " .. key .. " von Gleis " .. track.name .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
         }
       end
@@ -599,21 +616,20 @@ function M.new(opts)
     if not test then return nil end
     local result = w.config.tests[id]
     if not result then return "offen" end
-    if result.spec ~= test.spec or result.fingerprint ~= (current or fingerprint()) then return "offen" end
+    if result.spec ~= test.spec or result.fp ~= test.fp then return "offen" end
     return result.ok and "ok" or "fehler", result.text
   end
 
   function w.all_tests_ok()
     if w.guided then return w.pruefung ~= nil and w.pruefung.all_ok() end
-    local current = fingerprint()
     for _, test in ipairs(w.tests()) do
-      if w.test_state(test.id, current, test) ~= "ok" then return false end
+      if w.test_state(test.id, nil, test) ~= "ok" then return false end
     end
     return true
   end
 
   local function record(test, ok, text)
-    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fingerprint = fingerprint(), at = opts.now() }
+    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fp = test.fp, at = opts.now() }
     return ok, text
   end
 
@@ -658,6 +674,39 @@ function M.new(opts)
       return record(test, true, "Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
     end
     return false, "unbekannte Pruefung"
+  end
+
+  -- Alle noch offenen oder fehlgeschlagenen Pruefungen nacheinander (Konzept 13.1, 13.2): zuerst die lesenden, dann die schaltenden. Gueltige Ergebnisse
+  -- unveraenderter Geraete bleiben (13.5). Schaltende Pruefungen laufen nur mit confirmed = true (gemeinsame Bestaetigung). Bleibt nach einer Schaltpruefung
+  -- ein Zustand unklar ("ACHTUNG"), wird die Serie gestoppt und das gemeldet (13.4).
+  -- Ergebnis: { ok = n, failed = n, open = n (nicht gelaufen), stopped = Titel oder nil }
+  function w.run_open_tests(confirmed)
+    local result = { ok = 0, failed = 0, open = 0 }
+    local pending_switch = {}
+    for _, test in ipairs(w.tests()) do
+      if w.test_state(test.id, nil, test) ~= "ok" then
+        if test.kind == "lesen" then
+          local ok = w.run_test(test.id, false)
+          result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
+        else
+          pending_switch[#pending_switch + 1] = test
+        end
+      end
+    end
+    if #pending_switch > 0 and confirmed ~= true then
+      result.open = #pending_switch
+      return result
+    end
+    for i, test in ipairs(pending_switch) do
+      local ok, text = w.run_test(test.id, true)
+      result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
+      if not ok and tostring(text):sub(1, 7) == "ACHTUNG" then
+        result.stopped = test.title
+        result.open = #pending_switch - i
+        break
+      end
+    end
+    return result
   end
 
   -- Schritt 6 ----------------------------------------------------------------------------------------------------------------------------------

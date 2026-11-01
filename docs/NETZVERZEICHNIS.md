@@ -10,7 +10,7 @@ Bezug: Konzept "Modulares Streckennetz und vereinfachte Einrichtung" (Abschnitts
 | 5.2 | dauerhafte Gleisidentitaet | umgesetzt (Kennung A0001, unabhaengig von Name und Reihenfolge) | `netz.lua` |
 | 5.3 | Richtung mit Bezug ("Richtung Ostbahnhof") | umgesetzt (Anschlussname oder "beide"), nur Anzeige | `netz.lua`, Assistent |
 | 5.4 | Wirkrichtung eines Signals, Funktion, Standort | umgesetzt (je Signal; Vorgabe aus eindeutiger Gleisrichtung, bei "beide" Pflichtangabe; Anzeige in Node und Leitstelle). Die Wirkrichtung ist eine Angabe, sie wird nicht fuer die Steuerung ausgewertet | `wizard.lua`, `signal.lua` |
-| 6 | Betriebsstellen (Personen-, Gueterbahnhof, Depot), Standortgruppen, Beziehung zu Gleisen (vorbei, Verbindung mit Fahrtrichtungen, Bahnhofsgleis) | umgesetzt in der Leitstelle (Standorte entstehen ueber den Namen und verschwinden, wenn sie leer sind; ein Gleis gehoert hoechstens einer Betriebsstelle als Bahnhofsgleis) | `netz.lua`, Seiten Betriebsstellen und Beziehungen |
+| 6 | Betriebsstellen (Personen-, Gueterbahnhof, Depot), Standortgruppen, Beziehung zu Gleisen (vorbei, Verbindung mit Fahrtrichtungen, Bahnhofsgleis) | umgesetzt in der Leitstelle (Standorte entstehen ueber den Namen und verschwinden, wenn sie leer sind; ein Gleis gehoert hoechstens einer Betriebsstelle als Bahnhofsgleis); Bahnhof-/Depot-Nodes beziehen Kennung, Namen, Label und Gleise aus dem Verzeichnis | `netz.lua`, Seiten Betriebsstellen und Beziehungen |
 | 7, 8 | Knoten mit Anschluessen (Gleisenden), gerichteten Fahrwegen und Konflikten | umgesetzt im Verzeichnis (Seite Knoten; "Auto" schlaegt Fahrwege und Konflikte vor, sie bleiben unbestaetigt und gehen erst nach "Bestaet." an Nodes; Formen aus T oder Y werden nie geraten). Der gefuehrte Ablauf auf der Knoten-Node nutzt das noch nicht; Schleifen offen | `netz.lua`, `zentrale.lua` |
 | 9.2 | Node betreut ein oder mehrere Gleise, auch nur einen Teil eines Bereichs | umgesetzt (Gleise abwaehlbar) | Assistent, Bildschirm Gleise |
 | 9.3 | genau eine steuernde Verantwortung je Geraet | teilweise: ein Signal gehoert in der Einrichtung nur einem Gleis; Pruefung ueber mehrere Nodes noch nicht | `wizard.lua` |
@@ -24,7 +24,8 @@ Bezug: Konzept "Modulares Streckennetz und vereinfachte Einrichtung" (Abschnitts
 | 12.2 | Rolle vorbelegen, wenn nur eine installiert ist | umgesetzt (Rollenauswahl entfaellt, wenn genau eine Rolle zur Betriebsart passt) | `page.lua` |
 | 12.3 | Bereichsassistent (Vorlagen) | umgesetzt in der Leitstelle fuer gerade Strecken; Nebenanschluss, Verzweigung, freie Einrichtung offen | |
 | 12.4 | schnelle Geraetezuordnung | umgesetzt (Tabelle, naechstes offenes Gleis, mehrere Signale je Gleis, "(neu)"); Name und Richtung direkt auf der Node bearbeiten: umgesetzt (Leitstelle prueft Zugehoerigkeit und Stand) | |
-| 13.1 bis 13.5 | Abschlusspruefung | umgesetzt fuer Signale (gemeinsame Bestaetigung, Schritt fuer Schritt, Abbruch, Marke und Wiederanlauf, Ergebnisse je Geraet, fremde Sperre unangetastet, Aktivierung nur bei Erfolg) | `src/setup/pruefung.lua` |
+| 13.1 bis 13.4 | Abschlusspruefung | umgesetzt fuer Signale (gemeinsame Bestaetigung, Schritt fuer Schritt, Abbruch, Marke und Wiederanlauf, Ergebnisse je Geraet, fremde Sperre unangetastet, Aktivierung nur bei Erfolg); fuer Bahnhoefe, Depot, Anmeldung und Knoten im bisherigen Ablauf: lesende Pruefungen automatisch, "Alle pruefen" mit gemeinsamer Bestaetigung, Serie stoppt bei unklarem Zustand | `src/setup/pruefung.lua`, `wizard.lua` |
+| 13.5 | Gueltigkeit der Ergebnisse | umgesetzt (Signal-Pruefung je Geraet mit Unterschrift; im bisherigen Ablauf je Pruefung: Geraet/Ausgang und Zuordnung des Gleises, Namen und andere Gleise entwerten nichts) | `pruefung.lua`, `wizard.lua` |
 | 13.6 | Aussagegrenzen | in der Bedienung genannt | |
 | 14 | Oberflaeche klein und gross | umgesetzt fuer die neuen Bildschirme (51x19 und 100x40 getestet) | |
 | 15 | Verhalten bei Stoerungen und Aenderungen | teilweise (Leitstelle nicht erreichbar: keine Kennung, Entwurf, "Von Hand" moeglich, lokale Einrichtung bleibt; fehlende Meldungen gelten nicht als frei; Abweichung der Konfigurationsversionen: Abgleich der Signal-Node mit dem Verzeichnis, Uebernahme auf Wunsch) | `signal.lua` |
@@ -38,7 +39,7 @@ Programmgroesse: `lua tools/build.lua` verkleinert die Dateien in `dist/` (Komme
 Grenzen dieses Standes:
 
 - Welches Signal an welchem echten Gleis steht, liest der Computer nicht aus; die Zuordnung ist Handarbeit (Konzept 2).
-- Bahnhof, Depot, Knoten und Anmeldung richten sich weiter ueber den bisherigen Assistenten ein.
+- Bahnhof und Depot nutzen das Verzeichnis fuer Kennung, Namen, Label und Gleise; Geraete, Ausgaenge und Pruefungen laufen im bisherigen Assistenten. Knoten und Anmeldung richten sich weiter ueber den bisherigen Assistenten ein.
 - Eine bereits aktive Node bleibt im bisherigen Assistenten.
 - Das Verzeichnis liegt nur in der Leitstelle (`/crn_data/netz.lua`); es hat keine eigene Sicherung ausser der atomaren Speicherung mit Vorgaengerfassung.
 - Nachrichten sind unbeglaubigt (Rednet): die Leitstelle nimmt Anforderungen von jedem Sender in Funkreichweite an (hoechstens 500 Eintraege); die Node uebernimmt nur Antworten in der erlaubten Form.

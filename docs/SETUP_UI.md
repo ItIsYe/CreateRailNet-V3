@@ -34,6 +34,25 @@ Das Netz wird einmal zentral beschrieben, jede Signal-Node uebernimmt daraus ihr
 
 **Abgleich mit dem Verzeichnis (Konzept 15).** Eine aktive, ueber das Verzeichnis eingerichtete Signal-Node fragt zwanzig Sekunden nach dem Start und danach alle zehn Minuten nach Namen und Richtungen ihrer Gleise. Auf der Seite **Signale** steht das Ergebnis (stimmt / Abweichung / frage / keine Antwort); eine Abweichung wird einmal gemeldet und nur auf Druck von **"Uebernehmen"** uebernommen (Name, Richtung, Stand, Wirkrichtung der Signale; die Konfiguration wird gespeichert, bei einem Speicherfehler bleibt alles wie vorher). **"Abgleich"** fragt sofort. Antwortet die Leitstelle nicht oder unlesbar, bleibt die lokale Einrichtung unveraendert und es wird keine Abweichung behauptet. Ein im Verzeichnis geloeschtes Gleis wird gezeigt, aber nie automatisch entfernt.
 
+## Bahnhof und Depot ueber das Netzverzeichnis
+
+Beim Beitreten mit genau **einer** der Rollen Passagierbahnhof, Gueterbahnhof oder Depot folgt dieselbe Bereichswahl wie bei der Signal-Node (Bereich waehlen oder mit "Neu" anlegen, Gleise uebernehmen). Die Leitstelle vergibt Kennung, Namen und Computerlabel (`N0003 | PBF | B0002`); der Name der Betriebsstelle selbst wird in der Leitstelle gefuehrt. Danach geht es wie bisher weiter: **Geraete** (Train Station, Ausgaenge), **Gleise** (hier steht je Gleis nur "Zuordnen": Name und Richtung kommen aus dem Verzeichnis, Gleise lassen sich lokal weder anlegen noch kopieren noch loeschen), **Test**, **Fertig**. "Von Hand" fuehrt auf den bisherigen Weg mit eigenem Namen. Mit mehreren Rollen auf einem Computer, fuer die Anmeldung und den Knoten gilt ebenfalls der bisherige Weg.
+
+**Pruefungen im bisherigen Ablauf (Konzept 13.1, 13.2, 13.4, 13.5).** Beim Oeffnen des Schritts Test laufen die lesenden Pruefungen von selbst. **"Alle pruefen"** zeigt die Wirkung aller offenen schaltenden Pruefungen zusammen, verlangt eine gemeinsame Bestaetigung ("Vorbereitung erledigt: alle starten") und fuehrt sie nacheinander aus; bleibt ein Ausgang danach eingeschaltet, stoppt die Serie und meldet es. "Einzeln" fuehrt die markierte Pruefung aus, "Lesende" wiederholt die lesenden. Ein Ergebnis bleibt gueltig, solange das geprueftes Geraet beziehungsweise der Ausgang dasselbe ist und die Zuordnung seines Gleises (Richtung, Geraete, Knotenanschluss) unveraendert ist: eine Namensaenderung, ein weiteres Gleis oder ein anderes Geraet entwertet die uebrigen Ergebnisse nicht.
+
+### Pflichtangaben und Pruefungen je Rolle
+
+| Rolle | Pflichtangaben vor dem Aktivieren | Pruefungen |
+|---|---|---|
+| Signal (gefuehrt) | Funkmodem, Kennung der Leitstelle, mindestens ein Gleis, je Gleis mindestens ein Signal, je Signal die Wirkrichtung | je Signal lesen und eigene Testsperre setzen, zuruecklesen, aufheben, zuruecklesen (Abschlusspruefung, ohne Einzelabfragen) |
+| Passagier-/Gueterbahnhof | je Gleis eine Train Station und ein Freigabeausgang (keine doppelten Ausgaenge) | Train Station lesen; Ausgang kurz schalten und zuruecklesen (gemeinsame Bestaetigung) |
+| Depot | je Gleis eine Train Station | Train Station lesen; Ausgang, falls eingerichtet |
+| Anmeldung | eine Station fuer die Anmeldung | Station lesen |
+| Knoten | mindestens zwei Anschluesse und eine Verbindung; je Einfahrt ein Gleis mit Signal, je Ausfahrt ein Gleis mit Beobachter | Signale und Beobachter lesen; Signal-Testsperre (gemeinsame Bestaetigung) |
+| Leitstelle | Netzname, keine zweite Leitstelle | keine Geraetepruefung |
+
+Eine Funktion erzeugt erst dann Pflichtangaben, wenn ihre Rolle gewaehlt ist (Konzept 12.5): beispielsweise wird ein Beobachter nur beim Knoten verlangt.
+
 ## Netz beitreten (Netzsuche)
 
 Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vorlaeufige Kennung `neu-...`). Jede laufende Leitstelle in Reichweite antwortet mit Netzname und ihrer Kennung (und der Zahl der bekannten Nodes), sonst nichts. Der Assistent bietet die Treffer zur Auswahl an; die Wahl setzt Netzname und Leitstelle, die beiden Eingabefelder entfallen. "Netz von Hand eingeben" und "Neu suchen" stehen immer zur Verfuegung. Die Antworten sind unbeglaubigt (Rednet ist keine Anmeldung, siehe Konzept 13.5): angenommen werden nur Name und Kennung in der erlaubten Form (Buchstaben, Ziffern, Leerzeichen, - und _, hoechstens 30 Zeichen), und nur als Antwort auf den eigenen Rundruf.
