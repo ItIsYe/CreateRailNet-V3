@@ -49,6 +49,9 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.12 | Seite "Geraete" und "Meldungen", Meldung quittieren | Quittiert aendert nur die Meldung | |
 | 3.13 | Laufende (aktive) Node: Seite "Einrichtung", "Einrichtung aendern", dann "Entwurf" | "Entwurf" ist gesperrt, Hinweis "Laufende Node: ..."; Zustand bleibt "Bereit"; "Abbrechen" (zweimal) verwirft die Aenderungen | |
 | 3.14 | Schritt 2: eine Rolle abwaehlen, zu der schon Geraete oder Gleise gewaehlt sind | Hinweis nennt, wie viele Geraete und Gleise entfallen; erst das erneute Antippen entfernt sie | |
+| 3.15 | Schritt 3 bis 5 laenger offen lassen, dazwischen ein Geraet abziehen | Die Anzeige liest nicht dauernd neu; "Neu lesen" und "Weiter" erkennen den Ausfall (Weiter sperrt, Tests werden ungueltig) | |
+| 3.16 | Zweiter Computer (zum Beispiel Signal), Einrichtung starten, "Diesem bestehenden Netz beitreten", Weiter. Die Leitstelle laeuft in Funkreichweite (Ender-Modem) | Seite "Welchem Netz soll dieser Computer beitreten?": nach wenigen Sekunden steht dort das Netz der Leitstelle mit "Leitstelle <Kennung>". Auswaehlen und Weiter fuehrt direkt zur Rolle (Netzname und Leitstelle werden nicht mehr getippt) | |
+| 3.17 | Dasselbe mit ausgeschalteter Leitstelle oder ausser Reichweite | "Kein Netz gefunden ..."; "Netz von Hand eingeben" fuehrt zu den Feldern Netzname und Leitstelle; "Neu suchen" wiederholt die Suche | |
 | 3.22 | **Netzverzeichnis**: Leitstelle, Seite "Bereiche", "Neu": Name West-Ost, Anschluesse Westbahnhof und Ostbahnhof, 4 Gleise, Vorlage gegenlaeufig; danach Seite "Gleise" | Bereich B0001 mit Gleis 1 bis 4: zwei Gleise "Richtung Ostbahnhof", zwei "Richtung Westbahnhof"; Umbenennen und Richtung aendern gehen; falsche Eingaben zeigen einen Hinweis | |
 | 3.23 | Neuer Computer mit vier Create-Signalen: Einrichtung starten, Beitreten, Netz waehlen, nur Rolle Signal, Weiter | Bildschirm "Bereich waehlen" mit West-Ost; "Von Hand" fuehrt auf den alten Weg | |
 | 3.24 | Bereich waehlen, Weiter (Gleise uebernehmen), Weiter | Die Leitstelle vergibt die Kennung (Hinweis "Kennung N0001"); in der Leitstelle Seite "Netz": N0001 RESERVIERT | |
@@ -58,9 +61,9 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.28 | Waehrend der Pruefung "Stoppen" | Keine weiteren Tests, keine Sperre bleibt, "Erneut pruefen" setzt fort | |
 | 3.29 | Waehrend der Pruefung den Computer ausschalten (Strom/Chunk), neu starten | Meldung, dass eine unterbrochene Pruefung erkannt und eine stehengebliebene Testsperre aufgehoben wurde; die Einrichtung geht als Entwurf bei der Zuordnung weiter, mit derselben Kennung | |
 | 3.30 | Aktive Node in der Leitstelle: Seite "Signale" und "Netz" | Die Signale stehen unter "N0001" mit Gleis 1 bis 4; die Reservierung ist "aktiv" | |
-| 3.15 | Schritt 3 bis 5 laenger offen lassen, dazwischen ein Geraet abziehen | Die Anzeige liest nicht dauernd neu; "Neu lesen" und "Weiter" erkennen den Ausfall (Weiter sperrt, Tests werden ungueltig) | |
-| 3.16 | Zweiter Computer (zum Beispiel Signal), Einrichtung starten, "Diesem bestehenden Netz beitreten", Weiter. Die Leitstelle laeuft in Funkreichweite (Ender-Modem) | Seite "Welchem Netz soll dieser Computer beitreten?": nach wenigen Sekunden steht dort das Netz der Leitstelle mit "Leitstelle <Kennung>". Auswaehlen und Weiter fuehrt direkt zur Rolle (Netzname und Leitstelle werden nicht mehr getippt) | |
-| 3.17 | Dasselbe mit ausgeschalteter Leitstelle oder ausser Reichweite | "Kein Netz gefunden ..."; "Netz von Hand eingeben" fuehrt zu den Feldern Netzname und Leitstelle; "Neu suchen" wiederholt die Suche | |
+| 3.31 | Leitstelle, Seite "Anschluesse": bei einem Bereich ein Ende auf "offen" stellen, dann den Zustand ansehen | Der Bereich steht auf "im bau"; "betriebsbereit" ist erst nach dem Festlegen des Anschlusses moeglich | |
+| 3.32 | Seite "Betriebsstellen": einen Personenbahnhof und ein Depot mit demselben Standort anlegen; Seite "Beziehungen": ein Gleis als Bahnhofsgleis und eines als Verbindung mit Fahrtrichtung verbinden | Der Standort erscheint einmal; ein zweites Mal als Bahnhofsgleis derselben Gleis-Kennung wird mit Hinweis abgelehnt | |
+| 3.33 | Seite "Knoten": Knoten anlegen, zwei Anschluesse aus Gleisenden (Bereich / Gleis; ...) eintragen, "Auto" | Fahrwege und Konflikte stehen als UNBESTAETIGT; auf einer Knoten-Node ist davon nichts zu sehen, bis "Bestaet." gedrueckt ist | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

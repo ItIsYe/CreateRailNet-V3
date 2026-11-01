@@ -25,6 +25,63 @@ return {
     local files = build.plan()
     for path, text in pairs(files) do t.eq(read("dist/" .. path), text, "dist/" .. path) end
   end },
+  { "Verkleinern: Kommentare und Einrueckung weg, Zeilenzahl und Verhalten bleiben", function()
+    local source = table.concat({
+      "--[[ Kopf",
+      "ueber mehrere Zeilen ]]",
+      "local t = {}",
+      "  -- nur ein Hinweis",
+      "  t.a = 'x -- kein Kommentar'  -- aber dies",
+      "\tt.b = \"[[ auch kein ]] \\\" Anfang\" --[=[ Block ]=] .. 'y'",
+      "  t.c = [[",
+      "   Einrueckung bleibt -- und das hier auch",
+      "  ]]",
+      "  t.d = [==[ ]] ]==]",
+      "  t.e = \"Zeile\\",
+      "   Fortsetzung\"",
+      "return t",
+      "",
+    }, "\n")
+    local min = build.minify(source, "probe")
+    local _, a = source:gsub("\n", "")
+    local _, b = min:gsub("\n", "")
+    t.eq(b, a, "gleiche Zeilenzahl")
+    t.ok(#min < #source)
+    local loader = loadstring or load
+    local x, y = loader(source)(), loader(min)()
+    for _, key in ipairs({ "a", "b", "c", "d", "e" }) do t.eq(y[key], x[key], "Wert " .. key) end
+    t.contains(y.a, "-- kein Kommentar")
+    t.contains(y.c, "   Einrueckung bleibt -- und das hier auch")
+    t.contains(y.e, "   Fortsetzung")
+    t.ok(not min:find("aber dies", 1, true) and not min:find("nur ein Hinweis", 1, true) and not min:find("Block", 1, true))
+    t.ok(not min:find("\n  ", 1, true) or min:find("\n   Einrueckung", 1, true), "keine Einrueckung ausser in Zeichenketten")
+  end },
+  { "Verkleinern: nicht geschlossene Zeichenketten und Kommentare sind Fehler, nichts wird still abgeschnitten", function()
+    local ok, err = pcall(build.minify, "local x = 'offen\n", "a")
+    t.eq(ok, false); t.contains(tostring(err), "nicht geschlossen")
+    ok, err = pcall(build.minify, "--[[ offen\nlocal x = 1\n", "b")
+    t.eq(ok, false); t.contains(tostring(err), "Kommentar nicht geschlossen")
+    ok, err = pcall(build.minify, "local x = [[ offen\n", "c")
+    t.eq(ok, false)
+  end },
+  { "Verkleinern: jede Quelldatei bleibt gleich uebersetzbar und wird kleiner", function()
+    local files = build.plan()
+    local loader = loadstring or load
+    local total_src, total_min = 0, 0
+    for path, text in pairs(files) do
+      if path:match("%.lua$") and path ~= "manifest.lua" then
+        local src = read("src/" .. path)
+        t.ok(src, "Quelle " .. path)
+        total_src, total_min = total_src + #src, total_min + #text
+        local _, a = src:gsub("\n", "")
+        local _, b = text:gsub("\n", "")
+        t.eq(b, a, "Zeilenzahl " .. path)
+        t.ok(loader(src, "=a") and loader(text, "=b"), "uebersetzbar " .. path)
+        t.ok(build.same_bytecode(src, text) ~= false, "Bytecode " .. path)
+      end
+    end
+    t.ok(total_min < total_src * 0.8, "mindestens ein Fuenftel kleiner: " .. total_min .. " von " .. total_src)
+  end },
   { "installer_beta.lua ist aktuell und unterscheidet sich nur im Kanal", function()
     local beta, err = build.beta_installer()
     t.ok(beta, err)

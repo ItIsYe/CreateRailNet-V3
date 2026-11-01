@@ -1,7 +1,7 @@
 --[[
 Purpose: Netzverzeichnis der Leitstelle (Konzept 3, 4, 5, 10, 11): Bereiche mit ihren zwei Anschluessen und den Gleisen darin (Name, Richtung als Bezug zu einem Anschluss), dazu die Anforderungen der Nodes, die ihren Ausschnitt uebernehmen. Die Leitstelle vergibt dauerhafte Kennungen (B0001 Bereich, A0001 Gleis, N0017 Node), die nie wiederverwendet werden, und liefert Anzeigename und Computerlabel einer Node.
-API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.set_end(bereich, nr, { kind, ref, name }); n.set_area_state(id, zustand); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.link_station(betriebsstelle, gleis, beziehung, richtungen); n.unlink_station(betriebsstelle, gleis); n.stations(); n.station(id); n.sites(); n.add_area{ name, ends = { a, b }, count, pattern } -> id oder nil, fehler; n.set_area(id, { name, ends }); n.remove_area(id); n.add_track(area, name, richtung); n.set_track(id, { name, direction }); n.remove_track(id); n.areas() -> Liste; n.areas_page(nach, grenze) -> Liste, weitere; n.area(id) -> Bereich mit Gleisen; n.claim_node{ claim, role, area, tracks } -> Eintrag oder nil, fehler; n.mark_active(id); n.discard_node(id); n.nodes() -> Liste; n.node(id); n.revision()
-Notes: Vorlagen (pattern) erzeugen nur bearbeitbare Gleise: gegenlaeufig (erste Haelfte Richtung Anschluss 2, Rest Richtung Anschluss 1), gleich (alle Richtung Anschluss 2), beide. Die Richtung eines Gleises ist ein Bezug (Name eines Anschlusses) oder "beide"; sie wird nirgends ausgewertet, sondern angezeigt. Ein Gleis in einem Bereich ist nicht automatisch ein Create-Signalblock. Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Benutzte Objekte (Bereich oder Gleis, das eine Node uebernommen hat) werden nicht geloescht. Zaehler stehen in der Datei und gehen nie zurueck. Anschlussarten: name (freier Name), betriebsstelle (Name folgt der Betriebsstelle), bereich (Name folgt dem Nachbarbereich), offen (Ende im Bau: der Bereich gilt dann als "im bau", nicht als betriebsbereit). Betriebsstellen (BF0001: Personenbahnhof, Gueterbahnhof, Depot) hoeren optional zu einem Standort (S0001, nur ueber den Namen gefuehrt, leere Standorte verschwinden); ihre Gleise stehen mit einer Beziehung: vorbei (das Gleis fuehrt vorbei), verbindung (das Gleis hat eine Verbindung zur Betriebsstelle, mit den baulich moeglichen Fahrtrichtungen) oder bahnhofsgleis (das Gleis gehoert zur Betriebsstelle); aus einer Beziehung folgt nie eine andere. Jedes Objekt traegt einen Stand (rev); Aenderungen mit `if_rev` werden abgelehnt, wenn das Objekt inzwischen anders geaendert wurde. Das Dateiformat hat eine Version; eine Datei von einem neueren Programm wird gelesen, aber nicht veraendert. Jede Aenderung wird sofort gespeichert; schlaegt das fehl, bleibt der alte Stand.
+API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.set_end(bereich, nr, { kind, ref, name }); n.set_area_state(id, zustand); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.link_station(betriebsstelle, gleis, beziehung, richtungen); n.unlink_station(betriebsstelle, gleis); n.stations(); n.station(id); n.sites(); n.add_junction{ name }; n.add_connection(k, name, gleise); n.add_route(k, von, nach); n.add_conflict(k, f1, f2); n.propose_routes(k, art); n.propose_conflicts(k); n.confirm_junction(k); n.junctions(); n.junction(k); n.junction_part(k, teil); n.add_area{ name, ends = { a, b }, count, pattern } -> id oder nil, fehler; n.set_area(id, { name, ends }); n.remove_area(id); n.add_track(area, name, richtung); n.set_track(id, { name, direction }); n.remove_track(id); n.areas() -> Liste; n.areas_page(nach, grenze) -> Liste, weitere; n.area(id) -> Bereich mit Gleisen; n.claim_node{ claim, role, area, tracks } -> Eintrag oder nil, fehler; n.mark_active(id); n.discard_node(id); n.nodes() -> Liste; n.node(id); n.revision()
+Notes: Vorlagen (pattern) erzeugen nur bearbeitbare Gleise: gegenlaeufig (erste Haelfte Richtung Anschluss 2, Rest Richtung Anschluss 1), gleich (alle Richtung Anschluss 2), beide. Die Richtung eines Gleises ist ein Bezug (Name eines Anschlusses) oder "beide"; sie wird nirgends ausgewertet, sondern angezeigt. Ein Gleis in einem Bereich ist nicht automatisch ein Create-Signalblock. Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Benutzte Objekte (Bereich oder Gleis, das eine Node uebernommen hat) werden nicht geloescht. Zaehler stehen in der Datei und gehen nie zurueck. Anschlussarten: name (freier Name), betriebsstelle (Name folgt der Betriebsstelle), bereich (Name folgt dem Nachbarbereich), offen (Ende im Bau: der Bereich gilt dann als "im bau", nicht als betriebsbereit). Betriebsstellen (BF0001: Personenbahnhof, Gueterbahnhof, Depot) hoeren optional zu einem Standort (S0001, nur ueber den Namen gefuehrt, leere Standorte verschwinden); ihre Gleise stehen mit einer Beziehung: vorbei (das Gleis fuehrt vorbei), verbindung (das Gleis hat eine Verbindung zur Betriebsstelle, mit den baulich moeglichen Fahrtrichtungen) oder bahnhofsgleis (das Gleis gehoert zur Betriebsstelle); aus einer Beziehung folgt nie eine andere. Jedes Objekt traegt einen Stand (rev); Aenderungen mit `if_rev` werden abgelehnt, wenn das Objekt inzwischen anders geaendert wurde. Knoten (K0001) fuehren Anschluesse als Gruppen von Gleisenden (Gleise des Verzeichnisses), gerichtete Fahrwege (F0001) zwischen Gleisenden verschiedener Anschluesse und Konflikte zwischen Fahrwegen; Vorschlaege (durchgehend, alle, Konflikte bei gleichem Start oder Ziel) bleiben unbestaetigt, bis sie ausdruecklich bestaetigt werden, und Nodes bekommen nur Bestaetigtes; nie wird eine Verbindung aus einer T- oder Y-Form abgeleitet. Das Dateiformat hat eine Version; eine Datei von einem neueren Programm wird gelesen, aber nicht veraendert. Jede Aenderung wird sofort gespeichert; schlaegt das fehl, bleibt der alte Stand.
 ]]
 
 local ser = require("core.ser")
@@ -52,9 +52,10 @@ function M.new(spec)
   if not n.blocked then data.version = M.VERSION end
   data.revision = data.revision or 0
   data.counters = data.counters or {}
-  for _, k in ipairs({ "bereich", "gleis", "node", "betriebsstelle", "standort" }) do data.counters[k] = data.counters[k] or 0 end
+  for _, k in ipairs({ "bereich", "gleis", "node", "betriebsstelle", "standort", "knoten" }) do data.counters[k] = data.counters[k] or 0 end
   data.areas, data.tracks, data.nodes = data.areas or {}, data.tracks or {}, data.nodes or {}
   data.stations, data.sites = data.stations or {}, data.sites or {}
+  data.junctions = data.junctions or {}
 
   -- Aenderung ausfuehren; schlaegt das Speichern fehl, kommt der alte Stand zurueck
   local function change(fn)
@@ -228,6 +229,13 @@ function M.new(spec)
           if data.tracks[tid] and data.tracks[tid].area == id then return nil, "Die Betriebsstelle " .. station.name .. " (" .. sid .. ") nutzt ein Gleis dieses Bereichs: erst dort aufloesen." end
         end
       end
+      for jid, j in pairs(data.junctions) do
+        for cname, c in pairs(j.connections) do
+          for _, tid in ipairs(c.tracks) do
+            if data.tracks[tid] and data.tracks[tid].area == id then return nil, "Der Knoten " .. j.name .. " (" .. jid .. ") fuehrt ein Gleis dieses Bereichs: erst dort aufloesen." end
+          end
+        end
+      end
       data.areas[id] = nil
       for tid, t in pairs(data.tracks) do if t.area == id then data.tracks[tid] = nil end end
       return true
@@ -281,6 +289,13 @@ function M.new(spec)
       if user then return nil, "Die Node " .. user .. " nutzt dieses Gleis: erst dort aufloesen." end
       for sid, station in pairs(data.stations) do
         if station.links and station.links[id] then return nil, "Die Betriebsstelle " .. station.name .. " (" .. sid .. ") nutzt dieses Gleis: erst dort aufloesen." end
+      end
+      for jid, j in pairs(data.junctions) do
+        for cname, c in pairs(j.connections) do
+          for _, tid in ipairs(c.tracks) do
+            if tid == id then return nil, "Der Knoten " .. j.name .. " (" .. jid .. ") fuehrt es im Anschluss " .. cname .. ": erst dort aufloesen." end
+          end
+        end
       end
       data.tracks[id] = nil
       return true
@@ -614,6 +629,356 @@ function M.new(spec)
     end
     table.sort(list, function(a, b) return a.id < b.id end)
     return list
+  end
+
+  -- Knoten: Anschluesse als Gruppen von Gleisenden, Fahrwege, Konflikte (Konzept 7) ------------------------------------------------------
+  M.MAX_JUNCTIONS = 100
+  M.MAX_JUNCTION_ENDS = 24
+  M.MAX_ROUTES = 60
+  M.MAX_CONFLICTS = 90
+
+  local function junction_name_taken(name, except)
+    for id, j in pairs(data.junctions) do
+      if id ~= except and same(j.name, name) then return true end
+    end
+    return false
+  end
+
+  local function end_owner(j, track_id)
+    for name, c in pairs(j.connections) do
+      for _, tid in ipairs(c.tracks) do if tid == track_id then return name end end
+    end
+  end
+
+  local function count_of(t)
+    local c = 0
+    for _ in pairs(t) do c = c + 1 end
+    return c
+  end
+
+  function n.add_junction(spec2)
+    return change(function()
+      if count_of(data.junctions) >= M.MAX_JUNCTIONS then return nil, "Es gibt schon " .. M.MAX_JUNCTIONS .. " Knoten." end
+      local name, why = valid_name(spec2.name)
+      if not name then return nil, why end
+      if junction_name_taken(name) then return nil, "Einen Knoten " .. name .. " gibt es schon." end
+      local id = new_id("knoten", "K")
+      data.junctions[id] = { name = name, connections = {}, routes = {}, conflicts = {}, route_counter = 0, rev = 1 }
+      return id
+    end)
+  end
+
+  function n.set_junction(id, fields)
+    return change(function()
+      local j = data.junctions[id]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local old = stale(j, fields.if_rev, "Knoten")
+      if old then return nil, old end
+      if fields.name ~= nil then
+        local name, why = valid_name(fields.name)
+        if not name then return nil, why end
+        if junction_name_taken(name, id) then return nil, "Einen Knoten " .. name .. " gibt es schon." end
+        j.name = name
+      end
+      touch(j)
+      return true
+    end)
+  end
+
+  function n.remove_junction(id)
+    return change(function()
+      if not data.junctions[id] then return nil, "Den Knoten gibt es nicht." end
+      for node_id, node in pairs(data.nodes) do
+        if node.junction == id and node.state ~= "verworfen" then return nil, "Die Node " .. node_id .. " nutzt diesen Knoten: erst dort aufloesen." end
+      end
+      data.junctions[id] = nil
+      return true
+    end)
+  end
+
+  -- Anschluss: Name und die Gleisenden (Gleise des Verzeichnisses), jedes Gleisende gehoert zu hoechstens einem Anschluss des Knotens
+  function n.add_connection(jid, name, track_ids)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local clean_name, why = valid_name(name)
+      if not clean_name then return nil, why end
+      if clean_name:lower() == "beide" then return nil, "'beide' ist als Anschlussname nicht moeglich." end
+      for existing in pairs(j.connections) do
+        if same(existing, clean_name) then return nil, "Den Anschluss " .. clean_name .. " gibt es in diesem Knoten schon." end
+      end
+      if type(track_ids) ~= "table" or #track_ids == 0 then return nil, "Ein Anschluss braucht mindestens ein Gleisende." end
+      local list = {}
+      for _, tid in ipairs(track_ids) do
+        if not data.tracks[tid] then return nil, "Das Gleis " .. tostring(tid) .. " gibt es nicht." end
+        local owner = end_owner(j, tid)
+        if owner then return nil, "Das Gleis " .. tid .. " gehoert schon zum Anschluss " .. owner .. "." end
+        for _, seen in ipairs(list) do if seen == tid then return nil, "Das Gleis " .. tid .. " ist doppelt angegeben." end end
+        list[#list + 1] = tid
+      end
+      local total = #list
+      for _, c in pairs(j.connections) do total = total + #c.tracks end
+      if total > M.MAX_JUNCTION_ENDS then return nil, "Ein Knoten hat hoechstens " .. M.MAX_JUNCTION_ENDS .. " Gleisenden." end
+      if count_of(j.connections) >= 8 then return nil, "Ein Knoten hat hoechstens 8 Anschluesse." end
+      j.connections[clean_name] = { tracks = list }
+      touch(j)
+      return true
+    end)
+  end
+
+  function n.remove_connection(jid, name)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local c = j.connections[name]
+      if not c then return nil, "Den Anschluss gibt es nicht." end
+      local ends = {}
+      for _, tid in ipairs(c.tracks) do ends[tid] = true end
+      for rid, r in pairs(j.routes) do
+        if ends[r.from] or ends[r.to] then
+          j.routes[rid] = nil
+        end
+      end
+      local kept = {}
+      for _, cf in ipairs(j.conflicts) do
+        if j.routes[cf.a] and j.routes[cf.b] then kept[#kept + 1] = cf end
+      end
+      j.conflicts = kept
+      j.connections[name] = nil
+      touch(j)
+      return true
+    end)
+  end
+
+  -- Fahrweg: gerichtete Verbindung zwischen zwei Gleisenden verschiedener Anschluesse (nie aus der Form abgeleitet; zunaechst unbestaetigt)
+  function n.add_route(jid, from, to, confirmed)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local a, b = end_owner(j, from), end_owner(j, to)
+      if not a then return nil, "Das Gleis " .. tostring(from) .. " gehoert zu keinem Anschluss des Knotens." end
+      if not b then return nil, "Das Gleis " .. tostring(to) .. " gehoert zu keinem Anschluss des Knotens." end
+      if a == b then return nil, "Ein Fahrweg verbindet verschiedene Anschluesse." end
+      for _, r in pairs(j.routes) do
+        if r.from == from and r.to == to then return nil, "Diesen Fahrweg gibt es schon." end
+      end
+      if count_of(j.routes) >= M.MAX_ROUTES then return nil, "Ein Knoten hat hoechstens " .. M.MAX_ROUTES .. " Fahrwege." end
+      j.route_counter = j.route_counter + 1
+      local rid = string.format("F%04d", j.route_counter)
+      j.routes[rid] = { from = from, to = to, confirmed = confirmed == true }
+      touch(j)
+      return rid
+    end)
+  end
+
+  function n.remove_route(jid, rid)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      if not j.routes[rid] then return nil, "Den Fahrweg gibt es nicht." end
+      j.routes[rid] = nil
+      local kept = {}
+      for _, cf in ipairs(j.conflicts) do if cf.a ~= rid and cf.b ~= rid then kept[#kept + 1] = cf end end
+      j.conflicts = kept
+      touch(j)
+      return true
+    end)
+  end
+
+  local function conflict_index(j, a, b)
+    for i, cf in ipairs(j.conflicts) do
+      if (cf.a == a and cf.b == b) or (cf.a == b and cf.b == a) then return i end
+    end
+  end
+
+  function n.add_conflict(jid, a, b, confirmed)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      if a == b then return nil, "Ein Fahrweg steht nicht im Konflikt mit sich selbst." end
+      if not j.routes[a] or not j.routes[b] then return nil, "Beide Fahrwege muessen es im Knoten geben." end
+      if conflict_index(j, a, b) then return nil, "Diesen Konflikt gibt es schon." end
+      if #j.conflicts >= M.MAX_CONFLICTS then return nil, "Ein Knoten hat hoechstens " .. M.MAX_CONFLICTS .. " Konflikte." end
+      if a > b then a, b = b, a end
+      j.conflicts[#j.conflicts + 1] = { a = a, b = b, confirmed = confirmed == true }
+      touch(j)
+      return true
+    end)
+  end
+
+  function n.remove_conflict(jid, a, b)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local i = conflict_index(j, a, b)
+      if not i then return nil, "Den Konflikt gibt es nicht." end
+      table.remove(j.conflicts, i)
+      touch(j)
+      return true
+    end)
+  end
+
+  -- Vorschlaege: sie bereiten Eingaben vor und bleiben unbestaetigt (Konzept 7.3). durchgehend = gleich nummerierte Gleisenden der ersten
+  -- beiden Anschluesse in beide Richtungen; alle = jeder Fahrweg zwischen verschiedenen Anschluessen
+  function n.propose_routes(jid, kind)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      if kind ~= "durchgehend" and kind ~= "alle" then return nil, "Vorschlag: durchgehend oder alle." end
+      local names = {}
+      for name in pairs(j.connections) do names[#names + 1] = name end
+      table.sort(names)
+      local pairs_list = {}
+      if kind == "durchgehend" then
+        if #names ~= 2 then return nil, "'durchgehend' braucht genau zwei Anschluesse (hier " .. #names .. ")." end
+        local x, y = j.connections[names[1]].tracks, j.connections[names[2]].tracks
+        for i = 1, math.min(#x, #y) do
+          pairs_list[#pairs_list + 1] = { x[i], y[i] }
+          pairs_list[#pairs_list + 1] = { y[i], x[i] }
+        end
+      else
+        for _, na in ipairs(names) do
+          for _, nb in ipairs(names) do
+            if na ~= nb then
+              for _, ta in ipairs(j.connections[na].tracks) do
+                for _, tb in ipairs(j.connections[nb].tracks) do pairs_list[#pairs_list + 1] = { ta, tb } end
+              end
+            end
+          end
+        end
+      end
+      local made = 0
+      for _, pair in ipairs(pairs_list) do
+        local exists = false
+        for _, r in pairs(j.routes) do if r.from == pair[1] and r.to == pair[2] then exists = true end end
+        if not exists then
+          if count_of(j.routes) >= M.MAX_ROUTES then return nil, "Mit dem Vorschlag waeren es mehr als " .. M.MAX_ROUTES .. " Fahrwege." end
+          j.route_counter = j.route_counter + 1
+          j.routes[string.format("F%04d", j.route_counter)] = { from = pair[1], to = pair[2], confirmed = false }
+          made = made + 1
+        end
+      end
+      touch(j)
+      return made
+    end)
+  end
+
+  -- Konfliktvorschlaege: Fahrwege mit gemeinsamem Start- oder Zielgleis. Kreuzungen auf gleicher Hoehe und gemeinsame Gleisteile
+  -- kennt das Verzeichnis nicht; sie traegt man von Hand ein (eine Bruecke ueber einem Gleis ist kein Konflikt).
+  function n.propose_conflicts(jid)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local ids = {}
+      for rid in pairs(j.routes) do ids[#ids + 1] = rid end
+      table.sort(ids)
+      local made = 0
+      for i = 1, #ids do
+        for k = i + 1, #ids do
+          local ra, rb = j.routes[ids[i]], j.routes[ids[k]]
+          if (ra.from == rb.from or ra.to == rb.to) and not conflict_index(j, ids[i], ids[k]) then
+            if #j.conflicts >= M.MAX_CONFLICTS then return nil, "Mit dem Vorschlag waeren es mehr als " .. M.MAX_CONFLICTS .. " Konflikte." end
+            j.conflicts[#j.conflicts + 1] = { a = ids[i], b = ids[k], confirmed = false }
+            made = made + 1
+          end
+        end
+      end
+      touch(j)
+      return made
+    end)
+  end
+
+  function n.confirm_junction(jid)
+    return change(function()
+      local j = data.junctions[jid]
+      if not j then return nil, "Den Knoten gibt es nicht." end
+      local changed = 0
+      for _, r in pairs(j.routes) do if not r.confirmed then r.confirmed = true; changed = changed + 1 end end
+      for _, cf in ipairs(j.conflicts) do if not cf.confirmed then cf.confirmed = true; changed = changed + 1 end end
+      if changed > 0 then touch(j) end
+      return changed
+    end)
+  end
+
+  -- offene Punkte eines Knotens: unbestaetigte Fahrwege/Konflikte (blockieren), fehlende Konflikte bei gemeinsamem Start/Ziel (Hinweis)
+  local function junction_open(j)
+    local unconfirmed, hints = 0, {}
+    for _, r in pairs(j.routes) do if not r.confirmed then unconfirmed = unconfirmed + 1 end end
+    for _, cf in ipairs(j.conflicts) do if not cf.confirmed then unconfirmed = unconfirmed + 1 end end
+    local ids = {}
+    for rid in pairs(j.routes) do ids[#ids + 1] = rid end
+    table.sort(ids)
+    for i = 1, #ids do
+      for k = i + 1, #ids do
+        local ra, rb = j.routes[ids[i]], j.routes[ids[k]]
+        if (ra.from == rb.from or ra.to == rb.to) and not conflict_index(j, ids[i], ids[k]) then
+          hints[#hints + 1] = "Die Fahrwege " .. ids[i] .. " und " .. ids[k] .. " haben " .. (ra.from == rb.from and "dasselbe Startgleis" or "dasselbe Zielgleis") .. ": Konflikt nicht eingetragen."
+        end
+      end
+    end
+    return unconfirmed, hints
+  end
+
+  local function junction_view(id, j, detail)
+    local unconfirmed, hints = junction_open(j)
+    local out = { id = id, name = j.name, rev = j.rev or 0, connections = count_of(j.connections), routes = count_of(j.routes), conflicts = #j.conflicts, unconfirmed = unconfirmed, hints = #hints }
+    if detail then
+      local conns = {}
+      for name, c in pairs(j.connections) do conns[#conns + 1] = { name = name, tracks = copy(c.tracks) } end
+      table.sort(conns, function(a, b) return a.name < b.name end)
+      local routes = {}
+      for rid, r in pairs(j.routes) do routes[#routes + 1] = { id = rid, from = r.from, to = r.to, confirmed = r.confirmed } end
+      table.sort(routes, function(a, b) return a.id < b.id end)
+      out.connections, out.routes, out.conflicts, out.hints = conns, routes, copy(j.conflicts), hints
+    end
+    return out
+  end
+
+  function n.junctions()
+    local list = {}
+    for id, j in pairs(data.junctions) do list[#list + 1] = junction_view(id, j, false) end
+    table.sort(list, function(a, b) return a.id < b.id end)
+    return list
+  end
+
+  function n.junction(id)
+    local j = data.junctions[id]
+    return j and junction_view(id, j, true) or nil
+  end
+
+  -- fuer eine Node: nur Bestaetigtes (Anschluesse; Fahrwege; Konflikte); jeder Teil passt in eine Funkantwort
+  function n.junction_part(id, part)
+    local j = data.junctions[id]
+    if not j then return nil, "Den Knoten gibt es nicht." end
+    if part == "anschluesse" then
+      local conns = {}
+      for name, c in pairs(j.connections) do
+        local ends = {}
+        for _, tid in ipairs(c.tracks) do
+          local t = data.tracks[tid]
+          ends[#ends + 1] = { id = tid, name = t and t.name or "?" }
+        end
+        conns[#conns + 1] = { name = name, tracks = ends }
+      end
+      table.sort(conns, function(a, b) return a.name < b.name end)
+      return { id = id, name = j.name, rev = j.rev or 0, connections = conns }
+    elseif part == "fahrwege" then
+      local routes = {}
+      for rid, r in pairs(j.routes) do
+        if r.confirmed then routes[#routes + 1] = { id = rid, from = r.from, to = r.to } end
+      end
+      table.sort(routes, function(a, b) return a.id < b.id end)
+      return { id = id, routes = routes }
+    elseif part == "konflikte" then
+      local list = {}
+      for _, cf in ipairs(j.conflicts) do
+        if cf.confirmed and j.routes[cf.a] and j.routes[cf.b] and j.routes[cf.a].confirmed and j.routes[cf.b].confirmed then
+          list[#list + 1] = { a = cf.a, b = cf.b }
+        end
+      end
+      return { id = id, conflicts = list }
+    end
+    return nil, "Teil: anschluesse, fahrwege oder konflikte."
   end
 
   -- Nodes ----------------------------------------------------------------------------------------------------------------------------------

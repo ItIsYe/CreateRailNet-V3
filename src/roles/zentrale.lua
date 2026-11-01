@@ -681,7 +681,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
-      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" then role.handle_directory(m)
+      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" then role.handle_directory(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
       elseif m.payload.kind == "netze" then
         -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
@@ -1076,6 +1076,15 @@ function M.new(node)
       local area = type(p.area) == "string" and role.netz.area(p.area) or nil
       if not area then return node.reply(m, "abgelehnt", { grund = "Den Bereich gibt es nicht." }) end
       return node.reply(m, "ok", { area = area, revision = revision })
+    end
+    if p.kind == "knoten_liste" then
+      local list = {}
+      for _, j in ipairs(role.netz.junctions()) do list[#list + 1] = { id = j.id, name = j.name, connections = j.connections, open = j.unconfirmed } end
+      return node.reply(m, "ok", { junctions = list, revision = revision })
+    elseif p.kind == "knoten_teil" then
+      local part, why = role.netz.junction_part(type(p.junction) == "string" and p.junction or "", p.part)
+      if not part then return node.reply(m, "abgelehnt", { grund = why }) end
+      return node.reply(m, "ok", { part = part, revision = revision })
     end
     local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, area = p.area, tracks = p.tracks })
     if not entry then return node.reply(m, "abgelehnt", { grund = err }) end
@@ -1613,6 +1622,125 @@ function M.new(node)
     extra = {
       { id = "loesen", label = function(r) return r and netz_arm.link == r.station .. r.track and "Wirklich?" or "Loesen" end, kind = "danger",
         run = function(v, r) return two_step("link", r.station .. r.track, "die Beziehung wird gelost.", function() return role.netz.unlink_station(r.station, r.track) end) end },
+    },
+  })
+
+  -- Gleis aus "A0001" oder "Bereich / Gleis"
+  local function resolve_track(text)
+    text = tostring(text or ""):match("^%s*(.-)%s*$")
+    if text:match("^A%d+$") then return role.netz.track(text) and text or nil end
+    local area_text, track_text = text:match("^(.-)%s*/%s*(.-)$")
+    local area = area_text and find_area_by_name(area_text)
+    if not area then return nil end
+    for _, t in ipairs(role.netz.area(area.id).tracks) do
+      if t.name:lower() == track_text:lower() then return t.id end
+    end
+  end
+
+  local function track_label(tid)
+    local t = role.netz.track(tid)
+    local a = t and role.netz.area(t.area)
+    return t and (a.name .. "/" .. t.name) or tid
+  end
+
+  -- Knoten (Konzept 7): Anschluesse aus Gleisenden, Fahrwege, Konflikte. Vorschlaege sind unbestaetigt, bis sie bestaetigt werden.
+  pages[#pages + 1] = forms.page({
+    id = "knoten", title = "Knoten", new_label = "Neu", edit_label = "Name",
+    empty = "Noch kein Knoten. Ein Knoten fasst Anschluesse (Gleisenden), Fahrwege und Konflikte zusammen.",
+    items = function()
+      local items, records = {}, {}
+      for _, summary in ipairs(role.netz.junctions()) do
+        local j = role.netz.junction(summary.id)
+        items[#items + 1] = {
+          text = j.name .. "  (" .. j.id .. ")",
+          detail = #j.connections .. " Anschl., " .. #j.routes .. " Fahrw., " .. #j.conflicts .. " Konfl." .. (j.unconfirmed > 0 and (", " .. j.unconfirmed .. " UNBESTAETIGT") or "") .. (#j.hints > 0 and (", " .. #j.hints .. " Luecken") or ""),
+          kind = (j.unconfirmed > 0 or #j.hints > 0) and "wait" or "ok",
+        }
+        records[#items] = { kind = "knoten", knoten = j.id, name = j.name, rev = j.rev }
+        for _, c in ipairs(j.connections) do
+          local names = {}
+          for _, tid in ipairs(c.tracks) do names[#names + 1] = track_label(tid) end
+          items[#items + 1] = { text = "   Anschluss " .. c.name, detail = table.concat(names, ", ") }
+          records[#items] = { kind = "anschluss", knoten = j.id, name = c.name }
+        end
+        for _, r in ipairs(j.routes) do
+          items[#items + 1] = { text = "   " .. r.id .. " " .. track_label(r.from) .. " > " .. track_label(r.to), detail = r.confirmed and "bestaetigt" or "unbestaetigt", kind = r.confirmed and "text" or "wait" }
+          records[#items] = { kind = "fahrweg", knoten = j.id, id = r.id }
+        end
+        for _, cf in ipairs(j.conflicts) do
+          items[#items + 1] = { text = "   Konflikt " .. cf.a .. " x " .. cf.b, detail = cf.confirmed and "bestaetigt" or "unbestaetigt", kind = cf.confirmed and "text" or "wait" }
+          records[#items] = { kind = "konflikt", knoten = j.id, a = cf.a, b = cf.b }
+        end
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "knoten", label = "Knoten (Name; neu anlegen oder zum Ergaenzen)", max = 30, width = 34 },
+      { id = "typ", label = "Was: knoten, anschluss, fahrweg, konflikt", max = 10, width = 20, default = "knoten" },
+      { id = "a", label = "Anschlussname / Start (Bereich / Gleis) / Fahrweg F0001", max = 40, width = 44 },
+      { id = "b", label = "Gleisenden (Bereich / Gleis; ...) / Ziel / Fahrweg", max = 90, width = 48 },
+    },
+    edit = function(r) return { knoten = r.name or "", typ = "knoten" } end,
+    on_save = function(values, record)
+      local kind = tostring(values.typ or ""):match("^%s*(.-)%s*$"):lower()
+      if record then
+        if record.kind ~= "knoten" then return nil, "Zum Aendern den Eintrag loeschen und neu anlegen." end
+        return role.netz.set_junction(record.knoten, { name = values.knoten, if_rev = record.rev })
+      end
+      local name = tostring(values.knoten or ""):match("^%s*(.-)%s*$"):lower()
+      local found
+      for _, j in ipairs(role.netz.junctions()) do if j.name:lower() == name then found = j end end
+      if kind == "knoten" then
+        local id, err = role.netz.add_junction({ name = values.knoten })
+        if not id then return nil, err end
+        return true
+      end
+      if not found then return nil, "Den Knoten '" .. tostring(values.knoten) .. "' gibt es nicht: erst mit Was = knoten anlegen." end
+      if kind == "anschluss" then
+        local ends = {}
+        for part in tostring(values.b or ""):gmatch("[^;]+") do
+          local tid = resolve_track(part)
+          if not tid then return nil, "Das Gleis '" .. part:match("^%s*(.-)%s*$") .. "' gibt es nicht (Bereich / Gleis)." end
+          ends[#ends + 1] = tid
+        end
+        return role.netz.add_connection(found.id, values.a, ends)
+      elseif kind == "fahrweg" then
+        local from, to = resolve_track(values.a), resolve_track(values.b)
+        if not from then return nil, "Das Startgleis '" .. tostring(values.a) .. "' gibt es nicht (Bereich / Gleis)." end
+        if not to then return nil, "Das Zielgleis '" .. tostring(values.b) .. "' gibt es nicht (Bereich / Gleis)." end
+        local id, err = role.netz.add_route(found.id, from, to)
+        if not id then return nil, err end
+        return true
+      elseif kind == "konflikt" then
+        return role.netz.add_conflict(found.id, tostring(values.a or ""):match("^%s*(.-)%s*$"), tostring(values.b or ""):match("^%s*(.-)%s*$"))
+      end
+      return nil, "Was: knoten, anschluss, fahrweg oder konflikt."
+    end,
+    extra = {
+      { id = "vorschlag", label = "Auto", kind = "secondary", enabled = function(r) return r.kind == "knoten" end, reason = "Erst einen Knoten waehlen.",
+        run = function(v, r)
+          local j = role.netz.junction(r.knoten)
+          local kind = #j.connections == 2 and "durchgehend" or "alle"
+          local routes, why = role.netz.propose_routes(r.knoten, kind)
+          if not routes then return why end
+          local conflicts = role.netz.propose_conflicts(r.knoten)
+          return routes .. " Fahrweg(e) und " .. tostring(conflicts) .. " Konflikt(e) vorgeschlagen (" .. kind .. "): pruefen, dann Bestaetigen."
+        end },
+      { id = "bestaetigen", label = "Bestaet.", kind = "secondary", enabled = function(r) return r.kind == "knoten" end, reason = "Erst einen Knoten waehlen.",
+        run = function(v, r)
+          local n = role.netz.confirm_junction(r.knoten)
+          return n and (n .. " Eintrag/Eintraege bestaetigt.") or "Nichts bestaetigt."
+        end },
+      { id = "loeschen", label = function(r) return r and netz_arm.knoten == (r.id or r.name or r.knoten) .. r.kind and "Wirklich?" or "Loeschen" end, kind = "danger",
+        run = function(v, r)
+          local key = (r.id or r.name or r.knoten) .. r.kind
+          return two_step("knoten", key, "der Eintrag wird geloescht.", function()
+            if r.kind == "knoten" then return role.netz.remove_junction(r.knoten)
+            elseif r.kind == "anschluss" then return role.netz.remove_connection(r.knoten, r.name)
+            elseif r.kind == "fahrweg" then return role.netz.remove_route(r.knoten, r.id)
+            else return role.netz.remove_conflict(r.knoten, r.a, r.b) end
+          end)
+        end },
     },
   })
 

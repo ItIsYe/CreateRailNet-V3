@@ -47,7 +47,7 @@ function M.page(spec)
     if st.screen == "liste" then
       local record = st.records and st.records[st.list.index]
       local list = { { id = "neu", label = spec.new_label or "Neu", kind = "primary" } }
-      if spec.edit then list[#list + 1] = { id = "bearbeiten", label = "Aendern", kind = "secondary", enabled = record ~= nil, reason = "Erst einen Eintrag waehlen." } end
+      if spec.edit then list[#list + 1] = { id = "bearbeiten", label = spec.edit_label or "Aendern", kind = "secondary", enabled = record ~= nil, reason = "Erst einen Eintrag waehlen." } end
       for _, extra in ipairs(spec.extra or {}) do
         list[#list + 1] = {
           id = extra.id, label = type(extra.label) == "function" and extra.label(record) or extra.label, kind = extra.kind or "secondary",
