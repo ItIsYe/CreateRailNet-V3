@@ -25,7 +25,7 @@ function M.new(services)
   -- pruefen und aktivieren. Von Hand geht es weiter wie bisher ("Von Hand" auf dem Bildschirm Bereich).
   local GUIDED_TITLE = {
     ["2.bereich"] = "Bereich waehlen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
-    ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["5.pruefen"] = "Pruefen und aktivieren",
+    ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern", ["5.pruefen"] = "Pruefen und aktivieren",
   }
   local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
 
@@ -960,7 +960,7 @@ function M.new(services)
         { id = "signal_waehlen", label = "Signal", enabled = row ~= nil and free > 0, reason = row == nil and "Erst ein Gleis waehlen." or "Es ist kein freies Signal angeschlossen." },
         { id = "signal_loesen", label = "Loesen", kind = "secondary", enabled = row ~= nil and #row.signals > 0, reason = "An diesem Gleis ist kein Signal zugeordnet." },
         { id = "signal_details", label = "Details", kind = "secondary", enabled = row ~= nil and #row.signals > 0, reason = "An diesem Gleis ist kein Signal zugeordnet." },
-        { id = "neu_lesen", label = "Lesen", kind = "secondary" },
+        { id = "gleis_aendern", label = "Gleis", kind = "secondary", enabled = row ~= nil, reason = "Erst ein Gleis waehlen." },
       }
     end,
     action = function(v, id)
@@ -979,15 +979,67 @@ function M.new(services)
         session.track = row.track
         push("4.z.detail")
         return true
-      elseif id == "act:neu_lesen" then
-        session.wiz.rescan()
-        v.hint = "Geraete neu gelesen."
+      elseif id == "act:gleis_aendern" and row then
+        session.track = row.track
+        session.dir.edit = { direction = row.direction }
+        fields(v).gleisname.value = row.name
+        push("4.z.gleis")
         return true
       end
     end,
     next = function(v)
       push("5.pruefen")
       return true
+    end,
+  }
+
+  -- Name und Richtung eines Gleises auf der Node aendern (Konzept 12.4): die Leitstelle fuehrt die Aenderung aus (Verzeichnis), die Node zieht nach
+  screens["4.z.gleis"] = {
+    no_forward = true,
+    render = function(v, rect)
+      local row
+      for _, r in ipairs(session.wiz.guided_rows()) do if r.track == session.track then row = r end end
+      header(v, rect, nil, "Gleis aendern: " .. (row and row.name or "?"))
+      W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
+      local edit = session.dir.edit or {}
+      W.label(v, rect.x + 1, rect.y + 7, "Richtung: " .. direction_text(edit.direction or (row and row.direction) or "beide"), "text", rect.w - 2)
+      local st = dir_status()
+      if session.dir.editing and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 9, st.text or "", st.kind, rect.w - 2) end
+    end,
+    actions = function(v)
+      return {
+        { id = "g_richtung", label = "Richtung", kind = "secondary", enabled = not session.dir.editing, reason = "Die Leitstelle arbeitet noch." },
+        { id = "g_speichern", label = "Speichern", enabled = not session.dir.editing, reason = "Die Leitstelle arbeitet noch." },
+      }
+    end,
+    action = function(v, id)
+      local edit = session.dir.edit
+      if not edit or session.dir.editing then return false end
+      if id == "act:g_richtung" then
+        local options = {}
+        for _, e in ipairs(session.wiz.area_ends()) do options[#options + 1] = e end
+        options[#options + 1] = "beide"
+        for i, o in ipairs(options) do
+          if o == edit.direction then edit.direction = options[i % #options + 1] return true end
+        end
+        edit.direction = options[1]
+        return true
+      elseif id == "act:g_speichern" then
+        local row
+        for _, r in ipairs(session.wiz.guided_rows()) do if r.track == session.track then row = r end end
+        if not row then return true end
+        local name = fields(v).gleisname.value:match("^%s*(.-)%s*$")
+        local change = {}
+        if name ~= row.name then change.name = name end
+        if edit.direction ~= row.direction then change.direction = edit.direction end
+        if next(change) == nil then v.hint = "Nichts geaendert." pop() return true end
+        if name == "" then v.hint = "Der Gleisname fehlt." return true end
+        services.directory_reset()
+        session.dir.editing = { dir_id = row.dir_id }
+        services.directory_track_change(session.wiz.central_id, session.dir.claim, row.dir_id, change, row.rev)
+        v.hint = "Frage die Leitstelle ..."
+        return true
+      end
     end,
   }
 
@@ -1487,6 +1539,17 @@ function M.new(services)
     elseif st.kind == "halt" and d.claiming then
       d.claiming = nil
       v.hint = st.text
+    end
+    if d.editing then
+      if st.kind == "ok" and st.track and st.track.id == d.editing.dir_id then
+        d.editing = nil
+        local moved = session.wiz.guided_track_update(st.track)
+        v.hint = "Gleis geaendert" .. ((moved or 0) > 0 and (": " .. moved .. " Signal(e) neu bewerten (Details).") or ".")
+        if session.screen == "4.z.gleis" then pop() end
+      elseif st.kind == "halt" then
+        d.editing = nil
+        v.hint = st.text
+      end
     end
   end
 

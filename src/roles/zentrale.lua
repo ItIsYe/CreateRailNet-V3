@@ -681,7 +681,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
-      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" then role.handle_directory(m)
+      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" then role.handle_directory(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
       elseif m.payload.kind == "netze" then
         -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
@@ -1076,6 +1076,24 @@ function M.new(node)
       local area = type(p.area) == "string" and role.netz.area(p.area) or nil
       if not area then return node.reply(m, "abgelehnt", { grund = "Den Bereich gibt es nicht." }) end
       return node.reply(m, "ok", { area = area, revision = revision })
+    end
+    if p.kind == "gleis_aendern" then
+      -- Name und Richtung eines Gleises von der Node aus aendern (Konzept 12.4): nur die Node, die das Gleis ueber ihre Anforderung betreut
+      local owner
+      if type(p.claim) == "string" then
+        for _, nd in ipairs(role.netz.nodes()) do if nd.claim == p.claim and nd.state ~= "verworfen" then owner = nd end end
+      end
+      if not owner then return node.reply(m, "abgelehnt", { grund = "Diese Anforderung kennt die Leitstelle nicht." }) end
+      local mine = false
+      if type(p.track) == "string" then for _, tid in ipairs(owner.tracks) do if tid == p.track then mine = true end end end
+      if not mine then return node.reply(m, "abgelehnt", { grund = "Dieses Gleis gehoert nicht zur Anforderung dieser Node." }) end
+      if type(p.if_rev) ~= "number" then return node.reply(m, "abgelehnt", { grund = "Der Stand des Gleises fehlt." }) end
+      if (p.name ~= nil and type(p.name) ~= "string") or (p.direction ~= nil and type(p.direction) ~= "string") or (p.name == nil and p.direction == nil) then
+        return node.reply(m, "abgelehnt", { grund = "Name oder Richtung fehlen." })
+      end
+      local ok, err = role.netz.set_track(p.track, { name = p.name, direction = p.direction, if_rev = p.if_rev })
+      if not ok then return node.reply(m, "abgelehnt", { grund = err }) end
+      return node.reply(m, "ok", { track = role.netz.track(p.track), revision = revision })
     end
     if p.kind == "knoten_liste" then
       local list = {}

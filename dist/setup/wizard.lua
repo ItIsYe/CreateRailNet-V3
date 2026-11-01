@@ -348,7 +348,7 @@ local tid = by_dir[t.id]
 if not tid then tid = model.add_track(c, t.name) end
 local track = c.tracks[tid]
 track.name = t.name
-track.dir = { id = t.id, area = info.area.id, direction = t.direction }
+track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
 end
 return true
 end
@@ -378,7 +378,7 @@ local info = d.signal or {}
 signals[#signals + 1] = { id = did, device = d.device, use = info.use or "strecke", effect = info.effect, place = info.place }
 end
 end
-rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, signals = signals }
+rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals }
 end
 return rows
 end
@@ -459,6 +459,19 @@ if not sg.effect then list[#list + 1] = { id = sg.id, device = sg.device, track_
 end
 end
 return list
+end
+
+
+function w.guided_track_update(info)
+for tid, track in pairs(w.config.tracks) do
+if track.dir and track.dir.id == info.id then
+track.name = info.name
+local moved = track.dir.direction ~= info.direction
+track.dir.direction, track.dir.rev = info.direction, info.rev
+return moved and w.guided_direction_changed(tid) or 0, tid
+end
+end
+return nil, "Das Gleis gehoert nicht zu dieser Node."
 end
 
 

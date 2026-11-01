@@ -249,6 +249,7 @@ function M.new(env)
     directory_areas = function(central_id) return n.directory_areas(central_id) end,
     directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
     directory_claim = function(central_id, claim, role, area_id, track_ids) return n.directory_claim(central_id, claim, role, area_id, track_ids) end,
+    directory_track_change = function(central_id, claim, track_id, fields, if_rev) return n.directory_track_change(central_id, claim, track_id, fields, if_rev) end,
     directory_status = function() return n.directory_status() end,
     directory_reset = function() return n.directory_reset() end,
     new_claim = function() return n.new_claim() end,
@@ -566,7 +567,7 @@ function M.new(env)
         if type(t) ~= "table" or not dir_id(t.id, "A") or not dir_name(t.name) or not (t.direction == "beide" or t.direction == a.ends[1] or t.direction == a.ends[2]) then
           return dir_bad()
         end
-        tracks[#tracks + 1] = { id = t.id, name = t.name, direction = t.direction }
+        tracks[#tracks + 1] = { id = t.id, name = t.name, direction = t.direction, rev = (type(t.rev) == "number" and t.rev >= 0 and t.rev < 1e9) and math.floor(t.rev) or 0 }
       end
       n.dir_state = { kind = "ok", text = #tracks .. " Gleis(e).", area = { id = a.id, name = a.name, ends = { a.ends[1], a.ends[2] }, tracks = tracks } }
     end)
@@ -580,6 +581,15 @@ function M.new(env)
         return dir_bad()
       end
       n.dir_state = { kind = "ok", text = "Kennung " .. node.id .. " vergeben.", node = { id = node.id, name = node.name, label = node.label } }
+    end)
+  end
+
+  -- Name oder Richtung eines Gleises aendern (Konzept 12.4); die Leitstelle prueft, dass das Gleis zur Anforderung gehoert und der Stand noch aktuell ist
+  function n.directory_track_change(central_id, claim, track_id, fields, if_rev)
+    dir_send(central_id, { kind = "gleis_aendern", claim = claim, track = track_id, name = fields.name, direction = fields.direction, if_rev = if_rev }, function(p)
+      local t = p.track
+      if type(t) ~= "table" or not dir_id(t.id, "A") or t.id ~= track_id or not dir_name(t.name) or not dir_name(t.direction) then return dir_bad() end
+      n.dir_state = { kind = "ok", text = "Gleis geaendert.", track = { id = t.id, name = t.name, direction = t.direction, rev = (type(t.rev) == "number" and t.rev >= 0 and t.rev < 1e9) and math.floor(t.rev) or 0 } }
     end)
   end
 
