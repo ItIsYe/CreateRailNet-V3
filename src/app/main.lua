@@ -96,6 +96,7 @@ function M.real_env()
     term = term.current and term.current() or term,
     wrap = function(name) return peripheral.wrap(name) end,
     start_timer = os.startTimer,
+    set_label = function(text) if os.setComputerLabel then os.setComputerLabel(text) end end,
     pull_event = function() return { os.pullEvent() } end,
   }
 end

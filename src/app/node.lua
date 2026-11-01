@@ -16,6 +16,7 @@ local eventslib = require("dev.events")
 local viewlib = require("ui.view")
 local W = require("ui.widgets")
 local setup_page = require("setup.page")
+local pruefunglib = require("setup.pruefung")
 local version = require("core.version")
 local envcheck = require("core.envcheck")
 local dataformat = require("core.dataformat")
@@ -244,6 +245,13 @@ function M.new(env)
     fetch_status = function() return n.fetch_state end,
     search_networks = function() return n.search_networks() end,
     search_status = function() return n.search_status() end,
+    mark_dirty = function() n.dirty = true end,
+    directory_areas = function(central_id) return n.directory_areas(central_id) end,
+    directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
+    directory_claim = function(central_id, claim, role, area_id, track_ids) return n.directory_claim(central_id, claim, role, area_id, track_ids) end,
+    directory_status = function() return n.directory_status() end,
+    directory_reset = function() return n.directory_reset() end,
+    new_claim = function() return n.new_claim() end,
     on_saved = function(config)
       n.config = config
       n.rebuild_views()
@@ -310,7 +318,13 @@ function M.new(env)
     elseif info.fallback then n.notify("warnung", "Kein Funkmodem: es wird das Kabelmodem benutzt.") end
   end
 
+  function n.set_label(text)
+    if type(text) == "string" and env.set_label then return pcall(env.set_label, text) end
+    return false
+  end
+
   function n.start_services()
+    if n.config and n.config.status == "aktiv" and n.config.node.label then n.set_label(n.config.node.label) end
     setup_net()
     n.router = eventslib.router({ bindings = n.config and bind.routes(n.config.devices) or {}, now = n.clock.now })
     n.attach_roles()
@@ -411,6 +425,11 @@ function M.new(env)
     run_hooks(n.hooks.tick)
   end
 
+  -- die Einrichtung (Antworten der Leitstelle, schrittweise Abschlusspruefung) laeuft im Sekundentakt mit
+  table.insert(n.hooks.tick, function()
+    if n.setup and n.setup.tick then n.setup.tick() end
+  end)
+
 
   -- Konfigurationssicherung und Ersatzcomputer (29.2, A17) ----------------------------------------------------------------------------------
   -- Jede aktive Node (ausser der Leitstelle) schickt ihre Konfiguration nach jeder Aenderung an die Leitstelle. Ein Ersatzcomputer holt sie dort ab,
@@ -492,9 +511,113 @@ function M.new(env)
     n.fetch_state = { kind = "wait", text = "Anfrage an " .. central_id .. " gesendet ..." }
   end
 
+  -- Netzverzeichnis der Leitstelle (Signal-Einrichtung): Bereiche, Gleise eines Bereichs, Node-Kennung anfordern. Die Antworten sind unbeglaubigt
+  -- (Rednet ist keine Anmeldung): nur Werte in der erlaubten Form (Kennungen, Namen aus Buchstaben, Ziffern, Leerzeichen, - und _) werden uebernommen.
+  local DIR_TIMEOUT = 8
+  local DIR_MAX_AREAS = 400
+  n.dir_state = nil
+
+  local function dir_id(v, prefix) return type(v) == "string" and v:match("^" .. prefix .. "%d%d%d%d+$") ~= nil and #v <= 12 end
+  local function dir_name(v) return type(v) == "string" and #v > 0 and #v <= 30 and v:match("^[%w _%-]+$") ~= nil end
+
+  local function dir_send(central_id, payload, handler)
+    if n.net then n.dir_state = { kind = "halt", text = "Dieser Computer ist schon eingerichtet." } return end
+    local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
+    if #info.opened == 0 then n.dir_state = { kind = "halt", text = "Kein Modem gefunden." } return end
+    temporary_net(central_id)
+    local m = n.replace_factory.make("abfrage", central_id, payload)
+    n.replace_net.send(central_id, m)
+    n.dir_req, n.dir_until, n.dir_handler = m.messageId, n.clock.now() + DIR_TIMEOUT, handler
+    n.dir_state = { kind = "wait", text = "Frage die Leitstelle ..." }
+  end
+
+  local function dir_bad(text)
+    n.dir_state = { kind = "halt", text = text or "Unerwartete Antwort der Leitstelle." }
+  end
+
+  function n.directory_areas(central_id)
+    local acc = {}
+    local function page(after)
+      dir_send(central_id, { kind = "verzeichnis", after = after }, function(p)
+        if type(p.areas) ~= "table" then return dir_bad() end
+        for _, a in ipairs(p.areas) do
+          if type(a) ~= "table" or not dir_id(a.id, "B") or not dir_name(a.name) or type(a.ends) ~= "table" or not dir_name(a.ends[1]) or not dir_name(a.ends[2])
+            or type(a.tracks) ~= "number" or a.tracks < 0 or a.tracks > 40 then
+            return dir_bad()
+          end
+          acc[#acc + 1] = { id = a.id, name = a.name, ends = { a.ends[1], a.ends[2] }, tracks = a.tracks }
+        end
+        if p.more and #acc < DIR_MAX_AREAS and #acc > 0 then return page(acc[#acc].id) end
+        n.dir_state = { kind = "ok", text = #acc .. " Bereich(e) im Netz.", areas = acc }
+      end)
+    end
+    page(nil)
+  end
+
+  function n.directory_tracks(central_id, area_id)
+    dir_send(central_id, { kind = "verzeichnis_gleise", area = area_id }, function(p)
+      local a = p.area
+      if type(a) ~= "table" or not dir_id(a.id, "B") or not dir_name(a.name) or type(a.ends) ~= "table" or not dir_name(a.ends[1]) or not dir_name(a.ends[2])
+        or type(a.tracks) ~= "table" or #a.tracks > 40 then
+        return dir_bad()
+      end
+      local tracks = {}
+      for _, t in ipairs(a.tracks) do
+        if type(t) ~= "table" or not dir_id(t.id, "A") or not dir_name(t.name) or not (t.direction == "beide" or t.direction == a.ends[1] or t.direction == a.ends[2]) then
+          return dir_bad()
+        end
+        tracks[#tracks + 1] = { id = t.id, name = t.name, direction = t.direction }
+      end
+      n.dir_state = { kind = "ok", text = #tracks .. " Gleis(e).", area = { id = a.id, name = a.name, ends = { a.ends[1], a.ends[2] }, tracks = tracks } }
+    end)
+  end
+
+  function n.directory_claim(central_id, claim, role, area_id, track_ids)
+    dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, area = area_id, tracks = track_ids }, function(p)
+      local node = p.node
+      if type(node) ~= "table" or not dir_id(node.id, "N") or type(node.name) ~= "string" or #node.name > 60 or not node.name:match("^[%w _%-]+$")
+        or type(node.label) ~= "string" or #node.label > 60 or not node.label:match("^[%w _%-|]+$") then
+        return dir_bad()
+      end
+      n.dir_state = { kind = "ok", text = "Kennung " .. node.id .. " vergeben.", node = { id = node.id, name = node.name, label = node.label } }
+    end)
+  end
+
+  function n.directory_status()
+    local st = n.dir_state
+    if st and st.kind == "wait" and n.clock.now() >= n.dir_until then
+      n.dir_req, n.dir_handler = nil, nil
+      n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie, und ist sie in Funkreichweite (Ender-Modem)?" }
+      st = n.dir_state
+    end
+    return st
+  end
+
+  function n.directory_reset() n.dir_req, n.dir_handler, n.dir_state = nil, nil, nil end
+
+  -- eine Anforderungskennung, die bei jedem Versuch gleich bleibt (der Assistent merkt sie sich im Entwurf)
+  function n.new_claim()
+    return string.format("c%d-%06d%06d", n.clock.boot_id(), math.random(0, 999999), math.random(0, 999999))
+  end
+
   function n.replace_receive(ev)
     local m, status = n.replace_net.receive(ev)
     if not m then return end
+    if n.dir_req and m.correlationId == n.dir_req then
+      if status ~= "ok" then return end
+      local handler = n.dir_handler
+      n.dir_req, n.dir_handler = nil, nil
+      local p = m.payload
+      if type(p) ~= "table" or p.status ~= "ok" then
+        n.dir_state = { kind = "halt", text = "Abgelehnt: " .. tostring(type(p) == "table" and p.grund or "keine Begruendung") }
+      else
+        local ok = pcall(handler, p)
+        if not ok then dir_bad() end
+      end
+      n.dirty = true
+      if n.setup and n.setup.poll then n.setup.poll() end
+      return
+    end
     if m.correlationId == n.search_req then
       if status == "ok" then collect_network(m) end
       return
@@ -609,6 +732,17 @@ function M.new(env)
   end
 
   n.rebuild_views()
+  -- Absturz mitten in der Abschlusspruefung (Konzept 13.4): eine stehengebliebene eigene Testsperre erkennen, aufheben und melden
+  if n.config and n.config.pruefung and n.config.pruefung.lauf then
+    local check = pruefunglib.new({
+      env = env, config = function() return n.config end, now = function() return n.clock.now() end,
+      scan = function() return detect.scan(env.peripheral) end,
+      persist = function() return store.save(CONFIG, n.config) end,
+    })
+    local note, ok = check.recover()
+    if note then n.notify(ok and "warnung" or "fehler", note) end
+  end
+
   n.start_services()
   if n.config and n.config.status ~= "aktiv" then n.notify("warnung", "Die Einrichtung ist nur ein Entwurf: die Betriebsfunktion bleibt inaktiv.") end
   if n.env_hold then n.notify("warnung", "Die Umgebung (Modpack/Schnittstellen) hat sich geaendert: neue Abfahrten bleiben aus, bis die Pruefung auf der Seite Uebersicht bestanden ist.") end

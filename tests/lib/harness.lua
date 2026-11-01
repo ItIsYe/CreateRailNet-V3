@@ -84,7 +84,7 @@ function H.new(opts)
     w.add_modem("right", false, true)
     for i, name in ipairs(spec.stations or {}) do w.add_station("Create_Station_" .. i, { station_name = name }) end
     local cid = #h.order + 1
-    local d = drv.new({ world = w, bus = h.bus, cid = cid })
+    local d = drv.new({ world = w, bus = h.bus, cid = cid, width = spec.width, height = spec.height })
     d.boot_t, d.cid, d.id, d.world = h.t, cid, spec.id, w
     h.nodes[spec.id] = d
     h.order[#h.order + 1] = d

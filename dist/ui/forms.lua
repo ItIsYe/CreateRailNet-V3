@@ -1,6 +1,6 @@
 --[[
 Purpose: Seitenbaustein "Liste mit Anlegen": links die Liste der vorhandenen Eintraege mit Aktionen, rechts (nach "Neu") ein Formular mit Eingabefeldern, drei je Bildschirmseite, mit Weiter, Zurueck und Speichern. Ein Eintrag wird nur gespeichert, wenn die Fachlogik ihn annimmt; deren Fehlertext erscheint als Hinweis.
-API: forms.page{ id, title, empty, items = fn(v) -> items, records, fields = { { id, label, max, default } }, on_save = fn(values) -> ok, fehler, extra = { { id, label, kind, enabled = fn(record) -> bool, reason, run = fn(v, record) -> hinweis } }, new_label, edit = fn(record) -> werte } -> Seite
+API: forms.page{ id, title, empty, items = fn(v) -> items, records, fields = { { id, label, max, default } }, on_save = fn(values, bearbeiteter_eintrag) -> ok, fehler, extra = { { id, label, kind, enabled = fn(record) -> bool, reason, run = fn(v, record) -> hinweis } }, new_label, edit = fn(record) -> werte } -> Seite
 Notes: Die Seite hat nur eine Zustandstabelle (v.page_state(id)); Felder tragen { value, max } wie im Assistenten. Mit "edit" kann ein vorhandener Eintrag zum Bearbeiten in das Formular geladen werden.
 ]]
 
@@ -88,7 +88,7 @@ function M.page(spec)
     elseif id == "act:f_speichern" then
       local values = {}
       for _, f in ipairs(spec.fields) do values[f.id] = st.fields[f.id].value end
-      local ok, err = spec.on_save(values)
+      local ok, err = spec.on_save(values, st.editing and st.records and st.records[st.list.index] or nil)
       if ok then
         v.hint = "Gespeichert."
         st.screen = "liste"

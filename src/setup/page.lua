@@ -7,6 +7,8 @@ Notes: Technische Anschlussnamen sind hier sichtbar (Schritt 3 und 4), im Betrie
 local wizardlib = require("setup.wizard")
 local model = require("setup.model")
 local detect = require("dev.detect")
+local signallib = require("dev.signal")
+local pruefunglib = require("setup.pruefung")
 local W = require("ui.widgets")
 
 local M = {}
@@ -17,7 +19,22 @@ function M.new(services)
   local page = { id = "einrichtung", title = "Einrichtung" }
 
   -- gemeinsamer Zustand aller Ansichten: wer bearbeitet gerade?
-  local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, test_pending = nil, pick = {} }
+  local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, test_pending = nil, pick = {}, dir = {} }
+
+  -- Gefuehrte Einrichtung einer Signal-Node nach dem Netzverzeichnis (Konzept 12.1): Bereich waehlen, Gleise uebernehmen, Signale zuordnen,
+  -- pruefen und aktivieren. Von Hand geht es weiter wie bisher ("Von Hand" auf dem Bildschirm Bereich).
+  local GUIDED_TITLE = {
+    ["2.bereich"] = "Bereich waehlen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
+    ["4.z.signal"] = "Signal waehlen", ["5.pruefen"] = "Pruefen und aktivieren",
+  }
+  local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
+
+  local ensure_check, select_next_open            -- weiter unten bei den gefuehrten Bildschirmen
+
+  local function guided_mode()
+    local w = session.wiz
+    return w ~= nil and w.mode == "join" and #w.roles == 1 and w.roles[1] == "signal" and not session.manual and services.directory_areas ~= nil
+  end
 
   local function sequence()
     local seq = { "1.modus" }
@@ -30,6 +47,10 @@ function M.new(services)
       if session.wiz.mode == "join" then seq[#seq + 1] = "1.zentrale" end
     end
     seq[#seq + 1] = "2.rollen"
+    if guided_mode() then
+      for _, id in ipairs(GUIDED_SEQUENCE) do seq[#seq + 1] = id end
+      return seq
+    end
     seq[#seq + 1] = "2.name"
     seq[#seq + 1] = "3.geraete"
     local c = session.wiz.config
@@ -53,6 +74,12 @@ function M.new(services)
     if screen == "1.netzwahl" then
       session.net_choice = nil
       services.search_networks()
+    elseif screen == "2.bereich" then
+      session.dir = session.dir or {}
+      if not session.dir.areas then
+        session.dir.want = "areas"
+        services.directory_areas(session.wiz.central_id)
+      end
     end
   end
 
@@ -80,6 +107,9 @@ function M.new(services)
     session.pick = {}
     session.pending_role = nil
     session.net_choice = nil
+    session.manual = nil
+    session.checking = false
+    session.dir = {}
     goto_screen("1.modus")
     -- Felder aus dem Zustand vorbelegen
     local st = v.page_state("einrichtung")
@@ -91,6 +121,15 @@ function M.new(services)
       gleisname = { value = "", max = 30 },
       anschluss = { value = "", max = 20 },
     }
+    -- ein gespeicherter Entwurf der gefuehrten Einrichtung geht bei der Zuordnung weiter (Kennung und Gleise stehen schon fest)
+    if session.wiz.guided then
+      session.dir = { claim = existing.node.claim }
+      local note = ensure_check().recover()
+      session.known_signals = nil
+      goto_screen("4.zuordnung")
+      select_next_open(v, 0)
+      v.hint = note or "Entwurf geladen: Signale zuordnen und pruefen."
+    end
   end
 
   local function fields(v) return v.page_state("einrichtung").fields end
@@ -116,7 +155,7 @@ function M.new(services)
 
   local function header(v, rect, title, subtitle)
     local w = session.wiz
-    W.label(v, rect.x + 1, rect.y, string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, wizardlib.STEPS[w.step]), "hell")
+    W.label(v, rect.x + 1, rect.y, string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, GUIDED_TITLE[session.screen] or wizardlib.STEPS[w.step]), "hell")
     if subtitle then W.label(v, rect.x + 1, rect.y + 1, subtitle, "dim", rect.w - 2) end
   end
 
@@ -742,6 +781,304 @@ function M.new(services)
     hide_nav_buttons = true,
   }
 
+  -- gefuehrte Einrichtung: Bildschirme ------------------------------------------------------------------------------------------------------
+  function ensure_check()
+    local w = session.wiz
+    if w.pruefung then return w.pruefung end
+    w.pruefung = pruefunglib.new({
+      env = services.env,
+      config = function() return session.wiz.config end,
+      now = services.now,
+      clock = services.env.raw_clock,
+      scan = function() return services.scan() end,
+      -- der Entwurf wird vor jeder Testsperre gespeichert (Marke fuer den Wiederanlauf)
+      persist = function() return services.store.save(services.config_path, session.wiz.config) end,
+    })
+    return w.pruefung
+  end
+
+  local function dir_status() return services.directory_status and services.directory_status() or nil end
+
+  local function direction_text(direction)
+    if direction == "beide" then return "beide Richtungen" end
+    return "Richtung " .. tostring(direction)
+  end
+
+  screens["2.bereich"] = {
+    render = function(v, rect)
+      header(v, rect, nil, "In welchem Bereich arbeitet diese Node?")
+      local d = session.dir
+      local st = dir_status()
+      if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+      local items = {}
+      session.pick.areas = {}
+      for _, a in ipairs(d.areas or {}) do
+        local on = d.chosen and d.chosen.id == a.id
+        items[#items + 1] = { text = (on and "(o) " or "( ) ") .. a.name, detail = a.ends[1] .. " - " .. a.ends[2] .. ", " .. a.tracks .. " Gleis(e)" }
+        session.pick.areas[#items] = a
+      end
+      local empty = (st and st.kind == "ok" and d.areas) and "Das Netz hat noch keinen Bereich. In der Leitstelle auf der Seite Bereiche anlegen, dann 'Neu laden'." or ""
+      W.list(v, "bereich", body_rect(rect, 4), items, list_state(v, "bereich"), { empty = empty })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:bereich:(%d+)$")
+      local d = session.dir
+      if n then
+        local area = (session.pick.areas or {})[tonumber(n)]
+        if area then
+          d.chosen, d.area, d.selected, d.want = area, nil, nil, "area"
+          services.directory_tracks(session.wiz.central_id, area.id)
+        end
+        return true
+      elseif id == "act:neu_laden" then
+        d.areas, d.chosen, d.area, d.want = nil, nil, nil, "areas"
+        services.directory_areas(session.wiz.central_id)
+        return true
+      elseif id == "act:von_hand" then
+        session.manual = true
+        session.stack = {}
+        goto_screen("2.name")
+        return true
+      end
+    end,
+    actions = function(v)
+      return {
+        { id = "neu_laden", label = "Neu laden", kind = "secondary" },
+        { id = "von_hand", label = "Von Hand", kind = "secondary" },
+      }
+    end,
+    next = function(v)
+      local d = session.dir
+      if not d.selected then
+        d.selected = {}
+        for _, t in ipairs(d.area.tracks) do d.selected[t.id] = true end
+      end
+      push("3.gleise")
+      return true
+    end,
+  }
+
+  screens["3.gleise"] = {
+    render = function(v, rect)
+      local d = session.dir
+      header(v, rect, nil, "Gleise in " .. (d.area and d.area.name or "?") .. ": welche betreut diese Node?")
+      local st = dir_status()
+      if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+      local items = {}
+      session.pick.gleise = {}
+      for _, t in ipairs(d.area and d.area.tracks or {}) do
+        items[#items + 1] = { text = (d.selected and d.selected[t.id] and "[x] " or "[ ] ") .. t.name, detail = direction_text(t.direction) }
+        session.pick.gleise[#items] = t
+      end
+      W.list(v, "gleise_auswahl", body_rect(rect, 4), items, list_state(v, "gleise_auswahl"), { empty = "Dieser Bereich hat keine Gleise." })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:gleise_auswahl:(%d+)$")
+      if n then
+        local t = (session.pick.gleise or {})[tonumber(n)]
+        local d = session.dir
+        if t and d.selected and not d.claiming then d.selected[t.id] = (not d.selected[t.id]) or nil end
+        return true
+      end
+    end,
+    -- die Kennung kommt von der Leitstelle; erst mit ihrer Antwort geht es weiter (page.poll)
+    next = function(v)
+      local d = session.dir
+      local chosen, info = {}, {}
+      for _, t in ipairs(d.area.tracks) do
+        if d.selected[t.id] then chosen[#chosen + 1] = t.id; info[#info + 1] = t end
+      end
+      if #chosen == 0 then v.hint = "Mindestens ein Gleis uebernehmen." return true end
+      d.claim = d.claim or services.new_claim()
+      d.claiming = { tracks = info }
+      services.directory_claim(session.wiz.central_id, d.claim, "signal", d.area.id, chosen)
+      v.hint = "Frage die Leitstelle nach der Kennung ..."
+      return true
+    end,
+  }
+
+  -- naechstes Gleis ohne Signal (nach der Zuordnung springt die Auswahl dorthin)
+  function select_next_open(v, from)
+    local rows = session.wiz.guided_rows()
+    local state = list_state(v, "zuordnung")
+    local start = from or state.index
+    for offset = 1, #rows do
+      local i = (start - 1 + offset) % #rows + 1
+      if #rows[i].signals == 0 then state.index = i return end
+    end
+  end
+
+  local function signal_states()
+    session.pick.sigstate = {}
+    for _, d in ipairs(session.wiz.guided_free_signals()) do
+      local st = signallib.new(services.env, d.name).read()
+      session.pick.sigstate[d.name] = st.available and tostring(st.state) or "nicht lesbar"
+    end
+  end
+
+  screens["4.zuordnung"] = {
+    render = function(v, rect)
+      header(v, rect, nil, "Welches Signal gehoert zu welchem Gleis?")
+      local items = {}
+      session.pick.rows = {}
+      for _, r in ipairs(session.wiz.guided_rows()) do
+        local devices = {}
+        for _, s in ipairs(r.signals) do devices[#devices + 1] = s.device end
+        items[#items + 1] = {
+          text = r.name .. "  " .. direction_text(r.direction),
+          detail = #devices > 0 and table.concat(devices, ", ") or "Signal fehlt",
+          kind = #devices > 0 and "ok" or "wait",
+        }
+        session.pick.rows[#items] = r
+      end
+      W.list(v, "zuordnung", body_rect(rect, 3), items, list_state(v, "zuordnung"), { empty = "Keine Gleise uebernommen." })
+    end,
+    actions = function(v)
+      local row = session.pick.rows and session.pick.rows[list_state(v, "zuordnung").index]
+      local free = #session.wiz.guided_free_signals()
+      return {
+        { id = "signal_waehlen", label = "Signal", enabled = row ~= nil and free > 0, reason = row == nil and "Erst ein Gleis waehlen." or "Es ist kein freies Signal angeschlossen." },
+        { id = "signal_loesen", label = "Loesen", kind = "secondary", enabled = row ~= nil and #row.signals > 0, reason = "An diesem Gleis ist kein Signal zugeordnet." },
+        { id = "neu_lesen", label = "Neu lesen", kind = "secondary" },
+      }
+    end,
+    action = function(v, id)
+      local row = session.pick.rows and session.pick.rows[list_state(v, "zuordnung").index]
+      if id == "act:signal_waehlen" and row then
+        session.track = row.track
+        session.wiz.rescan()
+        signal_states()
+        push("4.z.signal")
+        return true
+      elseif id == "act:signal_loesen" and row then
+        local ok, why = session.wiz.guided_unassign(row.track)
+        if not ok then v.hint = why end
+        return true
+      elseif id == "act:neu_lesen" then
+        session.wiz.rescan()
+        v.hint = "Geraete neu gelesen."
+        return true
+      end
+    end,
+    next = function(v)
+      push("5.pruefen")
+      return true
+    end,
+  }
+
+  screens["4.z.signal"] = {
+    render = function(v, rect)
+      local track = session.wiz.config.tracks[session.track]
+      header(v, rect, nil, "Welches Signal gehoert zu " .. (track and track.name or "?") .. "?")
+      local items = {}
+      session.pick.freie = {}
+      for _, d in ipairs(session.wiz.guided_free_signals()) do
+        local fresh = session.known_signals and not session.known_signals[d.name]
+        items[#items + 1] = { text = d.name .. (fresh and "  (neu)" or ""), detail = (session.pick.sigstate and session.pick.sigstate[d.name]) or "" }
+        session.pick.freie[#items] = d
+      end
+      W.list(v, "signal", body_rect(rect, 3), items, list_state(v, "signal"), { empty = "Kein freies Signal angeschlossen." })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:signal:(%d+)$")
+      if n then
+        local d = (session.pick.freie or {})[tonumber(n)]
+        if d then
+          local ok, why = session.wiz.guided_assign(session.track, d.name)
+          if not ok then v.hint = why return true end
+          pop()
+          select_next_open(v)
+        end
+        return true
+      end
+    end,
+  }
+
+  local function activate(v)
+    local w = session.wiz
+    local ok, why = w.step_ok(5)
+    if not ok then v.hint = why return false end
+    local status, problems, err = w.finish(services.store, services.config_path)
+    if not status then v.hint = "Speichern fehlgeschlagen: " .. tostring(err) return false end
+    if status ~= "aktiv" then
+      v.hint = "Nicht aktiviert: " .. tostring(problems[1] and problems[1].text or "Pflichtangaben offen")
+      return false
+    end
+    services.on_saved(w.config)
+    services.notify("info", "Einrichtung gespeichert: aktiv (" .. w.config.node.id .. ")")
+    v.hint = "Aktiviert: " .. w.config.node.name
+    session.wiz, session.owner, session.checking = nil, nil, false
+    return true
+  end
+
+  screens["5.pruefen"] = {
+    no_forward = true,
+    hide_nav_buttons = function() return session.checking end,
+    render = function(v, rect)
+      header(v, rect, nil, "Zuordnung bestaetigen, pruefen, aktivieren")
+      local p = ensure_check()
+      local st = p.state()
+      local y = rect.y + 2
+      if st.phase == "idle" then
+        local c = session.wiz.config
+        local lines = { c.node.id .. ": " .. #session.wiz.tracks() .. " Gleis(e), " .. #st.devices .. " Signal(e)" }
+        local effect = p.effect()
+        for _, line in ipairs(W.wrap(effect, rect.w - 2)) do lines[#lines + 1] = line end
+        for _, line in ipairs(lines) do
+          if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, line, "text", rect.w - 2) end
+          y = y + 1
+        end
+        local problems = p.required()
+        if #problems > 0 and y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y + 1, problems[1], "wait", rect.w - 2) end
+        return
+      end
+      local text
+      if st.phase == "laeuft" then
+        text = "Pruefe " .. (st.current or "...") .. " (" .. st.done .. " von " .. st.total .. ")"
+      elseif st.phase == "abgebrochen" then
+        text = "Abgebrochen nach " .. st.done .. " von " .. st.total .. " Pruefungen."
+      else
+        text = st.ok and "Alle Pruefungen bestanden." or "Fertig, aber nicht alles bestanden:"
+      end
+      W.label(v, rect.x + 1, rect.y + 2, text, st.phase == "laeuft" and "wait" or (st.ok and "ok" or "attention"), rect.w - 2)
+      local items = {}
+      for _, d in ipairs(st.devices) do
+        local r = d.result
+        local detail, kind
+        if r.lesen.state == "ok" and r.sperre.state == "ok" then detail, kind = "gelesen, Sperre getestet", "ok"
+        elseif r.lesen.state == "fehler" then detail, kind = r.lesen.text or "nicht lesbar", "halt"
+        elseif r.sperre.state == "fehler" or r.sperre.state == "gesperrt" then detail, kind = r.sperre.text or "Sperre nicht bestaetigt", "halt"
+        else detail, kind = "offen", "wait" end
+        items[#items + 1] = { text = d.track .. "  " .. d.device, detail = detail, kind = kind }
+      end
+      W.list(v, "pruefliste", body_rect(rect, 4), items, list_state(v, "pruefliste"), { empty = "Keine Signale." })
+    end,
+    actions = function(v)
+      local p = ensure_check()
+      local st = p.state()
+      if st.phase == "laeuft" then
+        return { { id = "pruefung_stopp", label = "Stoppen", kind = "danger" } }
+      end
+      local problems = p.required()
+      return { { id = "pruefen", label = st.phase == "idle" and "Pruefen+Aktivieren" or "Erneut pruefen", enabled = #problems == 0, reason = problems[1] } }
+    end,
+    action = function(v, id)
+      local p = ensure_check()
+      if id == "act:pruefen" then
+        local ok, why = p.start(true)
+        if not ok then v.hint = why return true end
+        session.checking = true
+        v.hint = "Pruefung laeuft."
+        return true
+      elseif id == "act:pruefung_stopp" then
+        p.abort()
+        session.checking = false
+        v.hint = "Pruefung gestoppt; es bleibt keine Testsperre zurueck."
+        return true
+      end
+    end,
+  }
+
   screens["6.fertig"] = {
     render = function(v, rect)
       header(v, rect, nil, "Zusammenfassung")
@@ -862,6 +1199,19 @@ function M.new(services)
       if w.mode == "create" and not model.has_role(w.config, "zentrale") then return false, "Die erste Node braucht die Rolle Leitstelle." end
       if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
     end
+    if screen == "2.bereich" and not session.dir.area then return false, "Bitte einen Bereich waehlen." end
+    if screen == "3.gleise" then
+      if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
+      local any = false
+      for _ in pairs(session.dir.selected or {}) do any = true end
+      if not any then return false, "Mindestens ein Gleis uebernehmen." end
+    end
+    if screen == "4.zuordnung" then
+      for _, r in ipairs(w.guided_rows()) do
+        if #r.signals == 0 then return false, r.name .. ": Das Signal fehlt noch." end
+      end
+      if #w.guided_rows() == 0 then return false, "Keine Gleise uebernommen." end
+    end
     if screen == "2.name" then return w.step_ok(2, true) end
     if screen == "3.geraete" then return w.step_ok(3, true) end
     if screen == "4.g.name" and not fields(v).gleisname.value:match("%S") then return false, "Der Gleisname fehlt." end
@@ -916,9 +1266,10 @@ function M.new(services)
     local def = screen_def()
     local list = {}
     if def and def.actions then for _, a in ipairs(def.actions(v)) do list[#list + 1] = a end end
-    if not (def and def.hide_nav_buttons) then
+    local hide = def and ((type(def.hide_nav_buttons) == "function" and def.hide_nav_buttons(v)) or def.hide_nav_buttons == true)
+    if not hide then
       list[#list + 1] = { id = "zurueck", label = "Zurueck", kind = "secondary", side = "rechts" }
-      if session.screen ~= "6.fertig" then
+      if session.screen ~= "6.fertig" and not (def and def.no_forward) then
         local ok, why = can_advance(v)
         list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why }
       end
@@ -1039,6 +1390,54 @@ function M.new(services)
       return true
     end
     return false
+  end
+
+  -- Antworten der Leitstelle verarbeiten (ruft die Knotenlaufzeit nach jeder Antwort und im Sekundentakt)
+  function page.poll()
+    local v = session.owner
+    if not session.wiz or not v then return end
+    local d = session.dir
+    local st = dir_status()
+    if not st then return end
+    if st.kind == "ok" then
+      if st.areas and d.want == "areas" then d.areas, d.want = st.areas, nil end
+      if st.area and d.want == "area" then d.area, d.want = st.area, nil end
+      if st.node and d.claiming then
+        local claiming = d.claiming
+        d.claiming = nil
+        session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name }, claim = d.claim, node = st.node, tracks = claiming.tracks })
+        ensure_check()
+        session.known_signals = {}
+        for _, dev in ipairs(session.wiz.guided_free_signals()) do session.known_signals[dev.name] = true end
+        v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+        push("4.zuordnung")
+        select_next_open(v, 0)
+      end
+    elseif st.kind == "halt" and d.claiming then
+      d.claiming = nil
+      v.hint = st.text
+    end
+  end
+
+  -- Sekundentakt: Antworten abholen, die Abschlusspruefung schrittweise weiterfuehren
+  function page.tick()
+    if not session.wiz or not session.owner then return end
+    page.poll()
+    if session.checking and session.wiz and session.wiz.pruefung then
+      local p = session.wiz.pruefung
+      local phase = p.step(0.8)
+      if services.mark_dirty then services.mark_dirty() end
+      if phase == "fertig" then
+        session.checking = false
+        if p.all_ok() then
+          activate(session.owner)
+        else
+          session.owner.hint = "Nicht alles bestanden: Zuordnung oder Sperre pruefen, dann erneut pruefen."
+        end
+      elseif phase == "abgebrochen" then
+        session.checking = false
+      end
+    end
   end
 
   -- fuer Tests und die Knotenlaufzeit

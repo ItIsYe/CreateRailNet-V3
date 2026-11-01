@@ -11,6 +11,7 @@ local stationslib = require("domain.stations")
 local lineslib = require("domain.lines")
 local W = require("ui.widgets")
 local forms = require("ui.forms")
+local netzlib = require("domain.netz")
 local model = require("setup.model")
 
 local M = {}
@@ -36,6 +37,7 @@ function M.new(node)
   role.orders = orderslib.new({ store = node.store, path = DATA .. "/auftraege.lua", now = now })
   role.stations = stationslib.new({ store = node.store, path = DATA .. "/bahnhoefe.lua" })
   role.lines = lineslib.new({ store = node.store, path = DATA .. "/linien.lua", now = now })
+  role.netz = netzlib.new({ store = node.store, path = DATA .. "/netz.lua" })      -- Netzverzeichnis: Bereiche, Gleise, Node-Kennungen
   local samples = node.store.load(DATA .. "/muster.lua") or {}
   local operation = node.store.load(DATA .. "/betrieb.lua") or { hold = false }    -- Wartung/Stoerung: neue Abfahrten zurueckhalten
   local retired = node.store.load(DATA .. "/stillgelegt.lua") or {}                -- Node-Kennung -> true: ausdruecklich stillgelegt (Ersatz)
@@ -505,6 +507,7 @@ function M.new(node)
     local old = nodes[p.node]
     nodes[p.node] = { name = p.name, roles = p.roles, tracks = p.tracks, last_seen = now(), active = p.active, revision = p.revision, signals = old and old.signals }
     silent_notified[p.node] = nil
+    role.netz.mark_active(p.node)
     rebuild_dir()
     node.reply(m, "ok", {})
   end
@@ -520,6 +523,7 @@ function M.new(node)
       nodes[p.node] = { name = p.name, roles = p.roles, tracks = {}, last_seen = now(), active = p.active, revision = p.revision, signals = p.signals }
     end
     silent_notified[p.node] = nil
+    role.netz.mark_active(p.node)
     node.reply(m, "ok", {})
   end
 
@@ -677,6 +681,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
+      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" then role.handle_directory(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
       elseif m.payload.kind == "netze" then
         -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
@@ -1057,6 +1062,26 @@ function M.new(node)
     return count
   end
 
+  -- Netzverzeichnis fuer neue Computer (Konzept 10, 11): Bereiche, Gleise eines Bereichs, Node-Kennung anfordern. Antworten bleiben unter der Funkgrenze:
+  -- Bereiche seitenweise, Gleise je Bereich (hoechstens 40).
+  local DIRECTORY_PAGE = 30
+  function role.handle_directory(m)
+    local p = m.payload
+    local revision = role.netz.revision()
+    if p.kind == "verzeichnis" then
+      local after = type(p.after) == "string" and p.after or nil
+      local list, more = role.netz.areas_page(after, DIRECTORY_PAGE)
+      return node.reply(m, "ok", { areas = list, more = more or nil, revision = revision })
+    elseif p.kind == "verzeichnis_gleise" then
+      local area = type(p.area) == "string" and role.netz.area(p.area) or nil
+      if not area then return node.reply(m, "abgelehnt", { grund = "Den Bereich gibt es nicht." }) end
+      return node.reply(m, "ok", { area = area, revision = revision })
+    end
+    local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, area = p.area, tracks = p.tracks })
+    if not entry then return node.reply(m, "abgelehnt", { grund = err }) end
+    node.reply(m, "ok", { node = { id = entry.id, name = entry.name, label = entry.label }, revision = role.netz.revision() })
+  end
+
   -- Konfigurationssicherung und Ersatz (29.2) ------------------------------------------------------------------------------------------------
   local BACKUP_DIR = DATA .. "/nodesich"
   local function backup_path(id) return BACKUP_DIR .. "/" .. tostring(id):gsub("[^%w%-_]", "_") .. ".lua" end
@@ -1287,11 +1312,23 @@ function M.new(node)
         state.ids = state.ids or {}
         state.ids[#items] = id
       end
+      -- vom Verzeichnis vergebene Kennungen, die sich noch nie gemeldet haben (Einrichtung laeuft oder wurde abgebrochen)
+      state.reserved = {}
+      for _, entry in ipairs(role.netz.nodes()) do
+        if entry.state == "reserviert" and not nodes[entry.id] then
+          items[#items + 1] = { text = entry.id .. " " .. entry.name, detail = "RESERVIERT, hat sich noch nicht gemeldet (" .. #entry.tracks .. " Gleis(e))", kind = "wait" }
+          state.ids[#items] = entry.id
+          state.reserved[entry.id] = true
+        end
+      end
       W.list(v, "netz", rect, items, state.list, { empty = "Noch kein Node hat sich gemeldet." })
     end,
     actions = function(v)
       local state = v.page_state("netz")
       local id = state.ids and state.ids[(state.list or { index = 1 }).index]
+      if id and state.reserved and state.reserved[id] then
+        return { { id = "stilllegen", label = arm.discard == id and "Wirklich?" or "Verwerfen", kind = "danger" } }
+      end
       return { { id = "stilllegen", label = id and retired[id] and "Aktivieren" or (arm.retire and "Wirklich?" or "Stilllegen"), kind = "danger", enabled = id ~= nil, reason = "Erst einen Node waehlen." } }
     end,
     on_action = function(v, action)
@@ -1299,6 +1336,18 @@ function M.new(node)
       local state = v.page_state("netz")
       local id = state.ids and state.ids[state.list.index]
       if not id then return true end
+      if state.reserved and state.reserved[id] then
+        -- eine nie aktivierte Anforderung: verwerfen (die Kennung bleibt vergeben)
+        if arm.discard ~= id then
+          arm.discard = id
+          v.hint = "Nochmal druecken: die Anforderung " .. id .. " wird verworfen (die Kennung wird nicht wieder vergeben)."
+        else
+          arm.discard = nil
+          local ok, err = role.netz.discard_node(id)
+          v.hint = ok and ("Anforderung " .. id .. " verworfen.") or err
+        end
+        return true
+      end
       if retired[id] then
         local ok, err = role.unretire(id)
         v.hint = ok and ("Node " .. id .. " ist wieder aktiv.") or err
@@ -1313,6 +1362,105 @@ function M.new(node)
       return true
     end,
   }
+
+  -- Netzverzeichnis: Bereiche und ihre Gleise (Konzept 4, 5, 12.3): einmal hier anlegen, die Nodes uebernehmen sie
+  local netz_arm = {}
+  local function two_step(kind, record_id, text, fn)
+    if netz_arm[kind] ~= record_id then
+      netz_arm[kind] = record_id
+      return "Nochmal druecken: " .. text
+    end
+    netz_arm[kind] = nil
+    local ok, err = fn()
+    return ok and "Geloescht." or err
+  end
+
+  local function find_area_by_name(name)
+    local wanted = tostring(name or ""):match("^%s*(.-)%s*$"):lower()
+    for _, a in ipairs(role.netz.areas()) do
+      if a.name:lower() == wanted then return a end
+    end
+  end
+
+  -- "beide" oder ein Anschluss des Bereichs (Gross-/Kleinschreibung egal); leer heisst beide
+  local function canonical_direction(area, text)
+    local want = tostring(text or ""):match("^%s*(.-)%s*$"):lower()
+    if want == "" or want == "beide" then return "beide" end
+    for _, e in ipairs(area.ends) do if e:lower() == want then return e end end
+    return tostring(text)
+  end
+
+  pages[#pages + 1] = forms.page({
+    id = "bereiche", title = "Bereiche", new_label = "Neu",
+    empty = "Noch kein Bereich. Ein Bereich ist eine Strecke zwischen zwei Anschluessen mit ihren Gleisen.",
+    items = function()
+      local items, records = {}, {}
+      for i, a in ipairs(role.netz.areas()) do
+        local full = role.netz.area(a.id)
+        local toward = {}
+        for _, t in ipairs(full.tracks) do toward[t.direction] = (toward[t.direction] or 0) + 1 end
+        local parts = {}
+        for _, e in ipairs({ a.ends[1], a.ends[2], "beide" }) do if toward[e] then parts[#parts + 1] = toward[e] .. "x " .. e end end
+        items[i] = { text = a.name .. "  (" .. a.id .. ")", detail = a.ends[1] .. " - " .. a.ends[2] .. ", " .. a.tracks .. " Gleis(e): " .. table.concat(parts, ", ") }
+        records[i] = a
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "name", label = "Name des Bereichs (z.B. West-Ost)", max = 30, width = 34 },
+      { id = "ende1", label = "Anschluss 1 (z.B. Westbahnhof)", max = 30, width = 34 },
+      { id = "ende2", label = "Anschluss 2 (z.B. Ostbahnhof)", max = 30, width = 34 },
+      { id = "anzahl", label = "Anzahl Gleise (nur beim Anlegen)", max = 2, width = 8, default = "2" },
+      { id = "vorlage", label = "Vorlage: gegenlaeufig, gleich, beide", max = 12, width = 20, default = "gegenlaeufig" },
+    },
+    edit = function(a) return { name = a.name, ende1 = a.ends[1], ende2 = a.ends[2] } end,
+    on_save = function(values, record)
+      if record then return role.netz.set_area(record.id, { name = values.name, ends = { values.ende1, values.ende2 } }) end
+      local id, err = role.netz.add_area({ name = values.name, ends = { values.ende1, values.ende2 }, count = tonumber(values.anzahl), pattern = values.vorlage ~= "" and values.vorlage or nil })
+      if not id then return nil, err end
+      return true
+    end,
+    extra = {
+      { id = "loeschen", label = function(a) return a and netz_arm.area == a.id and "Wirklich?" or "Loeschen" end, kind = "danger",
+        run = function(v, a) return two_step("area", a.id, "der Bereich " .. a.name .. " mit allen Gleisen wird geloescht.", function() return role.netz.remove_area(a.id) end) end },
+    },
+  })
+
+  pages[#pages + 1] = forms.page({
+    id = "gleise", title = "Gleise", new_label = "Neu",
+    empty = "Noch kein Gleis. Gleise entstehen mit dem Bereich (Seite Bereiche) und lassen sich hier aendern oder ergaenzen.",
+    items = function()
+      local items, records = {}, {}
+      for _, a in ipairs(role.netz.areas()) do
+        for _, t in ipairs(role.netz.area(a.id).tracks) do
+          items[#items + 1] = { text = a.name .. " / " .. t.name, detail = (t.direction == "beide" and "beide Richtungen" or ("Richtung " .. t.direction)) .. "  (" .. t.id .. ")" }
+          records[#items] = { id = t.id, area = a.id, area_name = a.name, name = t.name, direction = t.direction }
+        end
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "bereich", label = "Bereich (Name; beim Aendern nicht verschiebbar)", max = 30, width = 34 },
+      { id = "name", label = "Gleisname (z.B. Gleis 3)", max = 30, width = 34 },
+      { id = "richtung", label = "Richtung: Anschlussname oder beide", max = 30, width = 34, default = "beide" },
+    },
+    edit = function(t) return { bereich = t.area_name, name = t.name, richtung = t.direction } end,
+    on_save = function(values, record)
+      if record then
+        local area = role.netz.area(record.area)
+        return role.netz.set_track(record.id, { name = values.name, direction = canonical_direction(area, values.richtung) })
+      end
+      local found = find_area_by_name(values.bereich)
+      if not found then return nil, "Den Bereich '" .. tostring(values.bereich) .. "' gibt es nicht." end
+      local id, err = role.netz.add_track(found.id, values.name, canonical_direction(found, values.richtung))
+      if not id then return nil, err end
+      return true
+    end,
+    extra = {
+      { id = "loeschen", label = function(t) return t and netz_arm.track == t.id and "Wirklich?" or "Loeschen" end, kind = "danger",
+        run = function(v, t) return two_step("track", t.id, "das Gleis " .. t.name .. " wird geloescht.", function() return role.netz.remove_track(t.id) end) end },
+    },
+  })
 
   pages[#pages + 1] = {
     id = "vorlagen", title = "Vorlagen",

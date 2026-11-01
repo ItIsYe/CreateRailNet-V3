@@ -29,6 +29,9 @@ function M.new(opts)
   if not existing and opts.role_available and not opts.role_available("zentrale") then w.mode = "join" end
 
   w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
+  -- gefuehrte Einrichtung (Signal-Node nach dem Netzverzeichnis): die Kennung kommt von der Leitstelle, die Abschlusspruefung ist w.pruefung
+  w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv") or nil
+  w.claimed_id = (existing ~= nil and existing.node.claimed == true) and existing.node.id or nil
   if existing then
     w.network_name = existing.network.name
     w.central_id = existing.network.central_id or ""
@@ -50,7 +53,7 @@ function M.new(opts)
     c.network.central_id = (w.mode == "join" and w.central_id ~= "") and w.central_id or nil
     c.network.key = (w.key ~= "") and w.key or nil
     c.node.name = w.name
-    if not existing then c.node.id = model.slug(w.name) end
+    if not existing then c.node.id = w.claimed_id or model.slug(w.name) end
     c.node.roles = {}
     for _, r in ipairs(model.ROLES) do if has(w.roles, r) then c.node.roles[#c.node.roles + 1] = r end end
   end
@@ -104,6 +107,8 @@ function M.new(opts)
       w.roles[#w.roles + 1] = role
     end
     sync_config()
+    -- die gefuehrte Einrichtung gilt nur fuer genau die Rolle Signal
+    if w.guided and not (#w.roles == 1 and w.roles[1] == "signal") then w.guided = nil end
     local p = model.profile(w.config)
     local remove = {}
     for id, d in pairs(w.config.devices) do if not p.allowed[d.kind] then remove[#remove+1]=id end end
@@ -314,6 +319,91 @@ function M.new(opts)
     return true
   end
 
+  -- Gefuehrte Einrichtung ---------------------------------------------------------------------------------------------------------------
+  -- info = { area = { id, name }, claim, node = { id, name, label }, tracks = { { id, name, direction }, ... } (nur die uebernommenen) }
+  -- Die Gleise kommen aus dem Netzverzeichnis (track.dir = { id, area, direction }); bereits zugeordnete Signale bleiben erhalten, wenn das Gleis uebernommen bleibt.
+  function w.guided_begin(info)
+    w.mode = "join"
+    w.roles = { "signal" }
+    w.claimed_id = info.node.id
+    w.name = info.node.name
+    w.guided = true
+    sync_config()
+    local c = w.config
+    c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
+    local wanted, by_dir = {}, {}
+    for _, t in ipairs(info.tracks) do wanted[t.id] = t end
+    for tid, track in pairs(c.tracks) do
+      if track.dir then
+        if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
+      end
+    end
+    for _, t in ipairs(info.tracks) do
+      local tid = by_dir[t.id]
+      if not tid then tid = model.add_track(c, t.name) end
+      local track = c.tracks[tid]
+      track.name = t.name
+      track.dir = { id = t.id, area = info.area.id, direction = t.direction }
+    end
+    return true
+  end
+
+  function w.guided_remove_track(tid)
+    local track = w.config.tracks[tid]
+    if not track then return end
+    local assigned = {}
+    for _, did in ipairs(track.signals) do assigned[#assigned + 1] = did end
+    for _, did in ipairs(assigned) do model.remove_device(w.config, did) end
+    model.remove_track(w.config, tid)
+  end
+
+  -- Gleise in der Reihenfolge des Verzeichnisses (Kennung A0001 ...): { track = id, name, direction, signals = { { id, device } } }
+  function w.guided_rows()
+    local rows = {}
+    local ids = {}
+    for tid, track in pairs(w.config.tracks) do if track.dir then ids[#ids + 1] = tid end end
+    table.sort(ids, function(a, b) return w.config.tracks[a].dir.id < w.config.tracks[b].dir.id end)
+    for _, tid in ipairs(ids) do
+      local track = w.config.tracks[tid]
+      local signals = {}
+      for _, did in ipairs(track.signals) do
+        if w.config.devices[did] then signals[#signals + 1] = { id = did, device = w.config.devices[did].device } end
+      end
+      rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, signals = signals }
+    end
+    return rows
+  end
+
+  -- angeschlossene Signale, die noch keinem Gleis gehoeren (nur lesbare mit allen Methoden werden zugeordnet)
+  function w.guided_free_signals()
+    return model.free_devices(w.config, w.scan, "signal")
+  end
+
+  function w.guided_assign(tid, device_name)
+    local track = w.config.tracks[tid]
+    if not track or not track.dir then return false, "Das Gleis gibt es nicht." end
+    local found = detect.find(w.scan, device_name)
+    if not found or found.kind ~= "signal" then return false, "Das Signal ist nicht angeschlossen." end
+    local missing = detect.missing("signal", found)
+    if #missing > 0 then return false, "Dem Geraet fehlen Methoden: " .. table.concat(missing, ",") end
+    for _, other in pairs(w.config.tracks) do
+      for _, did in ipairs(other.signals) do
+        if w.config.devices[did] and w.config.devices[did].device == device_name then return false, "Das Signal gehoert schon zu " .. other.name .. "." end
+      end
+    end
+    local did = model.add_device(w.config, "signal", device_name)
+    model.assign(w.config, tid, "signals", did)
+    return true
+  end
+
+  -- das zuletzt zugeordnete Signal des Gleises wieder loesen
+  function w.guided_unassign(tid)
+    local track = w.config.tracks[tid]
+    if not track or #track.signals == 0 then return false, "An diesem Gleis ist kein Signal zugeordnet." end
+    model.remove_device(w.config, track.signals[#track.signals])
+    return true
+  end
+
   -- Knotenpunkt
   function w.add_connection(name)
     if name == "" then return false, "Der Anschluss braucht einen Namen." end
@@ -360,6 +450,7 @@ function M.new(opts)
   function w.tests()
     sync_config()
     local list = {}
+    if w.guided then return list end          -- die gefuehrte Einrichtung prueft ueber w.pruefung (setup/pruefung.lua)
     local ids = {}
     for id in pairs(w.config.devices) do ids[#ids + 1] = id end
     table.sort(ids)
@@ -406,6 +497,7 @@ function M.new(opts)
   end
 
   function w.all_tests_ok()
+    if w.guided then return w.pruefung ~= nil and w.pruefung.all_ok() end
     local current = fingerprint()
     for _, test in ipairs(w.tests()) do
       if w.test_state(test.id, current, test) ~= "ok" then return false end
