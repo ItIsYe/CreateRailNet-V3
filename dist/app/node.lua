@@ -249,6 +249,7 @@ mark_dirty = function() n.dirty = true end,
 directory_areas = function(central_id) return n.directory_areas(central_id) end,
 directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
 directory_claim = function(central_id, claim, role, area_id, track_ids) return n.directory_claim(central_id, claim, role, area_id, track_ids) end,
+directory_area_create = function(central_id, token, spec) return n.directory_area_create(central_id, token, spec) end,
 directory_track_change = function(central_id, claim, track_id, fields, if_rev) return n.directory_track_change(central_id, claim, track_id, fields, if_rev) end,
 directory_status = function() return n.directory_status() end,
 directory_reset = function() return n.directory_reset() end,
@@ -590,6 +591,15 @@ dir_send(central_id, { kind = "gleis_aendern", claim = claim, track = track_id, 
 local t = p.track
 if type(t) ~= "table" or not dir_id(t.id, "A") or t.id ~= track_id or not dir_name(t.name) or not dir_name(t.direction) then return dir_bad() end
 n.dir_state = { kind = "ok", text = "Gleis geaendert.", track = { id = t.id, name = t.name, direction = t.direction, rev = (type(t.rev) == "number" and t.rev >= 0 and t.rev < 1e9) and math.floor(t.rev) or 0 } }
+end)
+end
+
+
+function n.directory_area_create(central_id, token, spec)
+dir_send(central_id, { kind = "bereich_anlegen", token = token, name = spec.name, ends = spec.ends, count = spec.count, pattern = spec.pattern }, function(p)
+local a = p.area
+if type(a) ~= "table" or not dir_id(a.id, "B") or not dir_name(a.name) then return dir_bad() end
+n.dir_state = { kind = "ok", text = (p.created == false) and "Bereich war schon angelegt." or "Bereich angelegt.", created = { id = a.id, name = a.name } }
 end)
 end
 

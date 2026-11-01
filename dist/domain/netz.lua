@@ -142,8 +142,8 @@ end
 return false
 end
 
-function n.add_area(spec2)
-return change(function()
+local function create_area(spec2)
+do
 local count = 0
 for _ in pairs(data.areas) do count = count + 1 end
 if count >= M.MAX_AREAS then return nil, "Es gibt schon " .. M.MAX_AREAS .. " Bereiche." end
@@ -169,7 +169,34 @@ data.tracks[tid] = { area = id, name = "Gleis " .. i, direction = direction, ord
 data.areas[id].order = i
 end
 return id
+end
+end
+
+function n.add_area(spec2)
+return change(function() return create_area(spec2) end)
+end
+
+
+
+M.MAX_TOKENS = 200
+function n.add_area_once(token, spec2)
+if type(token) ~= "string" or #token < 8 or #token > 64 or token:find("[^%w%-_]") then return nil, "Die Anforderungskennung ist ungueltig." end
+local known = data.area_tokens and data.area_tokens[token]
+if known and data.areas[known] then return known, false end
+local id, err = change(function()
+local created, why = create_area(spec2)
+if not created then return nil, why end
+data.area_tokens = data.area_tokens or {}
+data.area_token_list = data.area_token_list or {}
+data.area_tokens[token] = created
+data.area_token_list[#data.area_token_list + 1] = token
+while #data.area_token_list > M.MAX_TOKENS do
+data.area_tokens[table.remove(data.area_token_list, 1)] = nil
+end
+return created
 end)
+if not id then return nil, err end
+return id, true
 end
 
 function n.set_area(id, fields)

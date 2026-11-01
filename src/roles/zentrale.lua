@@ -681,7 +681,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
-      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" then role.handle_directory(m)
+      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" or m.payload.kind == "bereich_anlegen" then role.handle_directory(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
       elseif m.payload.kind == "netze" then
         -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
@@ -1076,6 +1076,14 @@ function M.new(node)
       local area = type(p.area) == "string" and role.netz.area(p.area) or nil
       if not area then return node.reply(m, "abgelehnt", { grund = "Den Bereich gibt es nicht." }) end
       return node.reply(m, "ok", { area = area, revision = revision })
+    end
+    if p.kind == "bereich_anlegen" then
+      -- Bereich von einer Node aus anlegen (Konzept 10.2); dieselbe Anforderungskennung liefert denselben Bereich
+      if type(p.ends) ~= "table" then return node.reply(m, "abgelehnt", { grund = "Die beiden Anschluesse fehlen." }) end
+      local id, created = role.netz.add_area_once(p.token, { name = p.name, ends = { p.ends[1], p.ends[2] }, count = p.count, pattern = p.pattern })
+      if not id then return node.reply(m, "abgelehnt", { grund = created }) end
+      local area = role.netz.area(id)
+      return node.reply(m, "ok", { area = { id = id, name = area.name }, created = created, revision = role.netz.revision() })
     end
     if p.kind == "gleis_aendern" then
       -- Name und Richtung eines Gleises von der Node aus aendern (Konzept 12.4): nur die Node, die das Gleis ueber ihre Anforderung betreut

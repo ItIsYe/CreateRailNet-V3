@@ -24,7 +24,7 @@ function M.new(services)
   -- Gefuehrte Einrichtung einer Signal-Node nach dem Netzverzeichnis (Konzept 12.1): Bereich waehlen, Gleise uebernehmen, Signale zuordnen,
   -- pruefen und aktivieren. Von Hand geht es weiter wie bisher ("Von Hand" auf dem Bildschirm Bereich).
   local GUIDED_TITLE = {
-    ["2.bereich"] = "Bereich waehlen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
+    ["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
     ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern", ["5.pruefen"] = "Pruefen und aktivieren",
   }
   local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
@@ -136,6 +136,7 @@ function M.new(services)
       zentrale = { value = session.wiz.central_id, max = 30 },
       name = { value = session.wiz.name, max = 30 },
       gleisname = { value = "", max = 30 },
+      bname = { value = "", max = 30 }, bende1 = { value = "", max = 30 }, bende2 = { value = "", max = 30 }, bzahl = { value = "2", max = 2 },
       anschluss = { value = "", max = 20 },
     }
     -- ein gespeicherter Entwurf der gefuehrten Einrichtung geht bei der Zuordnung weiter (Kennung und Gleise stehen schon fest)
@@ -821,6 +822,15 @@ function M.new(services)
     return "Richtung " .. tostring(direction)
   end
 
+  local function choose_area(area)
+    local d = session.dir
+    d.chosen, d.area, d.selected, d.want = area, nil, nil, "area"
+    services.directory_tracks(session.wiz.central_id, area.id)
+  end
+
+  local PATTERNS = { "gegenlaeufig", "gleich", "beide" }
+  local PATTERN_TEXT = { gegenlaeufig = "gegenlaeufig (Haelfte je Richtung)", gleich = "alle in eine Richtung (zum 2. Anschluss)", beide = "Richtung offen (beide)" }
+
   screens["2.bereich"] = {
     render = function(v, rect)
       header(v, rect, nil, "In welchem Bereich arbeitet diese Node?")
@@ -842,10 +852,13 @@ function M.new(services)
       local d = session.dir
       if n then
         local area = (session.pick.areas or {})[tonumber(n)]
-        if area then
-          d.chosen, d.area, d.selected, d.want = area, nil, nil, "area"
-          services.directory_tracks(session.wiz.central_id, area.id)
-        end
+        if area then choose_area(area) end
+        return true
+      elseif id == "act:neuer_bereich" then
+        local f = fields(v)
+        f.bname.value, f.bende1.value, f.bende2.value, f.bzahl.value = "", "", "", "2"
+        d.neu = { pattern = "gegenlaeufig" }
+        push("2.b.neu")
         return true
       elseif id == "act:neu_laden" then
         d.areas, d.chosen, d.area, d.want = nil, nil, nil, "areas"
@@ -860,6 +873,7 @@ function M.new(services)
     end,
     actions = function(v)
       return {
+        { id = "neuer_bereich", label = "Neu" },
         { id = "neu_laden", label = "Neu laden", kind = "secondary" },
         { id = "von_hand", label = "Von Hand", kind = "secondary" },
       }
@@ -872,6 +886,57 @@ function M.new(services)
       end
       push("3.gleise")
       return true
+    end,
+  }
+
+  -- Bereich von der Node aus anlegen (Konzept 10.2): die Leitstelle speichert ihn; bei Wiederholung derselben Angaben entsteht er nicht doppelt
+  screens["2.b.neu"] = {
+    no_forward = true,
+    render = function(v, rect)
+      local d = session.dir
+      header(v, rect, nil, "Neuen Bereich im Netz anlegen")
+      local f = fields(v)
+      local w = math.min(rect.w - 2, 36)
+      W.field(v, "bname", rect.x + 1, rect.y + 2, w, "Name des Bereichs (z.B. West-Ost)", f.bname)
+      W.field(v, "bende1", rect.x + 1, rect.y + 4, w, "Anschluss 1 (z.B. Westbahnhof)", f.bende1)
+      W.field(v, "bende2", rect.x + 1, rect.y + 6, w, "Anschluss 2 (z.B. Ostbahnhof)", f.bende2)
+      W.field(v, "bzahl", rect.x + 1, rect.y + 8, 12, "Gleise", f.bzahl)
+      W.label(v, rect.x + 1, rect.y + 11, "Vorlage: " .. (PATTERN_TEXT[d.neu and d.neu.pattern or "gegenlaeufig"] or "?"), "text", rect.w - 2)
+      local st = dir_status()
+      if d.creating and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 13, st.text or "", st.kind, rect.w - 2) end
+    end,
+    actions = function(v)
+      local busy = session.dir.creating ~= nil
+      return {
+        { id = "b_vorlage", label = "Vorlage", kind = "secondary", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
+        { id = "b_anlegen", label = "Anlegen", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
+      }
+    end,
+    action = function(v, id)
+      local d = session.dir
+      if d.creating then return false end
+      if id == "act:b_vorlage" then
+        for i, p in ipairs(PATTERNS) do
+          if p == d.neu.pattern then d.neu.pattern = PATTERNS[i % #PATTERNS + 1] return true end
+        end
+        d.neu.pattern = PATTERNS[1]
+        return true
+      elseif id == "act:b_anlegen" then
+        local f = fields(v)
+        local function trim(x) return (x:match("^%s*(.-)%s*$")) end
+        local spec = { name = trim(f.bname.value), ends = { trim(f.bende1.value), trim(f.bende2.value) }, count = tonumber(trim(f.bzahl.value)), pattern = d.neu.pattern }
+        if spec.name == "" then v.hint = "Der Name des Bereichs fehlt." return true end
+        if spec.ends[1] == "" or spec.ends[2] == "" then v.hint = "Beide Anschlussnamen fehlen." return true end
+        if not spec.count then v.hint = "Die Gleisanzahl fehlt (Zahl)." return true end
+        -- gleiche Angaben, gleiche Kennung: ein erneuter Versuch legt nichts doppelt an; geaenderte Angaben bekommen eine neue
+        local key = table.concat({ spec.name, spec.ends[1], spec.ends[2], tostring(spec.count), spec.pattern }, "|")
+        if d.neu.key ~= key then d.neu.key, d.neu.token = key, services.new_claim() end
+        services.directory_reset()
+        d.creating = { token = d.neu.token }
+        services.directory_area_create(session.wiz.central_id, d.neu.token, spec)
+        v.hint = "Frage die Leitstelle ..."
+        return true
+      end
     end,
   }
 
@@ -1523,7 +1588,13 @@ function M.new(services)
     local st = dir_status()
     if not st then return end
     if st.kind == "ok" then
-      if st.areas and d.want == "areas" then d.areas, d.want = st.areas, nil end
+      if st.areas and d.want == "areas" then
+        d.areas, d.want = st.areas, nil
+        if d.preselect then
+          for _, a in ipairs(d.areas) do if a.id == d.preselect then choose_area(a) end end
+          d.preselect = nil
+        end
+      end
       if st.area and d.want == "area" then d.area, d.want = st.area, nil end
       if st.node and d.claiming then
         local claiming = d.claiming
@@ -1539,6 +1610,19 @@ function M.new(services)
     elseif st.kind == "halt" and d.claiming then
       d.claiming = nil
       v.hint = st.text
+    end
+    if d.creating then
+      if st.kind == "ok" and st.created then
+        local created = st.created
+        d.creating, d.areas, d.chosen, d.area, d.want, d.preselect = nil, nil, nil, nil, "areas", created.id
+        v.hint = "Bereich " .. created.name .. " angelegt."
+        if session.screen == "2.b.neu" then pop() end
+        services.directory_areas(session.wiz.central_id)
+        return
+      elseif st.kind == "halt" then
+        d.creating = nil
+        v.hint = st.text
+      end
     end
     if d.editing then
       if st.kind == "ok" and st.track and st.track.id == d.editing.dir_id then
