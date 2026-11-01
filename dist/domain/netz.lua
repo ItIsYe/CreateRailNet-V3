@@ -983,7 +983,8 @@ for name, c in pairs(j.connections) do
 local ends = {}
 for _, tid in ipairs(c.tracks) do
 local t = data.tracks[tid]
-ends[#ends + 1] = { id = tid, name = t and t.name or "?" }
+local a = t and data.areas[t.area]
+ends[#ends + 1] = { id = tid, name = t and t.name or "?", area = a and a.name or "?" }
 end
 conns[#conns + 1] = { name = name, tracks = ends }
 end
@@ -1010,8 +1011,10 @@ end
 
 
 local function view(id, node)
-return { id = id, claim = node.claim, role = node.role, area = node.area, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
+return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
 end
+
+
 
 function n.claim_node(spec2)
 return change(function()
@@ -1019,9 +1022,26 @@ local claim = spec2.claim
 if type(claim) ~= "string" or #claim < 8 or #claim > 64 or claim:find("[^%w%-_]") then return nil, "Die Anforderungskennung ist ungueltig." end
 local code = ROLE_CODE[spec2.role]
 if not code then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+local wanted = {}
+local area_id, junction_id, where_name, where_code
+if spec2.role == "knoten" then
+local j = type(spec2.junction) == "string" and data.junctions[spec2.junction] or nil
+if not j then return nil, "Den Knoten gibt es nicht." end
+if spec2.area ~= nil or spec2.tracks ~= nil then return nil, "Ein Knoten wird ohne Bereich und Gleise angefordert." end
+local open = junction_open(j)
+if open > 0 then return nil, "Der Knoten hat " .. open .. " unbestaetigte Fahrwege oder Konflikte: erst in der Leitstelle bestaetigen." end
+if count_of(j.connections) < 2 then return nil, "Ein Knoten braucht mindestens zwei Anschluesse." end
+if count_of(j.routes) < 1 then return nil, "Der Knoten hat keinen Fahrweg." end
+local seen = {}
+for _, c in pairs(j.connections) do
+for _, tid in ipairs(c.tracks) do if not seen[tid] then seen[tid] = true; wanted[#wanted + 1] = tid end end
+end
+table.sort(wanted)
+junction_id, where_name, where_code = spec2.junction, j.name, spec2.junction
+else
 local area = data.areas[spec2.area]
 if not area then return nil, "Den Bereich gibt es nicht." end
-local wanted = {}
+if spec2.junction ~= nil then return nil, "Nur die Rolle knoten wird fuer einen Knoten angefordert." end
 if type(spec2.tracks) ~= "table" then return nil, "Die Gleise fehlen." end
 for _, tid in ipairs(spec2.tracks) do
 local t = data.tracks[tid]
@@ -1030,13 +1050,15 @@ for _, seen in ipairs(wanted) do if seen == tid then return nil, "Das Gleis " ..
 wanted[#wanted + 1] = tid
 end
 if #wanted == 0 then return nil, "Mindestens ein Gleis muss uebernommen werden." end
+area_id, where_name, where_code = spec2.area, area.name, spec2.area
+end
 
 for id, node in pairs(data.nodes) do
 if node.claim == claim then
 if node.state == "verworfen" then return nil, "Diese Anforderung wurde verworfen." end
-node.role, node.area, node.tracks = spec2.role, spec2.area, wanted
-node.name = ROLE_TEXT[spec2.role] .. " " .. area.name .. " " .. id
-node.label = id .. " | " .. code .. " | " .. spec2.area
+node.role, node.area, node.junction, node.tracks = spec2.role, area_id, junction_id, wanted
+node.name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id
+node.label = id .. " | " .. code .. " | " .. where_code
 return view(id, node)
 end
 end
@@ -1045,9 +1067,9 @@ for _ in pairs(data.nodes) do count = count + 1 end
 if count >= M.MAX_NODES then return nil, "Es gibt schon " .. M.MAX_NODES .. " Nodes im Verzeichnis." end
 local id = new_id("node", "N")
 data.nodes[id] = {
-claim = claim, role = spec2.role, area = spec2.area, tracks = wanted, state = "reserviert",
-name = ROLE_TEXT[spec2.role] .. " " .. area.name .. " " .. id,
-label = id .. " | " .. code .. " | " .. spec2.area,
+claim = claim, role = spec2.role, area = area_id, junction = junction_id, tracks = wanted, state = "reserviert",
+name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id,
+label = id .. " | " .. code .. " | " .. where_code,
 }
 return view(id, data.nodes[id])
 end)

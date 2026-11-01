@@ -1112,7 +1112,8 @@ function M.new(node)
       if not part then return node.reply(m, "abgelehnt", { grund = why }) end
       return node.reply(m, "ok", { part = part, revision = revision })
     end
-    local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, area = p.area, tracks = p.tracks })
+    if p.junction ~= nil and type(p.junction) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Knotenkennung ist ungueltig." }) end
+    local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, area = p.area, tracks = p.tracks, junction = p.junction })
     if not entry then return node.reply(m, "abgelehnt", { grund = err }) end
     node.reply(m, "ok", { node = { id = entry.id, name = entry.name, label = entry.label }, revision = role.netz.revision() })
   end

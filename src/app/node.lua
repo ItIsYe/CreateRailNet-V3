@@ -248,7 +248,9 @@ function M.new(env)
     mark_dirty = function() n.dirty = true end,
     directory_areas = function(central_id) return n.directory_areas(central_id) end,
     directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
-    directory_claim = function(central_id, claim, role, area_id, track_ids) return n.directory_claim(central_id, claim, role, area_id, track_ids) end,
+    directory_claim = function(central_id, claim, role, area_id, track_ids, junction_id) return n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id) end,
+    directory_junctions = function(central_id) return n.directory_junctions(central_id) end,
+    directory_junction = function(central_id, junction_id) return n.directory_junction(central_id, junction_id) end,
     directory_area_create = function(central_id, token, spec) return n.directory_area_create(central_id, token, spec) end,
     directory_track_change = function(central_id, claim, track_id, fields, if_rev) return n.directory_track_change(central_id, claim, track_id, fields, if_rev) end,
     directory_status = function() return n.directory_status() end,
@@ -576,8 +578,66 @@ function M.new(env)
     end)
   end
 
-  function n.directory_claim(central_id, claim, role, area_id, track_ids)
-    dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, area = area_id, tracks = track_ids }, function(p)
+  -- Knoten des Verzeichnisses (Konzept 7): Liste, dann Anschluesse, Fahrwege und Konflikte eines Knotens. Es kommt nur Bestaetigtes an.
+  function n.directory_junctions(central_id)
+    dir_send(central_id, { kind = "knoten_liste" }, function(p)
+      if type(p.junctions) ~= "table" or #p.junctions > 100 then return dir_bad() end
+      local list = {}
+      for _, j in ipairs(p.junctions) do
+        if type(j) ~= "table" or not dir_id(j.id, "K") or not dir_name(j.name) or type(j.connections) ~= "number" or type(j.open) ~= "number" then return dir_bad() end
+        list[#list + 1] = { id = j.id, name = j.name, connections = math.floor(j.connections), open = math.floor(j.open) }
+      end
+      n.dir_state = { kind = "ok", text = #list .. " Knoten im Netz.", junctions = list }
+    end)
+  end
+
+  function n.directory_junction(central_id, junction_id)
+    local result
+    local function ask(part, handler)
+      dir_send(central_id, { kind = "knoten_teil", junction = junction_id, part = part }, function(p)
+        if type(p.part) ~= "table" or p.part.id ~= junction_id then return dir_bad() end
+        handler(p.part)
+      end)
+    end
+    ask("anschluesse", function(part)
+      if not dir_name(part.name) or type(part.rev) ~= "number" or type(part.connections) ~= "table" or #part.connections > 20 then return dir_bad() end
+      local conns, total = {}, 0
+      for _, c in ipairs(part.connections) do
+        if type(c) ~= "table" or not dir_name(c.name) or type(c.tracks) ~= "table" or #c.tracks > 40 then return dir_bad() end
+        local ends = {}
+        for _, t in ipairs(c.tracks) do
+          if type(t) ~= "table" or not dir_id(t.id, "A") or not dir_name(t.name) or not dir_name(t.area) then return dir_bad() end
+          ends[#ends + 1] = { id = t.id, name = t.name, area = t.area }
+          total = total + 1
+        end
+        conns[#conns + 1] = { name = c.name, tracks = ends }
+      end
+      if total > 60 then return dir_bad() end
+      result = { id = junction_id, name = part.name, rev = math.floor(part.rev), connections = conns }
+      ask("fahrwege", function(routes_part)
+        if type(routes_part.routes) ~= "table" or #routes_part.routes > 60 then return dir_bad() end
+        local routes = {}
+        for _, r in ipairs(routes_part.routes) do
+          if type(r) ~= "table" or not dir_id(r.id, "F") or not dir_id(r.from, "A") or not dir_id(r.to, "A") then return dir_bad() end
+          routes[#routes + 1] = { id = r.id, from = r.from, to = r.to }
+        end
+        result.routes = routes
+        ask("konflikte", function(conflict_part)
+          if type(conflict_part.conflicts) ~= "table" or #conflict_part.conflicts > 90 then return dir_bad() end
+          local conflicts = {}
+          for _, c in ipairs(conflict_part.conflicts) do
+            if type(c) ~= "table" or not dir_id(c.a, "F") or not dir_id(c.b, "F") then return dir_bad() end
+            conflicts[#conflicts + 1] = { a = c.a, b = c.b }
+          end
+          result.conflicts = conflicts
+          n.dir_state = { kind = "ok", text = "Knoten " .. result.name .. " geladen.", junction = result }
+        end)
+      end)
+    end)
+  end
+
+  function n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id)
+    dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, area = area_id, tracks = track_ids, junction = junction_id }, function(p)
       local node = p.node
       if type(node) ~= "table" or not dir_id(node.id, "N") or type(node.name) ~= "string" or #node.name > 60 or not node.name:match("^[%w _%-]+$")
         or type(node.label) ~= "string" or #node.label > 60 or not node.label:match("^[%w _%-|]+$") then

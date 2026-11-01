@@ -152,10 +152,64 @@ function M.new(node, signals)
     end
   end
 
+  -- Abgleich mit dem Netzverzeichnis (Konzept 15): hat sich der Knoten in der Leitstelle seit der Einrichtung geaendert (Stand), wird es gemeldet. Die Aenderung
+  -- wird nicht still uebernommen: Verbindungen und Konflikte bestimmen die Freigaben und brauchen eine neue Einrichtung mit Pruefung.
+  local SYNC_FIRST, SYNC_EVERY, SYNC_WAIT = 20, 600, 15
+  local sync = { next_at = SYNC_FIRST, req = nil, state = "offen", note = nil, notified = nil }
+  role.sync = sync
+
+  local function directory_backed() return config.node.claimed and config.node.junction or nil end
+
+  function role.sync_request()
+    if not directory_backed() then return nil, "Diese Node ist nicht ueber das Netzverzeichnis eingerichtet." end
+    if sync.state == "frage" and now() - (sync.asked or 0) < SYNC_WAIT then return nil, "Die Frage laeuft noch." end
+    local m = node.send_to(node.central_id(), "abfrage", { kind = "knoten_teil", junction = directory_backed(), part = "anschluesse" })
+    sync.req, sync.state, sync.asked = m and m.messageId or nil, "frage", now()
+    sync.next_at = now() + SYNC_EVERY
+    return true
+  end
+
+  function role.on_message(m, status)
+    if status ~= "ok" or m.messageType ~= "bestaetigung" then return end
+    local p = m.payload
+    if type(p) ~= "table" or p.kind ~= "antwort" or p.antwort_auf ~= "knoten_teil" then return end
+    if not (sync.req and m.correlationId == sync.req and sync.state == "frage") then return end
+    sync.req = nil
+    if p.status ~= "ok" then
+      sync.state, sync.note = "abgelehnt", type(p.grund) == "string" and p.grund:sub(1, 80) or "abgelehnt"
+      if sync.notified ~= "abgelehnt" then
+        sync.notified = "abgelehnt"
+        node.notify("warnung", "Netzverzeichnis: " .. sync.note)
+      end
+      return
+    end
+    local part = p.part
+    if type(part) ~= "table" or part.id ~= directory_backed() or type(part.rev) ~= "number" then
+      sync.state, sync.note = "unlesbar", "Unerwartete Antwort der Leitstelle."
+      return
+    end
+    if math.floor(part.rev) == config.node.junction_rev then
+      sync.state, sync.note, sync.notified = "gleich", nil, nil
+      return
+    end
+    sync.state = "abweichend"
+    sync.note = "Der Knoten wurde in der Leitstelle geaendert (Stand " .. tostring(config.node.junction_rev) .. " -> " .. math.floor(part.rev) .. "): Einrichtung pruefen."
+    if sync.notified ~= part.rev then
+      sync.notified = part.rev
+      node.notify("warnung", "Abweichung zum Netzverzeichnis: " .. sync.note)
+    end
+  end
+
   function role.tick()
     poll()
     grant_pending()
     local t = now()
+    if directory_backed() then
+      if sync.state == "frage" and t - (sync.asked or 0) >= SYNC_WAIT then
+        sync.state, sync.note = "keine Antwort", "Die Leitstelle antwortet nicht; die lokale Einrichtung bleibt unveraendert."
+      end
+      if t >= sync.next_at and sync.state ~= "frage" then role.sync_request() end
+    end
     if dirty or t - last_beat >= HEARTBEAT then
       node.send_to(node.central_id(), "meldung", { kind = "knoten", node = config.node.id, uses = role.areas.status(), t = t })
       last_beat, dirty = t, false
@@ -179,14 +233,33 @@ function M.new(node, signals)
         }
         state.uses[i] = u
       end
-      W.list(v, "knoten", rect, items, state.list, { empty = "Der Knoten ist frei (nachgewiesen)." })
+      local has_sync = directory_backed() ~= nil
+      W.list(v, "knoten", has_sync and { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 } or rect, items, state.list, { empty = "Der Knoten ist frei (nachgewiesen)." })
+      if has_sync then
+        local text, kind
+        if sync.state == "abweichend" then text, kind = sync.note, "attention"
+        elseif sync.state == "gleich" then text, kind = "Netzverzeichnis: der Knoten stimmt mit der Leitstelle ueberein.", "ok"
+        elseif sync.state == "frage" then text, kind = "Netzverzeichnis: frage die Leitstelle ...", "wait"
+        elseif sync.state == "offen" then text, kind = "Netzverzeichnis: noch nicht abgeglichen.", "dim"
+        else text, kind = "Netzverzeichnis: " .. tostring(sync.note or sync.state), "wait" end
+        W.label(v, rect.x + 1, rect.y + rect.h - 1, text, kind, rect.w - 2)
+      end
     end,
     actions = function(v)
       local state = v.page_state("knoten")
       local u = state.uses and state.uses[(state.list or { index = 1 }).index]
-      return { { id = "aufloesen", label = confirm.armed and "Wirklich?" or "Pruefen+frei", kind = "danger", enabled = u ~= nil, reason = "Keine Nutzung gewaehlt." } }
+      local list = { { id = "aufloesen", label = confirm.armed and "Wirklich?" or "Pruefen+frei", kind = "danger", enabled = u ~= nil, reason = "Keine Nutzung gewaehlt." } }
+      if directory_backed() then
+        list[#list + 1] = { id = "abgleich", label = "Abgleich", kind = "secondary", enabled = sync.state ~= "frage", reason = "Die Frage an die Leitstelle laeuft." }
+      end
+      return list
     end,
     on_action = function(v, id)
+      if id == "act:abgleich" then
+        local ok, why = role.sync_request()
+        v.hint = ok and "Frage die Leitstelle ..." or why
+        return true
+      end
       if id ~= "act:aufloesen" then return end
       local state = v.page_state("knoten")
       local u = state.uses and state.uses[state.list.index]

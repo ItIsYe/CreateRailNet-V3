@@ -1,6 +1,6 @@
 --[[
 Purpose: Netzverzeichnis der Leitstelle (Konzept 3, 4, 5, 10, 11): Bereiche mit ihren zwei Anschluessen und den Gleisen darin (Name, Richtung als Bezug zu einem Anschluss), dazu die Anforderungen der Nodes, die ihren Ausschnitt uebernehmen. Die Leitstelle vergibt dauerhafte Kennungen (B0001 Bereich, A0001 Gleis, N0017 Node), die nie wiederverwendet werden, und liefert Anzeigename und Computerlabel einer Node.
-API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.set_end(bereich, nr, { kind, ref, name }); n.set_area_state(id, zustand); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.link_station(betriebsstelle, gleis, beziehung, richtungen); n.unlink_station(betriebsstelle, gleis); n.stations(); n.station(id); n.sites(); n.add_junction{ name }; n.add_connection(k, name, gleise); n.add_route(k, von, nach); n.add_conflict(k, f1, f2); n.propose_routes(k, art); n.propose_conflicts(k); n.confirm_junction(k); n.junctions(); n.junction(k); n.junction_part(k, teil); n.add_area{ name, ends = { a, b }, count, pattern } -> id oder nil, fehler; n.add_area_once(kennung, angaben) -> id, neu_angelegt oder nil, fehler; n.set_area(id, { name, ends }); n.remove_area(id); n.add_track(area, name, richtung); n.set_track(id, { name, direction }); n.remove_track(id); n.areas() -> Liste; n.areas_page(nach, grenze) -> Liste, weitere; n.area(id) -> Bereich mit Gleisen; n.claim_node{ claim, role, area, tracks } -> Eintrag oder nil, fehler; n.mark_active(id); n.discard_node(id); n.nodes() -> Liste; n.node(id); n.revision()
+API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.set_end(bereich, nr, { kind, ref, name }); n.set_area_state(id, zustand); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.link_station(betriebsstelle, gleis, beziehung, richtungen); n.unlink_station(betriebsstelle, gleis); n.stations(); n.station(id); n.sites(); n.add_junction{ name }; n.add_connection(k, name, gleise); n.add_route(k, von, nach); n.add_conflict(k, f1, f2); n.propose_routes(k, art); n.propose_conflicts(k); n.confirm_junction(k); n.junctions(); n.junction(k); n.junction_part(k, teil); n.add_area{ name, ends = { a, b }, count, pattern } -> id oder nil, fehler; n.add_area_once(kennung, angaben) -> id, neu_angelegt oder nil, fehler; n.set_area(id, { name, ends }); n.remove_area(id); n.add_track(area, name, richtung); n.set_track(id, { name, direction }); n.remove_track(id); n.areas() -> Liste; n.areas_page(nach, grenze) -> Liste, weitere; n.area(id) -> Bereich mit Gleisen; n.claim_node{ claim, role, area, tracks } oder fuer die Rolle knoten { claim, role, junction } -> Eintrag oder nil, fehler; n.mark_active(id); n.discard_node(id); n.nodes() -> Liste; n.node(id); n.revision()
 Notes: Vorlagen (pattern) erzeugen nur bearbeitbare Gleise: gegenlaeufig (erste Haelfte Richtung Anschluss 2, Rest Richtung Anschluss 1), gleich (alle Richtung Anschluss 2), beide. Die Richtung eines Gleises ist ein Bezug (Name eines Anschlusses) oder "beide"; sie wird nirgends ausgewertet, sondern angezeigt. Ein Gleis in einem Bereich ist nicht automatisch ein Create-Signalblock. Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Benutzte Objekte (Bereich oder Gleis, das eine Node uebernommen hat) werden nicht geloescht. Zaehler stehen in der Datei und gehen nie zurueck. Anschlussarten: name (freier Name), betriebsstelle (Name folgt der Betriebsstelle), bereich (Name folgt dem Nachbarbereich), offen (Ende im Bau: der Bereich gilt dann als "im bau", nicht als betriebsbereit). Betriebsstellen (BF0001: Personenbahnhof, Gueterbahnhof, Depot) hoeren optional zu einem Standort (S0001, nur ueber den Namen gefuehrt, leere Standorte verschwinden); ihre Gleise stehen mit einer Beziehung: vorbei (das Gleis fuehrt vorbei), verbindung (das Gleis hat eine Verbindung zur Betriebsstelle, mit den baulich moeglichen Fahrtrichtungen) oder bahnhofsgleis (das Gleis gehoert zur Betriebsstelle); aus einer Beziehung folgt nie eine andere. Jedes Objekt traegt einen Stand (rev); Aenderungen mit `if_rev` werden abgelehnt, wenn das Objekt inzwischen anders geaendert wurde. Knoten (K0001) fuehren Anschluesse als Gruppen von Gleisenden (Gleise des Verzeichnisses), gerichtete Fahrwege (F0001) zwischen Gleisenden verschiedener Anschluesse und Konflikte zwischen Fahrwegen; Vorschlaege (durchgehend, alle, Konflikte bei gleichem Start oder Ziel) bleiben unbestaetigt, bis sie ausdruecklich bestaetigt werden, und Nodes bekommen nur Bestaetigtes; nie wird eine Verbindung aus einer T- oder Y-Form abgeleitet. Das Dateiformat hat eine Version; eine Datei von einem neueren Programm wird gelesen, aber nicht veraendert. Jede Aenderung wird sofort gespeichert; schlaegt das fehl, bleibt der alte Stand.
 ]]
 
@@ -983,7 +983,8 @@ function M.new(spec)
         local ends = {}
         for _, tid in ipairs(c.tracks) do
           local t = data.tracks[tid]
-          ends[#ends + 1] = { id = tid, name = t and t.name or "?" }
+          local a = t and data.areas[t.area]
+          ends[#ends + 1] = { id = tid, name = t and t.name or "?", area = a and a.name or "?" }
         end
         conns[#conns + 1] = { name = name, tracks = ends }
       end
@@ -1010,33 +1011,54 @@ function M.new(spec)
 
   -- Nodes ----------------------------------------------------------------------------------------------------------------------------------
   local function view(id, node)
-    return { id = id, claim = node.claim, role = node.role, area = node.area, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
+    return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
   end
 
+  -- Anforderung einer Node-Kennung. Normale Rollen betreuen Gleise eines Bereichs (area, tracks); die Rolle knoten betreut einen Knoten des Verzeichnisses
+  -- (junction): sie bekommt alle Gleisenden seiner Anschluesse, und der Knoten muss vollstaendig bestaetigt sein (Nodes erhalten nur Bestaetigtes).
   function n.claim_node(spec2)
     return change(function()
       local claim = spec2.claim
       if type(claim) ~= "string" or #claim < 8 or #claim > 64 or claim:find("[^%w%-_]") then return nil, "Die Anforderungskennung ist ungueltig." end
       local code = ROLE_CODE[spec2.role]
       if not code then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
-      local area = data.areas[spec2.area]
-      if not area then return nil, "Den Bereich gibt es nicht." end
       local wanted = {}
-      if type(spec2.tracks) ~= "table" then return nil, "Die Gleise fehlen." end
-      for _, tid in ipairs(spec2.tracks) do
-        local t = data.tracks[tid]
-        if not t or t.area ~= spec2.area then return nil, "Das Gleis " .. tostring(tid) .. " gehoert nicht zu diesem Bereich." end
-        for _, seen in ipairs(wanted) do if seen == tid then return nil, "Das Gleis " .. tid .. " ist doppelt angegeben." end end
-        wanted[#wanted + 1] = tid
+      local area_id, junction_id, where_name, where_code
+      if spec2.role == "knoten" then
+        local j = type(spec2.junction) == "string" and data.junctions[spec2.junction] or nil
+        if not j then return nil, "Den Knoten gibt es nicht." end
+        if spec2.area ~= nil or spec2.tracks ~= nil then return nil, "Ein Knoten wird ohne Bereich und Gleise angefordert." end
+        local open = junction_open(j)
+        if open > 0 then return nil, "Der Knoten hat " .. open .. " unbestaetigte Fahrwege oder Konflikte: erst in der Leitstelle bestaetigen." end
+        if count_of(j.connections) < 2 then return nil, "Ein Knoten braucht mindestens zwei Anschluesse." end
+        if count_of(j.routes) < 1 then return nil, "Der Knoten hat keinen Fahrweg." end
+        local seen = {}
+        for _, c in pairs(j.connections) do
+          for _, tid in ipairs(c.tracks) do if not seen[tid] then seen[tid] = true; wanted[#wanted + 1] = tid end end
+        end
+        table.sort(wanted)
+        junction_id, where_name, where_code = spec2.junction, j.name, spec2.junction
+      else
+        local area = data.areas[spec2.area]
+        if not area then return nil, "Den Bereich gibt es nicht." end
+        if spec2.junction ~= nil then return nil, "Nur die Rolle knoten wird fuer einen Knoten angefordert." end
+        if type(spec2.tracks) ~= "table" then return nil, "Die Gleise fehlen." end
+        for _, tid in ipairs(spec2.tracks) do
+          local t = data.tracks[tid]
+          if not t or t.area ~= spec2.area then return nil, "Das Gleis " .. tostring(tid) .. " gehoert nicht zu diesem Bereich." end
+          for _, seen in ipairs(wanted) do if seen == tid then return nil, "Das Gleis " .. tid .. " ist doppelt angegeben." end end
+          wanted[#wanted + 1] = tid
+        end
+        if #wanted == 0 then return nil, "Mindestens ein Gleis muss uebernommen werden." end
+        area_id, where_name, where_code = spec2.area, area.name, spec2.area
       end
-      if #wanted == 0 then return nil, "Mindestens ein Gleis muss uebernommen werden." end
       -- dieselbe Anforderung noch einmal: dieselbe Kennung, neue Angaben
       for id, node in pairs(data.nodes) do
         if node.claim == claim then
           if node.state == "verworfen" then return nil, "Diese Anforderung wurde verworfen." end
-          node.role, node.area, node.tracks = spec2.role, spec2.area, wanted
-          node.name = ROLE_TEXT[spec2.role] .. " " .. area.name .. " " .. id
-          node.label = id .. " | " .. code .. " | " .. spec2.area
+          node.role, node.area, node.junction, node.tracks = spec2.role, area_id, junction_id, wanted
+          node.name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id
+          node.label = id .. " | " .. code .. " | " .. where_code
           return view(id, node)
         end
       end
@@ -1045,9 +1067,9 @@ function M.new(spec)
       if count >= M.MAX_NODES then return nil, "Es gibt schon " .. M.MAX_NODES .. " Nodes im Verzeichnis." end
       local id = new_id("node", "N")
       data.nodes[id] = {
-        claim = claim, role = spec2.role, area = spec2.area, tracks = wanted, state = "reserviert",
-        name = ROLE_TEXT[spec2.role] .. " " .. area.name .. " " .. id,
-        label = id .. " | " .. code .. " | " .. spec2.area,
+        claim = claim, role = spec2.role, area = area_id, junction = junction_id, tracks = wanted, state = "reserviert",
+        name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id,
+        label = id .. " | " .. code .. " | " .. where_code,
       }
       return view(id, data.nodes[id])
     end)

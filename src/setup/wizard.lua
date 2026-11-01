@@ -370,6 +370,39 @@ function M.new(opts)
     return true
   end
 
+  -- Knoten-Node aus dem Verzeichnis: Anschluesse, Verbindungen und Konflikte kommen aus dem bestaetigten Knoten, die Gleisenden werden Gleise mit Einfahrt-
+  -- (Signal) oder Ausfahrtsrolle (Beobachter); Geraete werden danach zugeordnet. info = { junction = Daten des Knotens, claim, node = { id, name, label } }
+  function w.knoten_begin(info)
+    local t, why = model.junction_from_directory(info.junction)
+    if not t then return nil, why end
+    w.mode = "join"
+    w.roles = { "knoten" }
+    w.claimed_id = info.node.id
+    w.name = info.node.name
+    w.guided = nil
+    sync_config()
+    local c = w.config
+    c.node.claimed, c.node.label, c.node.claim = true, info.node.label, info.claim
+    c.node.junction, c.node.junction_rev = info.junction.id, info.junction.rev
+    c.junction = { connections = t.connections, moves = t.moves, conflicts = t.conflicts }
+    local wanted, by_dir = {}, {}
+    for _, tr in ipairs(t.tracks) do wanted[tr.id] = tr end
+    for tid, track in pairs(c.tracks) do
+      if track.dir then
+        if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
+      end
+    end
+    for _, tr in ipairs(t.tracks) do
+      local tid = by_dir[tr.id] or model.add_track(c, tr.name)
+      local track = c.tracks[tid]
+      track.name = tr.name
+      track.dir = { id = tr.id, junction = info.junction.id }
+      track.junction = { connection = tr.connection, role = tr.role }
+    end
+    w.config.tests = {}
+    return true, nil, t
+  end
+
   function w.guided_remove_track(tid)
     local track = w.config.tracks[tid]
     if not track then return end

@@ -392,6 +392,7 @@ return {
     d.type(v, "netz", "Testnetz"); d.tap(v, "act:weiter")
     d.type(v, "zentrale", "hauptstelle"); d.tap(v, "act:weiter")
     d.tap_row(v, "rollen", "Knotenpunkt"); d.tap(v, "act:weiter")
+    d.tap(v, "act:von_hand")
     d.type(v, "name", "Abzweig Sued"); d.tap(v, "act:weiter")
     d.tap_row(v, "geraete", "Create_Signal_5")
     d.tap_row(v, "geraete", "Create_TrainObserver_1")

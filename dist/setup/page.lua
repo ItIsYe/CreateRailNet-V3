@@ -24,7 +24,7 @@ local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil,
 
 
 local GUIDED_TITLE = {
-["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
+["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["2.knoten"] = "Knoten waehlen", ["3.k.pruefen"] = "Knoten uebernehmen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
 ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern", ["5.pruefen"] = "Pruefen und aktivieren",
 }
 local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
@@ -59,6 +59,12 @@ local w = session.wiz
 return w ~= nil and w.mode == "join" and #w.roles == 1 and STATION_ROLES[w.roles[1]] == true and not session.manual and services.directory_areas ~= nil
 end
 
+
+local function knoten_mode()
+local w = session.wiz
+return w ~= nil and w.mode == "join" and #w.roles == 1 and w.roles[1] == "knoten" and not session.manual and services.directory_junctions ~= nil
+end
+
 local function sequence()
 apply_preset()
 local seq = { "1.modus" }
@@ -77,6 +83,10 @@ return seq
 end
 if station_mode() then
 for _, id in ipairs({ "2.bereich", "3.gleise", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
+return seq
+end
+if knoten_mode() then
+for _, id in ipairs({ "2.knoten", "3.k.pruefen", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
 return seq
 end
 seq[#seq + 1] = "2.name"
@@ -109,6 +119,12 @@ end
 if screen == "1.netzwahl" then
 session.net_choice = nil
 services.search_networks()
+elseif screen == "2.knoten" then
+session.dir = session.dir or {}
+if not session.dir.junctions then
+session.dir.want = "junctions"
+services.directory_junctions(session.wiz.central_id)
+end
 elseif screen == "2.bereich" then
 session.dir = session.dir or {}
 if not session.dir.areas then
@@ -165,7 +181,8 @@ session.known_signals = nil
 goto_screen("4.zuordnung")
 select_next_open(v, 0)
 v.hint = note or "Entwurf geladen: Signale zuordnen und pruefen."
-elseif existing and existing.node.claimed == true and existing.node.area and existing.status ~= "aktiv" and #existing.node.roles == 1 and STATION_ROLES[existing.node.roles[1]] then
+elseif existing and existing.node.claimed == true and (existing.node.area or existing.node.junction) and existing.status ~= "aktiv" and #existing.node.roles == 1
+and (STATION_ROLES[existing.node.roles[1]] or existing.node.roles[1] == "knoten") then
 
 session.dir = { claim = existing.node.claim }
 goto_screen("3.geraete")
@@ -453,6 +470,11 @@ end,
 
 function first_device_screen()
 local c = session.wiz.config
+if model.has_role(c, "knoten") and c.node.claimed then
+
+local track = c.tracks[session.track]
+return (track and track.junction and track.junction.role == "ein") and "4.g.signale" or "4.g.beobachter"
+end
 if model.has_role(c, "knoten") then return "4.g.anschluss"
 elseif model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then return "4.g.bahnhof"
 elseif model.has_role(c, "signal") then return "4.g.signale" end
@@ -1021,6 +1043,105 @@ end
 end,
 }
 
+
+screens["2.knoten"] = {
+render = function(v, rect)
+header(v, rect, nil, "Welchen Knoten betreut diese Node?")
+local d = session.dir
+local st = dir_status()
+if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+local items = {}
+session.pick.junctions = {}
+for _, j in ipairs(d.junctions or {}) do
+local on = d.junction_choice and d.junction_choice.id == j.id
+items[#items + 1] = {
+text = (on and "(o) " or "( ) ") .. j.name,
+detail = j.connections .. " Anschluesse" .. (j.open > 0 and (", " .. j.open .. " UNBESTAETIGT") or ""),
+kind = j.open > 0 and "wait" or nil,
+}
+session.pick.junctions[#items] = j
+end
+local empty = (st and st.kind == "ok" and d.junctions) and "Das Netz hat noch keinen Knoten. In der Leitstelle auf der Seite Knoten anlegen und bestaetigen, dann 'Neu laden'." or ""
+W.list(v, "knoten_wahl", body_rect(rect, 4), items, list_state(v, "knoten_wahl"), { empty = empty })
+end,
+action = function(v, id)
+local d = session.dir
+local n = id:match("^sel:knoten_wahl:(%d+)$")
+if n then
+local j = (session.pick.junctions or {})[tonumber(n)]
+if j then
+d.junction_choice, d.junction, d.want = j, nil, "junction"
+services.directory_junction(session.wiz.central_id, j.id)
+end
+return true
+elseif id == "act:knoten_laden" then
+d.junctions, d.junction_choice, d.junction, d.want = nil, nil, nil, "junctions"
+services.directory_junctions(session.wiz.central_id)
+return true
+elseif id == "act:von_hand" then
+session.manual = true
+session.stack = {}
+goto_screen("2.name")
+return true
+end
+end,
+actions = function(v)
+return {
+{ id = "knoten_laden", label = "Neu laden", kind = "secondary" },
+{ id = "von_hand", label = "Von Hand", kind = "secondary" },
+}
+end,
+next = function(v)
+push("3.k.pruefen")
+return true
+end,
+}
+
+screens["3.k.pruefen"] = {
+render = function(v, rect)
+local d = session.dir
+header(v, rect, nil, "Knoten " .. (d.junction and d.junction.name or "?") .. ": diese Angaben werden uebernommen")
+local t, why = model.junction_from_directory(d.junction or { connections = {}, routes = {} })
+local lines = {}
+if not t then
+lines[#lines + 1] = { why, "halt" }
+else
+local names = {}
+for name in pairs(t.connections) do names[#names + 1] = name end
+table.sort(names)
+lines[#lines + 1] = { #names .. " Anschluesse: " .. table.concat(names, ", "), "text" }
+local mv = {}
+for _, m in ipairs(t.moves) do mv[#mv + 1] = m.from .. ">" .. m.to end
+lines[#lines + 1] = { #t.moves .. " Verbindungen: " .. table.concat(mv, ", "), "text" }
+lines[#lines + 1] = { #t.conflicts .. " Konflikte zwischen Verbindungen", "text" }
+local ein, aus = 0, 0
+for _, tr in ipairs(t.tracks) do if tr.role == "ein" then ein = ein + 1 else aus = aus + 1 end end
+lines[#lines + 1] = { ein .. " Einfahrten (Signal und Beobachter), " .. aus .. " Ausfahrten (Beobachter)", "text" }
+if t.unused > 0 then lines[#lines + 1] = { t.unused .. " Gleisende(n) ohne Fahrweg bleiben unberuecksichtigt.", "dim" } end
+lines[#lines + 1] = { "Die Node sperrt jede Einfahrt zusaetzlich und gibt sie nur frei, wenn die Verbindungen frei sind.", "dim" }
+end
+local y = rect.y + 2
+for _, line in ipairs(lines) do
+for _, part in ipairs(W.wrap(line[1], rect.w - 2)) do
+if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, line[2], rect.w - 2) end
+y = y + 1
+end
+end
+local st = dir_status()
+if d.claiming and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + rect.h - 1, st.text or "", st.kind, rect.w - 2) end
+end,
+
+next = function(v)
+local d = session.dir
+d.claim = d.claim or services.new_claim()
+d.claiming = { junction = d.junction }
+services.directory_reset()
+services.directory_claim(session.wiz.central_id, d.claim, "knoten", nil, nil, d.junction.id)
+v.hint = "Frage die Leitstelle nach der Kennung ..."
+return true
+end,
+}
+
 screens["3.gleise"] = {
 render = function(v, rect)
 local d = session.dir
@@ -1467,6 +1588,19 @@ if w.mode == "create" and not model.has_role(w.config, "zentrale") then return f
 if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
 end
 if screen == "2.bereich" and not session.dir.area then return false, "Bitte einen Bereich waehlen." end
+if screen == "2.knoten" then
+local d = session.dir
+if not d.junction_choice then return false, "Bitte einen Knoten waehlen." end
+if d.junction_choice.open > 0 then return false, "Der Knoten hat unbestaetigte Fahrwege oder Konflikte: erst in der Leitstelle bestaetigen." end
+if not d.junction then return false, "Der Knoten wird noch geladen." end
+local _, why = model.junction_from_directory(d.junction)
+if why then return false, why end
+end
+if screen == "3.k.pruefen" then
+if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
+local _, why = model.junction_from_directory(session.dir.junction or { connections = {}, routes = {} })
+if why then return false, why end
+end
 if screen == "3.gleise" then
 if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
 local any = false
@@ -1669,6 +1803,8 @@ local d = session.dir
 local st = dir_status()
 if not st then return end
 if st.kind == "ok" then
+if st.junctions and d.want == "junctions" then d.junctions, d.want = st.junctions, nil end
+if st.junction and d.want == "junction" then d.junction, d.want = st.junction, nil end
 if st.areas and d.want == "areas" then
 d.areas, d.want = st.areas, nil
 if d.preselect then
@@ -1681,6 +1817,13 @@ if st.node and d.claiming then
 local claiming = d.claiming
 d.claiming = nil
 local role = session.wiz.roles[1]
+if role == "knoten" then
+local ok, why = session.wiz.knoten_begin({ junction = claiming.junction, claim = d.claim, node = st.node })
+if not ok then v.hint = why return end
+v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+push("3.geraete")
+return
+end
 session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, role = role })
 v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
 if role == "signal" then

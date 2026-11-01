@@ -72,6 +72,9 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.39 | Computer mit Train Station und Redstone-Ausgaengen: Beitreten, Netz, Rolle Passagierbahnhof, Bereich (zum Beispiel ein Bahnhofsbereich) waehlen, Gleise uebernehmen | Die Leitstelle vergibt eine Kennung `N000x`; es folgen Geraete und Gleise; bei den Gleisen nur "Zuordnen" (kein Neu/Kopieren/Entfernen) | |
 | 3.40 | Schritt Test: nichts antippen, Liste ansehen; dann "Alle pruefen" | Die lesenden Pruefungen stehen schon auf ok; der Bestaetigungsbildschirm nennt alle Ausgaenge; nach "alle starten" werden die Ausgaenge kurz geschaltet und stehen danach wieder aus; kein wartender Zug faehrt ab | |
 | 3.41 | Nach dem Aktivieren Computerlabel ansehen und in der Leitstelle die Seite "Netz" | Label `N000x \| PBF \| B000y`; die Node steht als aktiv | |
+| 3.42 | Leitstelle, Seite "Knoten": Knoten mit zwei Anschluessen (je zwei Gleisenden) und zwei Fahrwegen anlegen, "Auto", "Bestaet."; neuer Computer: Beitreten, Rolle Knotenpunkt | Der Knoten steht in der Liste; unbestaetigt ist er als UNBESTAETIGT markiert und nicht waehlbar; nach dem Bestaetigen zeigt die Uebersicht Anschluesse, Verbindungen, Konflikte, Einfahrten und Ausfahrten | |
+| 3.43 | Kennung anfordern, Geraete waehlen, bei den Gleisen "Zuordnen": Einfahrten bekommen Signal und Beobachter, Ausfahrten den Beobachter; Test; Aktivieren | Label `N000x \| KNO \| K0001`; ein Zug, der die Einfahrt ansteuert, wird wie bisher angekuendigt, die Einfahrt erst bei freiem Knoten freigegeben | |
+| 3.44 | In der Leitstelle am aktiven Knoten etwas aendern (zum Beispiel Namen); auf der Knoten-Node Seite "Knoten", "Abgleich" | "Der Knoten wurde in der Leitstelle geaendert" wird gezeigt und einmal gemeldet; nichts an der Freigabe aendert sich | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 
