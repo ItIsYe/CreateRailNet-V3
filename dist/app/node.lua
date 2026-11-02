@@ -605,6 +605,46 @@ n.dir_state = { kind = "ok", text = #list .. " Knoten im Netz.", junctions = lis
 end)
 end
 
+
+
+function n.parse_junction_connections(part, junction_id)
+if type(part) ~= "table" or part.id ~= junction_id then return nil end
+if not dir_name(part.name) or type(part.rev) ~= "number" or type(part.connections) ~= "table" or #part.connections > 20 then return nil end
+local conns, total = {}, 0
+for _, c in ipairs(part.connections) do
+if type(c) ~= "table" or not dir_name(c.name) or type(c.tracks) ~= "table" or #c.tracks > 40 then return nil end
+local ends = {}
+for _, t in ipairs(c.tracks) do
+if type(t) ~= "table" or not dir_id(t.id, "A") or not dir_name(t.name) or not dir_name(t.area) then return nil end
+ends[#ends + 1] = { id = t.id, name = t.name, area = t.area }
+total = total + 1
+end
+conns[#conns + 1] = { name = c.name, tracks = ends }
+end
+if total > 60 then return nil end
+return { id = junction_id, name = part.name, rev = math.floor(part.rev), connections = conns }
+end
+
+function n.parse_junction_routes(part, junction_id)
+if type(part) ~= "table" or part.id ~= junction_id or type(part.routes) ~= "table" or #part.routes > 60 then return nil end
+local routes = {}
+for _, r in ipairs(part.routes) do
+if type(r) ~= "table" or not dir_id(r.id, "F") or not dir_id(r.from, "A") or not dir_id(r.to, "A") then return nil end
+routes[#routes + 1] = { id = r.id, from = r.from, to = r.to }
+end
+return routes
+end
+
+function n.parse_junction_conflicts(part, junction_id)
+if type(part) ~= "table" or part.id ~= junction_id or type(part.conflicts) ~= "table" or #part.conflicts > 90 then return nil end
+local conflicts = {}
+for _, c in ipairs(part.conflicts) do
+if type(c) ~= "table" or not dir_id(c.a, "F") or not dir_id(c.b, "F") then return nil end
+conflicts[#conflicts + 1] = { a = c.a, b = c.b }
+end
+return conflicts
+end
+
 function n.directory_junction(central_id, junction_id)
 local result
 local function ask(part, handler)
@@ -614,35 +654,15 @@ handler(p.part)
 end)
 end
 ask("anschluesse", function(part)
-if not dir_name(part.name) or type(part.rev) ~= "number" or type(part.connections) ~= "table" or #part.connections > 20 then return dir_bad() end
-local conns, total = {}, 0
-for _, c in ipairs(part.connections) do
-if type(c) ~= "table" or not dir_name(c.name) or type(c.tracks) ~= "table" or #c.tracks > 40 then return dir_bad() end
-local ends = {}
-for _, t in ipairs(c.tracks) do
-if type(t) ~= "table" or not dir_id(t.id, "A") or not dir_name(t.name) or not dir_name(t.area) then return dir_bad() end
-ends[#ends + 1] = { id = t.id, name = t.name, area = t.area }
-total = total + 1
-end
-conns[#conns + 1] = { name = c.name, tracks = ends }
-end
-if total > 60 then return dir_bad() end
-result = { id = junction_id, name = part.name, rev = math.floor(part.rev), connections = conns }
+result = n.parse_junction_connections(part, junction_id)
+if not result then return dir_bad() end
 ask("fahrwege", function(routes_part)
-if type(routes_part.routes) ~= "table" or #routes_part.routes > 60 then return dir_bad() end
-local routes = {}
-for _, r in ipairs(routes_part.routes) do
-if type(r) ~= "table" or not dir_id(r.id, "F") or not dir_id(r.from, "A") or not dir_id(r.to, "A") then return dir_bad() end
-routes[#routes + 1] = { id = r.id, from = r.from, to = r.to }
-end
+local routes = n.parse_junction_routes(routes_part, junction_id)
+if not routes then return dir_bad() end
 result.routes = routes
 ask("konflikte", function(conflict_part)
-if type(conflict_part.conflicts) ~= "table" or #conflict_part.conflicts > 90 then return dir_bad() end
-local conflicts = {}
-for _, c in ipairs(conflict_part.conflicts) do
-if type(c) ~= "table" or not dir_id(c.a, "F") or not dir_id(c.b, "F") then return dir_bad() end
-conflicts[#conflicts + 1] = { a = c.a, b = c.b }
-end
+local conflicts = n.parse_junction_conflicts(conflict_part, junction_id)
+if not conflicts then return dir_bad() end
 result.conflicts = conflicts
 n.dir_state = { kind = "ok", text = "Knoten " .. result.name .. " geladen.", junction = result }
 end)

@@ -113,6 +113,37 @@ return {
     t.eq(tr.dir.direction, "beide")
     t.eq(s.node.config.devices[tr.signals[1]].signal.effect, "Ostbahnhof", "Ostbahnhof ist weiter ein Anschluss des Bereichs")
   end },
+  { "Richtung wird 'beide' und die Wirkrichtung gilt nicht mehr: sie wird offen, ist sichtbar gemeldet, die Schaltpruefung bleibt gueltig", function()
+    local h, z, netz, s, role = build()
+    -- Sig_1 meldet eine Wirkrichtung, die kein Anschluss des Bereichs ist (zum Beispiel nach einer Umbenennung)
+    local tr0, tid0 = track_by_name(s.node.config, "Gleis 1")
+    s.node.config.devices[tr0.signals[1]].signal = { use = "strecke", effect = "Altbahnhof", place = "Altbahnhof" }
+    role.signals[1].effect, role.signals[1].place = "Altbahnhof", "Altbahnhof"
+    s.node.config.pruefung = { devices = { [tr0.signals[1]] = { sig = "signal:Sig_1", lesen = { ok = true }, sperre = { ok = true } } } }
+    h.step(40)
+    assert(netz.set_track("A0001", { direction = "beide" }))
+    local v = H.open_page(s, "signale")
+    s.tap(v, "act:abgleich"); h.step(4)
+    s.tap(v, "act:abgleich")
+    t.contains(v.hint, "Wirkrichtung festlegen")
+    local tr = track_by_name(s.node.config, "Gleis 1")
+    t.eq(s.node.config.devices[tr.signals[1]].signal.effect, nil, "Wirkrichtung ist offen")
+    t.eq(role.signals[1].effect, nil)
+    t.ok(has_note(s, "ohne Wirkrichtung"), "als Meldung sichtbar")
+    t.ok(s.node.config.pruefung.devices[tr.signals[1]], "die Schaltpruefung bleibt gueltig (Richtung ist weder Geraet noch Zuordnung)")
+    t.eq(s.node.config.pruefung.devices[tr.signals[1]].sperre.ok, true)
+  end },
+  { "Uebernahme ohne offene Wirkrichtung meldet nichts Zusaetzliches", function()
+    local h, z, netz, s, role = build()
+    h.step(40)
+    assert(netz.set_track("A0001", { name = "Einfahrt" }))
+    local v = H.open_page(s, "signale")
+    s.tap(v, "act:abgleich"); h.step(4)
+    s.tap(v, "act:abgleich")
+    t.contains(v.hint, "uebernommen")
+    t.ok(not v.hint:find("Wirkrichtung", 1, true), v.hint)
+    t.ok(not has_note(s, "ohne Wirkrichtung"))
+  end },
   { "Leitstelle antwortet nicht: 'keine Antwort', keine Meldung ueber Abweichungen, lokal unveraendert", function()
     local h, z, netz, s, role = build()
     z.node.handle = function() end

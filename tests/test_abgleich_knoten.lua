@@ -40,7 +40,8 @@ return {
     t.eq(role.sync.state, "gleich")
     local v = H.open_page(s, "knoten")
     s.node.render()
-    t.contains(s.text(v), "der Knoten stimmt mit der Leits")
+    t.contains(s.text(v), "der Knoten stimmt mit der")
+    t.contains(s.text(v), "Leitstelle ueberein")
   end },
   { "Der Knoten wurde in der Leitstelle geaendert: Abweichung gezeigt und einmal gemeldet, nichts wird still uebernommen", function()
     local h, z, netz, k, s, role = build()

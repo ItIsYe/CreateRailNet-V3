@@ -311,7 +311,14 @@ sync.notified = nil
 if config.node.label then node.set_label(config.node.label) end
 role.hello()
 dirty = true
-return #todo
+
+
+local open = 0
+for _, sg in ipairs(role.signals) do if sg.effect == nil then open = open + 1 end end
+if open > 0 then
+node.notify("warnung", open .. " Signal(e) ohne Wirkrichtung nach der Uebernahme: in der Einrichtung festlegen (Einrichtung aendern).")
+end
+return #todo, open
 end
 
 
@@ -416,8 +423,12 @@ local state = v.page_state("signale")
 local view = state.items and state.items[state.list.index]
 if id == "act:abgleich" then
 if sync.state == "abweichend" then
-local n_changed, why = role.sync_apply()
-v.hint = n_changed and (n_changed .. " Aenderung(en) aus dem Verzeichnis uebernommen.") or why
+local n_changed, open_or_why = role.sync_apply()
+if n_changed then
+v.hint = n_changed .. " Aenderung(en) aus dem Verzeichnis uebernommen." .. (open_or_why > 0 and (" " .. open_or_why .. " Signal(e): Wirkrichtung festlegen.") or "")
+else
+v.hint = open_or_why
+end
 else
 local ok, why = role.sync_request()
 v.hint = ok and "Frage die Leitstelle ..." or why

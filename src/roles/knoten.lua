@@ -6,6 +6,7 @@ Notes: Die Software stellt keine Weichen und ersetzt die Create-Signalisierung n
 
 local observerlib = require("dev.observer")
 local areaslib = require("domain.areas")
+local model = require("setup.model")
 local W = require("ui.widgets")
 
 local M = {}
@@ -43,7 +44,7 @@ function M.new(node, signals)
       for _, oid in ipairs(spec.observers or {}) do
         if config.devices[oid] then
           local name = config.devices[oid].device
-          points[oid] = { conn = jn.connection, kind = jn.role, track = tid, track_name = spec.name, observer = observerlib.new(env, name), device = name, last = nil }
+          points[oid] = { conn = jn.connection, kind = jn.role, track = tid, observer = observerlib.new(env, name), device = name, last = nil }
           obs_ids[#obs_ids + 1] = oid
         end
       end
@@ -152,21 +153,69 @@ function M.new(node, signals)
     end
   end
 
-  -- Abgleich mit dem Netzverzeichnis (Konzept 15): hat sich der Knoten in der Leitstelle seit der Einrichtung geaendert (Stand), wird es gemeldet. Die Aenderung
-  -- wird nicht still uebernommen: Verbindungen und Konflikte bestimmen die Freigaben und brauchen eine neue Einrichtung mit Pruefung.
-  local SYNC_FIRST, SYNC_EVERY, SYNC_WAIT = 20, 600, 15
-  local sync = { next_at = SYNC_FIRST, req = nil, state = "offen", note = nil, notified = nil }
+  -- Abgleich mit dem Netzverzeichnis (Konzept 15): hat sich der Knoten in der Leitstelle seit der Einrichtung geaendert (Stand), wird es gemeldet und die
+  -- Aenderung ausgewertet. Nie still: Verbindungen und Konflikte bestimmen die Freigaben, deshalb gilt eine Aenderung erst nach "Uebernehmen" (zweimal
+  -- tippen). Uebernehmbar ist sie nur, wenn die Gleise, ihre Anschluesse und ihre Rollen (Ein- oder Ausfahrt) gleich bleiben, der Knoten nachweislich frei ist
+  -- (nichts vorgemerkt) und die Leitstelle waehrend des Holens nichts geaendert hat. Sonst bleibt es bei der Meldung und die Einrichtung wird neu durchlaufen.
+  local SYNC_FIRST, SYNC_EVERY, SYNC_WAIT, SYNC_RETRY = 20, 600, 15, 60
+  local sync = { next_at = SYNC_FIRST, req = nil, state = "offen", note = nil, notified = nil, stage = nil, full = nil, plan = nil, why = nil }
   role.sync = sync
+  local sync_confirm = {}
 
   local function directory_backed() return config.node.claimed and config.node.junction or nil end
+
+  local function ask(part, stage)
+    local m = node.send_to(node.central_id(), "abfrage", { kind = "knoten_teil", junction = directory_backed(), part = part })
+    sync.req, sync.stage, sync.asked, sync.state = m and m.messageId or nil, stage or part, now(), "frage"
+    return m ~= nil
+  end
 
   function role.sync_request()
     if not directory_backed() then return nil, "Diese Node ist nicht ueber das Netzverzeichnis eingerichtet." end
     if sync.state == "frage" and now() - (sync.asked or 0) < SYNC_WAIT then return nil, "Die Frage laeuft noch." end
-    local m = node.send_to(node.central_id(), "abfrage", { kind = "knoten_teil", junction = directory_backed(), part = "anschluesse" })
-    sync.req, sync.state, sync.asked = m and m.messageId or nil, "frage", now()
+    sync.full, sync.plan, sync.why, sync_confirm.armed = nil, nil, nil, false
     sync.next_at = now() + SYNC_EVERY
+    ask("anschluesse")
     return true
+  end
+
+  local function count_of(list) return #list end
+
+  -- Auswertung der vollstaendigen Verzeichnisfassung: Plan zum Uebernehmen oder Grund, warum nicht
+  local function evaluate(full)
+    local t, why = model.junction_from_directory({ connections = full.connections, routes = full.routes, conflicts = full.conflicts })
+    if not t then return nil, why end
+    local mine, own = {}, 0
+    for tid, tr in pairs(config.tracks) do
+      if not tr.dir then return nil, "Ein Gleis hat keine Zuordnung zum Verzeichnis." end
+      mine[tr.dir.id] = tid
+      own = own + 1
+    end
+    if #t.tracks ~= own then return nil, "Die Gleise des Knotens haben sich geaendert." end
+    local names = {}
+    for _, x in ipairs(t.tracks) do
+      local tid = mine[x.id]
+      local tr = tid and config.tracks[tid]
+      if not tr or not tr.junction or tr.junction.connection ~= x.connection or tr.junction.role ~= x.role then
+        return nil, "Anschluesse oder Gleisrollen haben sich geaendert."
+      end
+      if tr.name ~= x.name then names[tid] = x.name end
+    end
+    local renamed = 0
+    for _ in pairs(names) do renamed = renamed + 1 end
+    return {
+      rev = full.rev, names = names, renamed = renamed,
+      junction = { connections = t.connections, moves = t.moves, conflicts = t.conflicts },
+      text = "Fahrwege " .. count_of(junction.moves) .. " -> " .. count_of(t.moves) .. ", Konflikte " .. count_of(junction.conflicts) .. " -> " .. count_of(t.conflicts)
+        .. (renamed > 0 and (", " .. renamed .. " Gleisname(n)") or ""),
+    }
+  end
+
+  local function announce_deviation(rev)
+    if sync.notified ~= rev then
+      sync.notified = rev
+      node.notify("warnung", "Abweichung zum Netzverzeichnis: " .. sync.note)
+    end
   end
 
   function role.on_message(m, status)
@@ -175,29 +224,97 @@ function M.new(node, signals)
     if type(p) ~= "table" or p.kind ~= "antwort" or p.antwort_auf ~= "knoten_teil" then return end
     if not (sync.req and m.correlationId == sync.req and sync.state == "frage") then return end
     sync.req = nil
+    local stage = sync.stage
     if p.status ~= "ok" then
-      sync.state, sync.note = "abgelehnt", type(p.grund) == "string" and p.grund:sub(1, 80) or "abgelehnt"
+      sync.state, sync.note, sync.full, sync.plan = "abgelehnt", type(p.grund) == "string" and p.grund:sub(1, 80) or "abgelehnt", nil, nil
       if sync.notified ~= "abgelehnt" then
         sync.notified = "abgelehnt"
         node.notify("warnung", "Netzverzeichnis: " .. sync.note)
       end
       return
     end
+    local id = directory_backed()
     local part = p.part
-    if type(part) ~= "table" or part.id ~= directory_backed() or type(part.rev) ~= "number" then
-      sync.state, sync.note = "unlesbar", "Unerwartete Antwort der Leitstelle."
+    if type(part) ~= "table" or part.id ~= id then
+      sync.state, sync.note, sync.full = "unlesbar", "Unerwartete Antwort der Leitstelle.", nil
       return
     end
-    if math.floor(part.rev) == config.node.junction_rev then
-      sync.state, sync.note, sync.notified = "gleich", nil, nil
-      return
+    if stage == "anschluesse" then
+      if type(part.rev) ~= "number" then sync.state, sync.note = "unlesbar", "Unerwartete Antwort der Leitstelle." return end
+      if math.floor(part.rev) == config.node.junction_rev then
+        sync.state, sync.note, sync.notified, sync.plan, sync.full = "gleich", nil, nil, nil, nil
+        return
+      end
+      -- geaendert: erst die ganze Fassung holen, dann auswerten
+      local base = "Der Knoten wurde in der Leitstelle geaendert (Stand " .. tostring(config.node.junction_rev) .. " -> " .. math.floor(part.rev) .. ")"
+      sync.base, sync.rev = base, math.floor(part.rev)
+      local parsed = node.parse_junction_connections(part, id)
+      if not parsed then
+        sync.state, sync.note, sync.plan = "abweichend", base .. ": Einrichtung pruefen.", nil
+        announce_deviation(sync.rev)
+        return
+      end
+      sync.full = parsed
+      ask("fahrwege")
+    elseif stage == "fahrwege" then
+      local routes = node.parse_junction_routes(part, id)
+      if not routes or not sync.full then sync.state, sync.note, sync.full = "unlesbar", "Unerwartete Antwort der Leitstelle.", nil return end
+      sync.full.routes = routes
+      ask("konflikte")
+    elseif stage == "konflikte" then
+      local conflicts = node.parse_junction_conflicts(part, id)
+      if not conflicts or not sync.full then sync.state, sync.note, sync.full = "unlesbar", "Unerwartete Antwort der Leitstelle.", nil return end
+      sync.full.conflicts = conflicts
+      ask("anschluesse", "nachpruefung")
+    elseif stage == "nachpruefung" then
+      -- hat die Leitstelle waehrend des Holens etwas geaendert, ist die geholte Fassung nicht mehr sicher: spaeter neu holen
+      if type(part.rev) ~= "number" or not sync.full or math.floor(part.rev) ~= sync.full.rev then
+        sync.state, sync.plan, sync.full = "abweichend", nil, nil
+        sync.note = sync.base .. ": die Leitstelle aendert den Knoten gerade, Abgleich wird wiederholt."
+        sync.next_at = now() + SYNC_RETRY
+        return
+      end
+      local plan, why = evaluate(sync.full)
+      sync.full = nil
+      sync.state = "abweichend"
+      if plan then
+        sync.plan, sync.why = plan, nil
+        sync.note = sync.base .. ": Uebernehmen moeglich (" .. plan.text .. ")."
+      else
+        sync.plan, sync.why = nil, why
+        sync.note = sync.base .. ": nicht uebernehmbar (" .. tostring(why) .. ") Einrichtung neu durchlaufen."
+      end
+      announce_deviation(sync.rev)
     end
-    sync.state = "abweichend"
-    sync.note = "Der Knoten wurde in der Leitstelle geaendert (Stand " .. tostring(config.node.junction_rev) .. " -> " .. math.floor(part.rev) .. "): Einrichtung pruefen."
-    if sync.notified ~= part.rev then
-      sync.notified = part.rev
-      node.notify("warnung", "Abweichung zum Netzverzeichnis: " .. sync.note)
+  end
+
+  -- Aenderung aus dem Verzeichnis uebernehmen. Alles oder nichts: bei einem Speicherfehler bleibt die bisherige Einrichtung unveraendert.
+  function role.sync_apply()
+    local plan = sync.plan
+    if sync.state ~= "abweichend" or not plan then return nil, "Nichts zu uebernehmen." end
+    if #role.areas.status() > 0 then return nil, "Im Knoten ist eine Nutzung vorgemerkt oder unterwegs: erst uebernehmen, wenn er frei ist." end
+    local before = { junction = config.junction, rev = config.node.junction_rev, revision = config.revision, names = {} }
+    for tid in pairs(plan.names) do before.names[tid] = config.tracks[tid].name end
+    config.junction, config.node.junction_rev = plan.junction, plan.rev
+    for tid, name in pairs(plan.names) do config.tracks[tid].name = name end
+    config.revision = (config.revision or 0) + 1
+    local ok, err = node.save_config()
+    if not ok then
+      config.junction, config.node.junction_rev, config.revision = before.junction, before.rev, before.revision
+      for tid, name in pairs(before.names) do config.tracks[tid].name = name end
+      return nil, "Speichern fehlgeschlagen: " .. tostring(err)
     end
+    junction = config.junction
+    role.areas = areaslib.new({
+      connections = junction.connections, moves = junction.moves, conflicts = junction.conflicts, now = now,
+      store = node.store, path = "/crn_data/knoten.lua",
+    })
+    for _, list in pairs(entries) do
+      for _, e in ipairs(list) do if config.tracks[e.track] then e.name = config.tracks[e.track].name end end
+    end
+    sync.state, sync.note, sync.notified, sync.plan, sync.why, sync_confirm.armed = "gleich", nil, nil, nil, nil, false
+    dirty = true
+    return true
   end
 
   function role.tick()
@@ -234,16 +351,18 @@ function M.new(node, signals)
         state.uses[i] = u
       end
       local has_sync = directory_backed() ~= nil
-      W.list(v, "knoten", has_sync and { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 } or rect, items, state.list, { empty = "Der Knoten ist frei (nachgewiesen)." })
+      local text, kind
       if has_sync then
-        local text, kind
         if sync.state == "abweichend" then text, kind = sync.note, "attention"
         elseif sync.state == "gleich" then text, kind = "Netzverzeichnis: der Knoten stimmt mit der Leitstelle ueberein.", "ok"
         elseif sync.state == "frage" then text, kind = "Netzverzeichnis: frage die Leitstelle ...", "wait"
         elseif sync.state == "offen" then text, kind = "Netzverzeichnis: noch nicht abgeglichen.", "dim"
         else text, kind = "Netzverzeichnis: " .. tostring(sync.note or sync.state), "wait" end
-        W.label(v, rect.x + 1, rect.y + rect.h - 1, text, kind, rect.w - 2)
       end
+      local lines = text and W.wrap(text, rect.w - 2) or {}
+      local used = math.min(#lines, 3)
+      W.list(v, "knoten", has_sync and { x = rect.x, y = rect.y, w = rect.w, h = math.max(2, rect.h - used) } or rect, items, state.list, { empty = "Der Knoten ist frei (nachgewiesen)." })
+      for i = 1, used do W.label(v, rect.x + 1, rect.y + rect.h - used + i - 1, lines[i], kind, rect.w - 2) end
     end,
     actions = function(v)
       local state = v.page_state("knoten")
@@ -251,6 +370,9 @@ function M.new(node, signals)
       local list = { { id = "aufloesen", label = confirm.armed and "Wirklich?" or "Pruefen+frei", kind = "danger", enabled = u ~= nil, reason = "Keine Nutzung gewaehlt." } }
       if directory_backed() then
         list[#list + 1] = { id = "abgleich", label = "Abgleich", kind = "secondary", enabled = sync.state ~= "frage", reason = "Die Frage an die Leitstelle laeuft." }
+        if sync.state == "abweichend" and sync.plan then
+          list[#list + 1] = { id = "uebernehmen", label = sync_confirm.armed and "Wirklich?" or "Uebernehmen", kind = "danger" }
+        end
       end
       return list
     end,
@@ -258,6 +380,17 @@ function M.new(node, signals)
       if id == "act:abgleich" then
         local ok, why = role.sync_request()
         v.hint = ok and "Frage die Leitstelle ..." or why
+        return true
+      elseif id == "act:uebernehmen" then
+        if not (sync.state == "abweichend" and sync.plan) then v.hint = "Nichts zu uebernehmen." return true end
+        if not sync_confirm.armed then
+          sync_confirm.armed = true
+          v.hint = "Fahrwege und Konflikte aendern die Freigaben: " .. sync.plan.text .. ". Nochmal druecken."
+          return true
+        end
+        sync_confirm.armed = false
+        local ok, why = role.sync_apply()
+        v.hint = ok and "Aenderung aus dem Netzverzeichnis uebernommen." or why
         return true
       end
       if id ~= "act:aufloesen" then return end
