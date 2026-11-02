@@ -497,8 +497,12 @@ end)
 
 local function temporary_net(central_id)
 if not n.replace_net then
+
+
+
 local boot = n.clock.boot_id()
-local me = "neu-" .. tostring(boot)
+local unique = env.unique and tostring(env.unique()):gsub("[^%w%-]", "") or ""
+local me = "neu-" .. (unique ~= "" and unique or tostring(boot))
 n.replace_factory = msg.new({ node_id = me, boot_id = boot, epoch = function() return 0 end })
 n.replace_net = netlib.new({ rednet = env.rednet, factory = n.replace_factory, inbox = msg.inbox({ node_id = me, central_id = central_id }), clock = n.clock })
 end
@@ -586,7 +590,7 @@ temporary_net(central_id)
 m = n.replace_factory.make("abfrage", central_id, payload)
 n.replace_net.send(central_id, m)
 end
-n.dir_req, n.dir_until, n.dir_handler = m.messageId, n.clock.now() + DIR_TIMEOUT, handler
+n.dir_req, n.dir_until, n.dir_handler, n.dir_dropped = m.messageId, n.clock.now() + DIR_TIMEOUT, handler, nil
 n.dir_state = { kind = "wait", text = "Frage die Leitstelle ..." }
 end
 
@@ -785,7 +789,7 @@ function n.directory_status()
 local st = n.dir_state
 if st and st.kind == "wait" and n.clock.now() >= n.dir_until then
 n.dir_req, n.dir_handler = nil, nil
-n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie, und ist sie in Funkreichweite (Ender-Modem)?" }
+n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie, und ist sie in Funkreichweite (Ender-Modem)?" .. (n.dir_dropped and (" (Antwort verworfen: " .. tostring(n.dir_dropped) .. ")") or "") }
 st = n.dir_state
 end
 return st
@@ -801,7 +805,7 @@ end
 
 local function dir_reply(m, status)
 if not (n.dir_req and m.correlationId == n.dir_req) then return false end
-if status ~= "ok" then return true end
+if status ~= "ok" then n.dir_dropped = status return true end
 local handler = n.dir_handler
 n.dir_req, n.dir_handler = nil, nil
 local p = m.payload

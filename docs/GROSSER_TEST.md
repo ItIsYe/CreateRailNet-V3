@@ -98,6 +98,7 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.65 | Zug auf das Einfahrtsgleis fahren lassen (Knoten frei, dann besetzt) | Nur das Einfahrtsignal steht auf der Seite Signale mit Sperre "knoten"; die beiden anderen Signale zeigen den Create-Zustand ohne Sperre. Bei freiem Knoten gibt die Node das Einfahrtsignal frei, nach der Einfahrt sperrt sie es wieder | |
 | 3.66 | Funk kurz stoeren (Modem entfernen) an einer Node mit vielen Signalen, dann wieder anschliessen | Nach hoechstens 10 Sekunden ist die Anmeldung vollstaendig, der Status wieder frisch; es entstehen keine Fehlermeldungen im Sekundentakt | |
 | 3.67 | Ersatz einer Node mit 40 Signalen (alte Node aus, Ersatzcomputer: Ersatz, Liste, Node waehlen, Holen) | Der Zustand zeigt "Empfange Konfiguration: Teil k von n", danach "empfangen"; Uebernehmen zeigt alle 40 Signale | |
+| 3.68 | Zwei frische Computer nacheinander (und einmal ein Neustart mitten in der Einrichtung) mit Rolle Bahnhof oder Signal einrichten | Jeder bekommt eine eigene Kennung (`N0001`, `N0002`, ...), auch wenn die Einrichtung des zweiten gleich nach dem ersten beginnt; kein Computer meldet "Leitstelle antwortet nicht"; nach einem Neustart und neuem Anfang gibt es eine neue Kennung statt der alten | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

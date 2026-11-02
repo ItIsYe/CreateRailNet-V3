@@ -97,6 +97,12 @@ term = term.current and term.current() or term,
 wrap = function(name) return peripheral.wrap(name) end,
 start_timer = os.startTimer,
 set_label = function(text) if os.setComputerLabel then os.setComputerLabel(text) end end,
+
+unique = function()
+local id = os.getComputerID and os.getComputerID() or 0
+local stamp = os.epoch and (os.epoch("utc") % 2147483647) or math.random(1, 2147483646)
+return tostring(id) .. "-" .. tostring(stamp)
+end,
 pull_event = function() return { os.pullEvent() } end,
 }
 end

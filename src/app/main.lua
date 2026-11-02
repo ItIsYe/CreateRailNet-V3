@@ -97,6 +97,12 @@ function M.real_env()
     wrap = function(name) return peripheral.wrap(name) end,
     start_timer = os.startTimer,
     set_label = function(text) if os.setComputerLabel then os.setComputerLabel(text) end end,
+    -- eindeutig je Computer und Start (vorlaeufige Kennung vor der Einrichtung)
+    unique = function()
+      local id = os.getComputerID and os.getComputerID() or 0
+      local stamp = os.epoch and (os.epoch("utc") % 2147483647) or math.random(1, 2147483646)
+      return tostring(id) .. "-" .. tostring(stamp)
+    end,
     pull_event = function() return { os.pullEvent() } end,
   }
 end
