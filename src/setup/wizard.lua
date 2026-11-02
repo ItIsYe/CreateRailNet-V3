@@ -309,7 +309,11 @@ function M.new(opts)
     end
     local list = track[field]
     for i, existing_id in ipairs(list) do
-      if existing_id == device_id then table.remove(list, i) return true end
+      if existing_id == device_id then
+        table.remove(list, i)
+        if field == "signals" then track.order_ok = nil end        -- die bestaetigte Reihenfolge gilt nur fuer genau diese Signale
+        return true
+      end
     end
     for id, other in pairs(w.config.tracks) do
       if id ~= track_id then
@@ -319,6 +323,7 @@ function M.new(opts)
       end
     end
     list[#list + 1] = device_id
+    if field == "signals" then track.order_ok = nil end
     return true
   end
 
@@ -496,7 +501,7 @@ function M.new(opts)
           signals[#signals + 1] = { id = did, device = d.device, use = info.use or "strecke", effect = info.effect, place = info.place }
         end
       end
-      rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals, order_ok = track.order_ok == true }
+      rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals, order_ok = track.order_ok == true, junction = track.junction }
     end
     return rows
   end
@@ -593,6 +598,26 @@ function M.new(opts)
     if #track.signals < 2 then return false, "Bei einem Signal gibt es keine Reihenfolge." end
     track.order_ok = true
     return true
+  end
+
+  -- Einfahrtsignal eines Knotengleises festlegen: genau dieses Signal wird als Einfahrt gesperrt, die uebrigen Signale des Gleises sind Streckensignale
+  function w.guided_einfahrt_mark(did)
+    for _, track in pairs(w.config.tracks) do
+      for _, ref in ipairs(track.signals) do
+        if ref == did then
+          if not (track.junction and track.junction.role == "ein") then return false, "Das ist kein Einfahrtsgleis eines Knotens." end
+          for _, other in ipairs(track.signals) do
+            local d = w.config.devices[other]
+            if d then
+              d.signal = d.signal or {}
+              d.signal.use = (other == did) and "einfahrt" or "strecke"
+            end
+          end
+          return true
+        end
+      end
+    end
+    return false, "Das Signal gehoert zu keinem Gleis."
   end
 
   -- Gleise mit mehreren Signalen, deren Reihenfolge noch nicht bestaetigt ist: { { track, name, count } ... }

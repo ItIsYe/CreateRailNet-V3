@@ -41,6 +41,7 @@ for id in pairs(config.tracks) do track_ids[#track_ids + 1] = id end
 table.sort(track_ids)
 for _, tid in ipairs(track_ids) do
 local spec = config.tracks[tid]
+local on_track = {}
 for _, did in ipairs(spec.signals or {}) do
 if config.devices[did] then
 local info = config.devices[did].signal or {}
@@ -48,7 +49,16 @@ local sg = { id = did, track = tid, track_name = spec.name, device = config.devi
 sg.dev = signallib.new(env, sg.device)
 role.signals[did] = sg
 role.signals[#role.signals + 1] = sg
+on_track[#on_track + 1] = sg
 end
+end
+
+
+local ends = config.node.area_ends
+for i, sg in ipairs(on_track) do
+sg.pos, sg.count = i, #on_track
+sg.prev = on_track[i - 1] and on_track[i - 1].device or (ends and ends[1]) or nil
+sg.next = on_track[i + 1] and on_track[i + 1].device or (ends and ends[2]) or nil
 end
 end
 
@@ -175,7 +185,8 @@ function role.hello()
 local list = {}
 for _, sg in ipairs(role.signals) do
 local dir = config.tracks[sg.track] and config.tracks[sg.track].dir
-list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device, use = sg.use, effect = sg.effect, place = sg.place, dir = dir and dir.id or nil }
+list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device, use = sg.use, effect = sg.effect, place = sg.place, dir = dir and dir.id or nil,
+pos = sg.pos, count = sg.count, prev = sg.prev, next = sg.next }
 end
 local set = next_set()
 send_parts(list, function(piece, i, count)
@@ -412,7 +423,9 @@ state.list = state.list or { index = 1 }
 state.items = {}
 local items = {}
 for i, view in ipairs(role.states()) do
-local text = view.track_name .. "  " .. (view.available and tostring(view.state) or "nicht verfuegbar")
+local sg0 = role.signals[view.id]
+local where = (sg0 and sg0.count and sg0.count > 1) and (" Signal " .. sg0.pos .. "/" .. sg0.count) or ""
+local text = view.track_name .. where .. "  " .. (view.available and tostring(view.state) or "nicht verfuegbar")
 local detail = {}
 if view.forced then detail[#detail + 1] = "gesperrt" end
 if #view.owners > 0 then detail[#detail + 1] = "Sperre von " .. table.concat(view.owners, ",") end
@@ -424,7 +437,13 @@ items[i] = { text = text, detail = #detail > 0 and table.concat(detail, ", ") or
 state.items[i] = view
 end
 local has_sync = claimed_area() ~= nil
-W.list(v, "signale", has_sync and { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 } or rect, items, state.list, { empty = "Keine Signale eingerichtet." })
+
+local picked = state.items[state.list.index]
+local sgp = picked and role.signals[picked.id]
+local place_line = (sgp and sgp.count and sgp.count > 1) and (sgp.device .. " (" .. sgp.pos .. "/" .. sgp.count .. ") zwischen " .. tostring(sgp.prev or "?") .. " und " .. tostring(sgp.next or "?")) or nil
+local reserved = (has_sync and 1 or 0) + (place_line and 1 or 0)
+W.list(v, "signale", reserved > 0 and { x = rect.x, y = rect.y, w = rect.w, h = rect.h - reserved } or rect, items, state.list, { empty = "Keine Signale eingerichtet." })
+if place_line then W.label(v, rect.x + 1, rect.y + rect.h - reserved, place_line, "text", rect.w - 2) end
 if has_sync then
 local text, kind
 if sync.state == "abweichend" then text, kind = "Abweichung: " .. describe(sync.diffs[1]) .. (#sync.diffs > 1 and (" (+" .. (#sync.diffs - 1) .. ")") or ""), "attention"

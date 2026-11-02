@@ -156,6 +156,7 @@ if track.station == id then track.station = nil end
 for _, field in ipairs({ "signals", "observers" }) do
 local kept = {}
 for _, ref in ipairs(track[field]) do if ref ~= id then kept[#kept + 1] = ref end end
+if field == "signals" and #kept ~= #track.signals then track.order_ok = nil end
 track[field] = kept
 end
 end
@@ -170,6 +171,7 @@ track.station = device_id
 elseif field == "signals" or field == "observers" then
 for _, existing in ipairs(track[field]) do if existing == device_id then return true end end
 track[field][#track[field] + 1] = device_id
+if field == "signals" then track.order_ok = nil end
 elseif field == "release" then
 track.release = device_id
 else
@@ -228,6 +230,23 @@ if station or signal then allowed.signal = true; allowed.observer = true end
 if release then allowed.relay = true end
 if has_role(config, "passagierbahnhof") then allowed.displaylink = true end
 return { station = station, signal = signal, release = release, tracks = station or signal, allowed = allowed }
+end
+
+
+
+function M.entry_signal_problem(config, track)
+if not (track.junction and track.junction.role == "ein" and #track.signals >= 2) then return nil end
+local marked, last_marked = 0, false
+for i, ref in ipairs(track.signals) do
+local info = config.devices[ref] and config.devices[ref].signal
+if info and info.use == "einfahrt" then marked = marked + 1; last_marked = (i == #track.signals) end
+end
+if marked ~= 1 then
+return "knoten_einfahrtsignal", "Einfahrtsgleis " .. track.name .. " hat " .. #track.signals .. " Signale: genau eines als Einfahrt markieren (das letzte vor dem Knoten)."
+elseif not last_marked then
+return "knoten_einfahrtlage", "Einfahrtsgleis " .. track.name .. ": das Einfahrtsignal muss das letzte Signal vor dem Knoten sein (Reihenfolge zum Knoten hin)."
+end
+return nil
 end
 
 function M.validate(config, scan)
@@ -292,15 +311,23 @@ if config.devices[ref] and config.devices[ref].kind ~= kind then add("gleis_art"
 end
 end
 claim(track.station, "Bahnhof")
+
+if track.dir and #track.signals >= 2 and not track.order_ok then
+local ends = config.node.area_ends
+add("signal_reihenfolge", "Gleis " .. track.name .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
+end
 for _, s in ipairs(track.signals) do
 claim(s, "Signal")
 
 local info = config.devices[s] and config.devices[s].signal
-if info and not info.effect then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
+if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
 end
 for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
 if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
 if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+
+local entry_code, entry_text = M.entry_signal_problem(config, track)
+if entry_code then add(entry_code, entry_text) end
 if track.junction then
 if not config.junction.connections[track.junction.connection] then
 add("knoten_gleis", "Gleis " .. track.name .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")

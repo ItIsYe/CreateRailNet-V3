@@ -609,7 +609,17 @@ function M.new(services)
     return true
   end
   screens["4.g.signale"] = device_choice_screen("signale", "signal", "signals", "Welche Signale gehoeren zu Gleis")
+  -- Hat das Gleis mehrere Signale, muessen Reihenfolge (und bei einer Knoteneinfahrt das Einfahrtsignal) festgelegt sein: der Detailbildschirm fuehrt dorthin
+  local function signals_need_detail(track)
+    if not track or not track.dir or #track.signals < 2 then return false end
+    if not track.order_ok then return true end
+    return model.entry_signal_problem(session.wiz.config, track) ~= nil
+  end
   screens["4.g.signale"].next = function(v)
+    if signals_need_detail(session.wiz.config.tracks[session.track]) then
+      push("4.z.detail")
+      return true
+    end
     if #config_devices_of("observer") > 0 then push("4.g.beobachter")
     elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
     else while session.screen ~= "4.gleise" and pop() do end end
@@ -1412,19 +1422,36 @@ function M.new(services)
     render = function(v, rect)
       local row = detail_rows()
       local ends = session.wiz.area_ends()
-      header(v, rect, nil, "Signale von " .. (row and row.name or "?") .. ": Funktion, Wirkrichtung, Standort")
+      local entry_track = row ~= nil and row.junction ~= nil and row.junction.role == "ein"
+      header(v, rect, nil, "Signale von " .. (row and row.name or "?") .. (row and row.junction and ": Reihenfolge und Einfahrt" or ": Funktion, Wirkrichtung, Standort"))
       if row and #row.signals >= 2 then
-        W.label(v, rect.x + 1, rect.y + 2, "Reihenfolge " .. tostring(ends[1] or "Anschluss 1") .. " -> " .. tostring(ends[2] or "Anschluss 2") .. (row.order_ok and " (ok)" or " (offen)"),
-          row.order_ok and "ok" or "wait", rect.w - 2)
+        local text
+        if entry_track then
+          text = "Reihenfolge zum Knoten (zuletzt: Einfahrt)" .. (row.order_ok and " ok" or " offen")
+        elseif row.junction then
+          text = "Reihenfolge" .. (row.order_ok and " (ok)" or " (offen)")
+        else
+          text = "Reihenfolge " .. tostring(ends[1] or "Anschluss 1") .. " -> " .. tostring(ends[2] or "Anschluss 2") .. (row.order_ok and " (ok)" or " (offen)")
+        end
+        W.label(v, rect.x + 1, rect.y + 2, text, row.order_ok and "ok" or "wait", rect.w - 2)
       end
       local items = {}
       session.pick.detail = {}
       for i, sg in ipairs(row and row.signals or {}) do
-        items[#items + 1] = {
-          text = ((row and #row.signals >= 2) and (i .. ". ") or "") .. sg.device .. "  " .. (wizardlib.USE_TEXT[sg.use] or sg.use),
-          detail = (sg.effect and ("wirkt Richtung " .. sg.effect) or "WIRKRICHTUNG FEHLT") .. ", Standort " .. (sg.place and (sg.place == "mitte" and "Mitte" or ("Ende " .. sg.place)) or "offen"),
-          kind = sg.effect and "ok" or "wait",
-        }
+        local numbered = ((row and #row.signals >= 2) and (i .. ". ") or "") .. sg.device
+        if row and row.junction then
+          items[#items + 1] = {
+            text = numbered,
+            detail = sg.use == "einfahrt" and "EINFAHRTSIGNAL (sperrt die Einfahrt)" or "Streckensignal (Create regelt es allein)",
+            kind = sg.use == "einfahrt" and "ok" or "text",
+          }
+        else
+          items[#items + 1] = {
+            text = numbered .. "  " .. (wizardlib.USE_TEXT[sg.use] or sg.use),
+            detail = (sg.effect and ("wirkt Richtung " .. sg.effect) or "WIRKRICHTUNG FEHLT") .. ", Standort " .. (sg.place and (sg.place == "mitte" and "Mitte" or ("Ende " .. sg.place)) or "offen"),
+            kind = sg.effect and "ok" or "wait",
+          }
+        end
         session.pick.detail[#items] = sg
       end
       W.list(v, "detail", body_rect(rect, 3), items, list_state(v, "detail"), { empty = "Kein Signal an diesem Gleis." })
@@ -1433,11 +1460,19 @@ function M.new(services)
       local sg = session.pick.detail and session.pick.detail[list_state(v, "detail").index]
       local row = detail_rows()
       local several = row ~= nil and #row.signals >= 2
-      local list = {
-        { id = "d_funktion", label = "Funktion", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
-        { id = "d_richtung", label = "Richtung", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
-        { id = "d_standort", label = "Standort", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
-      }
+      local list
+      if row ~= nil and row.junction ~= nil then
+        list = {}
+        if row.junction.role == "ein" then
+          list[1] = { id = "d_einfahrt", label = "Einfahrt", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
+        end
+      else
+        list = {
+          { id = "d_funktion", label = "Funktion", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
+          { id = "d_richtung", label = "Richtung", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
+          { id = "d_standort", label = "Standort", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
+        }
+      end
       if several then
         list[#list + 1] = { id = "d_hoch", label = "Hoch", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
         list[#list + 1] = { id = "d_runter", label = "Runter", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
@@ -1461,6 +1496,10 @@ function M.new(services)
       elseif id == "act:d_reihenfolge" then
         local ok, why = session.wiz.guided_order_confirm(session.track)
         v.hint = ok and "Reihenfolge bestaetigt." or why
+        return true
+      elseif id == "act:d_einfahrt" and sg then
+        local ok, why = session.wiz.guided_einfahrt_mark(sg.id)
+        v.hint = ok and (sg.device .. " ist jetzt das Einfahrtsignal.") or why
         return true
       end
     end,

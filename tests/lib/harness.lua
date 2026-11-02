@@ -59,6 +59,7 @@ function H.new(opts)
         local did = model.add_device(config, "signal", name)
         model.assign(config, tid, "signals", did)
         if track.signal_info then config.devices[did].signal = track.signal_info end
+        if track.signal_infos and track.signal_infos[name] then config.devices[did].signal = track.signal_infos[name] end
       end
       for _, name in ipairs(track.observers or {}) do model.assign(config, tid, "observers", model.add_device(config, "observer", name)) end
       if track.dir then config.tracks[tid].dir = track.dir end

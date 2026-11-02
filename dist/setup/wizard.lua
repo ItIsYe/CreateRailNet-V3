@@ -309,7 +309,11 @@ return true
 end
 local list = track[field]
 for i, existing_id in ipairs(list) do
-if existing_id == device_id then table.remove(list, i) return true end
+if existing_id == device_id then
+table.remove(list, i)
+if field == "signals" then track.order_ok = nil end
+return true
+end
 end
 for id, other in pairs(w.config.tracks) do
 if id ~= track_id then
@@ -319,6 +323,7 @@ end
 end
 end
 list[#list + 1] = device_id
+if field == "signals" then track.order_ok = nil end
 return true
 end
 
@@ -496,7 +501,7 @@ local info = d.signal or {}
 signals[#signals + 1] = { id = did, device = d.device, use = info.use or "strecke", effect = info.effect, place = info.place }
 end
 end
-rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals }
+rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals, order_ok = track.order_ok == true, junction = track.junction }
 end
 return rows
 end
@@ -566,6 +571,62 @@ else
 return false, "Unbekanntes Feld."
 end
 return true
+end
+
+
+function w.guided_signal_move(did, delta)
+for _, track in pairs(w.config.tracks) do
+if track.dir then
+for i, ref in ipairs(track.signals) do
+if ref == did then
+local j = i + delta
+if j < 1 or j > #track.signals then return false, delta < 0 and "Das Signal ist schon das erste." or "Das Signal ist schon das letzte." end
+track.signals[i], track.signals[j] = track.signals[j], track.signals[i]
+track.order_ok = nil
+return true
+end
+end
+end
+end
+return false, "Das Signal gehoert zu keinem Gleis."
+end
+
+
+function w.guided_order_confirm(tid)
+local track = w.config.tracks[tid]
+if not track or not track.dir then return false, "Das Gleis gibt es nicht." end
+if #track.signals < 2 then return false, "Bei einem Signal gibt es keine Reihenfolge." end
+track.order_ok = true
+return true
+end
+
+
+function w.guided_einfahrt_mark(did)
+for _, track in pairs(w.config.tracks) do
+for _, ref in ipairs(track.signals) do
+if ref == did then
+if not (track.junction and track.junction.role == "ein") then return false, "Das ist kein Einfahrtsgleis eines Knotens." end
+for _, other in ipairs(track.signals) do
+local d = w.config.devices[other]
+if d then
+d.signal = d.signal or {}
+d.signal.use = (other == did) and "einfahrt" or "strecke"
+end
+end
+return true
+end
+end
+end
+return false, "Das Signal gehoert zu keinem Gleis."
+end
+
+
+function w.order_problems()
+local list = {}
+for _, row in ipairs(w.guided_rows()) do
+if #row.signals >= 2 and not row.order_ok then list[#list + 1] = { track = row.track, name = row.name, count = #row.signals } end
+end
+return list
 end
 
 

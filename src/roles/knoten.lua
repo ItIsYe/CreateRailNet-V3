@@ -30,6 +30,20 @@ function M.new(node, signals)
     store = node.store, path = "/crn_data/knoten.lua",
   })
 
+  -- Welche Signale eines Einfahrtsgleises die Einfahrt sperren: bei mehreren Signalen nur das als Einfahrt markierte (das letzte vor dem Knoten, die
+  -- uebrigen Signale regelt Create allein); ist keines oder sind mehrere markiert (aeltere Einrichtung), bleibt es vorsichtig bei allen Signalen des Gleises
+  local function entry_signals(spec)
+    local all = spec.signals or {}
+    if #all <= 1 then return all end
+    local marked = {}
+    for _, did in ipairs(all) do
+      local d = config.devices[did]
+      if d and d.signal and d.signal.use == "einfahrt" then marked[#marked + 1] = did end
+    end
+    if #marked == 1 then return marked end
+    return all
+  end
+
   -- Einfahrten und Ausfahrten aus der Konfiguration ---------------------------------------------------------------------------------------
   local points = {}      -- Beobachter-Geraet -> { conn, kind = "ein" | "aus", track, observer, last }
   local entries = {}     -- Anschluss -> Liste Einfahrtsgleise { track, signals = { id... } }
@@ -50,7 +64,7 @@ function M.new(node, signals)
       end
       if jn.role == "ein" then
         entries[jn.connection] = entries[jn.connection] or {}
-        entries[jn.connection][#entries[jn.connection] + 1] = { track = tid, name = spec.name, signals = spec.signals or {} }
+        entries[jn.connection][#entries[jn.connection] + 1] = { track = tid, name = spec.name, signals = entry_signals(spec) }
       end
     end
   end

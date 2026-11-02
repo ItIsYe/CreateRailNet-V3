@@ -232,6 +232,23 @@ function M.profile(config)
   return { station = station, signal = signal, release = release, tracks = station or signal, allowed = allowed }
 end
 
+-- Einfahrtsgleis eines Knotens mit mehreren Signalen: genau eines muss als Einfahrt markiert und das letzte vor dem Knoten sein (Reihenfolge zum Knoten
+-- hin); die uebrigen Signale regelt Create allein. Gibt Code und Text des Mangels zurueck, sonst nil.
+function M.entry_signal_problem(config, track)
+  if not (track.junction and track.junction.role == "ein" and #track.signals >= 2) then return nil end
+  local marked, last_marked = 0, false
+  for i, ref in ipairs(track.signals) do
+    local info = config.devices[ref] and config.devices[ref].signal
+    if info and info.use == "einfahrt" then marked = marked + 1; last_marked = (i == #track.signals) end
+  end
+  if marked ~= 1 then
+    return "knoten_einfahrtsignal", "Einfahrtsgleis " .. track.name .. " hat " .. #track.signals .. " Signale: genau eines als Einfahrt markieren (das letzte vor dem Knoten)."
+  elseif not last_marked then
+    return "knoten_einfahrtlage", "Einfahrtsgleis " .. track.name .. ": das Einfahrtsignal muss das letzte Signal vor dem Knoten sein (Reihenfolge zum Knoten hin)."
+  end
+  return nil
+end
+
 function M.validate(config, scan)
   local problems = {}
   local function add(code, text) problems[#problems + 1] = { code = code, text = text } end
@@ -303,11 +320,14 @@ function M.validate(config, scan)
       claim(s, "Signal")
       -- Konzept 5.4: bei Signalen der gefuehrten Einrichtung muss die Wirkrichtung bekannt sein
       local info = config.devices[s] and config.devices[s].signal
-      if info and not info.effect then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
+      if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
     end
     for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
     if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
     if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+    -- Einfahrtsgleis mit mehreren Signalen: nur das Signal unmittelbar vor dem Knoten sperrt die Einfahrt (siehe M.entry_signal_problem)
+    local entry_code, entry_text = M.entry_signal_problem(config, track)
+    if entry_code then add(entry_code, entry_text) end
     if track.junction then
       if not config.junction.connections[track.junction.connection] then
         add("knoten_gleis", "Gleis " .. track.name .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")
