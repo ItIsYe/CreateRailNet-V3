@@ -1059,7 +1059,7 @@ end
 
 
 local function view(id, node)
-return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, legacy = node.legacy, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
+return { id = id, claim = node.claim, role = node.role, roles = node.roles and copy(node.roles) or { node.role }, area = node.area, junction = node.junction, station = node.station, legacy = node.legacy, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
 end
 
 
@@ -1147,15 +1147,41 @@ end
 
 
 
+
+local ROLE_ORDER = { "passagierbahnhof", "gueterbahnhof", "depot", "signal", "knoten", "anmeldung" }
+local ROLE_RANK = {}
+for i, r in ipairs(ROLE_ORDER) do ROLE_RANK[r] = i end
+
+local function claim_roles(spec2)
+local list = spec2.roles
+if list == nil then list = { spec2.role } end
+if type(list) ~= "table" or #list == 0 or #list > 5 then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+local seen, out = {}, {}
+for _, r in ipairs(list) do
+if type(r) ~= "string" or not ROLE_CODE[r] then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+if seen[r] then return nil, "Die Rolle " .. r .. " ist doppelt angegeben." end
+seen[r] = true
+out[#out + 1] = r
+end
+table.sort(out, function(a, b) return ROLE_RANK[a] < ROLE_RANK[b] end)
+if #out > 1 and seen.knoten then return nil, "Die Rolle knoten wird allein angefordert." end
+return out
+end
+
 function n.claim_node(spec2)
 return change(function()
 local claim = spec2.claim
 if type(claim) ~= "string" or #claim < 8 or #claim > 64 or claim:find("[^%w%-_]") then return nil, "Die Anforderungskennung ist ungueltig." end
-local code = ROLE_CODE[spec2.role]
-if not code then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+local roles, why_roles = claim_roles(spec2)
+if not roles then return nil, why_roles end
+local codes, texts = {}, {}
+for _, r in ipairs(roles) do codes[#codes + 1] = ROLE_CODE[r]; texts[#texts + 1] = ROLE_TEXT[r] end
+local code = table.concat(codes, " ")
+local role_text = (#roles == 1) and texts[1] or code
+local primary = roles[1]
 local wanted = {}
-local area_id, junction_id, where_name, where_code
-if spec2.role == "knoten" then
+local area_id, junction_id, station_id, where_name, where_code
+if primary == "knoten" then
 local j = type(spec2.junction) == "string" and data.junctions[spec2.junction] or nil
 if not j then return nil, "Den Knoten gibt es nicht." end
 if spec2.area ~= nil or spec2.tracks ~= nil then return nil, "Ein Knoten wird ohne Bereich und Gleise angefordert." end
@@ -1169,10 +1195,16 @@ for _, tid in ipairs(c.tracks) do if not seen[tid] then seen[tid] = true; wanted
 end
 table.sort(wanted)
 junction_id, where_name, where_code = spec2.junction, j.name, spec2.junction
+elseif #roles == 1 and primary == "anmeldung" then
+local st = type(spec2.station) == "string" and data.stations[spec2.station] or nil
+if not st then return nil, "Die Betriebsstelle gibt es nicht." end
+if spec2.area ~= nil or spec2.tracks ~= nil or spec2.junction ~= nil then return nil, "Eine Anmeldung wird ohne Bereich, Gleise und Knoten angefordert." end
+station_id, where_name, where_code = spec2.station, st.name, spec2.station
 else
 local area = data.areas[spec2.area]
 if not area then return nil, "Den Bereich gibt es nicht." end
 if spec2.junction ~= nil then return nil, "Nur die Rolle knoten wird fuer einen Knoten angefordert." end
+if spec2.station ~= nil then return nil, "Nur die Rolle anmeldung wird fuer eine Betriebsstelle angefordert." end
 if type(spec2.tracks) ~= "table" then return nil, "Die Gleise fehlen." end
 for _, tid in ipairs(spec2.tracks) do
 local t = data.tracks[tid]
@@ -1196,8 +1228,8 @@ for id, node in pairs(data.nodes) do
 if node.claim == claim then
 if node.state == "verworfen" then return nil, "Diese Anforderung wurde verworfen." end
 node.legacy = legacy
-node.role, node.area, node.junction, node.tracks = spec2.role, area_id, junction_id, wanted
-node.name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id
+node.role, node.roles, node.area, node.junction, node.station, node.tracks = primary, roles, area_id, junction_id, station_id, wanted
+node.name = role_text .. " " .. where_name .. " " .. id
 node.label = id .. " | " .. code .. " | " .. where_code
 return view(id, node)
 end
@@ -1207,8 +1239,8 @@ for _ in pairs(data.nodes) do count = count + 1 end
 if count >= M.MAX_NODES then return nil, "Es gibt schon " .. M.MAX_NODES .. " Nodes im Verzeichnis." end
 local id = new_id("node", "N")
 data.nodes[id] = {
-claim = claim, role = spec2.role, area = area_id, junction = junction_id, legacy = legacy, tracks = wanted, state = "reserviert",
-name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id,
+claim = claim, role = primary, roles = roles, area = area_id, junction = junction_id, station = station_id, legacy = legacy, tracks = wanted, state = "reserviert",
+name = role_text .. " " .. where_name .. " " .. id,
 label = id .. " | " .. code .. " | " .. where_code,
 }
 return view(id, data.nodes[id])

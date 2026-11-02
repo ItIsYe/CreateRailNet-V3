@@ -161,7 +161,8 @@ function M.new(opts)
   end
 
   -- cached = true: die zuletzt gelesene Geraeteliste verwenden (zum Zeichnen); sonst vorher neu lesen
-  function w.step_ok(n, cached)
+  -- skip: Pflichtangaben, die in diesem Bildschirm noch nicht verlangt werden (zum Beispiel die Anmeldestation, die erst nach den Gleisen gewaehlt wird)
+  function w.step_ok(n, cached, skip)
     sync_config()
     if n == 1 then
       if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
@@ -196,8 +197,9 @@ function M.new(opts)
       if p.signal and not counts.signal then return false, "Mindestens ein Train Signal muss ausgewaehlt werden." end
       if needs("knoten") and not counts.observer then return false, "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." end
       if n >= 4 then
-        local problems = model.validate(w.config, w.scan)
-        if #problems > 0 then return false, problems[1].text end
+        for _, p in ipairs(model.validate(w.config, w.scan)) do
+          if not (skip and skip[p.code]) then return false, p.text end
+        end
       end
       if n >= 5 and not w.all_tests_ok() then return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen." end
       return true
@@ -362,14 +364,16 @@ function M.new(opts)
   end
 
   function w.guided_begin(info)
-    local role = info.role or "signal"
+    local roles = {}
+    for _, r in ipairs(info.roles or { info.role or "signal" }) do roles[#roles + 1] = r end
     local pre, why_pre = w.guided_precheck(info.tracks)
     if not pre then return nil, why_pre end
     w.mode = "join"
-    w.roles = { role }
+    w.roles = roles
     w.claimed_id = info.node.id
     w.name = info.node.name
-    w.guided = (role == "signal") or nil          -- nur Signal-Nodes pruefen ueber setup/pruefung.lua; Bahnhoefe und Depots behalten die bisherigen Pruefungen
+    -- nur reine Signal-Nodes pruefen ueber setup/pruefung.lua; Bahnhoefe, Depots und kombinierte Nodes behalten die bisherigen Pruefungen
+    w.guided = (#roles == 1 and roles[1] == "signal") or nil
     sync_config()
     local c = w.config
     c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
@@ -401,7 +405,7 @@ function M.new(opts)
       track.name = t.name
       track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
       -- Signale der bisherigen Einrichtung bekommen die Angaben nach Konzept 5.4 (Vorgabe aus eindeutiger Richtung)
-      if role == "signal" then
+      if has(roles, "signal") then
         local unique = (t.direction ~= "beide") and t.direction or nil
         for _, did in ipairs(track.signals) do
           local d = c.devices[did]
@@ -414,6 +418,19 @@ function M.new(opts)
 
   -- Knoten-Node aus dem Verzeichnis: Anschluesse, Verbindungen und Konflikte kommen aus dem bestaetigten Knoten, die Gleisenden werden Gleise mit Einfahrt-
   -- (Signal) oder Ausfahrtsrolle (Beobachter); Geraete werden danach zugeordnet. info = { junction = Daten des Knotens, claim, node = { id, name, label } }
+  -- Anmeldung: gehoert zu einer Betriebsstelle des Verzeichnisses, hat keine Gleise. info = { station = { id, name }, claim, node = { id, name, label } }
+  function w.anmeldung_begin(info)
+    w.mode = "join"
+    w.roles = { "anmeldung" }
+    w.claimed_id = info.node.id
+    w.name = info.node.name
+    w.guided = nil
+    sync_config()
+    local c = w.config
+    c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.id
+    return true
+  end
+
   function w.knoten_precheck()
     for _, track in pairs(w.config.tracks) do
       if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (Gleis " .. track.name .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end

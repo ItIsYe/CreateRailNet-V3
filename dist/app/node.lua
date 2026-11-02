@@ -248,7 +248,8 @@ search_status = function() return n.search_status() end,
 mark_dirty = function() n.dirty = true end,
 directory_areas = function(central_id) return n.directory_areas(central_id) end,
 directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
-directory_claim = function(central_id, claim, role, area_id, track_ids, junction_id, legacy_id) return n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id) end,
+directory_claim = function(central_id, claim, role, area_id, track_ids, junction_id, legacy_id, extra) return n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id, extra) end,
+directory_stations = function(central_id) return n.directory_stations(central_id) end,
 directory_junctions = function(central_id) return n.directory_junctions(central_id) end,
 directory_junction = function(central_id, junction_id) return n.directory_junction(central_id, junction_id) end,
 directory_area_create = function(central_id, token, spec) return n.directory_area_create(central_id, token, spec) end,
@@ -648,8 +649,29 @@ end)
 end)
 end
 
-function n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id)
-dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, area = area_id, tracks = track_ids, junction = junction_id, legacy = legacy_id }, function(p)
+
+function n.directory_stations(central_id)
+local acc = {}
+local function page(after)
+dir_send(central_id, { kind = "betriebsstellen_liste", after = after }, function(p)
+if type(p.stations) ~= "table" then return dir_bad() end
+for _, st in ipairs(p.stations) do
+if type(st) ~= "table" or not dir_id(st.id, "BF") or not dir_name(st.name) or not (st.kind == "personenbahnhof" or st.kind == "gueterbahnhof" or st.kind == "depot") then
+return dir_bad()
+end
+acc[#acc + 1] = { id = st.id, name = st.name, kind = st.kind }
+end
+if p.more and #acc < 300 and #acc > 0 then return page(acc[#acc].id) end
+n.dir_state = { kind = "ok", text = #acc .. " Betriebsstelle(n) im Netz.", stations = acc }
+end)
+end
+page(nil)
+end
+
+
+function n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id, extra)
+extra = extra or {}
+dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, roles = extra.roles, area = area_id, tracks = track_ids, junction = junction_id, station = extra.station, legacy = legacy_id }, function(p)
 local node = p.node
 if type(node) ~= "table" or not dir_id(node.id, "N") or type(node.name) ~= "string" or #node.name > 60 or not node.name:match("^[%w _%-]+$")
 or type(node.label) ~= "string" or #node.label > 60 or not node.label:match("^[%w _%-|]+$") then

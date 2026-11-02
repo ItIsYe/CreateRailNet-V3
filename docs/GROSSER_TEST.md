@@ -80,6 +80,8 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.47 | Dasselbe mit einem Gleis, das im Bereich keinen gleichnamigen Partner hat | Meldung "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht", in der Leitstelle ist keine Kennung reserviert | |
 | 3.48 | Leitstelle, Seite "Assistent": Vorlage nebenanschluss mit einem Bahnhof an Gleis 1 (Richtung Ostbahnhof); Seite "Beziehungen" ansehen | Die Betriebsstelle ist nur mit Gleis 1 verbunden, nur mit der eingetragenen Richtung; Gleis 2 hat keine Verbindung | |
 | 3.49 | Vorlage verzweigung mit drei Anschluessen; Seite "Knoten" | Fahrwege und Konflikte stehen als UNBESTAETIGT; erst nach "Bestaet." sieht sie eine Knoten-Node | |
+| 3.50 | Computer mit Train Stations, Signalen und Ausgaengen: Beitreten mit den Rollen Passagierbahnhof und Signal | Ein Bereich, eine Kennung, Label `N000x \| PBF SIG \| B000y`; je Gleis Bahnhof, Signal und Ausgang; nach dem Test aktiv | |
+| 3.51 | Computer mit einer Train Station: Beitreten mit der Rolle Anmeldung, Betriebsstelle waehlen | Kennung `N000x`, Label `... \| ANM \| BF000y`; Geraete, Anmeldestation, Test, aktiv; die Betriebsstelle laesst sich in der Leitstelle nicht loeschen | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

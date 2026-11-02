@@ -24,7 +24,7 @@ local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil,
 
 
 local GUIDED_TITLE = {
-["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["2.knoten"] = "Knoten waehlen", ["3.k.pruefen"] = "Knoten uebernehmen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
+["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["2.knoten"] = "Knoten waehlen", ["2.station"] = "Betriebsstelle waehlen", ["3.k.pruefen"] = "Knoten uebernehmen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
 ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern", ["5.pruefen"] = "Pruefen und aktivieren",
 }
 local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
@@ -53,10 +53,29 @@ if role and #session.wiz.roles == 0 then session.wiz.toggle_role(role) end
 end
 
 
+
 local STATION_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true }
+local AREA_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true, signal = true, anmeldung = true }
+local function roles_in(allowed, need_one_of)
+local w = session.wiz
+if not w or #w.roles == 0 then return false end
+local found = false
+for _, r in ipairs(w.roles) do
+if not allowed[r] then return false end
+if need_one_of[r] then found = true end
+end
+return found
+end
 local function station_mode()
 local w = session.wiz
-return w ~= nil and w.mode == "join" and #w.roles == 1 and STATION_ROLES[w.roles[1]] == true and not session.manual and services.directory_areas ~= nil
+if guided_mode() then return false end
+return w ~= nil and w.mode == "join" and not session.manual and services.directory_areas ~= nil
+and roles_in(AREA_ROLES, { passagierbahnhof = true, gueterbahnhof = true, depot = true, signal = true })
+end
+
+local function anmeldung_mode()
+local w = session.wiz
+return w ~= nil and w.mode == "join" and #w.roles == 1 and w.roles[1] == "anmeldung" and not session.manual and services.directory_stations ~= nil
 end
 
 
@@ -82,7 +101,13 @@ for _, id in ipairs(GUIDED_SEQUENCE) do seq[#seq + 1] = id end
 return seq
 end
 if station_mode() then
-for _, id in ipairs({ "2.bereich", "3.gleise", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
+for _, id in ipairs({ "2.bereich", "3.gleise", "3.geraete", "4.gleise" }) do seq[#seq + 1] = id end
+for _, r in ipairs(session.wiz.roles) do if r == "anmeldung" then seq[#seq + 1] = "4.anmeldung" break end end
+seq[#seq + 1] = "5.test"; seq[#seq + 1] = "6.fertig"
+return seq
+end
+if anmeldung_mode() then
+for _, id in ipairs({ "2.station", "3.geraete", "4.anmeldung", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
 return seq
 end
 if knoten_mode() then
@@ -119,6 +144,12 @@ end
 if screen == "1.netzwahl" then
 session.net_choice = nil
 services.search_networks()
+elseif screen == "2.station" then
+session.dir = session.dir or {}
+if not session.dir.stations then
+session.dir.want = "stations"
+services.directory_stations(session.wiz.central_id)
+end
 elseif screen == "2.knoten" then
 session.dir = session.dir or {}
 if not session.dir.junctions then
@@ -181,8 +212,7 @@ session.known_signals = nil
 goto_screen("4.zuordnung")
 select_next_open(v, 0)
 v.hint = note or "Entwurf geladen: Signale zuordnen und pruefen."
-elseif existing and existing.node.claimed == true and (existing.node.area or existing.node.junction) and existing.status ~= "aktiv" and #existing.node.roles == 1
-and (STATION_ROLES[existing.node.roles[1]] or existing.node.roles[1] == "knoten") then
+elseif existing and existing.node.claimed == true and (existing.node.area or existing.node.junction or existing.node.station) and existing.status ~= "aktiv" then
 
 session.dir = { claim = existing.node.claim }
 goto_screen("3.geraete")
@@ -1097,6 +1127,60 @@ return true
 end,
 }
 
+
+screens["2.station"] = {
+render = function(v, rect)
+header(v, rect, nil, "Bei welcher Betriebsstelle melden sich Zuege an?")
+local d = session.dir
+local st = dir_status()
+if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+local items = {}
+session.pick.stations = {}
+for _, s in ipairs(d.stations or {}) do
+local on = d.station_choice and d.station_choice.id == s.id
+items[#items + 1] = { text = (on and "(o) " or "( ) ") .. s.name, detail = s.kind }
+session.pick.stations[#items] = s
+end
+local empty = (st and st.kind == "ok" and d.stations) and "Das Netz hat noch keine Betriebsstelle. In der Leitstelle auf der Seite Betriebsstellen anlegen, dann 'Neu laden'." or ""
+W.list(v, "station_wahl", body_rect(rect, 4), items, list_state(v, "station_wahl"), { empty = empty })
+end,
+action = function(v, id)
+local d = session.dir
+local n = id:match("^sel:station_wahl:(%d+)$")
+if n then
+local s = (session.pick.stations or {})[tonumber(n)]
+if s then d.station_choice = s end
+return true
+elseif id == "act:station_laden" then
+d.stations, d.station_choice, d.want = nil, nil, "stations"
+services.directory_stations(session.wiz.central_id)
+return true
+elseif id == "act:von_hand" then
+session.manual = true
+session.stack = {}
+goto_screen("2.name")
+return true
+end
+end,
+actions = function(v)
+return {
+{ id = "station_laden", label = "Neu laden", kind = "secondary" },
+{ id = "von_hand", label = "Von Hand", kind = "secondary" },
+}
+end,
+
+next = function(v)
+local d = session.dir
+if d.claiming then v.hint = "Frage die Leitstelle nach der Kennung ..." return true end
+d.claim = d.claim or services.new_claim()
+d.claiming = { station = d.station_choice }
+services.directory_reset()
+services.directory_claim(session.wiz.central_id, d.claim, "anmeldung", nil, nil, nil, session.wiz.legacy_id(), { station = d.station_choice.id })
+v.hint = "Frage die Leitstelle nach der Kennung ..."
+return true
+end,
+}
+
 screens["3.k.pruefen"] = {
 render = function(v, rect)
 local d = session.dir
@@ -1179,7 +1263,7 @@ local pre, why = session.wiz.guided_precheck(info)
 if not pre then v.hint = why return true end
 d.claim = d.claim or services.new_claim()
 d.claiming = { tracks = info }
-services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen, nil, session.wiz.legacy_id())
+services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen, nil, session.wiz.legacy_id(), { roles = session.wiz.roles })
 v.hint = "Frage die Leitstelle nach der Kennung ..."
 return true
 end,
@@ -1592,6 +1676,11 @@ if w.mode == "create" and not model.has_role(w.config, "zentrale") then return f
 if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
 end
 if screen == "2.bereich" and not session.dir.area then return false, "Bitte einen Bereich waehlen." end
+if screen == "2.station" then
+local d = session.dir
+if not d.station_choice then return false, "Bitte eine Betriebsstelle waehlen." end
+if d.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
+end
 if screen == "2.knoten" then
 local d = session.dir
 if not d.junction_choice then return false, "Bitte einen Knoten waehlen." end
@@ -1628,7 +1717,8 @@ if screen == "4.g.signale" and (model.has_role(w.config, "signal") or track.junc
 if screen == "4.g.beobachter" and track.junction and #track.observers == 0 then return false, "Der Meldepunkt braucht einen Beobachter." end
 if screen == "4.g.ausgang" and not track.release then return false, "Bitte einen Freigabeausgang zuordnen." end
 end
-if screen == "4.gleise" or screen == "4.anmeldung" then return w.step_ok(4, true) end
+if screen == "4.gleise" then return w.step_ok(4, true, { anmeldung_station = true }) end
+if screen == "4.anmeldung" then return w.step_ok(4, true) end
 if screen == "4.knoten" then
 local j=w.config.junction; local n=0; for _ in pairs(j.connections) do n=n+1 end
 if n<2 or #j.moves==0 then return false, "Zwei Anschluesse und eine Verbindung sind erforderlich." end
@@ -1807,6 +1897,7 @@ local d = session.dir
 local st = dir_status()
 if not st then return end
 if st.kind == "ok" then
+if st.stations and d.want == "stations" then d.stations, d.want = st.stations, nil end
 if st.junctions and d.want == "junctions" then d.junctions, d.want = st.junctions, nil end
 if st.junction and d.want == "junction" then d.junction, d.want = st.junction, nil end
 if st.areas and d.want == "areas" then
@@ -1821,6 +1912,12 @@ if st.node and d.claiming then
 local claiming = d.claiming
 d.claiming = nil
 local role = session.wiz.roles[1]
+if #session.wiz.roles == 1 and role == "anmeldung" then
+session.wiz.anmeldung_begin({ station = claiming.station, claim = d.claim, node = st.node })
+v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+push("3.geraete")
+return
+end
 if role == "knoten" then
 local ok, why = session.wiz.knoten_begin({ junction = claiming.junction, claim = d.claim, node = st.node })
 if not ok then v.hint = why return end
@@ -1828,10 +1925,10 @@ v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
 push("3.geraete")
 return
 end
-local began, why_begin = session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, role = role })
+local began, why_begin = session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, roles = session.wiz.roles })
 if not began then v.hint = why_begin return end
 v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
-if role == "signal" then
+if session.wiz.guided then
 ensure_check()
 session.known_signals = {}
 for _, dev in ipairs(session.wiz.guided_free_signals()) do session.known_signals[dev.name] = true end

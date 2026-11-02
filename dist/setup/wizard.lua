@@ -161,7 +161,8 @@ return #text .. ":" .. adler.hex(text)
 end
 
 
-function w.step_ok(n, cached)
+
+function w.step_ok(n, cached, skip)
 sync_config()
 if n == 1 then
 if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
@@ -196,8 +197,9 @@ if (p.station or needs("anmeldung")) and not counts.station then return false, "
 if p.signal and not counts.signal then return false, "Mindestens ein Train Signal muss ausgewaehlt werden." end
 if needs("knoten") and not counts.observer then return false, "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." end
 if n >= 4 then
-local problems = model.validate(w.config, w.scan)
-if #problems > 0 then return false, problems[1].text end
+for _, p in ipairs(model.validate(w.config, w.scan)) do
+if not (skip and skip[p.code]) then return false, p.text end
+end
 end
 if n >= 5 and not w.all_tests_ok() then return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen." end
 return true
@@ -362,14 +364,16 @@ return true
 end
 
 function w.guided_begin(info)
-local role = info.role or "signal"
+local roles = {}
+for _, r in ipairs(info.roles or { info.role or "signal" }) do roles[#roles + 1] = r end
 local pre, why_pre = w.guided_precheck(info.tracks)
 if not pre then return nil, why_pre end
 w.mode = "join"
-w.roles = { role }
+w.roles = roles
 w.claimed_id = info.node.id
 w.name = info.node.name
-w.guided = (role == "signal") or nil
+
+w.guided = (#roles == 1 and roles[1] == "signal") or nil
 sync_config()
 local c = w.config
 c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
@@ -401,7 +405,7 @@ local track = c.tracks[tid]
 track.name = t.name
 track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
 
-if role == "signal" then
+if has(roles, "signal") then
 local unique = (t.direction ~= "beide") and t.direction or nil
 for _, did in ipairs(track.signals) do
 local d = c.devices[did]
@@ -413,6 +417,19 @@ return true
 end
 
 
+
+
+function w.anmeldung_begin(info)
+w.mode = "join"
+w.roles = { "anmeldung" }
+w.claimed_id = info.node.id
+w.name = info.node.name
+w.guided = nil
+sync_config()
+local c = w.config
+c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.id
+return true
+end
 
 function w.knoten_precheck()
 for _, track in pairs(w.config.tracks) do

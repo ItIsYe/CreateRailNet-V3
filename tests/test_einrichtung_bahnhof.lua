@@ -158,15 +158,6 @@ return {
     t.eq(screen(d), "3.geraete")
     t.eq(#netz.nodes(), 0, "nichts im Verzeichnis angefordert")
   end },
-  { "Zwei Rollen auf einem Computer: der bisherige Weg (die Kennung aus dem Verzeichnis gilt je Rolle)", function()
-    local h, z, d, v, netz = setup()
-    d.tap(v, "act:start")
-    d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
-    h.step(5); d.node.render()
-    d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-    d.tap_row(v, "rollen", "Passagierbahnhof"); d.tap_row(v, "rollen", "Signal"); d.tap(v, "act:weiter")
-    t.eq(screen(d), "2.name", d.text(v))
-  end },
   { "Entwurf mit Kennung wird nach einem Neustart bei den Geraeten fortgesetzt", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)

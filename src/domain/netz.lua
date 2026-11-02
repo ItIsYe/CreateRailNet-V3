@@ -1,6 +1,6 @@
 --[[
 Purpose: Netzverzeichnis der Leitstelle (Konzept 3, 4, 5, 10, 11): Bereiche mit ihren zwei Anschluessen und den Gleisen darin (Name, Richtung als Bezug zu einem Anschluss), dazu die Anforderungen der Nodes, die ihren Ausschnitt uebernehmen. Die Leitstelle vergibt dauerhafte Kennungen (B0001 Bereich, A0001 Gleis, N0017 Node), die nie wiederverwendet werden, und liefert Anzeigename und Computerlabel einer Node.
-API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.set_end(bereich, nr, { kind, ref, name }); n.set_area_state(id, zustand); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.link_station(betriebsstelle, gleis, beziehung, richtungen); n.unlink_station(betriebsstelle, gleis); n.stations(); n.station(id); n.sites(); n.add_junction{ name }; n.add_connection(k, name, gleise); n.add_route(k, von, nach); n.add_conflict(k, f1, f2); n.propose_routes(k, art); n.propose_conflicts(k); n.confirm_junction(k); n.junctions(); n.junction(k); n.junction_part(k, teil); n.add_area{ name, ends = { a, b }, count, pattern } -> id oder nil, fehler; n.add_area_once(kennung, angaben) -> id, neu_angelegt oder nil, fehler; n.set_area(id, { name, ends }); n.remove_area(id); n.add_track(area, name, richtung); n.set_track(id, { name, direction }); n.remove_track(id); n.areas() -> Liste; n.areas_page(nach, grenze) -> Liste, weitere; n.area(id) -> Bereich mit Gleisen; n.claim_node{ claim, role, area, tracks } oder fuer die Rolle knoten { claim, role, junction } -> Eintrag oder nil, fehler; n.mark_active(id); n.discard_node(id); n.nodes() -> Liste; n.node(id); n.revision()
+API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.set_end(bereich, nr, { kind, ref, name }); n.set_area_state(id, zustand); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.link_station(betriebsstelle, gleis, beziehung, richtungen); n.unlink_station(betriebsstelle, gleis); n.stations(); n.station(id); n.sites(); n.add_junction{ name }; n.add_connection(k, name, gleise); n.add_route(k, von, nach); n.add_conflict(k, f1, f2); n.propose_routes(k, art); n.propose_conflicts(k); n.confirm_junction(k); n.junctions(); n.junction(k); n.junction_part(k, teil); n.add_area{ name, ends = { a, b }, count, pattern } -> id oder nil, fehler; n.add_area_once(kennung, angaben) -> id, neu_angelegt oder nil, fehler; n.set_area(id, { name, ends }); n.remove_area(id); n.add_track(area, name, richtung); n.set_track(id, { name, direction }); n.remove_track(id); n.areas() -> Liste; n.areas_page(nach, grenze) -> Liste, weitere; n.area(id) -> Bereich mit Gleisen; n.claim_node{ claim, role | roles, area, tracks } (Bahnhof/Depot/Signal, kombinierbar), { claim, role = knoten, junction } oder { claim, role = anmeldung, station } -> Eintrag oder nil, fehler; n.mark_active(id); n.discard_node(id); n.nodes() -> Liste; n.node(id); n.revision()
 Notes: Vorlagen (pattern) erzeugen nur bearbeitbare Gleise: gegenlaeufig (erste Haelfte Richtung Anschluss 2, Rest Richtung Anschluss 1), gleich (alle Richtung Anschluss 2), beide. Die Richtung eines Gleises ist ein Bezug (Name eines Anschlusses) oder "beide"; sie wird nirgends ausgewertet, sondern angezeigt. Ein Gleis in einem Bereich ist nicht automatisch ein Create-Signalblock. Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Benutzte Objekte (Bereich oder Gleis, das eine Node uebernommen hat) werden nicht geloescht. Zaehler stehen in der Datei und gehen nie zurueck. Anschlussarten: name (freier Name), betriebsstelle (Name folgt der Betriebsstelle), bereich (Name folgt dem Nachbarbereich), offen (Ende im Bau: der Bereich gilt dann als "im bau", nicht als betriebsbereit). Betriebsstellen (BF0001: Personenbahnhof, Gueterbahnhof, Depot) hoeren optional zu einem Standort (S0001, nur ueber den Namen gefuehrt, leere Standorte verschwinden); ihre Gleise stehen mit einer Beziehung: vorbei (das Gleis fuehrt vorbei), verbindung (das Gleis hat eine Verbindung zur Betriebsstelle, mit den baulich moeglichen Fahrtrichtungen) oder bahnhofsgleis (das Gleis gehoert zur Betriebsstelle); aus einer Beziehung folgt nie eine andere. Jedes Objekt traegt einen Stand (rev); Aenderungen mit `if_rev` werden abgelehnt, wenn das Objekt inzwischen anders geaendert wurde. Knoten (K0001) fuehren Anschluesse als Gruppen von Gleisenden (Gleise des Verzeichnisses), gerichtete Fahrwege (F0001) zwischen Gleisenden verschiedener Anschluesse und Konflikte zwischen Fahrwegen; Vorschlaege (durchgehend, alle, Konflikte bei gleichem Start oder Ziel) bleiben unbestaetigt, bis sie ausdruecklich bestaetigt werden, und Nodes bekommen nur Bestaetigtes; nie wird eine Verbindung aus einer T- oder Y-Form abgeleitet. Das Dateiformat hat eine Version; eine Datei von einem neueren Programm wird gelesen, aber nicht veraendert. Jede Aenderung wird sofort gespeichert; schlaegt das fehl, bleibt der alte Stand.
 ]]
 
@@ -1059,7 +1059,7 @@ function M.new(spec)
 
   -- Nodes ----------------------------------------------------------------------------------------------------------------------------------
   local function view(id, node)
-    return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, legacy = node.legacy, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
+    return { id = id, claim = node.claim, role = node.role, roles = node.roles and copy(node.roles) or { node.role }, area = node.area, junction = node.junction, station = node.station, legacy = node.legacy, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
   end
 
   -- Vorlagen des Bereichsassistenten (Konzept 12.3): erzeugen ganz normale, bearbeitbare Objekte (Bereiche, Gleise, Betriebsstellen, Knoten), keine festen
@@ -1145,17 +1145,43 @@ function M.new(spec)
     end)
   end
 
-  -- Anforderung einer Node-Kennung. Normale Rollen betreuen Gleise eines Bereichs (area, tracks); die Rolle knoten betreut einen Knoten des Verzeichnisses
-  -- (junction): sie bekommt alle Gleisenden seiner Anschluesse, und der Knoten muss vollstaendig bestaetigt sein (Nodes erhalten nur Bestaetigtes).
+  -- Anforderung einer Node-Kennung. Bahnhof-, Depot- und Signal-Rollen betreuen Gleise eines Bereichs (area, tracks) und lassen sich auf einem Computer
+  -- kombinieren (roles); die Rolle knoten betreut einen Knoten (junction: alle Gleisenden seiner Anschluesse, der Knoten muss vollstaendig bestaetigt sein, Nodes
+  -- erhalten nur Bestaetigtes); die Rolle anmeldung gehoert zu einer Betriebsstelle (station).
+  local ROLE_ORDER = { "passagierbahnhof", "gueterbahnhof", "depot", "signal", "knoten", "anmeldung" }
+  local ROLE_RANK = {}
+  for i, r in ipairs(ROLE_ORDER) do ROLE_RANK[r] = i end
+
+  local function claim_roles(spec2)
+    local list = spec2.roles
+    if list == nil then list = { spec2.role } end
+    if type(list) ~= "table" or #list == 0 or #list > 5 then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+    local seen, out = {}, {}
+    for _, r in ipairs(list) do
+      if type(r) ~= "string" or not ROLE_CODE[r] then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+      if seen[r] then return nil, "Die Rolle " .. r .. " ist doppelt angegeben." end
+      seen[r] = true
+      out[#out + 1] = r
+    end
+    table.sort(out, function(a, b) return ROLE_RANK[a] < ROLE_RANK[b] end)
+    if #out > 1 and seen.knoten then return nil, "Die Rolle knoten wird allein angefordert." end
+    return out
+  end
+
   function n.claim_node(spec2)
     return change(function()
       local claim = spec2.claim
       if type(claim) ~= "string" or #claim < 8 or #claim > 64 or claim:find("[^%w%-_]") then return nil, "Die Anforderungskennung ist ungueltig." end
-      local code = ROLE_CODE[spec2.role]
-      if not code then return nil, "Fuer diese Rolle gibt es keine Anforderung." end
+      local roles, why_roles = claim_roles(spec2)
+      if not roles then return nil, why_roles end
+      local codes, texts = {}, {}
+      for _, r in ipairs(roles) do codes[#codes + 1] = ROLE_CODE[r]; texts[#texts + 1] = ROLE_TEXT[r] end
+      local code = table.concat(codes, " ")
+      local role_text = (#roles == 1) and texts[1] or code
+      local primary = roles[1]
       local wanted = {}
-      local area_id, junction_id, where_name, where_code
-      if spec2.role == "knoten" then
+      local area_id, junction_id, station_id, where_name, where_code
+      if primary == "knoten" then
         local j = type(spec2.junction) == "string" and data.junctions[spec2.junction] or nil
         if not j then return nil, "Den Knoten gibt es nicht." end
         if spec2.area ~= nil or spec2.tracks ~= nil then return nil, "Ein Knoten wird ohne Bereich und Gleise angefordert." end
@@ -1169,10 +1195,16 @@ function M.new(spec)
         end
         table.sort(wanted)
         junction_id, where_name, where_code = spec2.junction, j.name, spec2.junction
+      elseif #roles == 1 and primary == "anmeldung" then
+        local st = type(spec2.station) == "string" and data.stations[spec2.station] or nil
+        if not st then return nil, "Die Betriebsstelle gibt es nicht." end
+        if spec2.area ~= nil or spec2.tracks ~= nil or spec2.junction ~= nil then return nil, "Eine Anmeldung wird ohne Bereich, Gleise und Knoten angefordert." end
+        station_id, where_name, where_code = spec2.station, st.name, spec2.station
       else
         local area = data.areas[spec2.area]
         if not area then return nil, "Den Bereich gibt es nicht." end
         if spec2.junction ~= nil then return nil, "Nur die Rolle knoten wird fuer einen Knoten angefordert." end
+        if spec2.station ~= nil then return nil, "Nur die Rolle anmeldung wird fuer eine Betriebsstelle angefordert." end
         if type(spec2.tracks) ~= "table" then return nil, "Die Gleise fehlen." end
         for _, tid in ipairs(spec2.tracks) do
           local t = data.tracks[tid]
@@ -1196,8 +1228,8 @@ function M.new(spec)
         if node.claim == claim then
           if node.state == "verworfen" then return nil, "Diese Anforderung wurde verworfen." end
           node.legacy = legacy
-          node.role, node.area, node.junction, node.tracks = spec2.role, area_id, junction_id, wanted
-          node.name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id
+          node.role, node.roles, node.area, node.junction, node.station, node.tracks = primary, roles, area_id, junction_id, station_id, wanted
+          node.name = role_text .. " " .. where_name .. " " .. id
           node.label = id .. " | " .. code .. " | " .. where_code
           return view(id, node)
         end
@@ -1207,8 +1239,8 @@ function M.new(spec)
       if count >= M.MAX_NODES then return nil, "Es gibt schon " .. M.MAX_NODES .. " Nodes im Verzeichnis." end
       local id = new_id("node", "N")
       data.nodes[id] = {
-        claim = claim, role = spec2.role, area = area_id, junction = junction_id, legacy = legacy, tracks = wanted, state = "reserviert",
-        name = ROLE_TEXT[spec2.role] .. " " .. where_name .. " " .. id,
+        claim = claim, role = primary, roles = roles, area = area_id, junction = junction_id, station = station_id, legacy = legacy, tracks = wanted, state = "reserviert",
+        name = role_text .. " " .. where_name .. " " .. id,
         label = id .. " | " .. code .. " | " .. where_code,
       }
       return view(id, data.nodes[id])

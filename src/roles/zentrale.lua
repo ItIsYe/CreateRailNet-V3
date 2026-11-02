@@ -681,7 +681,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m) end
     elseif m.messageType == "abfrage" then
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
-      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" or m.payload.kind == "bereich_anlegen" then role.handle_directory(m)
+      elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" or m.payload.kind == "bereich_anlegen" or m.payload.kind == "betriebsstellen_liste" then role.handle_directory(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
       elseif m.payload.kind == "netze" then
         -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
@@ -1077,6 +1077,18 @@ function M.new(node)
       if not area then return node.reply(m, "abgelehnt", { grund = "Den Bereich gibt es nicht." }) end
       return node.reply(m, "ok", { area = area, revision = revision })
     end
+    if p.kind == "betriebsstellen_liste" then
+      -- Betriebsstellen seitenweise (fuer die Einrichtung einer Anmeldung)
+      local after = type(p.after) == "string" and p.after or nil
+      local list, more = {}, false
+      for _, st in ipairs(role.netz.stations()) do
+        if after == nil or st.id > after then
+          if #list >= DIRECTORY_PAGE then more = true break end
+          list[#list + 1] = { id = st.id, name = st.name, kind = st.kind }
+        end
+      end
+      return node.reply(m, "ok", { stations = list, more = more or nil, revision = revision })
+    end
     if p.kind == "bereich_anlegen" then
       -- Bereich von einer Node aus anlegen (Konzept 10.2); dieselbe Anforderungskennung liefert denselben Bereich
       if type(p.ends) ~= "table" then return node.reply(m, "abgelehnt", { grund = "Die beiden Anschluesse fehlen." }) end
@@ -1114,7 +1126,9 @@ function M.new(node)
     end
     if p.junction ~= nil and type(p.junction) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Knotenkennung ist ungueltig." }) end
     if p.legacy ~= nil and type(p.legacy) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die bisherige Node-Kennung ist ungueltig." }) end
-    local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, area = p.area, tracks = p.tracks, junction = p.junction, legacy = p.legacy })
+    if p.station ~= nil and type(p.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Betriebsstelle ist ungueltig." }) end
+    if p.roles ~= nil and type(p.roles) ~= "table" then return node.reply(m, "abgelehnt", { grund = "Die Rollen sind ungueltig." }) end
+    local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, roles = p.roles, area = p.area, tracks = p.tracks, junction = p.junction, station = p.station, legacy = p.legacy })
     if not entry then return node.reply(m, "abgelehnt", { grund = err }) end
     node.reply(m, "ok", { node = { id = entry.id, name = entry.name, label = entry.label }, revision = role.netz.revision() })
   end
