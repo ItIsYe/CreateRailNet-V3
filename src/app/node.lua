@@ -371,6 +371,27 @@ function M.new(env)
     return m
   end
 
+  -- Listen in Teilen melden: eine Funknachricht fasst hoechstens 6000 Zeichen, eine Nutzlast hoechstens PARTS_LIMIT. Jeder Satz hat eine Kennung
+  -- "Start.Zaehler" (waechst mit jedem Satz dieses Computers). Eine dauernde Stoerung (ein Element passt nicht) wird einmal je Art gemeldet, nicht bei jedem Takt.
+  local PARTS_LIMIT = 5000
+  local set_counter, parts_failed = 0, {}
+  function n.next_set()
+    set_counter = set_counter + 1
+    return string.format("%d.%d", n.clock.boot_id(), set_counter)
+  end
+
+  function n.send_parts(target, list, make, tag)
+    local parts, why = chunks.parts_list(list, make, PARTS_LIMIT, ser)
+    if not parts then
+      if not parts_failed[tag] then n.notify("fehler", tostring(tag) .. " nicht moeglich: " .. tostring(why)) end
+      parts_failed[tag] = true
+      return false
+    end
+    parts_failed[tag] = nil
+    for _, payload in ipairs(parts) do n.send_to(target, "meldung", payload) end
+    return true
+  end
+
   -- fachliche Antwort; wird fuer wiederholte Anfragen gemerkt (13.3)
   function n.reply(m, status, payload)
     local body = { kind = "antwort", status = status, antwort_auf = m.payload.kind }

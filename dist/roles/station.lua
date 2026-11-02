@@ -76,10 +76,12 @@ available = tr.available, restored = tr.restored or nil, waiting = tr.p.waiting_
 }
 end
 
+
+
 local function send_state()
 local list = {}
 for _, tr in ipairs(role.tracks) do list[#list + 1] = track_report(tr) end
-node.send_to(central(), "meldung", { kind = "zustand", node = config.node.id, tracks = list, t = now() })
+node.send_parts(central(), list, function(piece) return { kind = "zustand", node = config.node.id, tracks = piece, t = now() } end, "Zustandsmeldung")
 last_beat = now()
 dirty_report = false
 end
@@ -92,10 +94,16 @@ id = tr.id, name = tr.name, station_name = tr.station_name, has_output = tr.out 
 length = tr.spec.length,
 }
 end
-node.send_to(central(), "meldung", {
+local set = node.next_set()
+node.send_parts(central(), list, function(piece, i, count)
+local payload = {
 kind = "hallo", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
-tracks = list, active = config.status == "aktiv",
-})
+tracks = piece, active = config.status == "aktiv",
+}
+
+if count > 1 then payload.set, payload.part, payload.parts = set, i, count end
+return payload
+end, "Anmeldung des Bahnhofs")
 last_hello = now()
 end
 
@@ -401,7 +409,8 @@ HANDLERS.lesen = handle_lesen
 function role.on_message(m, status)
 if status ~= "ok" then return end
 if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "hallo" then
-hello_acked = true
+
+if m.payload.status == "ok" and m.payload.fertig ~= false then hello_acked = true end
 return
 end
 if m.messageType == "bestaetigung" and m.correlationId and outbox[m.correlationId] then

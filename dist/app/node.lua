@@ -372,6 +372,27 @@ return m
 end
 
 
+
+local PARTS_LIMIT = 5000
+local set_counter, parts_failed = 0, {}
+function n.next_set()
+set_counter = set_counter + 1
+return string.format("%d.%d", n.clock.boot_id(), set_counter)
+end
+
+function n.send_parts(target, list, make, tag)
+local parts, why = chunks.parts_list(list, make, PARTS_LIMIT, ser)
+if not parts then
+if not parts_failed[tag] then n.notify("fehler", tostring(tag) .. " nicht moeglich: " .. tostring(why)) end
+parts_failed[tag] = true
+return false
+end
+parts_failed[tag] = nil
+for _, payload in ipairs(parts) do n.send_to(target, "meldung", payload) end
+return true
+end
+
+
 function n.reply(m, status, payload)
 local body = { kind = "antwort", status = status, antwort_auf = m.payload.kind }
 for k, v in pairs(payload or {}) do body[k] = v end

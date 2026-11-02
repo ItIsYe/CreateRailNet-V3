@@ -160,4 +160,31 @@ return {
     t.eq(select(2, c.add("n", "1", 2, 2, "B")), "offen")
     c.drop("unbekannt")
   end },
+  { "fit: eine kurze Liste bleibt ganz, eine lange wird auf den laengsten passenden Anfang gekuerzt", function()
+    local function make(part) return { rows = part, more = true } end
+    local short = { { n = "a" }, { n = "b" } }
+    local got, rest = chunks.fit(short, make, 5000, ser)
+    t.eq(#got, 2); t.eq(rest, false)
+    local items = {}
+    for i = 1, 100 do items[i] = { id = "B" .. i, name = string.rep("x", 100) } end
+    got, rest = chunks.fit(items, make, 2000, ser)
+    t.eq(rest, true)
+    t.ok(#got >= 10 and #got < 100, "gekuerzt: " .. #got)
+    t.ok(#ser.encode(make(got)) <= 2000, "der gekuerzte Anfang passt")
+    local one_more = {}
+    for i = 1, #got + 1 do one_more[i] = items[i] end
+    t.ok(#ser.encode(make(one_more)) > 2000, "ein Element mehr passt nicht (der laengste Anfang)")
+    t.eq(got[1].id, "B1"); t.eq(got[#got].id, "B" .. #got, "ein Anfang der Liste, in Reihenfolge")
+  end },
+  { "fit: ein einzelnes zu grosses Element und eine leere Liste", function()
+    local function make(part) return { rows = part } end
+    local huge = { { name = string.rep("y", 3000) } }
+    local got, why = chunks.fit(huge, make, 2000, ser)
+    t.eq(got, nil); t.contains(why, "einzelnes Element")
+    local empty, rest = chunks.fit({}, make, 2000, ser)
+    t.eq(#empty, 0); t.eq(rest, false)
+    local cyc = {}; cyc.self = cyc
+    local g2, w2 = chunks.fit({ cyc }, make, 2000, ser)
+    t.eq(g2, nil); t.ok(w2 ~= nil)
+  end },
 }

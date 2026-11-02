@@ -27,18 +27,18 @@ local function network()
 end
 
 return {
-  { "Abfrage 'verzeichnis': Bereiche seitenweise (30 je Antwort), mit Kennung und Gleiszahl", function()
+  { "Abfrage 'verzeichnis': Bereiche seitenweise (20 je Antwort), mit Kennung und Gleiszahl", function()
     local h, z, s, ask = network()
     local netz = z.node.roles.zentrale.netz
-    for i = 1, 31 do netz.add_area({ name = "Bereich " .. i, ends = { "West", "Ost" }, count = 2 }) end
+    for i = 1, 21 do netz.add_area({ name = "Bereich " .. i, ends = { "West", "Ost" }, count = 2 }) end
     local first = ask({ kind = "verzeichnis" })
     t.eq(first.status, "ok")
-    t.eq(#first.payload.areas, 30); t.eq(first.payload.more, true)
+    t.eq(#first.payload.areas, 20); t.eq(first.payload.more, true)
     t.eq(first.payload.areas[1].id, "B0001"); t.eq(first.payload.areas[1].tracks, 2)
     t.eq(first.payload.areas[1].ends[1], "West")
-    local second = ask({ kind = "verzeichnis", after = first.payload.areas[30].id })
+    local second = ask({ kind = "verzeichnis", after = first.payload.areas[20].id })
     t.eq(#second.payload.areas, 1); t.eq(second.payload.more, nil)
-    t.eq(second.payload.areas[1].id, "B0031")
+    t.eq(second.payload.areas[1].id, "B0021")
     t.eq(ask({ kind = "verzeichnis", after = 42 }).payload.areas[1].id, "B0001", "Unsinn als Cursor wird ignoriert")
     t.eq(first.payload.revision, netz.revision())
   end },

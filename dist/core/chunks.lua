@@ -72,6 +72,31 @@ return nil, "Ein einzelnes Element passt nicht in eine Nachricht."
 end
 
 
+function M.fit(items, make, limit, ser)
+local function fits(n)
+local part = {}
+for i = 1, n do part[i] = items[i] end
+local ok, text = pcall(ser.encode, make(part))
+if not ok then return nil, "nicht kodierbar" end
+return #text <= limit
+end
+local all, why = fits(#items)
+if all == nil then return nil, why end
+if all then return items, false end
+if #items == 0 then return nil, "Die Antwort ist schon ohne Elemente zu gross." end
+local one = fits(1)
+if not one then return nil, "Ein einzelnes Element passt nicht in eine Nachricht." end
+local lo, hi = 1, #items - 1
+while lo < hi do
+local mid = math.floor((lo + hi + 1) / 2)
+if fits(mid) then lo = mid else hi = mid - 1 end
+end
+local out = {}
+for i = 1, lo do out[i] = items[i] end
+return out, true
+end
+
+
 function M.new(opts)
 opts = opts or {}
 local c = {}

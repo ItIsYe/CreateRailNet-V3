@@ -1,7 +1,7 @@
 --[[
 Purpose: Grosse Nachrichten in Teilen schicken und beim Empfaenger sicher zusammensetzen. Eine Funknachricht darf hoechstens 6000 Zeichen haben (core/net.lua); Konfigurationen und Signallisten mehrerer Dutzend Signale passen nicht hinein.
-API: chunks.parts_text(text, make, limit, ser) -> Liste Nutzlasten oder nil, Grund; chunks.parts_list(items, make, limit, ser) -> Liste Nutzlasten oder nil, Grund; chunks.new{ max_parts, max_items, max_bytes, max_keys, ttl, now } -> c; c.add(schluessel, satz, nr, gesamt, daten, summe) -> Ergebnis oder nil, "offen" | Fehlertext; c.drop(schluessel)
-Notes: make(daten, nr, gesamt) baut die Nutzlast eines Teils; parts_* verkleinern die Teile, bis jede kodierte Nutzlast unter limit bleibt (die Huelle der Nachricht braucht den Rest). Der Empfaenger (c.add) nimmt Teile in beliebiger Reihenfolge und doppelt an, verwirft einen unvollstaendigen Satz bei einem anderen Satz oder nach ttl Sekunden, begrenzt Teile, Elemente, Bytes und Schluessel (unbeglaubigter Funk) und prueft bei Text die Pruefsumme. Ein Text- und ein Listensatz lassen sich nicht mischen.
+API: chunks.parts_text(text, make, limit, ser) -> Liste Nutzlasten oder nil, Grund; chunks.parts_list(items, make, limit, ser) -> Liste Nutzlasten oder nil, Grund; chunks.fit(items, make, limit, ser) -> Anfang der Liste, Rest_vorhanden oder nil, Grund; chunks.new{ max_parts, max_items, max_bytes, max_keys, ttl, now } -> c; c.add(schluessel, satz, nr, gesamt, daten, summe) -> Ergebnis oder nil, "offen" | Fehlertext; c.drop(schluessel)
+Notes: fit schneidet eine Antwortliste auf den laengsten Anfang, dessen Nutzlast make(anfang) unter limit bleibt (fuer seitenweise Antworten: der Empfaenger fragt mit der Kennung des letzten Elements weiter). make(daten, nr, gesamt) baut die Nutzlast eines Teils; parts_* verkleinern die Teile, bis jede kodierte Nutzlast unter limit bleibt (die Huelle der Nachricht braucht den Rest). Der Empfaenger (c.add) nimmt Teile in beliebiger Reihenfolge und doppelt an, verwirft einen unvollstaendigen Satz bei einem anderen Satz oder nach ttl Sekunden, begrenzt Teile, Elemente, Bytes und Schluessel (unbeglaubigter Funk) und prueft bei Text die Pruefsumme. Ein Text- und ein Listensatz lassen sich nicht mischen.
 ]]
 
 local adler = require("core.adler")
@@ -69,6 +69,31 @@ function M.parts_list(items, make, limit, ser)
     if why ~= "zu gross" then return nil, why end
   end
   return nil, "Ein einzelnes Element passt nicht in eine Nachricht."
+end
+
+-- Antwortliste auf eine Nachricht kuerzen: der laengste Anfang, dessen kodierte Nutzlast unter limit bleibt. Die Laenge waechst mit jedem Element, deshalb genuegt die binaere Suche.
+function M.fit(items, make, limit, ser)
+  local function fits(n)
+    local part = {}
+    for i = 1, n do part[i] = items[i] end
+    local ok, text = pcall(ser.encode, make(part))
+    if not ok then return nil, "nicht kodierbar" end
+    return #text <= limit
+  end
+  local all, why = fits(#items)
+  if all == nil then return nil, why end
+  if all then return items, false end
+  if #items == 0 then return nil, "Die Antwort ist schon ohne Elemente zu gross." end
+  local one = fits(1)
+  if not one then return nil, "Ein einzelnes Element passt nicht in eine Nachricht." end
+  local lo, hi = 1, #items - 1          -- lo passt sicher, #items passt sicher nicht
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    if fits(mid) then lo = mid else hi = mid - 1 end
+  end
+  local out = {}
+  for i = 1, lo do out[i] = items[i] end
+  return out, true
 end
 
 -- Empfaenger ------------------------------------------------------------------------------------------------------------------------------

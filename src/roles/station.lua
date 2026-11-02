@@ -76,10 +76,12 @@ function M.new(node)
     }
   end
 
+  -- Zustand und Anmeldung gehen in Teilen, damit auch viele Gleise in eine Funknachricht passen (hoechstens 6000 Zeichen). Die Gleise sind voneinander
+  -- unabhaengig: jeder Teil des Zustands ist eine eigene Zustandsmeldung. Die Anmeldung gilt bei der Leitstelle erst, wenn der ganze Satz da ist.
   local function send_state()
     local list = {}
     for _, tr in ipairs(role.tracks) do list[#list + 1] = track_report(tr) end
-    node.send_to(central(), "meldung", { kind = "zustand", node = config.node.id, tracks = list, t = now() })
+    node.send_parts(central(), list, function(piece) return { kind = "zustand", node = config.node.id, tracks = piece, t = now() } end, "Zustandsmeldung")
     last_beat = now()
     dirty_report = false
   end
@@ -92,10 +94,16 @@ function M.new(node)
         length = tr.spec.length,
       }
     end
-    node.send_to(central(), "meldung", {
-      kind = "hallo", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
-      tracks = list, active = config.status == "aktiv",
-    })
+    local set = node.next_set()
+    node.send_parts(central(), list, function(piece, i, count)
+      local payload = {
+        kind = "hallo", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
+        tracks = piece, active = config.status == "aktiv",
+      }
+      -- passt alles in eine Nachricht, bleibt sie wie bisher ohne Teilangaben
+      if count > 1 then payload.set, payload.part, payload.parts = set, i, count end
+      return payload
+    end, "Anmeldung des Bahnhofs")
     last_hello = now()
   end
 
@@ -401,7 +409,8 @@ function M.new(node)
   function role.on_message(m, status)
     if status ~= "ok" then return end
     if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "hallo" then
-      hello_acked = true
+      -- angekommen ist die Anmeldung erst, wenn die Leitstelle den ganzen Satz hat (fertig ~= false) und sie annimmt
+      if m.payload.status == "ok" and m.payload.fertig ~= false then hello_acked = true end
       return
     end
     if m.messageType == "bestaetigung" and m.correlationId and outbox[m.correlationId] then

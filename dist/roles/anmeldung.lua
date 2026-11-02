@@ -21,16 +21,20 @@ local now = function() return node.clock.now() end
 local reg_device = config.registration_station and config.devices[config.registration_station] and config.devices[config.registration_station].device
 local station = reg_device and stationlib.new(node.env, reg_device) or nil
 local templates, last_query = {}, -9999
+local incoming = nil
 local demands = {}
 local registration = nil
 local counter = 0
 
 local function central() return node.central_id() end
 
-local function query_templates()
-node.send_to(central(), "abfrage", { kind = "vorlagen" })
+local function query_templates(after)
+node.send_to(central(), "abfrage", { kind = "vorlagen", nach = after })
 last_query = now()
 end
+
+
+function role.templates() return templates end
 
 function role.station_state()
 if not station then return nil end
@@ -96,7 +100,24 @@ d.result = { status = m.payload.status, grund = m.payload.grund, order = m.paylo
 query_templates()
 end
 end
-if m.payload.antwort_auf == "vorlagen" and m.payload.templates then templates = m.payload.templates end
+
+if status == "ok" and m.payload.antwort_auf == "vorlagen" and type(m.payload.templates) == "table" then
+local p = m.payload
+
+if p.von_vorn or not incoming then incoming = { list = {}, ids = {} } end
+for _, info in ipairs(p.templates) do
+if type(info) == "table" and info.id ~= nil and not incoming.ids[info.id] then
+incoming.ids[info.id] = true
+incoming.list[#incoming.list + 1] = info
+end
+end
+local last = p.templates[#p.templates]
+if p.more and type(last) == "table" and last.id ~= nil then
+query_templates(last.id)
+else
+templates, incoming = incoming.list, nil
+end
+end
 end
 
 function role.tick()

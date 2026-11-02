@@ -6,7 +6,6 @@ Notes: Nur eine bestaetigte Sperre (isForcedRed nach dem Setzen) gilt als gesetz
 
 local signallib = require("dev.signal")
 local ser = require("core.ser")
-local chunks = require("core.chunks")
 local W = require("ui.widgets")
 
 local M = {}
@@ -152,25 +151,8 @@ function M.new(node)
   -- Berichte -------------------------------------------------------------------------------------------------------------------------------
   -- Status und Anmeldung gehen in Teilen, damit auch viele Signale in eine Funknachricht passen (hoechstens 6000 Zeichen); der Satz wird
   -- bei der Leitstelle erst vollstaendig uebernommen.
-  local PAYLOAD_LIMIT = 5000
-  local set_counter = 0
-  local function next_set()
-    set_counter = set_counter + 1
-    return string.format("%d.%d", node.clock.boot_id(), set_counter)
-  end
-
-  local split_failed = false      -- eine dauernde Stoerung wird einmal gemeldet, nicht bei jedem Takt
-  local function send_parts(list, make)
-    local parts, why = chunks.parts_list(list, make, PAYLOAD_LIMIT, ser)
-    if not parts then
-      if not split_failed then node.notify("fehler", "Signalmeldung nicht moeglich: " .. tostring(why)) end
-      split_failed = true
-      return false
-    end
-    split_failed = false
-    for _, payload in ipairs(parts) do node.send_to(central(), "meldung", payload) end
-    return true
-  end
+  local next_set = node.next_set
+  local function send_parts(list, make) return node.send_parts(central(), list, make, "Signalmeldung") end
 
   local function send_state()
     local list = role.states()

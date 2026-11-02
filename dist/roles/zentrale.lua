@@ -505,14 +505,26 @@ end
 end
 end
 
+
+
+local station_parts = chunks.new({ max_parts = 60, max_items = 400, max_keys = 80, ttl = 60, now = now })
 local function on_hello(m)
 local p = m.payload
+local tracks = p.tracks
+if p.parts ~= nil then
+local assembled, why = station_parts.add("h:" .. tostring(p.node), p.set, p.part, p.parts, p.tracks)
+if not assembled then
+if why == "offen" then return node.reply(m, "ok", { fertig = false }) end
+return node.reply(m, "abgelehnt", { grund = why })
+end
+tracks = assembled
+end
 local old = nodes[p.node]
-nodes[p.node] = { name = p.name, roles = p.roles, tracks = p.tracks, last_seen = now(), active = p.active, revision = p.revision, signals = old and old.signals }
+nodes[p.node] = { name = p.name, roles = p.roles, tracks = tracks, last_seen = now(), active = p.active, revision = p.revision, signals = old and old.signals }
 silent_notified[p.node] = nil
 role.netz.mark_active(p.node)
 rebuild_dir()
-node.reply(m, "ok", {})
+node.reply(m, "ok", { fertig = true })
 end
 
 
@@ -625,6 +637,22 @@ node.reply(m, "angenommen", { order = order.id, state = order.state, neu = new }
 if new then drive_all() end
 end
 
+local REPLY_LIMIT = 4800
+
+
+
+local function reply_page(m, key, list, more, extra)
+local function body_of(part, flag)
+local body = {}
+for k, v in pairs(extra or {}) do body[k] = v end
+body[key], body.more = part, flag
+return body
+end
+local fitted, cut = chunks.fit(list, function(part) return body_of(part, true) end, REPLY_LIMIT, ser)
+if not fitted then return node.reply(m, "abgelehnt", { grund = cut }) end
+return node.reply(m, "ok", body_of(fitted, (more or cut) and true or nil))
+end
+
 local function templates_info()
 local list = {}
 for _, template in ipairs(role.orders.templates()) do
@@ -637,8 +665,20 @@ end
 return list
 end
 
+
 local function handle_templates_query(m)
-node.reply(m, "ok", { templates = templates_info() })
+local list = templates_info()
+local after = type(m.payload.nach) == "string" and m.payload.nach or nil
+if after then
+local rest, seen = {}, false
+for _, info in ipairs(list) do
+if seen then rest[#rest + 1] = info end
+if info.id == after then seen = true end
+end
+
+if seen then list = rest else after = nil end
+end
+reply_page(m, "templates", list, false, { von_vorn = (after == nil) or nil })
 end
 
 local function handle_cancel(m)
@@ -648,11 +688,14 @@ local ok, text = role.orders.cancel(order.id)
 node.reply(m, ok and "angenommen" or "abgelehnt", { hinweis = text, grund = not ok and text or nil })
 end
 
-local PART_KINDS = { konfig = true, hallo_signale = true, signale = true }
+local PART_KINDS = { konfig = true, hallo_signale = true, signale = true, hallo = true }
 
 function role.on_message(m, status)
 
-if status == "old_sequence" and m.messageType == "meldung" and m.payload.kind == "hallo" then return on_hello(m) end
+if status == "old_sequence" and m.messageType == "meldung" and m.payload.kind == "hallo" and m.payload.parts == nil then
+if retired[m.senderNodeId] then return node.reply(m, "ok", { stillgelegt = true }) end
+return on_hello(m)
+end
 
 if status == "old_sequence" and m.messageType == "meldung" and EVENT_KINDS[m.payload.kind] then status = "ok" end
 
@@ -722,7 +765,11 @@ elseif m.payload.kind == "netze" then
 local count = 0
 for _ in pairs(nodes) do count = count + 1 end
 node.reply(m, "ok", { netz = node.config.network.name, zentrale = node.config.node.id, nodes = count })
-elseif m.payload.kind == "tafel" then node.reply(m, "ok", { rows = role.board(m.payload.station), t = now() }) end
+elseif m.payload.kind == "tafel" then
+
+if m.payload.station ~= nil and type(m.payload.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Betriebsstelle ist ungueltig." }) end
+reply_page(m, "rows", role.board(m.payload.station), false, { t = now() })
+end
 end
 end
 
@@ -1174,14 +1221,14 @@ end
 
 
 
-local DIRECTORY_PAGE = 30
+local DIRECTORY_PAGE = 20
 function role.handle_directory(m)
 local p = m.payload
 local revision = role.netz.revision()
 if p.kind == "verzeichnis" then
 local after = type(p.after) == "string" and p.after or nil
 local list, more = role.netz.areas_page(after, DIRECTORY_PAGE)
-return node.reply(m, "ok", { areas = list, more = more or nil, revision = revision })
+return reply_page(m, "areas", list, more, { revision = revision })
 elseif p.kind == "verzeichnis_gleise" then
 
 local label
@@ -1205,7 +1252,7 @@ if #list >= DIRECTORY_PAGE then more = true break end
 list[#list + 1] = { id = st.id, name = st.name, kind = st.kind }
 end
 end
-return node.reply(m, "ok", { stations = list, more = more or nil, revision = revision })
+return reply_page(m, "stations", list, more, { revision = revision })
 end
 if p.kind == "bereich_anlegen" then
 
@@ -1260,7 +1307,6 @@ local function backup_path(id) return BACKUP_DIR .. "/" .. tostring(id):gsub("[^
 local MAX_CONFIG = 60000
 local MAX_BACKUPS = 60
 local config_parts = chunks.new({ max_parts = 40, max_bytes = MAX_CONFIG, max_keys = 80, ttl = 180, now = now })
-local REPLY_LIMIT = 4800
 
 function role.on_config(m)
 local p = m.payload
@@ -1324,7 +1370,7 @@ local info = nodes[id]
 local state = retired[id] and "stillgelegt" or (reachable(id) and "aktiv" or "ausgefallen")
 list[#list + 1] = { id = id, name = type(info.name) == "string" and info.name or "", state = state }
 end
-node.reply(m, "ok", { backups = list, more = more })
+reply_page(m, "backups", list, more)
 end
 
 
