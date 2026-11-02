@@ -235,6 +235,66 @@ function M.new(spec)
     return id, true
   end
 
+  -- Bereich aufteilen (Konzept 10.3): ein Teil der Gleise wechselt mit unveraenderter Kennung in einen neuen Bereich. Anschluss 1 und 2 des alten Bereichs
+  -- entsprechen Anschluss 1 und 2 des neuen (die Richtungen der Gleise ziehen mit; danach lassen sich die Anschluesse einzeln aendern). Nodes, deren Gleise
+  -- alle wechseln, gehen mit; eine Node mit Gleisen auf beiden Seiten verhindert das Aufteilen, bis sie sich auf eine Seite beschraenkt.
+  -- spec2 = { name, ends = { a, b }, tracks = { Gleiskennungen }, if_rev }
+  function n.split_area(area_id, spec2)
+    return change(function()
+      local area = data.areas[area_id]
+      if not area then return nil, "Den Bereich gibt es nicht." end
+      local old = stale(area, spec2.if_rev, "Bereich")
+      if old then return nil, old end
+      local list = spec2.tracks
+      if type(list) ~= "table" or #list == 0 then return nil, "Es fehlen die Gleise, die in den neuen Bereich wechseln." end
+      local moving = {}
+      for _, tid in ipairs(list) do
+        local tr = type(tid) == "string" and data.tracks[tid] or nil
+        if not tr or tr.area ~= area_id then return nil, "Das Gleis " .. tostring(tid) .. " gehoert nicht zu diesem Bereich." end
+        if moving[tid] then return nil, "Das Gleis " .. tid .. " ist doppelt angegeben." end
+        moving[tid] = true
+      end
+      if #list >= track_count(area_id) then return nil, "Der alte Bereich muss mindestens ein Gleis behalten." end
+      local name, why = valid_name(spec2.name)
+      if not name then return nil, why end
+      if area_name_taken(name) then return nil, "Einen Bereich " .. name .. " gibt es schon." end
+      local ends, why_ends = valid_ends(spec2.ends)
+      if not ends then return nil, why_ends end
+      local moves_node = {}
+      for node_id, node in pairs(data.nodes) do
+        if node.area == area_id and node.state ~= "verworfen" then
+          local moved, kept = 0, 0
+          for _, tid in ipairs(node.tracks) do if moving[tid] then moved = moved + 1 else kept = kept + 1 end end
+          if moved > 0 and kept > 0 then return nil, "Die Node " .. node_id .. " betreut Gleise auf beiden Seiten: erst auf eine Seite beschraenken." end
+          if moved > 0 then moves_node[node_id] = true end
+        end
+      end
+      local new_area = new_id("bereich", "B")
+      data.areas[new_area] = { name = name, ends = ends, order = 0, rev = 1, state = area.state }
+      local ordered = {}
+      for tid in pairs(moving) do ordered[#ordered + 1] = tid end
+      table.sort(ordered, function(a, b)
+        local oa, ob = data.tracks[a].order or 0, data.tracks[b].order or 0
+        if oa ~= ob then return oa < ob end
+        return a < b
+      end)
+      for i, tid in ipairs(ordered) do
+        local tr = data.tracks[tid]
+        tr.area, tr.order = new_area, i
+        if tr.direction == area.ends[1] then tr.direction = ends[1] elseif tr.direction == area.ends[2] then tr.direction = ends[2] end
+        data.areas[new_area].order = i
+        touch(tr)
+      end
+      for node_id in pairs(moves_node) do
+        local node = data.nodes[node_id]
+        node.area = new_area
+        node.label = node_id .. " | " .. table.concat((function() local c = {} for _, r in ipairs(node.roles or { node.role }) do c[#c + 1] = ROLE_CODE[r] end return c end)(), " ") .. " | " .. new_area
+      end
+      touch(area)
+      return new_area
+    end)
+  end
+
   function n.set_area(id, fields)
     return change(function()
       local area = data.areas[id]

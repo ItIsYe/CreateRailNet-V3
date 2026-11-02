@@ -155,6 +155,6 @@ return {
     -- unbekannte Vorlage
     z.tap(v, "act:neu"); z.type(v, "vorlage", "gerade")
     z.tap(v, "act:f_weiter"); z.tap(v, "act:f_speichern")
-    t.contains(v.hint, "nebenanschluss, verzweigung oder frei")
+    t.contains(v.hint, "nebenanschluss, verzweigung, frei oder teilen")
   end },
 }

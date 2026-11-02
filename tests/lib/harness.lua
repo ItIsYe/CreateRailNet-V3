@@ -70,6 +70,8 @@ function H.new(opts)
     if spec.junction then config.junction = spec.junction end
     if spec.registration then config.registration_station = device_ids[spec.registration] end
     if spec.area then config.node.claimed, config.node.area, config.node.area_ends = true, spec.area, spec.area_ends end
+    if spec.claim then config.node.claim = spec.claim end
+    if spec.label then config.node.label = spec.label end
     if spec.directory_junction then config.node.claimed, config.node.junction, config.node.junction_rev = true, spec.directory_junction.id, spec.directory_junction.rev end
     config.status = "aktiv"
     d.fs.makeDir("/crn_data")

@@ -772,8 +772,83 @@ function M.new(node)
     return rows
   end
 
+  -- Geraeteverantwortung (Konzept 9.3, 15): dasselbe Geraet kann computeruebergreifend nicht am Namen erkannt werden. Zwei Hinweise sind trotzdem belastbar:
+  -- (1) zwei Nodes mit Bahnhof/Depot-Rolle am selben Gleis des Verzeichnisses, (2) zwei Nodes melden ein Signal am selben Gleis mit gleicher Funktion,
+  -- Wirkrichtung und gleichem Standort. Beides ist ein Verdacht auf doppelte Steuerung, kein Beweis (mehrere Signale an einem Ort sind moeglich).
+  function role.responsibility_warnings()
+    local out = {}
+    local by_track = {}
+    for _, entry in ipairs(role.netz.nodes()) do
+      if entry.state ~= "verworfen" then
+        local owns_station = false
+        for _, r in ipairs(entry.roles or { entry.role }) do
+          if r == "passagierbahnhof" or r == "gueterbahnhof" or r == "depot" then owns_station = true end
+        end
+        if owns_station then
+          for _, tid in ipairs(entry.tracks) do
+            by_track[tid] = by_track[tid] or {}
+            by_track[tid][#by_track[tid] + 1] = entry.id
+          end
+        end
+      end
+    end
+    local tids = {}
+    for tid in pairs(by_track) do tids[#tids + 1] = tid end
+    table.sort(tids)
+    for _, tid in ipairs(tids) do
+      if #by_track[tid] > 1 then
+        local tr = role.netz.track(tid)
+        out[#out + 1] = { key = "bahnhof:" .. tid, nodes = by_track[tid], text = "Gleis " .. (tr and tr.name or tid) .. " (" .. tid .. ") gehoert " .. table.concat(by_track[tid], " und ") .. " als Bahnhofsgleis: wer steuert die Freigabe?" }
+      end
+    end
+    local seen = {}
+    local node_ids = {}
+    for id in pairs(nodes) do node_ids[#node_ids + 1] = id end
+    table.sort(node_ids)
+    for _, id in ipairs(node_ids) do
+      for _, sg in ipairs(nodes[id].signals or {}) do
+        if sg.dir and sg.effect and sg.place then
+          local key = table.concat({ sg.dir, tostring(sg.use or "strecke"), sg.effect, sg.place }, "|")
+          seen[key] = seen[key] or { dir = sg.dir, effect = sg.effect, place = sg.place, nodes = {} }
+          local already = false
+          for _, n2 in ipairs(seen[key].nodes) do if n2 == id then already = true end end
+          if not already then seen[key].nodes[#seen[key].nodes + 1] = id end
+        end
+      end
+    end
+    local keys = {}
+    for key in pairs(seen) do keys[#keys + 1] = key end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+      local g = seen[key]
+      if #g.nodes > 1 then
+        local tr = role.netz.track(g.dir)
+        out[#out + 1] = { key = "signal:" .. key, nodes = g.nodes, text = "Signal am Gleis " .. (tr and tr.name or g.dir) .. " (Wirkrichtung " .. g.effect .. ", Standort " .. g.place .. ") wird von " .. table.concat(g.nodes, " und ") .. " gemeldet: doppelte Steuerung?" }
+      end
+    end
+    return out
+  end
+
+  local warned = {}
+  local function check_responsibility()
+    local seen_now = {}
+    for _, w in ipairs(role.responsibility_warnings()) do
+      seen_now[w.key] = true
+      if not warned[w.key] then
+        warned[w.key] = true
+        notify("warnung", "Geraeteverantwortung: " .. w.text)
+      end
+    end
+    for key in pairs(warned) do if not seen_now[key] then warned[key] = nil end end
+  end
+
+  local responsibility_next = 0
   function role.tick()
     check_pending()
+    if now() >= responsibility_next then
+      responsibility_next = now() + 60
+      check_responsibility()
+    end
     local t = now()
     for i = #later, 1, -1 do
       if t >= later[i].at then
@@ -1035,6 +1110,7 @@ function M.new(node)
       if sg.missing then add("attention", row.node .. "/" .. tostring(sg.track_name), "eigene Sperre fehlt am Signal") end
       if not sg.available then add("halt", row.node .. "/" .. tostring(sg.track_name), "Signal nicht verfuegbar") end
     end
+    for _, w in ipairs(role.responsibility_warnings()) do add("attention", table.concat(w.nodes, ","), w.text) end
     for id, entry in pairs(knoten_state) do
       for _, u in ipairs(entry.uses or {}) do
         if u.long then add("halt", id, "Knoten: " .. tostring(u.train) .. " an " .. tostring(u.entry) .. " bleibt lange belegt (kein Nachweis)") end
@@ -1073,9 +1149,17 @@ function M.new(node)
       local list, more = role.netz.areas_page(after, DIRECTORY_PAGE)
       return node.reply(m, "ok", { areas = list, more = more or nil, revision = revision })
     elseif p.kind == "verzeichnis_gleise" then
-      local area = type(p.area) == "string" and role.netz.area(p.area) or nil
+      -- mit Anforderungskennung: der Bereich, den die Node im Verzeichnis jetzt betreut (er kann sich durch Aufteilen geaendert haben)
+      local label
+      local area_id = p.area
+      if type(p.claim) == "string" then
+        for _, nd in ipairs(role.netz.nodes()) do
+          if nd.claim == p.claim and nd.state ~= "verworfen" and nd.area then area_id, label = nd.area, nd.label end
+        end
+      end
+      local area = type(area_id) == "string" and role.netz.area(area_id) or nil
       if not area then return node.reply(m, "abgelehnt", { grund = "Den Bereich gibt es nicht." }) end
-      return node.reply(m, "ok", { area = area, revision = revision })
+      return node.reply(m, "ok", { area = area, label = label, revision = revision })
     end
     if p.kind == "betriebsstellen_liste" then
       -- Betriebsstellen seitenweise (fuer die Einrichtung einer Anmeldung)
@@ -1810,6 +1894,7 @@ function M.new(node)
     { id = "nebenanschluss", text = "Nebenanschluss", detail = "Strecke mit einem Bahnhof am Nebengleis eines Hauptgleises" },
     { id = "verzweigung", text = "Verzweigung", detail = "mehrere Anschluesse mit Gleisgruppen und vorgeschlagenen Fahrwegen" },
     { id = "frei", text = "Freie Einrichtung", detail = "Bereich mit einzeln benannten Gleisen und Richtungen" },
+    { id = "teilen", text = "Bereich teilen", detail = "Gleise eines Bereichs wechseln mit gleicher Kennung in einen neuen Bereich" },
   }
 
   local TEMPLATE_RUN = {
@@ -1838,6 +1923,27 @@ function M.new(node)
       if not made then return nil, err end
       return "Knoten " .. made.junction .. " mit " .. #made.areas .. " Bereichen angelegt, " .. made.routes .. " Fahrwege vorgeschlagen: auf der Seite Knoten pruefen und bestaetigen."
     end,
+    teilen = function(values)
+      local ends = split_list(values.anschluesse, ";")
+      if #ends ~= 2 then return nil, "Anschluesse des neuen Bereichs: zwei Namen mit ; getrennt." end
+      local source, rest = tostring(values.gleise or ""):match("^%s*(.-)%s*:%s*(.-)%s*$")
+      if not source or source == "" or rest == "" then return nil, "Gleise: Bereich: Gleis 3; Gleis 4 (Name des alten Bereichs, dann die Gleise, die wechseln)." end
+      local area = find_area_by_name(source)
+      if not area then return nil, "Den Bereich '" .. source .. "' gibt es nicht." end
+      local ids = {}
+      local full = role.netz.area(area.id)
+      for _, ref in ipairs(split_list(rest, ";")) do
+        local found
+        for _, tr in ipairs(full.tracks) do
+          if tr.name:lower() == ref:lower() or tr.name:lower() == ("gleis " .. ref):lower() then found = tr.id end
+        end
+        if not found then return nil, "Das Gleis '" .. ref .. "' gibt es im Bereich " .. area.name .. " nicht." end
+        ids[#ids + 1] = found
+      end
+      local new_area, err = role.netz.split_area(area.id, { name = values.name, ends = ends, tracks = ids })
+      if not new_area then return nil, err end
+      return "Bereich " .. new_area .. " abgeteilt."
+    end,
     frei = function(values)
       local ends = split_list(values.anschluesse, ";")
       if #ends ~= 2 then return nil, "Anschluesse: zwei Namen mit ; getrennt (zum Beispiel Westbahnhof; Ostbahnhof)." end
@@ -1864,7 +1970,7 @@ function M.new(node)
       return items, records
     end,
     fields = {
-      { id = "vorlage", label = "Vorlage: nebenanschluss, verzweigung, frei", max = 16, width = 24, default = "nebenanschluss" },
+      { id = "vorlage", label = "Vorlage: nebenanschluss, verzweigung, frei, teilen", max = 16, width = 24, default = "nebenanschluss" },
       { id = "name", label = "Name (Bereich; bei Verzweigung der Knoten)", max = 30, width = 34 },
       { id = "anschluesse", label = "Anschluesse: A; B  oder  West:2; Ost:2; Sued:1", max = 80, width = 48 },
       { id = "gleise", label = "Gleise: Anzahl  oder  Gleis 1:Ostbahnhof; Gleis 2:beide", max = 120, width = 48 },
@@ -1874,7 +1980,7 @@ function M.new(node)
     on_save = function(values)
       local kind = tostring(values.vorlage or ""):match("^%s*(.-)%s*$"):lower()
       local run = TEMPLATE_RUN[kind]
-      if not run then return nil, "Vorlage: nebenanschluss, verzweigung oder frei. Die gerade Strecke legt die Seite Bereiche an." end
+      if not run then return nil, "Vorlage: nebenanschluss, verzweigung, frei oder teilen. Die gerade Strecke legt die Seite Bereiche an." end
       local text, err = run(values)
       if not text then return nil, err end
       return true

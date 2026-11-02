@@ -147,7 +147,10 @@ end
 
 function role.hello()
 local list = {}
-for _, sg in ipairs(role.signals) do list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device, use = sg.use, effect = sg.effect, place = sg.place } end
+for _, sg in ipairs(role.signals) do
+local dir = config.tracks[sg.track] and config.tracks[sg.track].dir
+list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device, use = sg.use, effect = sg.effect, place = sg.place, dir = dir and dir.id or nil }
+end
 node.send_to(central(), "meldung", {
 kind = "hallo_signale", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
 signals = list, active = config.status == "aktiv",
@@ -187,7 +190,7 @@ local function claimed_area() return config.node.claimed and config.node.area or
 function role.sync_request()
 if not claimed_area() then return nil, "Diese Node ist nicht ueber das Netzverzeichnis eingerichtet." end
 if sync.state == "frage" and now() - (sync.asked or 0) < SYNC_WAIT then return nil, "Die Frage laeuft noch." end
-local m = node.send_to(central(), "abfrage", { kind = "verzeichnis_gleise", area = claimed_area() })
+local m = node.send_to(central(), "abfrage", { kind = "verzeichnis_gleise", area = claimed_area(), claim = config.node.claim })
 sync.req, sync.state, sync.asked = m and m.messageId or nil, "frage", now()
 sync.next_at = now() + SYNC_EVERY
 return true
@@ -195,11 +198,14 @@ end
 
 local function valid_id(v) return type(v) == "string" and v:match("^A%d%d%d%d+$") ~= nil and #v <= 12 end
 local function valid_name(v) return type(v) == "string" and #v > 0 and #v <= 30 and v:match("^[%w _%-]+$") ~= nil end
+local function valid_area_id(v) return type(v) == "string" and v:match("^B%d%d%d%d+$") ~= nil and #v <= 12 end
 
-local function compare(area)
+local function compare(area, label)
 local theirs = {}
 for _, t in ipairs(area.tracks) do theirs[t.id] = t end
 local diffs = {}
+
+if area.id ~= config.node.area then diffs[#diffs + 1] = { kind = "bereich", id = "B", to = area.id, ends = area.ends, label = label, name = area.name } end
 for tid, track in pairs(config.tracks) do
 if track.dir then
 local c = theirs[track.dir.id]
@@ -219,6 +225,7 @@ return diffs
 end
 
 local function describe(d)
+if d.kind == "bereich" then return "Die Node gehoert jetzt zum Bereich " .. tostring(d.name) end
 if d.kind == "fehlt" then return "Gleis " .. d.name .. " fehlt im Verzeichnis" end
 if d.kind == "name" then return "Gleis " .. d.from .. " heisst jetzt " .. d.to end
 return "Gleis " .. d.name .. ": Richtung " .. tostring(d.from) .. " -> " .. tostring(d.to)
@@ -229,14 +236,16 @@ function on_sync_reply(p)
 sync.t = now()
 if p.status ~= "ok" then sync.state, sync.note = "abgelehnt", tostring(type(p.grund) == "string" and p.grund:sub(1, 80) or "") return end
 local a = p.area
-local shape = type(a) == "table" and type(a.tracks) == "table" and #a.tracks <= 40
+local shape = type(a) == "table" and type(a.tracks) == "table" and #a.tracks <= 40 and valid_area_id(a.id) and valid_name(a.name)
+and type(a.ends) == "table" and valid_name(a.ends[1]) and valid_name(a.ends[2])
+and (p.label == nil or (type(p.label) == "string" and #p.label <= 60 and p.label:match("^[%w _%-|]+$") ~= nil))
 if shape then
 for _, t in ipairs(a.tracks) do
 if type(t) ~= "table" or not valid_id(t.id) or not valid_name(t.name) or not valid_name(t.direction) then shape = false break end
 end
 end
 if not shape then sync.state, sync.note = "unlesbar", "Unerwartete Antwort der Leitstelle." return end
-sync.diffs = compare(a)
+sync.diffs = compare(a, p.label)
 sync.note = nil
 if #sync.diffs == 0 then sync.state = "gleich" return end
 sync.state = "abweichend"
@@ -256,6 +265,7 @@ for _, d in ipairs(sync.diffs) do if d.kind ~= "fehlt" then todo[#todo + 1] = d 
 if #todo == 0 then return nil, "Nichts zu uebernehmen." end
 local before = ser.decode(ser.encode(config.tracks))
 local devices_before = ser.decode(ser.encode(config.devices))
+local node_before = { area = config.node.area, area_ends = config.node.area_ends, label = config.node.label }
 local revision = config.revision
 local function ends_ok(name)
 local seen = {}
@@ -264,7 +274,11 @@ return seen[name] == true or (config.node.area_ends and (config.node.area_ends[1
 end
 for _, d in ipairs(todo) do
 local track = config.tracks[d.track]
-if track and track.dir then
+if d.kind == "bereich" then
+config.node.area, config.node.area_ends = d.to, { d.ends[1], d.ends[2] }
+if d.label then config.node.label = d.label end
+for _, tr in pairs(config.tracks) do if tr.dir then tr.dir.area = d.to end end
+elseif track and track.dir then
 if d.kind == "name" then
 track.name = d.to
 for _, sg in ipairs(role.signals) do if sg.track == d.track then sg.track_name = d.to end end
@@ -286,6 +300,7 @@ config.revision = (config.revision or 0) + 1
 local ok, err = node.save_config()
 if not ok then
 config.tracks, config.devices, config.revision = before, devices_before, revision
+config.node.area, config.node.area_ends, config.node.label = node_before.area, node_before.area_ends, node_before.label
 return nil, "Speichern fehlgeschlagen: " .. tostring(err)
 end
 local remaining = {}
@@ -293,6 +308,7 @@ for _, d in ipairs(sync.diffs) do if d.kind == "fehlt" then remaining[#remaining
 sync.diffs = remaining
 sync.state = (#remaining == 0) and "gleich" or "abweichend"
 sync.notified = nil
+if config.node.label then node.set_label(config.node.label) end
 role.hello()
 dirty = true
 return #todo
