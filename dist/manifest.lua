@@ -1,9 +1,9 @@
 return {
-  id = "f8dbbafe",
+  id = "d4ebbab8",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 3370, sum = "79e86b3d" },
-    ["app/node.lua"] = { size = 33605, sum = "5af03d2f" },
+    ["app/node.lua"] = { size = 34537, sum = "28c86b7f" },
     ["app/selftest.lua"] = { size = 8050, sum = "e5434ead" },
     ["core/adler.lua"] = { size = 423, sum = "da1978a3" },
     ["core/clock.lua"] = { size = 519, sum = "74c1ad03" },
@@ -34,9 +34,9 @@ return {
     ["roles/knoten.lua"] = { size = 9647, sum = "2cebb2f0" },
     ["roles/signal.lua"] = { size = 18338, sum = "16002ad0" },
     ["roles/station.lua"] = { size = 21647, sum = "d8e40090" },
-    ["roles/zentrale.lua"] = { size = 108754, sum = "85f0e07b" },
+    ["roles/zentrale.lua"] = { size = 109535, sum = "8a7de39c" },
     ["setup/model.lua"] = { size = 15224, sum = "9a2d1c40" },
-    ["setup/page.lua"] = { size = 75848, sum = "90ee4a3f" },
+    ["setup/page.lua"] = { size = 77437, sum = "692165ed" },
     ["setup/pruefung.lua"] = { size = 7977, sum = "06d77faf" },
     ["setup/wizard.lua"] = { size = 28364, sum = "5ad9f211" },
     ["ui/canvas.lua"] = { size = 2780, sum = "86cf7167" },

@@ -683,6 +683,7 @@ function M.new(node)
       if m.payload.kind == "vorlagen" then handle_templates_query(m)
       elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" or m.payload.kind == "bereich_anlegen" or m.payload.kind == "betriebsstellen_liste" then role.handle_directory(m)
       elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
+      elseif m.payload.kind == "ersatz_liste" then role.handle_replace_list(m)
       elseif m.payload.kind == "netze" then
         -- Netzsuche eines neuen Computers (Rundruf): nur Name und Kennung dieser Leitstelle, nichts Betriebliches
         local count = 0
@@ -1248,6 +1249,25 @@ function M.new(node)
     retired[id] = nil
     if nodes[id] then nodes[id].retired = nil end
     return node.store.save(DATA .. "/stillgelegt.lua", retired)
+  end
+
+  -- Auswahl fuer den Ersatzcomputer (Konzept 11.4): Nodes mit Sicherung, seitenweise; "aktiv" heisst noch erreichbar (erst ausschalten oder stilllegen)
+  local REPLACE_PAGE = 12
+  function role.handle_replace_list(m)
+    local after = type(m.payload.after) == "string" and m.payload.after or nil
+    local ids = {}
+    for id in pairs(nodes) do
+      if type(id) == "string" and node.env.fs.exists(backup_path(id)) and (after == nil or id > after) then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    local list, more = {}, nil
+    for _, id in ipairs(ids) do
+      if #list >= REPLACE_PAGE then more = true break end
+      local info = nodes[id]
+      local state = retired[id] and "stillgelegt" or (reachable(id) and "aktiv" or "ausgefallen")
+      list[#list + 1] = { id = id, name = type(info.name) == "string" and info.name or "", state = state }
+    end
+    node.reply(m, "ok", { backups = list, more = more })
   end
 
   function role.handle_fetch_config(m)

@@ -1618,10 +1618,22 @@ function page.render(v, rect)
 if session.replace and not session.wiz then
 W.label(v, rect.x + 1, rect.y, "Ersatzcomputer: vorhandene Node uebernehmen", "hell", rect.w - 2)
 local f = rfields(v)
-W.field(v, "r_central", rect.x + 1, rect.y + 2, math.min(rect.w - 2, 36), "Kennung der Leitstelle", f.central)
-W.field(v, "r_node", rect.x + 1, rect.y + 5, math.min(rect.w - 2, 36), "Kennung der zu ersetzenden Node", f.node)
+W.field(v, "r_central", rect.x + 1, rect.y + 1, math.min(rect.w - 2, 36), "Kennung der Leitstelle", f.central)
 local st = services.fetch_status and services.fetch_status()
-if st then W.label(v, rect.x + 1, rect.y + 9, st.text, st.kind, rect.w - 2) end
+if session.replace_want then st = dir_status() or st end
+if session.replace_list then
+
+local items = {}
+for i, b in ipairs(session.replace_list) do
+local on = f.node.value == b.id
+items[i] = { text = (on and "(o) " or "( ) ") .. b.id .. " " .. b.name, detail = b.state == "aktiv" and "NOCH AKTIV" or b.state, kind = b.state == "aktiv" and "dim" or "ok" }
+end
+if st then W.label(v, rect.x + 1, rect.y + 4, st.text, st.kind, rect.w - 2) end
+W.list(v, "r_wahl", { x = rect.x, y = rect.y + 5, w = rect.w, h = math.max(3, rect.h - 5) }, items, list_state(v, "r_wahl"), { empty = "Keine Node mit Sicherung gefunden." })
+return
+end
+W.field(v, "r_node", rect.x + 1, rect.y + 4, math.min(rect.w - 2, 36), "Kennung der zu ersetzenden Node", f.node)
+if st then W.label(v, rect.x + 1, rect.y + 8, st.text, st.kind, rect.w - 2) end
 return
 end
 if not session.wiz then
@@ -1748,6 +1760,7 @@ function page.actions(v)
 if session.replace and not session.wiz then
 local st = services.fetch_status and services.fetch_status()
 return {
+{ id = "r_liste", label = session.replace_list and "Eingeben" or "Liste", kind = "secondary" },
 { id = "r_holen", label = "Holen" },
 { id = "r_uebernehmen", label = "Uebernehmen", enabled = st ~= nil and st.config ~= nil, reason = "Erst die Konfiguration holen." },
 { id = "r_abbruch", label = "Abbrechen", kind = "danger", side = "rechts" },
@@ -1823,21 +1836,38 @@ end
 function page.on_action(v, id)
 if session.replace and not session.wiz then
 local f = rfields(v)
-if id == "act:r_holen" then
+local pick = id:match("^sel:r_wahl:(%d+)$")
+if pick then
+local b = (session.replace_list or {})[tonumber(pick)]
+if b then f.node.value = b.id end
+return true
+elseif id == "act:r_liste" then
+if session.replace_list then
+session.replace_list, session.replace_want = nil, nil
+elseif f.central.value == "" then
+v.hint = "Erst die Kennung der Leitstelle eingeben."
+elseif services.directory_backups then
+session.replace_want = true
+services.directory_reset()
+services.directory_backups(f.central.value)
+end
+return true
+elseif id == "act:r_holen" then
 if f.central.value == "" or f.node.value == "" then v.hint = "Beide Kennungen sind noetig." return true end
+session.replace_want = nil
 services.fetch_config(f.central.value, f.node.value)
 return true
 elseif id == "act:r_uebernehmen" then
 local st = services.fetch_status and services.fetch_status()
 if st and st.config then
-session.replace = nil
+session.replace, session.replace_list, session.replace_want = nil, nil, nil
 start(v, st.config)
 goto_screen("6.fertig")
 v.hint = "Konfiguration uebernommen: Geraete pruefen, dann speichern."
 end
 return true
 elseif id == "act:r_abbruch" then
-session.replace = nil
+session.replace, session.replace_list, session.replace_want = nil, nil, nil
 return true
 elseif id:match("^input:") then
 return true
@@ -1891,6 +1921,11 @@ end
 
 
 function page.poll()
+if session.replace and not session.wiz then
+local st = session.replace_want and dir_status()
+if st and st.kind == "ok" and st.backups then session.replace_list, session.replace_want = st.backups, nil end
+return
+end
 local v = session.owner
 if not session.wiz or not v then return end
 local d = session.dir

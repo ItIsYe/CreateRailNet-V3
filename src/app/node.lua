@@ -250,6 +250,7 @@ function M.new(env)
     directory_tracks = function(central_id, area_id) return n.directory_tracks(central_id, area_id) end,
     directory_claim = function(central_id, claim, role, area_id, track_ids, junction_id, legacy_id, extra) return n.directory_claim(central_id, claim, role, area_id, track_ids, junction_id, legacy_id, extra) end,
     directory_stations = function(central_id) return n.directory_stations(central_id) end,
+    directory_backups = function(central_id) return n.directory_backups(central_id) end,
     directory_junctions = function(central_id) return n.directory_junctions(central_id) end,
     directory_junction = function(central_id, junction_id) return n.directory_junction(central_id, junction_id) end,
     directory_area_create = function(central_id, token, spec) return n.directory_area_create(central_id, token, spec) end,
@@ -663,6 +664,28 @@ function M.new(env)
         end
         if p.more and #acc < 300 and #acc > 0 then return page(acc[#acc].id) end
         n.dir_state = { kind = "ok", text = #acc .. " Betriebsstelle(n) im Netz.", stations = acc }
+      end)
+    end
+    page(nil)
+  end
+
+  -- Nodes mit Sicherung in der Leitstelle (Ersatzcomputer, Konzept 11.4): Kennung, Name und Zustand; die Antwort ist unbeglaubigt, also werden nur Werte
+  -- in der erlaubten Form uebernommen
+  local BACKUP_STATES = { stillgelegt = true, ausgefallen = true, aktiv = true }
+  function n.directory_backups(central_id)
+    local acc = {}
+    local function page(after)
+      dir_send(central_id, { kind = "ersatz_liste", after = after }, function(p)
+        if type(p.backups) ~= "table" then return dir_bad() end
+        for _, b in ipairs(p.backups) do
+          if type(b) ~= "table" or type(b.id) ~= "string" or #b.id == 0 or #b.id > 30 or not b.id:match("^[%w_%-]+$") or not BACKUP_STATES[b.state] then
+            return dir_bad()
+          end
+          local name = (type(b.name) == "string" and #b.name <= 60 and b.name:match("^[%w _%-]*$")) and b.name or ""
+          acc[#acc + 1] = { id = b.id, name = name, state = b.state }
+        end
+        if p.more and #acc < 100 and #acc > 0 then return page(acc[#acc].id) end
+        n.dir_state = { kind = "ok", text = #acc .. " Node(s) mit Sicherung.", backups = acc }
       end)
     end
     page(nil)
