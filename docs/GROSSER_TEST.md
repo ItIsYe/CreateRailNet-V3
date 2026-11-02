@@ -78,6 +78,8 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.45 | Eine schon laufende Signal-Node (bisherige Einrichtung): in der Leitstelle einen Bereich mit gleichnamigen Gleisen anlegen; auf der Node "Einrichtung aendern", beitreten, "Netz von Hand eingeben", Bereich waehlen, Gleise uebernehmen | Die bisherigen Signale stehen bei den Gleisen (kein "Signal fehlt"); die Leitstelle zeigt eine reservierte Kennung `N000x` | |
 | 3.46 | Pruefen und aktivieren (die laufende Node bekommt kurze eigene Testsperren) | Die Node behaelt ihre bisherige Kennung, bekommt das Label `N000x \| SIG \| B000y`, die Leitstelle fuehrt `N000x` danach als aktiv | |
 | 3.47 | Dasselbe mit einem Gleis, das im Bereich keinen gleichnamigen Partner hat | Meldung "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht", in der Leitstelle ist keine Kennung reserviert | |
+| 3.48 | Leitstelle, Seite "Assistent": Vorlage nebenanschluss mit einem Bahnhof an Gleis 1 (Richtung Ostbahnhof); Seite "Beziehungen" ansehen | Die Betriebsstelle ist nur mit Gleis 1 verbunden, nur mit der eingetragenen Richtung; Gleis 2 hat keine Verbindung | |
+| 3.49 | Vorlage verzweigung mit drei Anschluessen; Seite "Knoten" | Fahrwege und Konflikte stehen als UNBESTAETIGT; erst nach "Bestaet." sieht sie eine Knoten-Node | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

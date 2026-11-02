@@ -58,10 +58,20 @@ function M.new(spec)
   data.junctions = data.junctions or {}
 
   -- Aenderung ausfuehren; schlaegt das Speichern fehl, kommt der alte Stand zurueck
+  -- Aenderungen sind alles oder nichts. Ruft eine Aenderung (Vorlage) andere auf, laufen diese innerhalb derselben Aenderung: gespeichert wird einmal am
+  -- Ende, und scheitert ein Schritt (nil, Fehler), ist nichts davon geschehen.
+  local depth = 0
   local function change(fn)
     if n.blocked then return nil, "Das Verzeichnis stammt von einem neueren Programm: nichts wird veraendert." end
+    if depth > 0 then return fn() end
     local before = copy(data)
-    local result, err = fn()
+    depth = 1
+    local ok, result, err = pcall(fn)
+    depth = 0
+    if not ok then
+      data = before
+      error(result, 0)
+    end
     if result == nil then
       data = before
       return nil, err
@@ -152,6 +162,32 @@ function M.new(spec)
       if area_name_taken(name) then return nil, "Einen Bereich " .. name .. " gibt es schon." end
       local ends, why_ends = valid_ends(spec2.ends)
       if not ends then return nil, why_ends end
+      -- freie Einrichtung: die Gleise einzeln mit Namen und Richtung (Anschlussname oder beide)
+      if spec2.track_list ~= nil then
+        local list = spec2.track_list
+        if type(list) ~= "table" or #list < 1 or #list > M.MAX_TRACKS then return nil, "Die Gleisliste braucht 1 bis " .. M.MAX_TRACKS .. " Gleise." end
+        local planned = {}
+        for _, entry in ipairs(list) do
+          local tname, why_t = valid_name(entry.name)
+          if not tname then return nil, why_t end
+          for _, other in ipairs(planned) do if same(other.name, tname) then return nil, "Das Gleis " .. tname .. " ist doppelt angegeben." end end
+          local direction = entry.direction or "beide"
+          if type(direction) ~= "string" then return nil, "Die Richtung von Gleis " .. tname .. " ist ungueltig." end
+          if direction:lower() == "beide" then direction = "beide"
+          elseif same(direction, ends[1]) then direction = ends[1]
+          elseif same(direction, ends[2]) then direction = ends[2]
+          else return nil, "Die Richtung '" .. direction .. "' von Gleis " .. tname .. " ist kein Anschluss des Bereichs (" .. ends[1] .. ", " .. ends[2] .. " oder beide)." end
+          planned[#planned + 1] = { name = tname, direction = direction }
+        end
+        local area_id = new_id("bereich", "B")
+        data.areas[area_id] = { name = name, ends = ends, order = 0, rev = 1 }
+        for i, p in ipairs(planned) do
+          local tid = new_id("gleis", "A")
+          data.tracks[tid] = { area = area_id, name = p.name, direction = p.direction, order = i, rev = 1 }
+          data.areas[area_id].order = i
+        end
+        return area_id
+      end
       local tracks = tonumber(spec2.count) or 0
       if tracks ~= math.floor(tracks) or tracks < 1 or tracks > M.MAX_TRACKS then
         return nil, "Die Gleisanzahl muss zwischen 1 und " .. M.MAX_TRACKS .. " liegen."
@@ -367,7 +403,8 @@ function M.new(spec)
     local a = data.areas[id]
     if not a then return nil end
     local kinds = { (a.end_info and a.end_info[1] and a.end_info[1].kind) or "name", (a.end_info and a.end_info[2] and a.end_info[2].kind) or "name" }
-    return { id = id, name = a.name, ends = { a.ends[1], a.ends[2] }, end_kinds = kinds, tracks = tracks_of(id), state = a.state or "betriebsbereit", rev = a.rev or 0 }
+    local suffixes = { a.end_info and a.end_info[1] and a.end_info[1].suffix or false, a.end_info and a.end_info[2] and a.end_info[2].suffix or false }
+    return { id = id, name = a.name, ends = { a.ends[1], a.ends[2] }, end_kinds = kinds, end_suffixes = suffixes, tracks = tracks_of(id), state = a.state or "betriebsbereit", rev = a.rev or 0 }
   end
 
   function n.track(id)
@@ -379,6 +416,7 @@ function M.new(spec)
   function n.revision() return data.revision end
 
   -- Anschlussarten und Zustand eines Bereichs (Konzept 4.3, 8) -----------------------------------------------------------------------------
+  local function empty_text(v) return v == nil or v == false or clean(v) == "" end
   local END_KINDS = { name = true, betriebsstelle = true, bereich = true, offen = true }
   M.END_KINDS = END_KINDS
 
@@ -386,6 +424,12 @@ function M.new(spec)
     if spec2.kind == "betriebsstelle" then
       local st = data.stations[spec2.ref]
       if not st then return nil, "Die Betriebsstelle gibt es nicht." end
+      -- zweiter, eigenstaendiger Anschluss derselben Betriebsstelle (Konzept 4.3): "Hafen" und "Hafen Nord"
+      if not empty_text(spec2.suffix) then
+        local text, why = valid_name(st.name .. " " .. clean(spec2.suffix))
+        if not text then return nil, why end
+        return text
+      end
       return st.name
     elseif spec2.kind == "bereich" then
       if spec2.ref == area_id then return nil, "Ein Bereich kann nicht an sich selbst anschliessen." end
@@ -415,7 +459,8 @@ function M.new(spec)
       end
       area.ends[nr] = name
       area.end_info = area.end_info or {}
-      area.end_info[nr] = { kind = spec2.kind, ref = (spec2.kind == "betriebsstelle" or spec2.kind == "bereich") and spec2.ref or nil }
+      area.end_info[nr] = { kind = spec2.kind, ref = (spec2.kind == "betriebsstelle" or spec2.kind == "bereich") and spec2.ref or nil,
+        suffix = (spec2.kind == "betriebsstelle" and not empty_text(spec2.suffix)) and clean(spec2.suffix) or nil }
       if spec2.kind == "offen" then area.state = "im bau" end
       touch(area)
       return true
@@ -445,11 +490,12 @@ function M.new(spec)
         local info = area.end_info and area.end_info[nr]
         if info and (info.kind == "betriebsstelle" or info.kind == "bereich") then
           local target = (info.kind == "betriebsstelle") and data.stations[info.ref] or data.areas[info.ref]
-          if target and target.name ~= area.ends[nr] and not same(target.name, area.ends[3 - nr]) then
+          local wanted = target and (info.suffix and (target.name .. " " .. info.suffix) or target.name) or nil
+          if target and wanted ~= area.ends[nr] and not same(wanted, area.ends[3 - nr]) then
             for _, t in pairs(data.tracks) do
-              if t.area == area_id and t.direction == area.ends[nr] then t.direction = target.name end
+              if t.area == area_id and t.direction == area.ends[nr] then t.direction = wanted end
             end
-            area.ends[nr] = target.name
+            area.ends[nr] = wanted
             touch(area)
           end
         end
@@ -465,8 +511,6 @@ function M.new(spec)
   local function site_by_name(name)
     for id, site in pairs(data.sites) do if same(site.name, name) then return id end end
   end
-
-  local function empty_text(v) return v == nil or v == false or clean(v) == "" end
 
   -- Standort ueber den Namen: wird bei Bedarf angelegt; leere Standorte verschwinden. Ergebnis: Kennung, nil (kein Standort) oder nil, Fehler
   local function site_for(name)
@@ -527,7 +571,7 @@ function M.new(spec)
         for _, area in pairs(data.areas) do
           for nr = 1, 2 do
             local info = area.end_info and area.end_info[nr]
-            if info and info.kind == "betriebsstelle" and info.ref == id and same(name, area.ends[3 - nr]) then
+            if info and info.kind == "betriebsstelle" and info.ref == id and same(info.suffix and (name .. " " .. info.suffix) or name, area.ends[3 - nr]) then
               return nil, "Der Bereich " .. area.name .. " haette zwei gleich benannte Anschluesse."
             end
           end
@@ -954,7 +998,11 @@ function M.new(spec)
       for name, c in pairs(j.connections) do conns[#conns + 1] = { name = name, tracks = copy(c.tracks) } end
       table.sort(conns, function(a, b) return a.name < b.name end)
       local routes = {}
-      for rid, r in pairs(j.routes) do routes[#routes + 1] = { id = rid, from = r.from, to = r.to, confirmed = r.confirmed } end
+      for rid, r in pairs(j.routes) do
+        local ta, tb = data.tracks[r.from], data.tracks[r.to]
+        -- Start und Ziel im selben Bereich: eine Schleife oder Rueckfuehrung (Konzept 8), keine Betriebsstelle
+        routes[#routes + 1] = { id = rid, from = r.from, to = r.to, confirmed = r.confirmed, loop = (ta ~= nil and tb ~= nil and ta.area == tb.area) or nil }
+      end
       table.sort(routes, function(a, b) return a.id < b.id end)
       out.connections, out.routes, out.conflicts, out.hints = conns, routes, copy(j.conflicts), hints
     end
@@ -1012,6 +1060,89 @@ function M.new(spec)
   -- Nodes ----------------------------------------------------------------------------------------------------------------------------------
   local function view(id, node)
     return { id = id, claim = node.claim, role = node.role, area = node.area, junction = node.junction, legacy = node.legacy, tracks = copy(node.tracks), state = node.state, name = node.name, label = node.label }
+  end
+
+  -- Vorlagen des Bereichsassistenten (Konzept 12.3): erzeugen ganz normale, bearbeitbare Objekte (Bereiche, Gleise, Betriebsstellen, Knoten), keine festen
+  -- Streckenmodelle. Jede Vorlage ist alles oder nichts; Fahrwege und Konflikte einer Verzweigung bleiben unbestaetigt.
+  local function track_by_name_or_number(area_id, ref)
+    local text = clean(tostring(ref or ""))
+    for _, t in ipairs(tracks_of(area_id)) do
+      if same(t.name, text) or same(t.name, "Gleis " .. text) then return t.id end
+    end
+  end
+
+  -- Strecke mit Nebenanschluss: Hauptstrecke als Bereich, ein Bahnhof am Nebengleis mit eigenem Anschluss an ein bestimmtes Hauptgleis und seinen baulich
+  -- moeglichen Fahrtrichtungen (Konzept 6.2); zu parallelen Gleisen wird nichts angenommen. spec2 = { name, ends, count, pattern, siding = { name, kind, site, track, directions } }
+  function n.template_siding(spec2)
+    return change(function()
+      local siding = spec2.siding
+      if type(siding) ~= "table" then return nil, "Der Nebenanschluss fehlt." end
+      local area, why = n.add_area({ name = spec2.name, ends = spec2.ends, count = spec2.count, pattern = spec2.pattern })
+      if not area then return nil, why end
+      local station
+      for id, st in pairs(data.stations) do if same(st.name, siding.name) then station = id end end
+      if not station then
+        station, why = n.add_station({ name = siding.name, kind = siding.kind, site = siding.site })
+        if not station then return nil, why end
+      end
+      local track = track_by_name_or_number(area, siding.track)
+      if not track then return nil, "Das Hauptgleis '" .. tostring(siding.track) .. "' gibt es im neuen Bereich nicht." end
+      local ends = data.areas[area].ends
+      local directions
+      if siding.directions ~= nil then
+        directions = {}
+        for _, d in ipairs(siding.directions) do
+          if type(d) == "string" and d:lower() == "beide" then directions = { ends[1], ends[2] } break end
+          if type(d) == "string" and same(d, ends[1]) then directions[#directions + 1] = ends[1]
+          elseif type(d) == "string" and same(d, ends[2]) then directions[#directions + 1] = ends[2]
+          else return nil, "Die Fahrtrichtung '" .. tostring(d) .. "' ist kein Anschluss des Bereichs (" .. ends[1] .. ", " .. ends[2] .. ")." end
+        end
+        if #directions == 0 then directions = nil end
+      end
+      local ok, err = n.link_station(station, track, "verbindung", directions)
+      if not ok then return nil, err end
+      return { area = area, station = station, track = track }
+    end)
+  end
+
+  -- Verzweigung: je Anschluss ein Bereich von aussen bis zum Knoten (Anschlussname -> Knotenname) mit seinen Gleisen, die Gleisenden im Knoten als Anschluesse;
+  -- Fahrwege und Konflikte werden vorgeschlagen und bleiben unbestaetigt. spec2 = { name, connections = { { name, count } ... }, pattern }
+  function n.template_branch(spec2)
+    return change(function()
+      local conns = spec2.connections
+      if type(conns) ~= "table" or #conns < 2 then return nil, "Eine Verzweigung braucht mindestens zwei Anschluesse." end
+      local junction, why = n.add_junction({ name = spec2.name })
+      if not junction then return nil, why end
+      local areas = {}
+      for _, c in ipairs(conns) do
+        if type(c) ~= "table" then return nil, "Ein Anschluss ist ungueltig." end
+        local cname = valid_name(c.name)
+        if not cname then return nil, "Der Name eines Anschlusses ist ungueltig." end
+        local area
+        area, why = n.add_area({ name = spec2.name .. " " .. cname, ends = { cname, spec2.name }, count = c.count, pattern = spec2.pattern })
+        if not area then return nil, why end
+        local ids = {}
+        for _, t in ipairs(tracks_of(area)) do ids[#ids + 1] = t.id end
+        local ok
+        ok, why = n.add_connection(junction, cname, ids)
+        if not ok then return nil, why end
+        areas[#areas + 1] = area
+      end
+      local made
+      made, why = n.propose_routes(junction, #conns == 2 and "durchgehend" or "alle")
+      if not made then return nil, why end
+      n.propose_conflicts(junction)
+      return { junction = junction, areas = areas, routes = made }
+    end)
+  end
+
+  -- Freie Einrichtung: Bereich mit einzeln benannten Gleisen und Richtungen. spec2 = { name, ends, tracks = { { name, direction } ... } }
+  function n.template_free(spec2)
+    return change(function()
+      local area, why = n.add_area({ name = spec2.name, ends = spec2.ends, track_list = spec2.tracks })
+      if not area then return nil, why end
+      return { area = area }
+    end)
   end
 
   -- Anforderung einer Node-Kennung. Normale Rollen betreuen Gleise eines Bereichs (area, tracks); die Rolle knoten betreut einen Knoten des Verzeichnisses

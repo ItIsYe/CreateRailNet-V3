@@ -1,5 +1,5 @@
 return {
-  id = "c45bba88",
+  id = "c176b9d1",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 3370, sum = "79e86b3d" },
@@ -25,7 +25,7 @@ return {
     ["dev/station.lua"] = { size = 2555, sum = "95fb6c05" },
     ["domain/areas.lua"] = { size = 4654, sum = "a16a26e0" },
     ["domain/lines.lua"] = { size = 2783, sum = "4a76b3de" },
-    ["domain/netz.lua"] = { size = 39463, sum = "a1c3e7f0" },
+    ["domain/netz.lua"] = { size = 44792, sum = "4346e551" },
     ["domain/orders.lua"] = { size = 7173, sum = "6c8d8f5f" },
     ["domain/register.lua"] = { size = 4621, sum = "18d82c89" },
     ["domain/schedule.lua"] = { size = 4665, sum = "13aa343e" },
@@ -34,7 +34,7 @@ return {
     ["roles/knoten.lua"] = { size = 9647, sum = "2cebb2f0" },
     ["roles/signal.lua"] = { size = 17068, sum = "74ab8194" },
     ["roles/station.lua"] = { size = 21647, sum = "d8e40090" },
-    ["roles/zentrale.lua"] = { size = 99412, sum = "05acbed8" },
+    ["roles/zentrale.lua"] = { size = 103868, sum = "4c217ef0" },
     ["setup/model.lua"] = { size = 15224, sum = "9a2d1c40" },
     ["setup/page.lua"] = { size = 72133, sum = "e6c75699" },
     ["setup/pruefung.lua"] = { size = 7977, sum = "06d77faf" },

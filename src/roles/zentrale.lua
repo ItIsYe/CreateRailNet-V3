@@ -1534,7 +1534,7 @@ function M.new(node)
             detail = END_TEXT[full.end_kinds[nr]] .. (full.state == "im bau" and ", Bereich IM BAU" or ""),
             kind = (full.end_kinds[nr] == "offen") and "wait" or "text",
           }
-          records[#items] = { area = a.id, area_name = a.name, nr = nr, kind = full.end_kinds[nr], name = a.ends[nr], state = full.state, rev = full.rev }
+          records[#items] = { area = a.id, area_name = a.name, nr = nr, kind = full.end_kinds[nr], name = a.ends[nr], suffix = full.end_suffixes[nr] or "", state = full.state, rev = full.rev }
         end
       end
       return items, records
@@ -1544,8 +1544,13 @@ function M.new(node)
       { id = "nr", label = "Anschluss 1 oder 2", max = 1, width = 6, default = "1" },
       { id = "art", label = "Art: name, betriebsstelle, bereich, offen", max = 14, width = 24, default = "name" },
       { id = "ziel", label = "Ziel (Name der Betriebsstelle/des Bereichs/des Endes)", max = 30, width = 34 },
+      { id = "zusatz", label = "Zusatz (nur Betriebsstelle: zweiter Anschluss, z.B. Nord)", max = 20, width = 34, default = "" },
     },
-    edit = function(r) return { bereich = r.area_name, nr = tostring(r.nr), art = r.kind, ziel = r.name } end,
+    edit = function(r)
+      local target = r.name
+      if r.kind == "betriebsstelle" and r.suffix ~= "" then target = r.name:sub(1, #r.name - #r.suffix - 1) end
+      return { bereich = r.area_name, nr = tostring(r.nr), art = r.kind, ziel = target, zusatz = r.suffix or "" }
+    end,
     on_save = function(values, record)
       local found = find_area_by_name(values.bereich)
       if not found then return nil, "Den Bereich '" .. tostring(values.bereich) .. "' gibt es nicht." end
@@ -1555,6 +1560,7 @@ function M.new(node)
         local st = find_station_by_name(values.ziel)
         if not st then return nil, "Die Betriebsstelle '" .. tostring(values.ziel) .. "' gibt es nicht." end
         spec.ref = st.id
+        spec.suffix = values.zusatz
       elseif kind == "bereich" then
         local other = find_area_by_name(values.ziel)
         if not other then return nil, "Den Nachbarbereich '" .. tostring(values.ziel) .. "' gibt es nicht." end
@@ -1696,7 +1702,7 @@ function M.new(node)
           records[#items] = { kind = "anschluss", knoten = j.id, name = c.name }
         end
         for _, r in ipairs(j.routes) do
-          items[#items + 1] = { text = "   " .. r.id .. " " .. track_label(r.from) .. " > " .. track_label(r.to), detail = r.confirmed and "bestaetigt" or "unbestaetigt", kind = r.confirmed and "text" or "wait" }
+          items[#items + 1] = { text = "   " .. r.id .. " " .. track_label(r.from) .. " > " .. track_label(r.to), detail = (r.loop and "Schleife, " or "") .. (r.confirmed and "bestaetigt" or "unbestaetigt"), kind = r.confirmed and "text" or "wait" }
           records[#items] = { kind = "fahrweg", knoten = j.id, id = r.id }
         end
         for _, cf in ipairs(j.conflicts) do
@@ -1774,6 +1780,91 @@ function M.new(node)
           end)
         end },
     },
+  })
+
+  -- Bereichsassistent (Konzept 12.3): Vorlagen fuer Strecke mit Nebenanschluss, Verzweigung und freie Einrichtung. Die gerade Strecke legt die Seite Bereiche an.
+  local function split_list(text, sep)
+    local out = {}
+    for part in tostring(text or ""):gmatch("[^" .. sep .. "]+") do
+      local trimmed = part:match("^%s*(.-)%s*$")
+      if trimmed ~= "" then out[#out + 1] = trimmed end
+    end
+    return out
+  end
+
+  local TEMPLATES = {
+    { id = "nebenanschluss", text = "Nebenanschluss", detail = "Strecke mit einem Bahnhof am Nebengleis eines Hauptgleises" },
+    { id = "verzweigung", text = "Verzweigung", detail = "mehrere Anschluesse mit Gleisgruppen und vorgeschlagenen Fahrwegen" },
+    { id = "frei", text = "Freie Einrichtung", detail = "Bereich mit einzeln benannten Gleisen und Richtungen" },
+  }
+
+  local TEMPLATE_RUN = {
+    nebenanschluss = function(values)
+      local ends = split_list(values.anschluesse, ";")
+      if #ends ~= 2 then return nil, "Anschluesse: zwei Namen mit ; getrennt (zum Beispiel Westbahnhof; Ostbahnhof)." end
+      local parts = split_list(values.neben, ";")
+      if #parts < 3 then return nil, "Nebenanschluss: Name; Art; Hauptgleis; Richtungen (zum Beispiel Hafen; gueter; Gleis 1; Ostbahnhof)." end
+      local dirs = {}
+      for _, d in ipairs(split_list(parts[4] or "beide", ",")) do dirs[#dirs + 1] = d end
+      local made, err = role.netz.template_siding({
+        name = values.name, ends = ends, count = tonumber(values.gleise), pattern = "gegenlaeufig",
+        siding = { name = parts[1], kind = station_kind(parts[2]), track = parts[3], directions = dirs },
+      })
+      if not made then return nil, err end
+      return "Bereich und Nebenanschluss angelegt (" .. made.area .. ", " .. made.station .. ")."
+    end,
+    verzweigung = function(values)
+      local conns = {}
+      for _, part in ipairs(split_list(values.anschluesse, ";")) do
+        local name, count = part:match("^(.-)%s*:%s*(%d+)$")
+        if not name then return nil, "Anschluesse: Name:Gleisanzahl, mit ; getrennt (zum Beispiel West:2; Ost:2; Sued:1)." end
+        conns[#conns + 1] = { name = name, count = tonumber(count) }
+      end
+      local made, err = role.netz.template_branch({ name = values.name, connections = conns })
+      if not made then return nil, err end
+      return "Knoten " .. made.junction .. " mit " .. #made.areas .. " Bereichen angelegt, " .. made.routes .. " Fahrwege vorgeschlagen: auf der Seite Knoten pruefen und bestaetigen."
+    end,
+    frei = function(values)
+      local ends = split_list(values.anschluesse, ";")
+      if #ends ~= 2 then return nil, "Anschluesse: zwei Namen mit ; getrennt (zum Beispiel Westbahnhof; Ostbahnhof)." end
+      local tracks = {}
+      for _, part in ipairs(split_list(values.gleise, ";")) do
+        local name, direction = part:match("^(.-)%s*:%s*(.-)$")
+        tracks[#tracks + 1] = { name = name or part, direction = (direction and direction ~= "") and direction or "beide" }
+      end
+      local made, err = role.netz.template_free({ name = values.name, ends = ends, tracks = tracks })
+      if not made then return nil, err end
+      return "Bereich " .. made.area .. " mit " .. #tracks .. " Gleisen angelegt."
+    end,
+  }
+
+  pages[#pages + 1] = forms.page({
+    id = "assistent", title = "Assistent", new_label = "Neu", edit_label = "Waehlen",
+    empty = "",
+    items = function()
+      local items, records = {}, {}
+      for i, tpl in ipairs(TEMPLATES) do
+        items[i] = { text = tpl.text, detail = tpl.detail }
+        records[i] = tpl
+      end
+      return items, records
+    end,
+    fields = {
+      { id = "vorlage", label = "Vorlage: nebenanschluss, verzweigung, frei", max = 16, width = 24, default = "nebenanschluss" },
+      { id = "name", label = "Name (Bereich; bei Verzweigung der Knoten)", max = 30, width = 34 },
+      { id = "anschluesse", label = "Anschluesse: A; B  oder  West:2; Ost:2; Sued:1", max = 80, width = 48 },
+      { id = "gleise", label = "Gleise: Anzahl  oder  Gleis 1:Ostbahnhof; Gleis 2:beide", max = 120, width = 48 },
+      { id = "neben", label = "Nebenanschluss: Name; Art; Hauptgleis; Richtungen", max = 100, width = 48 },
+    },
+    edit = function(r) return { vorlage = r.id } end,
+    on_save = function(values)
+      local kind = tostring(values.vorlage or ""):match("^%s*(.-)%s*$"):lower()
+      local run = TEMPLATE_RUN[kind]
+      if not run then return nil, "Vorlage: nebenanschluss, verzweigung oder frei. Die gerade Strecke legt die Seite Bereiche an." end
+      local text, err = run(values)
+      if not text then return nil, err end
+      return true
+    end,
   })
 
   pages[#pages + 1] = {
@@ -2212,7 +2303,7 @@ function M.new(node)
   }
 
   -- Betriebsseiten zuerst, die Seiten des Netzverzeichnisses (Einrichtungsarbeit) zum Schluss
-  local directory_pages = { bereiche = true, gleise = true, anschluesse = true, betriebsstellen = true, beziehungen = true, knoten = true }
+  local directory_pages = { bereiche = true, gleise = true, anschluesse = true, betriebsstellen = true, beziehungen = true, knoten = true, assistent = true }
   local ordered = {}
   for _, pg in ipairs(pages) do if not directory_pages[pg.id] then ordered[#ordered + 1] = pg end end
   for _, pg in ipairs(pages) do if directory_pages[pg.id] then ordered[#ordered + 1] = pg end end
