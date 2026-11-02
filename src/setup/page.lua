@@ -1276,7 +1276,7 @@ function M.new(services)
     local start = from or state.index
     for offset = 1, #rows do
       local i = (start - 1 + offset) % #rows + 1
-      if #rows[i].signals == 0 then state.index = i return end
+      if #rows[i].signals == 0 or (#rows[i].signals >= 2 and not rows[i].order_ok) then state.index = i return end
     end
   end
 
@@ -1295,13 +1295,14 @@ function M.new(services)
       session.pick.rows = {}
       for _, r in ipairs(session.wiz.guided_rows()) do
         local devices, open = {}, false
-        for _, s in ipairs(r.signals) do
-          devices[#devices + 1] = s.device .. (s.effect and "" or " (Richtung?)")
+        for i, s in ipairs(r.signals) do
+          devices[#devices + 1] = (#r.signals >= 2 and (i .. " ") or "") .. s.device .. (s.effect and "" or " (Richtung?)")
           if not s.effect then open = true end
         end
+        if #r.signals >= 2 and not r.order_ok then open = true end
         items[#items + 1] = {
           text = r.name .. "  " .. direction_text(r.direction),
-          detail = #devices > 0 and table.concat(devices, ", ") or "Signal fehlt",
+          detail = #devices > 0 and (((#r.signals >= 2 and not r.order_ok) and "Reihenfolge? " or "") .. table.concat(devices, ", ")) or "Signal fehlt",
           kind = (#devices > 0 and not open) and "ok" or "wait",
         }
         session.pick.rows[#items] = r
@@ -1410,12 +1411,17 @@ function M.new(services)
     no_forward = true,
     render = function(v, rect)
       local row = detail_rows()
+      local ends = session.wiz.area_ends()
       header(v, rect, nil, "Signale von " .. (row and row.name or "?") .. ": Funktion, Wirkrichtung, Standort")
+      if row and #row.signals >= 2 then
+        W.label(v, rect.x + 1, rect.y + 2, "Reihenfolge " .. tostring(ends[1] or "Anschluss 1") .. " -> " .. tostring(ends[2] or "Anschluss 2") .. (row.order_ok and " (ok)" or " (offen)"),
+          row.order_ok and "ok" or "wait", rect.w - 2)
+      end
       local items = {}
       session.pick.detail = {}
-      for _, sg in ipairs(row and row.signals or {}) do
+      for i, sg in ipairs(row and row.signals or {}) do
         items[#items + 1] = {
-          text = sg.device .. "  " .. (wizardlib.USE_TEXT[sg.use] or sg.use),
+          text = ((row and #row.signals >= 2) and (i .. ". ") or "") .. sg.device .. "  " .. (wizardlib.USE_TEXT[sg.use] or sg.use),
           detail = (sg.effect and ("wirkt Richtung " .. sg.effect) or "WIRKRICHTUNG FEHLT") .. ", Standort " .. (sg.place and (sg.place == "mitte" and "Mitte" or ("Ende " .. sg.place)) or "offen"),
           kind = sg.effect and "ok" or "wait",
         }
@@ -1425,18 +1431,36 @@ function M.new(services)
     end,
     actions = function(v)
       local sg = session.pick.detail and session.pick.detail[list_state(v, "detail").index]
-      return {
+      local row = detail_rows()
+      local several = row ~= nil and #row.signals >= 2
+      local list = {
         { id = "d_funktion", label = "Funktion", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
         { id = "d_richtung", label = "Richtung", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
         { id = "d_standort", label = "Standort", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
       }
+      if several then
+        list[#list + 1] = { id = "d_hoch", label = "Hoch", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
+        list[#list + 1] = { id = "d_runter", label = "Runter", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
+        list[#list + 1] = { id = "d_reihenfolge", label = row.order_ok and "Reihenf. ok" or "Reihenf. bestaet.", enabled = not row.order_ok, reason = "Die Reihenfolge ist schon bestaetigt." }
+      end
+      return list
     end,
     action = function(v, id)
-      local sg = session.pick.detail and session.pick.detail[list_state(v, "detail").index]
+      local state = list_state(v, "detail")
+      local sg = session.pick.detail and session.pick.detail[state.index]
       local field = ({ ["act:d_funktion"] = "use", ["act:d_richtung"] = "effect", ["act:d_standort"] = "place" })[id]
       if field and sg then
         local ok, why = session.wiz.signal_cycle(sg.id, field)
         if not ok then v.hint = why end
+        return true
+      elseif (id == "act:d_hoch" or id == "act:d_runter") and sg then
+        local delta = id == "act:d_hoch" and -1 or 1
+        local ok, why = session.wiz.guided_signal_move(sg.id, delta)
+        if ok then state.index = state.index + delta else v.hint = why end
+        return true
+      elseif id == "act:d_reihenfolge" then
+        local ok, why = session.wiz.guided_order_confirm(session.track)
+        v.hint = ok and "Reihenfolge bestaetigt." or why
         return true
       end
     end,
@@ -1719,6 +1743,8 @@ function M.new(services)
       if #w.guided_rows() == 0 then return false, "Keine Gleise uebernommen." end
       local open = w.signal_problems()
       if #open > 0 then return false, open[1].device .. " (" .. open[1].track_name .. "): Wirkrichtung fehlt (Details)." end
+      local unordered = w.order_problems()
+      if #unordered > 0 then return false, unordered[1].name .. ": Reihenfolge der " .. unordered[1].count .. " Signale bestaetigen (Details)." end
     end
     if screen == "2.name" then return w.step_ok(2, true) end
     if screen == "3.geraete" then return w.step_ok(3, true) end

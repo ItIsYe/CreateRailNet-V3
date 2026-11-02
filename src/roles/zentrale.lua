@@ -1389,7 +1389,8 @@ function M.new(node)
       for _, h in ipairs(nodes[id] and nodes[id].signals or {}) do hello[h.id] = h end
       for _, sg in ipairs(entry.signals or {}) do
         local h = hello[sg.id]
-        out[#out + 1] = { node = id, signal = sg, fresh = reachable(id) and now() - entry.t < NODE_SILENT, use = h and h.use, effect = h and h.effect, place = h and h.place }
+        out[#out + 1] = { node = id, signal = sg, fresh = reachable(id) and now() - entry.t < NODE_SILENT, use = h and h.use, effect = h and h.effect, place = h and h.place,
+          pos = h and h.pos, count = h and h.count, prev = h and h.prev, next = h and h.next }
       end
     end
     return out
@@ -2319,7 +2320,10 @@ function M.new(node)
         items[i] = { text = row.node .. " / " .. tostring(sg.track_name) .. "  " .. (sg.available and tostring(sg.state) or "nicht verfuegbar"), detail = #detail > 0 and table.concat(detail, ", ") or "keine zusaetzliche Sperre", kind = kind }
         state.rows[i] = row
       end
-      W.list(v, "signale", { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 }, items, state.list, { empty = "Noch kein Signal-Node hat sich gemeldet." })
+      local picked = state.rows[state.list.index]
+      local place_line = (picked and picked.count and picked.count > 1) and (tostring(picked.signal.track_name) .. ": " .. tostring(picked.pos) .. "/" .. tostring(picked.count) .. " zwischen " .. tostring(picked.prev or "?") .. " und " .. tostring(picked.next or "?")) or nil
+      W.list(v, "signale", { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 - (place_line and 1 or 0) }, items, state.list, { empty = "Noch kein Signal-Node hat sich gemeldet." })
+      if place_line then W.label(v, rect.x + 1, rect.y + rect.h - 2, place_line, "text", rect.w - 2) end
       if role.signal_status then W.label(v, rect.x + 1, rect.y + rect.h - 1, role.signal_status.text, role.signal_status.kind, rect.w - 2) end
     end,
     actions = function(v)

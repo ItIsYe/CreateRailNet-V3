@@ -156,6 +156,7 @@ function M.remove_device(config, id)
     for _, field in ipairs({ "signals", "observers" }) do
       local kept = {}
       for _, ref in ipairs(track[field]) do if ref ~= id then kept[#kept + 1] = ref end end
+      if field == "signals" and #kept ~= #track.signals then track.order_ok = nil end       -- die bestaetigte Reihenfolge gilt nur fuer genau diese Signale
       track[field] = kept
     end
   end
@@ -170,6 +171,7 @@ function M.assign(config, track_id, field, device_id)
   elseif field == "signals" or field == "observers" then
     for _, existing in ipairs(track[field]) do if existing == device_id then return true end end
     track[field][#track[field] + 1] = device_id
+    if field == "signals" then track.order_ok = nil end
   elseif field == "release" then
     track.release = device_id
   else
@@ -292,6 +294,11 @@ function M.validate(config, scan)
       end
     end
     claim(track.station, "Bahnhof")
+    -- gefuehrte Einrichtung: mehrere Signale an einem Gleis liegen hintereinander; die Reihenfolge (von Anschluss 1 nach Anschluss 2) muss bestaetigt sein
+    if track.dir and #track.signals >= 2 and not track.order_ok then
+      local ends = config.node.area_ends
+      add("signal_reihenfolge", "Gleis " .. track.name .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
+    end
     for _, s in ipairs(track.signals) do
       claim(s, "Signal")
       -- Konzept 5.4: bei Signalen der gefuehrten Einrichtung muss die Wirkrichtung bekannt sein
