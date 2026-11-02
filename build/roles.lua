@@ -5,7 +5,7 @@ Notes: Pfade sind relativ zu src/. Jede Datei unter src/ muss in genau einem Mod
 
 return {
   modules = {
-    core = { "core/version.lua", "core/adler.lua", "core/ser.lua", "core/store.lua", "core/journal.lua", "core/clock.lua", "core/ticker.lua", "core/msg.lua", "core/net.lua", "core/envcheck.lua", "core/dataformat.lua" },
+    core = { "core/version.lua", "core/adler.lua", "core/ser.lua", "core/store.lua", "core/journal.lua", "core/clock.lua", "core/ticker.lua", "core/msg.lua", "core/net.lua", "core/chunks.lua", "core/envcheck.lua", "core/dataformat.lua" },
     dev = { "dev/detect.lua", "dev/station.lua", "dev/signal.lua", "dev/observer.lua", "dev/out.lua", "dev/events.lua", "dev/bind.lua" },
     ui = { "ui/palette.lua", "ui/canvas.lua", "ui/layout.lua", "ui/touch.lua", "ui/keymap.lua", "ui/widgets.lua", "ui/forms.lua", "ui/view.lua" },
     setup = { "setup/model.lua", "setup/wizard.lua", "setup/page.lua", "setup/pruefung.lua" },

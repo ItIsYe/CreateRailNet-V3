@@ -6,6 +6,7 @@
 
 local signallib = require("dev.signal")
 local ser = require("core.ser")
+local chunks = require("core.chunks")
 local W = require("ui.widgets")
 
 local M = {}
@@ -139,9 +140,34 @@ return result.confirmed or nil, not result.confirmed and "Das Aufheben wurde nic
 end
 
 
+
+
+local PAYLOAD_LIMIT = 5000
+local set_counter = 0
+local function next_set()
+set_counter = set_counter + 1
+return string.format("%d.%d", node.clock.boot_id(), set_counter)
+end
+
+local split_failed = false
+local function send_parts(list, make)
+local parts, why = chunks.parts_list(list, make, PAYLOAD_LIMIT, ser)
+if not parts then
+if not split_failed then node.notify("fehler", "Signalmeldung nicht moeglich: " .. tostring(why)) end
+split_failed = true
+return false
+end
+split_failed = false
+for _, payload in ipairs(parts) do node.send_to(central(), "meldung", payload) end
+return true
+end
+
 local function send_state()
 local list = role.states()
-node.send_to(central(), "meldung", { kind = "signale", node = config.node.id, signals = list, t = now() })
+local set = next_set()
+send_parts(list, function(piece, i, count)
+return { kind = "signale", node = config.node.id, set = set, part = i, parts = count, signals = piece, t = now() }
+end)
 last_beat, dirty = now(), false
 end
 
@@ -151,10 +177,13 @@ for _, sg in ipairs(role.signals) do
 local dir = config.tracks[sg.track] and config.tracks[sg.track].dir
 list[#list + 1] = { id = sg.id, track = sg.track_name, device = sg.device, use = sg.use, effect = sg.effect, place = sg.place, dir = dir and dir.id or nil }
 end
-node.send_to(central(), "meldung", {
+local set = next_set()
+send_parts(list, function(piece, i, count)
+return {
 kind = "hallo_signale", node = config.node.id, name = config.node.name, roles = config.node.roles, revision = config.revision,
-signals = list, active = config.status == "aktiv",
-})
+set = set, part = i, parts = count, signals = piece, active = config.status == "aktiv",
+}
+end)
 last_hello = now()
 end
 
@@ -163,9 +192,12 @@ if ev.kind == "signal" and role.signals[ev.id] then dirty = true end
 end
 
 function role.on_message(m, status)
-if status ~= "ok" then return end
+
+local late_ok = status == "old_sequence" and m.messageType == "bestaetigung" and m.payload.antwort_auf == "hallo_signale"
+if status ~= "ok" and not late_ok then return end
 if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "hallo_signale" then
-hello_acked = true
+
+if m.payload.fertig == true or m.payload.stillgelegt == true then hello_acked = true end
 return
 end
 if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload.antwort_auf == "verzeichnis_gleise" then

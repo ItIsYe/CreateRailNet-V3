@@ -13,6 +13,9 @@ local W = require("ui.widgets")
 local forms = require("ui.forms")
 local netzlib = require("domain.netz")
 local model = require("setup.model")
+local chunks = require("core.chunks")
+local adler = require("core.adler")
+local ser = require("core.ser")
 
 local M = {}
 
@@ -512,30 +515,56 @@ function M.new(node)
     node.reply(m, "ok", {})
   end
 
-  -- Signal-Nodes melden sich getrennt (ein Computer kann Bahnhof und Signale tragen)
+  -- Signal-Nodes melden sich getrennt (ein Computer kann Bahnhof und Signale tragen). Anmeldung und Status kommen in Teilen und gelten erst, wenn der
+  -- ganze Satz da ist.
+  local signal_set = {}   -- Knoten -> letzter vollstaendig uebernommener Statussatz
+  local signal_parts = chunks.new({ max_parts = 60, max_items = 400, max_keys = 80, ttl = 60, now = now })
+
   local function on_hello_signals(m)
     local p = m.payload
+    local list = p.signals
+    if p.parts ~= nil then
+      local assembled, why = signal_parts.add("hs:" .. tostring(p.node), p.set, p.part, p.parts, p.signals)
+      if not assembled then
+        if why == "offen" then return node.reply(m, "ok", { fertig = false }) end
+        return node.reply(m, "abgelehnt", { grund = why })
+      end
+      list = assembled
+    end
     local old = nodes[p.node]
     if old then
-      old.signals, old.last_seen = p.signals, now()
+      old.signals, old.last_seen = list, now()
       old.roles = old.roles or p.roles
     else
-      nodes[p.node] = { name = p.name, roles = p.roles, tracks = {}, last_seen = now(), active = p.active, revision = p.revision, signals = p.signals }
+      nodes[p.node] = { name = p.name, roles = p.roles, tracks = {}, last_seen = now(), active = p.active, revision = p.revision, signals = list }
     end
     silent_notified[p.node] = nil
     role.netz.mark_active(p.node)
-    node.reply(m, "ok", {})
+    node.reply(m, "ok", { fertig = true })
   end
 
   local function on_signals(m)
     local p = m.payload
-    signal_state[p.node] = { t = now(), signals = p.signals }
-    for _, sg in ipairs(p.signals or {}) do
-      if sg.invalid and not unknown_seen["inv:" .. p.node .. sg.id] then
-        unknown_seen["inv:" .. p.node .. sg.id] = true
+    local list = p.signals
+    if p.parts ~= nil then
+      local assembled = signal_parts.add("st:" .. tostring(p.node), p.set, p.part, p.parts, p.signals)
+      if not assembled then return end
+      list = assembled
+    end
+    -- ein verspaeteter, aelterer Satz ersetzt keinen neueren (Satzkennung "Start.Zaehler")
+    if p.parts ~= nil then
+      local boot, counter = tostring(p.set):match("^(%d+)%.(%d+)$")
+      local last = signal_set[p.node]
+      if boot and last and tonumber(boot) == last.boot and tonumber(counter) < last.counter then return end
+      if boot then signal_set[p.node] = { boot = tonumber(boot), counter = tonumber(counter) } end
+    end
+    signal_state[p.node] = { t = now(), signals = list }
+    for _, sg in ipairs(list or {}) do
+      if type(sg) == "table" and sg.invalid and not unknown_seen["inv:" .. p.node .. tostring(sg.id)] then
+        unknown_seen["inv:" .. p.node .. tostring(sg.id)] = true
         notify("fehler", "Signal " .. tostring(sg.track_name) .. " (" .. p.node .. ") meldet INVALID: Bereich gestoert.")
-      elseif not sg.invalid then
-        unknown_seen["inv:" .. p.node .. sg.id] = nil
+      elseif type(sg) == "table" and not sg.invalid then
+        unknown_seen["inv:" .. p.node .. tostring(sg.id)] = nil
       end
     end
   end
@@ -619,11 +648,15 @@ function M.new(node)
     node.reply(m, ok and "angenommen" or "abgelehnt", { hinweis = text, grund = not ok and text or nil })
   end
 
+  local PART_KINDS = { konfig = true, hallo_signale = true, signale = true }
+
   function role.on_message(m, status)
     -- ein verspaetetes "hallo" ist trotzdem eine gueltige Anmeldung des Nodes (Zustandsmeldungen holen den Rest nach)
     if status == "old_sequence" and m.messageType == "meldung" and m.payload.kind == "hallo" then return on_hello(m) end
     -- Ereignismeldungen gelten auch verspaetet (sie werden vom Bahnhof wiederholt, bis sie bestaetigt sind)
     if status == "old_sequence" and m.messageType == "meldung" and EVENT_KINDS[m.payload.kind] then status = "ok" end
+    -- Teile grosser Meldungen sind unabhaengig von der Reihenfolge (der Empfaenger setzt sie nach Nummer zusammen)
+    if status == "old_sequence" and m.messageType == "meldung" and PART_KINDS[m.payload.kind] and m.payload.parts ~= nil then status = "ok" end
     if status ~= "ok" then return end
     if retired[m.senderNodeId] then
       -- stillgelegt: nur die Anmeldung wird beantwortet (mit Hinweis), sonst nichts
@@ -1222,16 +1255,40 @@ function M.new(node)
   local BACKUP_DIR = DATA .. "/nodesich"
   local function backup_path(id) return BACKUP_DIR .. "/" .. tostring(id):gsub("[^%w%-_]", "_") .. ".lua" end
 
+  -- Die Konfiguration einer Node kommt in Teilen (eine Funknachricht fasst hoechstens 6000 Zeichen); erst der vollstaendige, geprueft zusammengesetzte
+  -- Satz wird gesichert. Eine Node darf nur ihre eigene Konfiguration sichern.
+  local MAX_CONFIG = 60000
+  local MAX_BACKUPS = 60
+  local config_parts = chunks.new({ max_parts = 40, max_bytes = MAX_CONFIG, max_keys = 80, ttl = 180, now = now })
+  local REPLY_LIMIT = 4800
+
   function role.on_config(m)
     local p = m.payload
     local fs = node.env.fs
+    if type(p.node) ~= "string" or #p.node == 0 or #p.node > 40 then return node.reply(m, "abgelehnt", { grund = "Die Node-Kennung fehlt." }) end
+    if p.node ~= m.senderNodeId then return node.reply(m, "abgelehnt", { grund = "Eine Node sichert nur ihre eigene Konfiguration." }) end
+    if type(p.revision) ~= "number" then return node.reply(m, "abgelehnt", { grund = "Der Stand fehlt." }) end
+    local text = p.config
+    if p.parts ~= nil then
+      local assembled, why = config_parts.add("konfig:" .. p.node, p.revision, p.part, p.parts, p.config, p.sum)
+      if not assembled then
+        if why == "offen" then return node.reply(m, "ok", { fertig = false }) end
+        return node.reply(m, "abgelehnt", { grund = why })
+      end
+      text = assembled
+    end
+    if type(text) ~= "string" or #text > MAX_CONFIG then return node.reply(m, "abgelehnt", { grund = "Die Konfiguration ist zu gross." }) end
+    local decoded = ser.decode(text)
+    if type(decoded) ~= "table" or type(decoded.node) ~= "table" or decoded.node.id ~= p.node then
+      return node.reply(m, "abgelehnt", { grund = "Die Konfiguration ist nicht lesbar oder gehoert einer anderen Node." })
+    end
     if not fs.exists(BACKUP_DIR) then fs.makeDir(BACKUP_DIR) end
     local count = #fs.list(BACKUP_DIR)
-    if count >= 60 and not fs.exists(backup_path(p.node)) then
+    if count >= MAX_BACKUPS and not fs.exists(backup_path(p.node)) then
       return node.reply(m, "abgelehnt", { grund = "Zu viele gesicherte Nodes." })
     end
-    local ok, err = node.store.save(backup_path(p.node), { revision = p.revision, config = p.config, t = now() })
-    node.reply(m, ok and "ok" or "abgelehnt", { grund = err })
+    local ok, err = node.store.save(backup_path(p.node), { revision = p.revision, config = text, t = now() })
+    node.reply(m, ok and "ok" or "abgelehnt", { grund = err, fertig = ok and true or nil })
   end
 
   function role.backup_of(id) return node.store.load(backup_path(id)) end
@@ -1270,17 +1327,36 @@ function M.new(node)
     node.reply(m, "ok", { backups = list, more = more })
   end
 
+  -- Antwort in Teilen: "teil" ist die Nummer des gewuenschten Teils (ohne Angabe 1). Die Uebergabe (Stilllegung aufheben, Meldung) geschieht beim
+  -- ersten Teil; spaetere Teile werden nur herausgegeben, solange die alte Node nicht wieder laeuft.
   function role.handle_fetch_config(m)
     local id = m.payload.node
+    local part_no = m.payload.part == nil and 1 or m.payload.part
+    if type(part_no) ~= "number" or part_no ~= math.floor(part_no) or part_no < 1 then
+      return node.reply(m, "abgelehnt", { grund = "Die Teilnummer ist ungueltig." })
+    end
     local entry = role.backup_of(id)
     if not entry then return node.reply(m, "abgelehnt", { grund = "keine Sicherung von " .. tostring(id) .. "." }) end
     if nodes[id] and not retired[id] and reachable(id) then
       return node.reply(m, "abgelehnt", { grund = "Die Node " .. id .. " ist noch aktiv: erst ausschalten oder in der Leitstelle stilllegen." })
     end
-    -- Uebergabe: ab jetzt gilt der Ersatz; die alte Node darf nicht mehr laufen (Doppelbetrieb wird als Konflikt gemeldet)
-    role.unretire(id)
-    notify("warnung", "Die Konfiguration von " .. id .. " wurde an einen Ersatzcomputer uebergeben. Die alte Node darf nicht mehr laufen.")
-    node.reply(m, "ok", { config = entry.config, revision = entry.revision })
+    local text = entry.config
+    local parts
+    if type(text) == "string" then
+      local sum = adler.hex(text)
+      local why
+      parts, why = chunks.parts_text(text, function(piece, i, count) return { config = piece, revision = entry.revision, part = i, parts = count, sum = sum } end, REPLY_LIMIT, ser)
+      if not parts then return node.reply(m, "abgelehnt", { grund = "Die Sicherung laesst sich nicht senden: " .. tostring(why) }) end
+    else
+      parts = { { config = entry.config, revision = entry.revision, part = 1, parts = 1 } }
+    end
+    if part_no > #parts then return node.reply(m, "abgelehnt", { grund = "Diesen Teil gibt es nicht." }) end
+    if part_no == 1 then
+      -- Uebergabe: ab jetzt gilt der Ersatz; die alte Node darf nicht mehr laufen (Doppelbetrieb wird als Konflikt gemeldet)
+      role.unretire(id)
+      notify("warnung", "Die Konfiguration von " .. id .. " wurde an einen Ersatzcomputer uebergeben. Die alte Node darf nicht mehr laufen.")
+    end
+    node.reply(m, "ok", parts[part_no])
   end
 
   -- Signale (Zusatzsperre eines Signal-Nodes setzen oder aufheben; ausgefuehrt wird dort, bestaetigt erst nach dem Zuruecklesen)

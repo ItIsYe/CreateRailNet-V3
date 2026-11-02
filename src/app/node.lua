@@ -22,6 +22,8 @@ local envcheck = require("core.envcheck")
 local dataformat = require("core.dataformat")
 local model = require("setup.model")
 local ser = require("core.ser")
+local chunks = require("core.chunks")
+local adler = require("core.adler")
 
 local M = {}
 
@@ -447,18 +449,49 @@ function M.new(env)
   -- Konfigurationssicherung und Ersatzcomputer (29.2, A17) ----------------------------------------------------------------------------------
   -- Jede aktive Node (ausser der Leitstelle) schickt ihre Konfiguration nach jeder Aenderung an die Leitstelle. Ein Ersatzcomputer holt sie dort ab,
   -- sobald die alte Node dort stillgelegt ist oder sich nicht mehr meldet; danach werden die Geraete gegen den realen Anschluss geprueft.
-  local backup = { acked = nil, sent = -9999, id = nil, rev = nil }
+  -- Die Konfiguration geht in Teilen (eine Funknachricht fasst hoechstens 6000 Zeichen); gesichert ist sie, wenn die Leitstelle den vollstaendigen Satz
+  -- bestaetigt ("fertig"). Ohne Bestaetigung wird nach 30 Sekunden alles noch einmal geschickt; eine Ablehnung wird einmal gemeldet und erst nach einer
+  -- neuen Fassung der Konfiguration wiederholt.
+  local BACKUP_PAYLOAD_LIMIT = 5000
+  local backup = { acked = nil, sent = -9999, ids = {}, failed = nil }       -- ids: Nachrichtenkennung -> Stand, auf den sich die Quittung bezieht
   table.insert(n.hooks.tick, function()
     if not n.config or n.config.status ~= "aktiv" or not n.net then return end
     for _, r in ipairs(n.config.node.roles) do if r == "zentrale" then return end end
-    if backup.acked == n.config.revision then return end
+    local rev = n.config.revision
+    if backup.acked == rev or backup.failed == rev then return end
     local t = n.clock.now()
     if t - backup.sent < 30 then return end
-    local m = n.send_to(n.central_id(), "meldung", { kind = "konfig", node = n.config.node.id, revision = n.config.revision, config = ser.encode(n.config) })
-    if m then backup.id, backup.rev, backup.sent = m.messageId, n.config.revision, t end
+    backup.sent = t          -- vor dem Senden: ein Fehler darf nicht jede Sekunde wiederholt werden
+    local text = ser.encode(n.config)
+    local sum, id = adler.hex(text), n.config.node.id
+    local parts, why = chunks.parts_text(text, function(piece, i, count)
+      return { kind = "konfig", node = id, revision = rev, part = i, parts = count, sum = sum, config = piece }
+    end, BACKUP_PAYLOAD_LIMIT, ser)
+    if not parts then
+      backup.failed = rev
+      n.notify("fehler", "Die Konfiguration laesst sich nicht sichern: " .. tostring(why))
+      return
+    end
+    local known = 0
+    for _ in pairs(backup.ids) do known = known + 1 end
+    if known > 200 then backup.ids = {} end
+    for _, payload in ipairs(parts) do
+      local m = n.send_to(n.central_id(), "meldung", payload)
+      if m then backup.ids[m.messageId] = rev end
+    end
   end)
   table.insert(n.hooks.on_message, function(m, status)
-    if status == "ok" and m.messageType == "bestaetigung" and backup.id and m.correlationId == backup.id then backup.acked = backup.rev end
+    if (status ~= "ok" and status ~= "old_sequence") or m.messageType ~= "bestaetigung" then return end
+    local rev = backup.ids[m.correlationId]
+    local p = m.payload
+    -- Quittungen auch frueherer Versuche zaehlen; gesichert ist der Stand, auf den sich die Quittung bezieht
+    if rev == nil or type(p) ~= "table" then return end
+    if p.status == "ok" and p.fertig == true then
+      backup.acked = rev
+    elseif p.status == "abgelehnt" and backup.failed ~= rev then
+      backup.failed = rev
+      n.notify("warnung", "Die Leitstelle hat die Konfigurationssicherung abgelehnt: " .. tostring(p.grund))
+    end
   end)
 
   -- Computer ohne Einrichtung sprechen mit einer vorlaeufigen Kennung (Ersatz holen, Netz suchen)
@@ -513,14 +546,20 @@ function M.new(env)
   end
 
   n.fetch_state = nil
+  local function fetch_request(central_id, node_id, part)
+    local m = n.replace_factory.make("abfrage", central_id, { kind = "konfig_holen", node = node_id, part = part })
+    n.replace_net.send(central_id, m)
+    n.replace_req = m.messageId
+    n.fetch = { central = central_id, node = node_id, part = part }
+  end
+
   function n.fetch_config(central_id, node_id)
     if n.net then n.fetch_state = { kind = "halt", text = "Dieser Computer ist schon eingerichtet." } return end
     local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
     if #info.opened == 0 then n.fetch_state = { kind = "halt", text = "Kein Modem gefunden." } return end
     temporary_net(central_id)
-    local m = n.replace_factory.make("abfrage", central_id, { kind = "konfig_holen", node = node_id })
-    n.replace_net.send(central_id, m)
-    n.replace_req = m.messageId
+    n.fetch_chunks = chunks.new({ max_parts = 40, max_bytes = 60000, max_keys = 2, ttl = 300, now = function() return n.clock.now() end })
+    fetch_request(central_id, node_id, 1)
     n.fetch_state = { kind = "wait", text = "Anfrage an " .. central_id .. " gesendet ..." }
   end
 
@@ -794,7 +833,27 @@ function M.new(env)
       n.fetch_state = { kind = "halt", text = "Abgelehnt: " .. tostring(p.grund) }
       return
     end
-    local config = ser.decode(p.config)
+    -- die Konfiguration kommt in Teilen: Teil fuer Teil anfordern, geprueft zusammensetzen
+    local text = p.config
+    local fetch = n.fetch
+    if type(p.parts) == "number" and p.parts > 1 then
+      if not fetch or p.part ~= fetch.part then
+        n.fetch_state = { kind = "halt", text = "Unerwartete Antwort der Leitstelle." }
+        return
+      end
+      local assembled, why = n.fetch_chunks.add("holen", p.revision, p.part, p.parts, p.config, p.sum)
+      if not assembled then
+        if why ~= "offen" then
+          n.fetch_state = { kind = "halt", text = "Teile unvollstaendig: " .. tostring(why) }
+          return
+        end
+        fetch_request(fetch.central, fetch.node, p.part + 1)
+        n.fetch_state = { kind = "wait", text = "Empfange Konfiguration: Teil " .. p.part .. " von " .. p.parts .. " ..." }
+        return
+      end
+      text = assembled
+    end
+    local config = type(text) == "string" and ser.decode(text) or nil
     if type(config) ~= "table" or not config.node then
       n.fetch_state = { kind = "halt", text = "Die Konfiguration ist nicht lesbar." }
       return
