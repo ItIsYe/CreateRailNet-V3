@@ -31,8 +31,10 @@ local now = function() return node.clock.now() end
 local DATA = "/crn_data"
 
 
+
+
 local epoch_state = node.store.load(DATA .. "/epoche.lua") or { n = 0 }
-epoch_state.n = epoch_state.n + 1
+epoch_state.n = math.max(epoch_state.n + 1, node.env.utc_seconds and node.env.utc_seconds() or 0)
 node.store.save(DATA .. "/epoche.lua", epoch_state)
 node.own_epoch = epoch_state.n
 
@@ -688,6 +690,32 @@ local ok, text = role.orders.cancel(order.id)
 node.reply(m, ok and "angenommen" or "abgelehnt", { hinweis = text, grund = not ok and text or nil })
 end
 
+
+local function dispatch_request(m)
+local kind = m.payload.kind
+if m.messageType == "auftrag" then
+if kind == "anmelden" then handle_register(m)
+elseif kind == "bedarf" then handle_demand(m)
+elseif kind == "stornieren" then handle_cancel(m)
+else node.reply(m, "abgelehnt", { grund = "Unbekannter Auftrag." }) end
+elseif kind == "vorlagen" then handle_templates_query(m)
+elseif kind == "verzeichnis" or kind == "verzeichnis_gleise" or kind == "node_anfordern" or kind == "knoten_liste" or kind == "knoten_teil" or kind == "gleis_aendern" or kind == "bereich_anlegen" or kind == "betriebsstellen_liste" then role.handle_directory(m)
+elseif kind == "konfig_holen" then role.handle_fetch_config(m)
+elseif kind == "ersatz_liste" then role.handle_replace_list(m)
+elseif kind == "netze" then
+
+local count = 0
+for _ in pairs(nodes) do count = count + 1 end
+node.reply(m, "ok", { netz = node.config.network.name, zentrale = node.config.node.id, nodes = count })
+elseif kind == "tafel" then
+
+if m.payload.station ~= nil and type(m.payload.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Betriebsstelle ist ungueltig." }) end
+reply_page(m, "rows", role.board(m.payload.station), false, { t = now() })
+else
+node.reply(m, "abgelehnt", { grund = "Unbekannte Abfrage." })
+end
+end
+
 local PART_KINDS = { konfig = true, hallo_signale = true, signale = true, hallo = true }
 
 function role.on_message(m, status)
@@ -713,6 +741,12 @@ boots[m.senderNodeId] = boot
 for key in pairs(seen_stay) do
 if key:sub(1, #m.senderNodeId + 1) == m.senderNodeId .. ":" then seen_stay[key] = nil end
 end
+end
+
+if m.messageType == "bestaetigung" and m.correlationId and pending[m.correlationId] and pending[m.correlationId].target ~= nil
+and pending[m.correlationId].target ~= m.senderNodeId then
+notify("warnung", "Antwort auf eine Frage an " .. tostring(pending[m.correlationId].target) .. " kam von " .. tostring(m.senderNodeId) .. " und wird nicht gewertet.")
+return
 end
 if m.messageType == "bestaetigung" and m.correlationId and pending[m.correlationId] then
 local p = pending[m.correlationId]
@@ -750,25 +784,15 @@ end
 
 if EVENT_KINDS[kind] then node.reply(m, "ok", {}) end
 drive_all()
-elseif m.messageType == "auftrag" then
-local kind = m.payload.kind
-if kind == "anmelden" then handle_register(m)
-elseif kind == "bedarf" then handle_demand(m)
-elseif kind == "stornieren" then handle_cancel(m) end
-elseif m.messageType == "abfrage" then
-if m.payload.kind == "vorlagen" then handle_templates_query(m)
-elseif m.payload.kind == "verzeichnis" or m.payload.kind == "verzeichnis_gleise" or m.payload.kind == "node_anfordern" or m.payload.kind == "knoten_liste" or m.payload.kind == "knoten_teil" or m.payload.kind == "gleis_aendern" or m.payload.kind == "bereich_anlegen" or m.payload.kind == "betriebsstellen_liste" then role.handle_directory(m)
-elseif m.payload.kind == "konfig_holen" then role.handle_fetch_config(m)
-elseif m.payload.kind == "ersatz_liste" then role.handle_replace_list(m)
-elseif m.payload.kind == "netze" then
+elseif m.messageType == "auftrag" or m.messageType == "abfrage" then
 
-local count = 0
-for _ in pairs(nodes) do count = count + 1 end
-node.reply(m, "ok", { netz = node.config.network.name, zentrale = node.config.node.id, nodes = count })
-elseif m.payload.kind == "tafel" then
 
-if m.payload.station ~= nil and type(m.payload.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Betriebsstelle ist ungueltig." }) end
-reply_page(m, "rows", role.board(m.payload.station), false, { t = now() })
+local ok, err = pcall(dispatch_request, m)
+if not ok then
+notify("fehler", "Anfrage " .. tostring(m.payload.kind) .. " von " .. tostring(m.senderNodeId) .. ": " .. tostring(err))
+if not node.inbox.reply_for(m.messageId) then
+node.reply(m, "abgelehnt", { grund = "Die Leitstelle konnte die Anfrage nicht bearbeiten (" .. tostring(err):sub(1, 80) .. ")." })
+end
 end
 end
 end

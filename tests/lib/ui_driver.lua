@@ -34,6 +34,7 @@ function M.new(opts)
       start_timer = function() return 1 end,
       set_label = function(text) d.label = text end,
       unique = function() return tostring(opts.cid or 1) .. "-" .. tostring(d.boots) end,
+      utc_seconds = d.utc_seconds,
       pull_event = function()
         local ev = table.remove(d.queue, 1)
         if not ev then error("Terminated", 0) end

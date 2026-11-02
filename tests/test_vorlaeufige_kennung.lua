@@ -146,4 +146,37 @@ return {
     t.contains(again.text, "antwortet nicht")
     t.ok(not again.text:find("verworfen", 1, true), again.text)
   end },
+  { "Drei frische Computer nacheinander unter Verlust, Doppelung und Vertauschung: je eine eigene Kennung, keine doppelt vergeben", function()
+    for seed = 1, 6 do
+      local h = H.new({ seed = seed, drop = 0.25, dup = 0.3, reorder = true })
+      local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
+      local netz = z.node.roles.zentrale.netz
+      netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2, pattern = "gegenlaeufig" })
+      local seen, claimed = {}, {}
+      for k = 1, 3 do
+        local d = h.add_blank({ id = "c" .. k })
+        d.world.add_signal("Create_Signal_1"); d.world.add_signal("Create_Signal_2")
+        h.step(1)
+        local v = d.view()
+        v.set_page("einrichtung")
+        d.tap(v, "act:start")
+        d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
+        h.step(8); d.node.render()
+        d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
+        d.tap(v, "sel:rollen:5"); d.tap(v, "act:weiter")
+        h.step(10); d.node.render()
+        d.tap(v, "sel:bereich:1")
+        h.step(10); d.node.render()
+        d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
+        h.step(10); d.node.render()
+        local s = d.node.setup.session()
+        t.eq(s.screen, "4.zuordnung", "Zufallsmuster " .. seed .. ", Computer " .. k .. ": " .. d.text(v))
+        local id = s.wiz.claimed_id
+        t.ok(id and not seen[id], "Zufallsmuster " .. seed .. ": Kennung " .. tostring(id) .. " nicht doppelt vergeben")
+        seen[id] = true
+        claimed[#claimed + 1] = id
+      end
+      t.eq(#netz.nodes(), 3, "Zufallsmuster " .. seed .. ": drei Eintraege im Verzeichnis")
+    end
+  end },
 }

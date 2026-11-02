@@ -103,6 +103,11 @@ function M.real_env()
       local stamp = os.epoch and (os.epoch("utc") % 2147483647) or math.random(1, 2147483646)
       return tostring(id) .. "-" .. tostring(stamp)
     end,
+    -- Wanduhr in ganzen Sekunden (Weltzeit); 0, wenn der Computer sie nicht kennt
+    utc_seconds = function()
+      if os.epoch then return math.floor(os.epoch("utc") / 1000) end
+      return 0
+    end,
     pull_event = function() return { os.pullEvent() } end,
   }
 end

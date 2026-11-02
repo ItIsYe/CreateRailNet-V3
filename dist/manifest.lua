@@ -1,8 +1,8 @@
 return {
-  id = "8728ef49",
+  id = "0086ee64",
   version = "0.1.0",
   files = {
-    ["app/main.lua"] = { size = 3586, sum = "544aaef2" },
+    ["app/main.lua"] = { size = 3689, sum = "9181d0d4" },
     ["app/node.lua"] = { size = 37911, sum = "18bae8b6" },
     ["app/selftest.lua"] = { size = 8050, sum = "e5434ead" },
     ["core/adler.lua"] = { size = 423, sum = "da1978a3" },
@@ -35,7 +35,7 @@ return {
     ["roles/knoten.lua"] = { size = 15553, sum = "6366a65d" },
     ["roles/signal.lua"] = { size = 20250, sum = "bb3ea392" },
     ["roles/station.lua"] = { size = 21956, sum = "53ed6bbb" },
-    ["roles/zentrale.lua"] = { size = 115044, sum = "cdf81cbb" },
+    ["roles/zentrale.lua"] = { size = 115917, sum = "d63d400c" },
     ["setup/model.lua"] = { size = 16624, sum = "5df4f489" },
     ["setup/page.lua"] = { size = 80574, sum = "cfe77815" },
     ["setup/pruefung.lua"] = { size = 7977, sum = "06d77faf" },

@@ -99,6 +99,9 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.66 | Funk kurz stoeren (Modem entfernen) an einer Node mit vielen Signalen, dann wieder anschliessen | Nach hoechstens 10 Sekunden ist die Anmeldung vollstaendig, der Status wieder frisch; es entstehen keine Fehlermeldungen im Sekundentakt | |
 | 3.67 | Ersatz einer Node mit 40 Signalen (alte Node aus, Ersatzcomputer: Ersatz, Liste, Node waehlen, Holen) | Der Zustand zeigt "Empfange Konfiguration: Teil k von n", danach "empfangen"; Uebernehmen zeigt alle 40 Signale | |
 | 3.68 | Zwei frische Computer nacheinander (und einmal ein Neustart mitten in der Einrichtung) mit Rolle Bahnhof oder Signal einrichten | Jeder bekommt eine eigene Kennung (`N0001`, `N0002`, ...), auch wenn die Einrichtung des zweiten gleich nach dem ersten beginnt; kein Computer meldet "Leitstelle antwortet nicht"; nach einem Neustart und neuem Anfang gibt es eine neue Kennung statt der alten | |
+| 3.69 | Bahnhof-Node mit vielen Gleisen (zum Beispiel 12 Gleise, jedes mit Create-Station) einrichten und aktivieren | Die Leitstelle kennt alle Gleise (Seite Gleise/Bahnhoefe), der Zustand aller Gleise wird frisch gezeigt, keine Meldung "Nachricht zu gross"; der Bahnhof nimmt Aufgaben an | |
+| 3.70 | Leitstelle neu aufsetzen (Daten der Leitstelle loeschen, Programm neu installieren, gleiche Node-Kennung), ohne die laufenden Nodes neu zu starten | Die Nodes folgen der neuen Leitstelle nach hoechstens zwei Minuten (Anmeldung, Zustand); Aufgaben der Leitstelle werden nicht als "veraltet" verworfen | |
+| 3.71 | Mehr als 20 Bereiche und mehr als 30 Fahrtvorlagen anlegen; neue Node: Bereich waehlen; Anmeldestation: Vorlagenliste ansehen | Alle Bereiche und Vorlagen erscheinen vollstaendig (mehrere Seiten), nichts doppelt, nichts fehlt | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 
