@@ -550,7 +550,7 @@ if st and st.kind == "wait" and n.clock.now() >= n.search_until then
 if #st.networks > 0 then
 st.kind, st.text = "ok", #st.networks .. " Netz(e) gefunden."
 else
-st.kind, st.text = "halt", "Kein Netz gefunden. Leitstelle in Funkreichweite (Ender-Modem)? Sonst von Hand eingeben."
+st.kind, st.text = "halt", "Kein Netz gefunden: Leitstelle an, Chunk geladen?"
 end
 end
 return st
@@ -810,7 +810,7 @@ function n.directory_status()
 local st = n.dir_state
 if st and st.kind == "wait" and n.clock.now() >= n.dir_until then
 n.dir_req, n.dir_handler = nil, nil
-n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie, und ist sie in Funkreichweite (Ender-Modem)?" .. (n.dir_dropped and (" (Antwort verworfen: " .. tostring(n.dir_dropped) .. ")") or "") }
+n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie (Chunk geladen), und ist sie in Funkreichweite (Ender-Modem)?" .. (n.dir_dropped and (" (Antwort verworfen: " .. tostring(n.dir_dropped) .. ")") or "") }
 st = n.dir_state
 end
 return st

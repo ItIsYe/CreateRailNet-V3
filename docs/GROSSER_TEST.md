@@ -102,6 +102,11 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.69 | Bahnhof-Node mit vielen Gleisen (zum Beispiel 12 Gleise, jedes mit Create-Station) einrichten und aktivieren | Die Leitstelle kennt alle Gleise (Seite Gleise/Bahnhoefe), der Zustand aller Gleise wird frisch gezeigt, keine Meldung "Nachricht zu gross"; der Bahnhof nimmt Aufgaben an | |
 | 3.70 | Leitstelle neu aufsetzen (Daten der Leitstelle loeschen, Programm neu installieren, gleiche Node-Kennung), ohne die laufenden Nodes neu zu starten | Die Nodes folgen der neuen Leitstelle nach hoechstens zwei Minuten (Anmeldung, Zustand); Aufgaben der Leitstelle werden nicht als "veraltet" verworfen | |
 | 3.71 | Mehr als 20 Bereiche und mehr als 30 Fahrtvorlagen anlegen; neue Node: Bereich waehlen; Anmeldestation: Vorlagenliste ansehen | Alle Bereiche und Vorlagen erscheinen vollstaendig (mehrere Seiten), nichts doppelt, nichts fehlt | |
+| 3.72 | Chunk der Leitstelle entladen (Spieler weit weg gehen, kein Chunk-Lader), 2 Minuten warten, wieder laden | Die Leitstelle startet neu; nach hoechstens etwa 5 Sekunden stehen alle Nodes und Bahnhoefe wieder in der Liste; eine laufende Fahrt wird zu Ende gefuehrt; auf den Nodes ist keine Meldung "Antwort verworfen" oder "veraltet" | |
+| 3.73 | Chunk eines Bahnhofs entladen, waehrend ein Zug mit gesetzter Freigabe abfaehrt, dann wieder laden | Der Freigabeausgang des Bahnhofs ist aus, der Auftrag steht in der Klaerung ("Zug nicht mehr am Bahnhof"), die Node meldet "fiel in die Zeit ohne Betrieb"; ein nachfolgender Zug faehrt nicht ohne Freigabe ab | |
+| 3.74 | Chunk eines Bahnhofs entladen, Zug bleibt mit gesetzter Freigabe stehen, wieder laden | Freigabe bleibt, der Zug faehrt nach Beladung ab, der Auftrag schliesst ab | |
+| 3.75 | Neue Node einrichten, waehrend der Chunk der Leitstelle entladen ist | Meldung "Kein Netz gefunden: Leitstelle an, Chunk geladen?"; nach dem Laden der Leitstelle findet "Neu suchen" das Netz | |
+| 3.76 | Notieren: Laufen Create-Zuege weiter, wenn die Chunks der Strecke nicht geladen sind? Behalten die Redstone-Ausgaenge eines entladenen Computers ihren Zustand? | Nur Messwerte fuer `docs/MESSWERTE.md`, kein Soll | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

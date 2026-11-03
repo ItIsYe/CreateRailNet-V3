@@ -1,6 +1,6 @@
 --[[
 Purpose: Testnetz mit mehreren Nodes (jede mit eigenem Computer, Dateisystem und Fake-Welt) an einem Funkbus plus Schienensimulation. Der Takt laeuft in ganzen Sekunden Betriebszeit; Create-Ereignisse und Funknachrichten werden den Nodes zugestellt.
-API: H.new(opts) -> h; h.add_node(spec) -> node-Eintrag; h.sim(stations, travel); h.step(n); h.until_true(fn, max) -> Sekunden oder nil; h.restart(node_id)
+API: H.new(opts) -> h; h.add_node(spec) -> node-Eintrag; h.sim(stations, travel); h.step(n); h.until_true(fn, max) -> Sekunden oder nil; h.restart(node_id); h.unload(node_id) / h.load(node_id) (Chunk entladen / wieder geladen)
 Notes: spec = { id, roles, tracks = { { name, station_name, release_side } }, central, registration (Gleisname), world_setup(w) }. Die Konfiguration wird wie vom Assistenten erzeugt und aktiv gespeichert.
 ]]
 
@@ -125,6 +125,12 @@ function H.new(opts)
 
   local function pump_node(d)
     local node = d.node
+    if d.unloaded then
+      -- Chunk nicht geladen: der Computer laeuft nicht; Funk und Geraeteereignisse gehen verloren (nichts wird zwischengespeichert)
+      while d.world.pull() do end
+      while h.bus.pop(d.cid) do end
+      return
+    end
     local rounds = 0
     local progress = true
     while progress and rounds < 50 do
@@ -154,12 +160,28 @@ function H.new(opts)
   function h.step(n)
     for _ = 1, n or 1 do
       h.t = h.t + 1
-      for _, d in ipairs(h.order) do d.raw.v = h.t - d.boot_t end
+      for _, d in ipairs(h.order) do if not d.unloaded then d.raw.v = h.t - d.boot_t end end
       if h.simulation then h.simulation.step(1) end
       pump_all()      -- Ereignisse liegen in der Warteschlange vor dem Takt (wie in CC)
-      for _, d in ipairs(h.order) do d.node.handle({ "timer", 1 }) end
+      for _, d in ipairs(h.order) do if not d.unloaded then d.node.handle({ "timer", 1 }) end end
       pump_all()
     end
+  end
+
+  -- Chunk entladen: der Computer wird ohne Abschluss angehalten (kein Speichern der Uhr, keine Abmeldung). Laden startet ihn kalt neu, wie CC:Tweaked es tut
+  -- (Dateien bleiben, Programm und Merkzettel im Speicher nicht).
+  function h.unload(id)
+    local d = h.nodes[id]
+    d.unloaded = true
+  end
+
+  function h.load(id)
+    local d = h.nodes[id]
+    d.unloaded = nil
+    d.restart()
+    d.boot_t = h.t
+    d.raw.v = 0
+    d.node.handle({ "timer", 1 })
   end
 
   function h.until_true(fn, max)

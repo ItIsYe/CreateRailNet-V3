@@ -122,13 +122,29 @@ return {
   { "Geht ein Teil der Anmeldung verloren, bleibt die Node unbekannt und meldet sich nach zehn Sekunden vollstaendig neu", function()
     local h, z, s = build(4, 10)
     local zentrale = z.node.roles.zentrale
-    local lost = lose(h, z.cid, function(m) return m.payload.kind == "hallo_signale" and m.payload.part == 3 end, 1)
+    -- ein Teil geht verloren, und die Bitte der Leitstelle um eine neue Anmeldung kommt nicht an: es bleibt bei der eigenen Wiederholung der Node
+    local lost = 0
+    h.bus.filter = function(from, to, text)
+      local ok, m = pcall(ser.decode, text)
+      if not (ok and type(m) == "table" and type(m.payload) == "table") then return false end
+      if to == z.cid and m.payload.kind == "hallo_signale" and m.payload.part == 3 and lost < 1 then lost = lost + 1 return true end
+      if m.payload.kind == "hallo_senden" then return true end
+      return false
+    end
     h.step(8)
-    t.eq(lost.n, 1, "ein Teil ging verloren")
+    t.eq(lost, 1, "ein Teil ging verloren")
     local known = zentrale.info().nodes.strecke
     t.ok(known == nil or #(known.signals or {}) ~= 40, "unvollstaendig: Node nicht mit allen Signalen bekannt")
     h.step(30)
     t.eq(#(zentrale.info().nodes.strecke.signals), 40, "nach der Wiederholung vollstaendig")
+  end },
+  { "Die Leitstelle bittet eine ihr unbekannte Node, die Zustand meldet, um die Anmeldung: nach Verlust eines Teils ist sie in wenigen Sekunden vollstaendig bekannt", function()
+    local h, z, s = build(4, 10)
+    local zentrale = z.node.roles.zentrale
+    local lost = lose(h, z.cid, function(m) return m.payload.kind == "hallo_signale" and m.payload.part == 3 end, 1)
+    h.step(4)
+    t.eq(lost.n, 1, "ein Teil ging verloren")
+    t.eq(#(zentrale.info().nodes.strecke.signals), 40, "die Rueckfrage der Leitstelle hat die Anmeldung nachgeholt, lange vor der eigenen Wiederholung nach zehn Sekunden")
   end },
   { "Ein halber Status ersetzt den bisherigen nicht; erst der vollstaendige Satz gilt", function()
     local h, z, s = build(4, 10)

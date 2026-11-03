@@ -509,6 +509,21 @@ end
 
 
 
+local hello_asked, hello_asked_count = {}, 0
+local function ask_hello(sender)
+if type(sender) ~= "string" or nodes[sender] then return end
+local t = now()
+if hello_asked[sender] and t - hello_asked[sender] < 30 then return end
+if not hello_asked[sender] then
+if hello_asked_count >= 200 then hello_asked, hello_asked_count = {}, 0 end
+hello_asked_count = hello_asked_count + 1
+end
+hello_asked[sender] = t
+node.send_to(sender, "abfrage", { kind = "hallo_senden" })
+end
+
+
+
 local station_parts = chunks.new({ max_parts = 60, max_items = 400, max_keys = 80, ttl = 60, now = now })
 local function on_hello(m)
 local p = m.payload
@@ -763,6 +778,7 @@ end
 if nodes[m.senderNodeId] then nodes[m.senderNodeId].last_seen = now() end
 if m.messageType == "meldung" then
 local kind = m.payload.kind
+if kind == "zustand" or kind == "signale" or kind == "knoten" then ask_hello(m.senderNodeId) end
 if kind == "hallo" then on_hello(m)
 elseif kind == "hallo_signale" then on_hello_signals(m)
 elseif kind == "signale" then on_signals(m)
