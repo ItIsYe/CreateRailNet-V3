@@ -160,6 +160,8 @@ function M.new(node)
     local was_released = tr.p.release_set
     -- die letzte Abfahrt steht in jedem Zustandsbericht, damit eine verlorene Abfahrtsmeldung nicht zum Stillstand fuehrt
     tr.last_exit = { stay = tr.p.stay, train = train or tr.train, released = was_released and true or false }
+    tr.p.last_exit = tr.last_exit          -- bleibt ueber einen Neustart erhalten: eine nie angekommene Abfahrtsmeldung wird mit dem Zustand nachgetragen
+    save()
     report("abfahrt", tr, { train = train or tr.train, released = was_released, unplanned = not was_released or nil })
     tr.present, tr.train = false, nil
     if was_released then reset_output(tr, "abgefahren") end
@@ -196,6 +198,8 @@ function M.new(node)
     elseif not state.present and tr.present then
       -- Zug nicht mehr da, aber keine Abfahrtsmeldung: nichts als Erfolg werten
       tr.last_exit = { stay = tr.p.stay, train = tr.train, vanished = true }
+      tr.p.last_exit = tr.last_exit
+      save()
       report("zug_weg", tr, { train = tr.train })
       tr.present, tr.train = false, nil
       if tr.p.release_set then reset_output(tr, "zug_weg") end
@@ -221,6 +225,22 @@ function M.new(node)
       elseif t - item.sent >= OUTBOX_RETRY then
         item.sent, item.tries = t, item.tries + 1
         node.send_message(item.m)              -- dieselbe Nachricht: die Leitstelle wertet sie nicht doppelt
+      end
+    end
+    -- Die freigegebene Abfahrt fiel in die Zeit, in der dieser Computer nicht lief (Chunk entladen, Neustart): der Zug ist nicht mehr am Gleis, oder ein
+    -- anderer steht dort. Es wird keine Abfahrt behauptet; der Ausgang wird zurueckgenommen (sonst fuehre der naechste Zug ohne Freigabe ab) und die
+    -- Leitstelle erfaehrt "Zug weg" (Klaerung).
+    for _, tr in ipairs(role.tracks) do
+      local gone = tr.boot_gone
+      if gone then
+        tr.boot_gone = nil
+        tr.last_exit = { stay = gone.stay, train = gone.train, vanished = true }
+        tr.p.last_exit = tr.last_exit
+        save()
+        node.notify("warnung", tr.name .. ": Die freigegebene Abfahrt fiel in die Zeit ohne Betrieb" .. (gone.train and (" (Zug " .. tostring(gone.train) .. " ist nicht mehr am Gleis)") or "") .. ": Ausgang zurueckgenommen, die Leitstelle klaert.")
+        if gone.train then report("zug_weg", tr, { train = gone.train, stay = gone.stay }) end
+        reset_output(tr, "start_zug_weg")
+        dirty_report = true
       end
     end
     for _, tr in ipairs(role.tracks) do reconcile(tr) end
@@ -422,6 +442,8 @@ function M.new(node)
       return
     end
     if m.messageType ~= "auftrag" and m.messageType ~= "abfrage" then return end
+    -- die Leitstelle kennt diese Node nach ihrem Neustart noch nicht: sofort anmelden (die Anmeldung ist die Antwort)
+    if m.messageType == "abfrage" and m.payload.kind == "hallo_senden" then return role.hello() end
     local handler = HANDLERS[m.payload.kind]
     if handler then handler(m) end
   end
@@ -552,7 +574,11 @@ function M.new(node)
   for _, tr in ipairs(role.tracks) do
     local state = tr.station.read()
     tr.available = state.available == true
-    if state.present then
+    tr.last_exit = tr.p.last_exit
+    if tr.available and tr.p.release_set and not (state.present and (tr.p.release_train == nil or state.train == tr.p.release_train)) then
+      -- der freigegebene Zug ist weg (oder ein anderer steht da): im ersten Takt abgleichen; ein anderer Zug gilt dann als neue Ankunft
+      tr.boot_gone = { train = tr.p.release_train, stay = tr.p.release_stay or tr.p.stay }
+    elseif state.present then
       tr.present, tr.train, tr.since, tr.restored = true, state.train, now(), true
       -- eine Ankunft vor dem Neustart bleibt derselbe Aufenthalt, sofern ein Stand gespeichert ist
       if tr.p.stay == 0 then tr.p.stay = 1 end

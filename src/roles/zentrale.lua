@@ -507,6 +507,21 @@ function M.new(node)
     end
   end
 
+  -- Nach einem Neustart der Leitstelle (zum Beispiel Chunk wieder geladen) kennt sie keine Node: Anmeldungen kommen bei einer angemeldeten Node nur alle 120 Sekunden.
+  -- Meldet sich eine unbekannte Node mit Zustand oder Status, bittet die Leitstelle sie um die Anmeldung (hoechstens alle 30 Sekunden je Node).
+  local hello_asked, hello_asked_count = {}, 0
+  local function ask_hello(sender)
+    if type(sender) ~= "string" or nodes[sender] then return end          -- (stillgelegte Nodes erreichen diese Stelle nicht: sie werden vorher abgewiesen)
+    local t = now()
+    if hello_asked[sender] and t - hello_asked[sender] < 30 then return end
+    if not hello_asked[sender] then
+      if hello_asked_count >= 200 then hello_asked, hello_asked_count = {}, 0 end
+      hello_asked_count = hello_asked_count + 1
+    end
+    hello_asked[sender] = t
+    node.send_to(sender, "abfrage", { kind = "hallo_senden" })
+  end
+
   -- Die Anmeldung eines Bahnhofs kommt bei vielen Gleisen in Teilen; sie gilt erst, wenn der ganze Satz da ist ("fertig"). Passt alles in eine
   -- Nachricht, gibt es keine Teilangaben.
   local station_parts = chunks.new({ max_parts = 60, max_items = 400, max_keys = 80, ttl = 60, now = now })
@@ -763,6 +778,7 @@ function M.new(node)
     if nodes[m.senderNodeId] then nodes[m.senderNodeId].last_seen = now() end
     if m.messageType == "meldung" then
       local kind = m.payload.kind
+      if kind == "zustand" or kind == "signale" or kind == "knoten" then ask_hello(m.senderNodeId) end
       if kind == "hallo" then on_hello(m)
       elseif kind == "hallo_signale" then on_hello_signals(m)
       elseif kind == "signale" then on_signals(m)

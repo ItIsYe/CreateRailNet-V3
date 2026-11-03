@@ -197,6 +197,8 @@ if m.messageType == "bestaetigung" and m.payload.kind == "antwort" and m.payload
 if sync.req and m.correlationId == sync.req and sync.state == "frage" then sync.req = nil; on_sync_reply(m.payload) end
 return
 end
+
+if m.messageType == "abfrage" and m.payload.kind == "hallo_senden" then return role.hello() end
 if m.messageType ~= "auftrag" or m.payload.kind ~= "sperre" then return end
 local p = m.payload
 if not role.signals[p.signal] then return node.reply(m, "abgelehnt", { grund = "Signal unbekannt" }) end
