@@ -1,6 +1,6 @@
 --[[
 Purpose: Fake fuer rednet ueber Funk: mehrere Computer an einem Bus, mit einstellbarem Verlust, Verdopplung und Vertauschen der Reihenfolge (festes Zufallsmuster). Nachrichten kommen als Ereignis { "rednet_message", absender, text, protokoll }.
-API: bus.new{seed, drop, dup, reorder} -> b; b.attach(cid) -> rednet; b.pop(cid) -> Ereignis oder nil; b.pending(cid)
+API: bus.new{seed, drop, dup, reorder} -> b; b.filter = function(von, nach, text, protokoll) -> true verwirft die Nachricht; b.attach(cid) -> rednet; b.pop(cid) -> Ereignis oder nil; b.pending(cid)
 ]]
 
 local M = {}
@@ -19,6 +19,7 @@ function M.new(opts)
     local box = b.nodes[to]
     if not box then return end
     b.sent = b.sent + 1
+    if b.filter and b.filter(from, to, text, proto) then return end     -- gezielter Verlust (Tests setzen b.filter)
     if opts.drop and rand() < opts.drop then return end
     local copies = (opts.dup and rand() < opts.dup) and 2 or 1
     for _ = 1, copies do box.queue[#box.queue + 1] = { "rednet_message", from, text, proto } end

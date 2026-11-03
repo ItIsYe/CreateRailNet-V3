@@ -83,6 +83,7 @@ return {
     d.type(v,'netz','Testnetz');d.tap(v,'act:weiter')
     d.type(v,'zentrale','zentrale');d.tap(v,'act:weiter')
     d.tap(v,'sel:rollen:3');d.tap(v,'act:weiter')
+    d.tap(v,'act:von_hand')
     d.type(v,'name','Hof');d.tap(v,'act:weiter')
     d.tap_row(v,'geraete','Create_Station_1')
     local before=names
@@ -110,6 +111,7 @@ return {
       local v=d.view();v.set_page('einrichtung');v.dispatch('act:start')
       local session=d.node.setup.session();local w=session.wiz
       w.set_mode('join');w.set_network('N','z');w.set_name('Signal Nord');w.toggle_role('signal')
+      session.manual=true      -- der manuelle Weg ("Von Hand") neben der gefuehrten Einrichtung
       session.screen='3.geraete';w.step=3;d.node.render()
       t.ok(not d.has(v,'Depotstation'))
       t.eq(d.area(v,'act:weiter').enabled,false)

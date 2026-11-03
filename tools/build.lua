@@ -34,6 +34,91 @@ end
 
 local M = {}
 
+-- Vergleicht den Bytecode (ohne Zeilenangaben) zweier Texte: true gleich, false verschieden, nil nicht vergleichbar.
+-- LuaJIT schreibt Tabellenvorlagen nicht immer in gleicher Reihenfolge; deshalb mehrere Versuche, verschieden gilt erst wenn alle abweichen.
+function M.same_bytecode(a, b)
+  if _VERSION == "Lua 5.1" and not rawget(_G, "jit") then return nil end
+  local loader = loadstring or load
+  for _ = 1, 10 do
+    local f1, f2 = loader(a, "=a"), loader(b, "=b")
+    if not f1 or not f2 then return nil end
+    local ok1, d1 = pcall(string.dump, f1, true)
+    local ok2, d2 = pcall(string.dump, f2, true)
+    if not (ok1 and ok2) then return nil end
+    if d1 == d2 then return true end
+  end
+  return false
+end
+
+-- Kommentare, Einrueckung und Leerzeichen am Zeilenende entfernen. Die Zeilenzahl bleibt (Fehlermeldungen zeigen dieselbe Zeilennummer wie in src/);
+-- Zeichenketten und lange Zeichenketten werden unveraendert kopiert. Der Aufruf prueft selbst, dass der Bytecode (ohne Zeilenangaben) gleich bleibt.
+function M.minify(text, name)
+  local out, line, len, i = {}, {}, #text, 1
+  local at_start = true
+  local function flush(newline)
+    local piece = table.concat(line):gsub("%s+$", "")
+    out[#out + 1] = piece
+    if newline then out[#out + 1] = "\n" end
+    line = {}
+  end
+  while i <= len do
+    local c = text:sub(i, i)
+    if c == "\n" then
+      flush(true); at_start = true; i = i + 1
+    elseif at_start and (c == " " or c == "\t") then
+      i = i + 1
+    else
+      at_start = false
+      local level = text:match("^%-%-%[(=*)%[", i)
+      if c == "-" and text:sub(i + 1, i + 1) == "-" then
+        if level then
+          local close = "]" .. level .. "]"
+          local stop = text:find(close, i, true)
+          if not stop then error((name or "?") .. ": Kommentar nicht geschlossen") end
+          local body = text:sub(i, stop + #close - 1)
+          local _, newlines = body:gsub("\n", "")
+          line[#line + 1] = " "
+          for _ = 1, newlines do flush(true) end
+          i = stop + #close
+        else
+          local stop = text:find("\n", i, true) or (len + 1)
+          i = stop
+        end
+      elseif c == '"' or c == "'" then
+        local j = i + 1
+        while j <= len do
+          local d = text:sub(j, j)
+          if d == "\\" then j = j + 2
+          elseif d == c then break
+          else j = j + 1 end
+        end
+        if j > len then error((name or "?") .. ": Zeichenkette nicht geschlossen") end
+        line[#line + 1] = text:sub(i, j)
+        i = j + 1
+      elseif c == "[" and text:match("^%[=*%[", i) then
+        local eq = text:match("^%[(=*)%[", i)
+        local close = "]" .. eq .. "]"
+        local stop = text:find(close, i, true)
+        if not stop then error((name or "?") .. ": lange Zeichenkette nicht geschlossen") end
+        line[#line + 1] = text:sub(i, stop + #close - 1)
+        i = stop + #close
+      else
+        line[#line + 1] = c
+        i = i + 1
+      end
+    end
+  end
+  flush(false)
+  local result = table.concat(out)
+  -- Gegenprobe: gleicher Bytecode ohne Zeilenangaben (wo die Lua-Version das kann)
+  local loader = loadstring or load
+  if not loader(text, "=a") or not loader(result, "=b") then error((name or "?") .. ": verkleinerter Text ist kein gueltiges Lua") end
+  if M.same_bytecode(text, result) == false then
+    error((name or "?") .. ": verkleinerter Text uebersetzt anders als das Original")
+  end
+  return result
+end
+
 -- liefert die erwarteten Dateien von dist/ als { [pfad] = text } und den Fehlertext, falls die Konfiguration nicht stimmt
 function M.plan()
   local files = {}
@@ -43,6 +128,7 @@ function M.plan()
     for _, path in ipairs(config.modules[module]) do
       local text = read_file("src/" .. path)
       if not text then return nil, "Datei fehlt: src/" .. path .. " (Modul " .. module .. ")" end
+      text = M.minify(text, path)
       if files[path] then return nil, "Datei in mehreren Modulen: " .. path end
       files[path] = text
       info[path] = { size = #text, sum = adler.hex(text) }

@@ -78,6 +78,76 @@ function M.remove_track(config, id)
   config.tracks[id] = nil
 end
 
+-- Knoten aus dem Verzeichnis in das Knotenmodell der Node uebersetzen (Konzept 7). Das Modell kennt Anschluesse und Verbindungen zwischen Anschluessen
+-- (eine Einfahrt belegt alle Verbindungen, die dort beginnen; domain/areas.lua), das Verzeichnis kennt Fahrwege zwischen einzelnen Gleisenden. Verbindungen
+-- und Konflikte werden deshalb auf Anschlussebene zusammengefasst; das ist gewollt vorsichtig (mehr Ausschluss, nie weniger).
+-- j = { connections = { { name, tracks = { { id, name, area } } } }, routes = { { id, from, to } }, conflicts = { { a, b } } }
+-- Ergebnis: { connections = { name = true }, moves = { { from, to } }, conflicts = { { moves = { i, k } } },
+--             tracks = { { id, name, connection, role = "ein" | "aus" } }, unused = Zahl } oder nil, Fehlertext
+function M.junction_from_directory(j)
+  local owner, order = {}, {}
+  for _, c in ipairs(j.connections or {}) do
+    for _, t in ipairs(c.tracks or {}) do
+      if owner[t.id] then return nil, "Das Gleis " .. t.name .. " steht in zwei Anschluessen." end
+      owner[t.id] = { connection = c.name, name = t.name, area = t.area }
+      order[#order + 1] = t.id
+    end
+  end
+  local routes = {}
+  for _, r in ipairs(j.routes or {}) do routes[#routes + 1] = r end
+  table.sort(routes, function(a, b) return a.id < b.id end)
+  if #routes == 0 then return nil, "Der Knoten hat keinen bestaetigten Fahrweg." end
+  local from_ends, to_ends, move_keys = {}, {}, {}
+  for _, r in ipairs(routes) do
+    local a, b = owner[r.from], owner[r.to]
+    if not a or not b then return nil, "Der Fahrweg " .. r.id .. " nennt ein Gleis ausserhalb der Anschluesse." end
+    if a.connection == b.connection then return nil, "Der Fahrweg " .. r.id .. " beginnt und endet am selben Anschluss." end
+    from_ends[r.from], to_ends[r.to] = true, true
+    move_keys[a.connection .. "\0" .. b.connection] = { from = a.connection, to = b.connection }
+  end
+  for _, id in ipairs(order) do
+    if from_ends[id] and to_ends[id] then
+      return nil, "Das Gleis " .. owner[id].name .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: das kennt die Node nicht, bitte in der Leitstelle trennen oder von Hand einrichten."
+    end
+  end
+  local moves = {}
+  for _, m in pairs(move_keys) do moves[#moves + 1] = m end
+  table.sort(moves, function(a, b) if a.from ~= b.from then return a.from < b.from end return a.to < b.to end)
+  local move_index = {}
+  for i, m in ipairs(moves) do move_index[m.from .. "\0" .. m.to] = i end
+  local route_move = {}
+  for _, r in ipairs(routes) do route_move[r.id] = move_index[owner[r.from].connection .. "\0" .. owner[r.to].connection] end
+  local conflicts, seen = {}, {}
+  for _, c in ipairs(j.conflicts or {}) do
+    local x, y = route_move[c.a], route_move[c.b]
+    if x and y and x ~= y then
+      local lo, hi = math.min(x, y), math.max(x, y)
+      if not seen[lo .. ":" .. hi] then seen[lo .. ":" .. hi] = true; conflicts[#conflicts + 1] = { moves = { lo, hi } } end
+    end
+  end
+  table.sort(conflicts, function(a, b) if a.moves[1] ~= b.moves[1] then return a.moves[1] < b.moves[1] end return a.moves[2] < b.moves[2] end)
+  -- lokale Gleisnamen: Anschluss und Gleisname; gleiche Namen bekommen den Bereich dazu
+  local counts = {}
+  for _, id in ipairs(order) do
+    if from_ends[id] or to_ends[id] then
+      local key = owner[id].connection .. " " .. owner[id].name
+      counts[key] = (counts[key] or 0) + 1
+    end
+  end
+  local connections, tracks, unused = {}, {}, 0
+  for _, id in ipairs(order) do
+    local o = owner[id]
+    if from_ends[id] or to_ends[id] then
+      connections[o.connection] = true
+      local base = o.connection .. " " .. o.name
+      tracks[#tracks + 1] = { id = id, name = counts[base] > 1 and (base .. " " .. tostring(o.area)) or base, connection = o.connection, role = from_ends[id] and "ein" or "aus" }
+    else
+      unused = unused + 1
+    end
+  end
+  return { connections = connections, moves = moves, conflicts = conflicts, tracks = tracks, unused = unused }
+end
+
 -- entfernt ein Geraet und alle Verweise darauf (Gleise, Anmeldestation)
 function M.remove_device(config, id)
   config.devices[id] = nil
@@ -86,6 +156,7 @@ function M.remove_device(config, id)
     for _, field in ipairs({ "signals", "observers" }) do
       local kept = {}
       for _, ref in ipairs(track[field]) do if ref ~= id then kept[#kept + 1] = ref end end
+      if field == "signals" and #kept ~= #track.signals then track.order_ok = nil end       -- die bestaetigte Reihenfolge gilt nur fuer genau diese Signale
       track[field] = kept
     end
   end
@@ -100,6 +171,7 @@ function M.assign(config, track_id, field, device_id)
   elseif field == "signals" or field == "observers" then
     for _, existing in ipairs(track[field]) do if existing == device_id then return true end end
     track[field][#track[field] + 1] = device_id
+    if field == "signals" then track.order_ok = nil end
   elseif field == "release" then
     track.release = device_id
   else
@@ -158,6 +230,23 @@ function M.profile(config)
   if release then allowed.relay = true end
   if has_role(config, "passagierbahnhof") then allowed.displaylink = true end
   return { station = station, signal = signal, release = release, tracks = station or signal, allowed = allowed }
+end
+
+-- Einfahrtsgleis eines Knotens mit mehreren Signalen: genau eines muss als Einfahrt markiert und das letzte vor dem Knoten sein (Reihenfolge zum Knoten
+-- hin); die uebrigen Signale regelt Create allein. Gibt Code und Text des Mangels zurueck, sonst nil.
+function M.entry_signal_problem(config, track)
+  if not (track.junction and track.junction.role == "ein" and #track.signals >= 2) then return nil end
+  local marked, last_marked = 0, false
+  for i, ref in ipairs(track.signals) do
+    local info = config.devices[ref] and config.devices[ref].signal
+    if info and info.use == "einfahrt" then marked = marked + 1; last_marked = (i == #track.signals) end
+  end
+  if marked ~= 1 then
+    return "knoten_einfahrtsignal", "Einfahrtsgleis " .. track.name .. " hat " .. #track.signals .. " Signale: genau eines als Einfahrt markieren (das letzte vor dem Knoten)."
+  elseif not last_marked then
+    return "knoten_einfahrtlage", "Einfahrtsgleis " .. track.name .. ": das Einfahrtsignal muss das letzte Signal vor dem Knoten sein (Reihenfolge zum Knoten hin)."
+  end
+  return nil
 end
 
 function M.validate(config, scan)
@@ -222,10 +311,23 @@ function M.validate(config, scan)
       end
     end
     claim(track.station, "Bahnhof")
-    for _, s in ipairs(track.signals) do claim(s, "Signal") end
+    -- gefuehrte Einrichtung: mehrere Signale an einem Gleis liegen hintereinander; die Reihenfolge (von Anschluss 1 nach Anschluss 2) muss bestaetigt sein
+    if track.dir and #track.signals >= 2 and not track.order_ok then
+      local ends = config.node.area_ends
+      add("signal_reihenfolge", "Gleis " .. track.name .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
+    end
+    for _, s in ipairs(track.signals) do
+      claim(s, "Signal")
+      -- Konzept 5.4: bei Signalen der gefuehrten Einrichtung muss die Wirkrichtung bekannt sein
+      local info = config.devices[s] and config.devices[s].signal
+      if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
+    end
     for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
     if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
     if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+    -- Einfahrtsgleis mit mehreren Signalen: nur das Signal unmittelbar vor dem Knoten sperrt die Einfahrt (siehe M.entry_signal_problem)
+    local entry_code, entry_text = M.entry_signal_problem(config, track)
+    if entry_code then add(entry_code, entry_text) end
     if track.junction then
       if not config.junction.connections[track.junction.connection] then
         add("knoten_gleis", "Gleis " .. track.name .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")

@@ -96,6 +96,18 @@ function M.real_env()
     term = term.current and term.current() or term,
     wrap = function(name) return peripheral.wrap(name) end,
     start_timer = os.startTimer,
+    set_label = function(text) if os.setComputerLabel then os.setComputerLabel(text) end end,
+    -- eindeutig je Computer und Start (vorlaeufige Kennung vor der Einrichtung)
+    unique = function()
+      local id = os.getComputerID and os.getComputerID() or 0
+      local stamp = os.epoch and (os.epoch("utc") % 2147483647) or math.random(1, 2147483646)
+      return tostring(id) .. "-" .. tostring(stamp)
+    end,
+    -- Wanduhr in ganzen Sekunden (Weltzeit); 0, wenn der Computer sie nicht kennt
+    utc_seconds = function()
+      if os.epoch then return math.floor(os.epoch("utc") / 1000) end
+      return 0
+    end,
     pull_event = function() return { os.pullEvent() } end,
   }
 end

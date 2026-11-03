@@ -21,16 +21,20 @@ function M.new(node)
   local reg_device = config.registration_station and config.devices[config.registration_station] and config.devices[config.registration_station].device
   local station = reg_device and stationlib.new(node.env, reg_device) or nil
   local templates, last_query = {}, -9999
+  local incoming = nil        -- Vorlagen aus den Seiten einer laufenden Abfrage (die Leitstelle antwortet seitenweise)
   local demands = {}          -- Vorlage -> { m, sent, tries, answered }
   local registration = nil    -- { m, sent, tries, result }
   local counter = 0
 
   local function central() return node.central_id() end
 
-  local function query_templates()
-    node.send_to(central(), "abfrage", { kind = "vorlagen" })
+  local function query_templates(after)
+    node.send_to(central(), "abfrage", { kind = "vorlagen", nach = after })
     last_query = now()
   end
+
+  -- zuletzt vollstaendig empfangene Vorlagenliste (nur lesen)
+  function role.templates() return templates end
 
   function role.station_state()
     if not station then return nil end
@@ -96,7 +100,24 @@ function M.new(node)
         query_templates()
       end
     end
-    if m.payload.antwort_auf == "vorlagen" and m.payload.templates then templates = m.payload.templates end
+    -- Seiten der Vorlagenliste nur beim ersten Eintreffen: eine doppelt zugestellte letzte Seite wuerde sonst eine neue Sammlung beginnen und die ganze Liste ersetzen
+    if status == "ok" and m.payload.antwort_auf == "vorlagen" and type(m.payload.templates) == "table" then
+      local p = m.payload
+      -- die erste Seite (oder ein Neubeginn der Leitstelle) setzt die Sammlung neu; spaetere Seiten haengen sich an, doppelt Eintreffendes zaehlt nicht
+      if p.von_vorn or not incoming then incoming = { list = {}, ids = {} } end
+      for _, info in ipairs(p.templates) do
+        if type(info) == "table" and info.id ~= nil and not incoming.ids[info.id] then
+          incoming.ids[info.id] = true
+          incoming.list[#incoming.list + 1] = info
+        end
+      end
+      local last = p.templates[#p.templates]
+      if p.more and type(last) == "table" and last.id ~= nil then
+        query_templates(last.id)
+      else
+        templates, incoming = incoming.list, nil
+      end
+    end
   end
 
   function role.tick()

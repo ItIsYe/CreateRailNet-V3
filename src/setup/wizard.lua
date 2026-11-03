@@ -20,6 +20,10 @@ local SELECTABLE = { station = true, signal = true, observer = true, relay = tru
 
 M.STEPS = { "Anlage", "Rolle", "Geraete", "Gleise", "Test", "Fertig" }
 
+-- Funktion eines Signals (Konzept 5.4); die Wirkrichtung ist ein Anschlussname des Bereichs, der oertliche Bezug ein Anschlussname oder "mitte"
+M.SIGNAL_USES = { "strecke", "einfahrt", "ausfahrt" }
+M.USE_TEXT = { strecke = "Streckensignal", einfahrt = "Knoteneinfahrt", ausfahrt = "Knotenausfahrt" }
+
 function M.new(opts)
   local w = { step = 1, mode = "create", network_name = "", central_id = "", key = "", name = "", roles = {}, scan = opts.scan() }
   local env = opts.env
@@ -29,6 +33,10 @@ function M.new(opts)
   if not existing and opts.role_available and not opts.role_available("zentrale") then w.mode = "join" end
 
   w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
+  -- gefuehrte Einrichtung (Signal-Node nach dem Netzverzeichnis): die Kennung kommt von der Leitstelle, die Abschlusspruefung ist w.pruefung
+  local function single_role(list, name) return #list == 1 and list[1] == name end
+  w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv" and single_role(existing.node.roles, "signal")) or nil
+  w.claimed_id = (existing ~= nil and existing.node.claimed == true) and existing.node.id or nil
   if existing then
     w.network_name = existing.network.name
     w.central_id = existing.network.central_id or ""
@@ -50,7 +58,7 @@ function M.new(opts)
     c.network.central_id = (w.mode == "join" and w.central_id ~= "") and w.central_id or nil
     c.network.key = (w.key ~= "") and w.key or nil
     c.node.name = w.name
-    if not existing then c.node.id = model.slug(w.name) end
+    if not existing then c.node.id = w.claimed_id or model.slug(w.name) end
     c.node.roles = {}
     for _, r in ipairs(model.ROLES) do if has(w.roles, r) then c.node.roles[#c.node.roles + 1] = r end end
   end
@@ -104,6 +112,8 @@ function M.new(opts)
       w.roles[#w.roles + 1] = role
     end
     sync_config()
+    -- die gefuehrte Einrichtung gilt nur fuer genau die Rolle Signal
+    if w.guided and not (#w.roles == 1 and w.roles[1] == "signal") then w.guided = nil end
     local p = model.profile(w.config)
     local remove = {}
     for id, d in pairs(w.config.devices) do if not p.allowed[d.kind] then remove[#remove+1]=id end end
@@ -125,18 +135,34 @@ function M.new(opts)
 
   function w.allowed_devices() return model.profile(w.config).allowed end
 
-  local function fingerprint()
+  -- Stand der Dinge, auf dem ein Pruefergebnis beruht (Konzept 13.5): das Geraet beziehungsweise der Ausgang und die Zuordnung seines Gleises (Richtung,
+  -- Geraete, Knotenanschluss). Name und Status des Gleises, andere Gleise und Netzangaben gehoeren nicht dazu: sie entwerten nichts.
+  local function test_fingerprint(kind, ref)
     local c = w.config
-    local tracks = assert(ser.decode(ser.encode(c.tracks)))
-    for _, track in pairs(tracks) do track.status = nil end
-    local text = ser.encode({ network = c.network, node = c.node, devices = c.devices,
-      tracks = tracks, junction = c.junction, registration_station = c.registration_station })
-    -- Feste Laenge pro Test: keine Kopie der Gesamtanlage fuer jedes Signal speichern.
+    local function track_part(track)
+      local copy = assert(ser.decode(ser.encode(track)))
+      copy.name, copy.status = nil, nil
+      return copy
+    end
+    local part = {}
+    if kind == "ausgang" then
+      if c.tracks[ref] then part.track = track_part(c.tracks[ref]) end
+    else
+      part.device = c.devices[ref]
+      for _, track in pairs(c.tracks) do
+        local owns = track.station == ref
+        for _, did in ipairs(track.signals) do if did == ref then owns = true end end
+        for _, did in ipairs(track.observers) do if did == ref then owns = true end end
+        if owns then part.track = track_part(track) end
+      end
+    end
+    local text = ser.encode(part)
     return #text .. ":" .. adler.hex(text)
   end
 
   -- cached = true: die zuletzt gelesene Geraeteliste verwenden (zum Zeichnen); sonst vorher neu lesen
-  function w.step_ok(n, cached)
+  -- skip: Pflichtangaben, die in diesem Bildschirm noch nicht verlangt werden (zum Beispiel die Anmeldestation, die erst nach den Gleisen gewaehlt wird)
+  function w.step_ok(n, cached, skip)
     sync_config()
     if n == 1 then
       if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
@@ -171,8 +197,9 @@ function M.new(opts)
       if p.signal and not counts.signal then return false, "Mindestens ein Train Signal muss ausgewaehlt werden." end
       if needs("knoten") and not counts.observer then return false, "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." end
       if n >= 4 then
-        local problems = model.validate(w.config, w.scan)
-        if #problems > 0 then return false, problems[1].text end
+        for _, p in ipairs(model.validate(w.config, w.scan)) do
+          if not (skip and skip[p.code]) then return false, p.text end
+        end
       end
       if n >= 5 and not w.all_tests_ok() then return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen." end
       return true
@@ -282,7 +309,11 @@ function M.new(opts)
     end
     local list = track[field]
     for i, existing_id in ipairs(list) do
-      if existing_id == device_id then table.remove(list, i) return true end
+      if existing_id == device_id then
+        table.remove(list, i)
+        if field == "signals" then track.order_ok = nil end        -- die bestaetigte Reihenfolge gilt nur fuer genau diese Signale
+        return true
+      end
     end
     for id, other in pairs(w.config.tracks) do
       if id ~= track_id then
@@ -292,6 +323,7 @@ function M.new(opts)
       end
     end
     list[#list + 1] = device_id
+    if field == "signals" then track.order_ok = nil end
     return true
   end
 
@@ -311,6 +343,350 @@ function M.new(opts)
 
   function w.set_registration(device_id)
     w.config.registration_station = device_id
+    return true
+  end
+
+  -- Gefuehrte Einrichtung ---------------------------------------------------------------------------------------------------------------
+  -- info = { area = { id, name }, claim, node = { id, name, label }, tracks = { { id, name, direction }, ... } (nur die uebernommenen) }
+  -- Die Gleise kommen aus dem Netzverzeichnis (track.dir = { id, area, direction }); bereits zugeordnete Signale bleiben erhalten, wenn das Gleis uebernommen bleibt.
+  -- Bisherige Einrichtung (ohne Verzeichnis, eine bereits eingerichtete Node): ihre Gleise werden anhand des Namens den Gleisen des Bereichs zugeordnet und
+  -- behalten ihre Geraete; was sich nicht zuordnen laesst, wird genannt (es wird nie still entfernt oder doppelt angelegt).
+  function w.legacy_id()
+    return (existing ~= nil and existing.node.claimed ~= true) and existing.node.id or nil
+  end
+
+  function w.guided_precheck(tracks)
+    local names, orphans = {}, {}
+    for _, t in ipairs(tracks) do names[t.name:lower()] = true end
+    for _, track in pairs(w.config.tracks) do
+      if not track.dir and not names[track.name:lower()] then orphans[#orphans + 1] = track.name end
+    end
+    if #orphans > 0 then
+      table.sort(orphans)
+      return nil, "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht (nach Namen): " .. table.concat(orphans, ", ") .. "."
+    end
+    return true
+  end
+
+  function w.guided_begin(info)
+    local roles = {}
+    for _, r in ipairs(info.roles or { info.role or "signal" }) do roles[#roles + 1] = r end
+    local pre, why_pre = w.guided_precheck(info.tracks)
+    if not pre then return nil, why_pre end
+    w.mode = "join"
+    w.roles = roles
+    w.claimed_id = info.node.id
+    w.name = info.node.name
+    -- nur reine Signal-Nodes pruefen ueber setup/pruefung.lua; Bahnhoefe, Depots und kombinierte Nodes behalten die bisherigen Pruefungen
+    w.guided = (#roles == 1 and roles[1] == "signal") or nil
+    sync_config()
+    local c = w.config
+    c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
+    c.node.area_ends = info.area.ends and { info.area.ends[1], info.area.ends[2] } or c.node.area_ends
+    local wanted, by_dir, taken = {}, {}, {}
+    for _, t in ipairs(info.tracks) do wanted[t.id] = t end
+    for _, track in pairs(c.tracks) do if track.dir then taken[track.dir.id] = true end end
+    -- bisherige Gleise ohne Verzeichnis: gleicher Name, gleiches Gleis
+    for _, track in pairs(c.tracks) do
+      if not track.dir then
+        for _, t in ipairs(info.tracks) do
+          if not taken[t.id] and t.name:lower() == track.name:lower() then
+            track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
+            taken[t.id] = true
+            break
+          end
+        end
+      end
+    end
+    for tid, track in pairs(c.tracks) do
+      if track.dir then
+        if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
+      end
+    end
+    for _, t in ipairs(info.tracks) do
+      local tid = by_dir[t.id]
+      if not tid then tid = model.add_track(c, t.name) end
+      local track = c.tracks[tid]
+      track.name = t.name
+      track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
+      -- Signale der bisherigen Einrichtung bekommen die Angaben nach Konzept 5.4 (Vorgabe aus eindeutiger Richtung)
+      if has(roles, "signal") then
+        local unique = (t.direction ~= "beide") and t.direction or nil
+        for _, did in ipairs(track.signals) do
+          local d = c.devices[did]
+          if d and not d.signal then d.signal = { use = "strecke", effect = unique, place = unique } end
+        end
+      end
+    end
+    return true
+  end
+
+  -- Knoten-Node aus dem Verzeichnis: Anschluesse, Verbindungen und Konflikte kommen aus dem bestaetigten Knoten, die Gleisenden werden Gleise mit Einfahrt-
+  -- (Signal) oder Ausfahrtsrolle (Beobachter); Geraete werden danach zugeordnet. info = { junction = Daten des Knotens, claim, node = { id, name, label } }
+  -- Anmeldung: gehoert zu einer Betriebsstelle des Verzeichnisses, hat keine Gleise. info = { station = { id, name }, claim, node = { id, name, label } }
+  function w.anmeldung_begin(info)
+    w.mode = "join"
+    w.roles = { "anmeldung" }
+    w.claimed_id = info.node.id
+    w.name = info.node.name
+    w.guided = nil
+    sync_config()
+    local c = w.config
+    c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.id
+    return true
+  end
+
+  function w.knoten_precheck()
+    for _, track in pairs(w.config.tracks) do
+      if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (Gleis " .. track.name .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
+    end
+    return true
+  end
+
+  function w.knoten_begin(info)
+    local t, why = model.junction_from_directory(info.junction)
+    if not t then return nil, why end
+    local pre, why_pre = w.knoten_precheck()
+    if not pre then return nil, why_pre end
+    w.mode = "join"
+    w.roles = { "knoten" }
+    w.claimed_id = info.node.id
+    w.name = info.node.name
+    w.guided = nil
+    sync_config()
+    local c = w.config
+    c.node.claimed, c.node.label, c.node.claim = true, info.node.label, info.claim
+    c.node.junction, c.node.junction_rev = info.junction.id, info.junction.rev
+    c.junction = { connections = t.connections, moves = t.moves, conflicts = t.conflicts }
+    local wanted, by_dir = {}, {}
+    for _, tr in ipairs(t.tracks) do wanted[tr.id] = tr end
+    for tid, track in pairs(c.tracks) do
+      if track.dir then
+        if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
+      end
+    end
+    for _, tr in ipairs(t.tracks) do
+      local tid = by_dir[tr.id] or model.add_track(c, tr.name)
+      local track = c.tracks[tid]
+      track.name = tr.name
+      track.dir = { id = tr.id, junction = info.junction.id }
+      track.junction = { connection = tr.connection, role = tr.role }
+    end
+    w.config.tests = {}
+    return true, nil, t
+  end
+
+  function w.guided_remove_track(tid)
+    local track = w.config.tracks[tid]
+    if not track then return end
+    local assigned = {}
+    for _, did in ipairs(track.signals) do assigned[#assigned + 1] = did end
+    for _, did in ipairs(assigned) do model.remove_device(w.config, did) end
+    model.remove_track(w.config, tid)
+  end
+
+  -- Gleise in der Reihenfolge des Verzeichnisses (Kennung A0001 ...): { track = id, name, direction, signals = { { id, device } } }
+  function w.guided_rows()
+    local rows = {}
+    local ids = {}
+    for tid, track in pairs(w.config.tracks) do if track.dir then ids[#ids + 1] = tid end end
+    table.sort(ids, function(a, b) return w.config.tracks[a].dir.id < w.config.tracks[b].dir.id end)
+    for _, tid in ipairs(ids) do
+      local track = w.config.tracks[tid]
+      local signals = {}
+      for _, did in ipairs(track.signals) do
+        local d = w.config.devices[did]
+        if d then
+          local info = d.signal or {}
+          signals[#signals + 1] = { id = did, device = d.device, use = info.use or "strecke", effect = info.effect, place = info.place }
+        end
+      end
+      rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals, order_ok = track.order_ok == true, junction = track.junction }
+    end
+    return rows
+  end
+
+  -- angeschlossene Signale, die noch keinem Gleis gehoeren (nur lesbare mit allen Methoden werden zugeordnet)
+  function w.guided_free_signals()
+    return model.free_devices(w.config, w.scan, "signal")
+  end
+
+  function w.guided_assign(tid, device_name)
+    local track = w.config.tracks[tid]
+    if not track or not track.dir then return false, "Das Gleis gibt es nicht." end
+    local found = detect.find(w.scan, device_name)
+    if not found or found.kind ~= "signal" then return false, "Das Signal ist nicht angeschlossen." end
+    local missing = detect.missing("signal", found)
+    if #missing > 0 then return false, "Dem Geraet fehlen Methoden: " .. table.concat(missing, ",") end
+    for _, other in pairs(w.config.tracks) do
+      for _, did in ipairs(other.signals) do
+        if w.config.devices[did] and w.config.devices[did].device == device_name then return false, "Das Signal gehoert schon zu " .. other.name .. "." end
+      end
+    end
+    local did = model.add_device(w.config, "signal", device_name)
+    model.assign(w.config, tid, "signals", did)
+    -- Wirkrichtung und Standort ergeben sich aus der Gleisrichtung, wenn sie eindeutig ist; sonst muss der Bediener waehlen
+    local direction = track.dir.direction
+    local unique = (direction ~= "beide") and direction or nil
+    w.config.devices[did].signal = { use = "strecke", effect = unique, place = unique }
+    return true
+  end
+
+  -- die beiden Anschlussnamen des Bereichs (aus dem Verzeichnis; bei aelteren Entwuerfen aus den Gleisrichtungen)
+  function w.area_ends()
+    local ends = w.config.node.area_ends
+    if ends and ends[1] and ends[2] then return { ends[1], ends[2] } end
+    local seen, list = {}, {}
+    for _, track in pairs(w.config.tracks) do
+      local d = track.dir and track.dir.direction
+      if d and d ~= "beide" and not seen[d] then seen[d] = true; list[#list + 1] = d end
+    end
+    table.sort(list)
+    return list
+  end
+
+  local function next_of(list, current)
+    for i, v in ipairs(list) do if v == current then return list[i % #list + 1] end end
+    return list[1]
+  end
+
+  -- Funktion, Wirkrichtung oder oertlichen Bezug eines Signals der Reihe nach weiterschalten
+  function w.signal_cycle(did, field)
+    local d = w.config.devices[did]
+    if not d or d.kind ~= "signal" then return false, "Das Signal gibt es nicht." end
+    d.signal = d.signal or { use = "strecke" }
+    local ends = w.area_ends()
+    if field == "use" then
+      d.signal.use = next_of(M.SIGNAL_USES, d.signal.use)
+    elseif field == "effect" then
+      if #ends == 0 then return false, "Der Bereich hat keine benannten Anschluesse." end
+      d.signal.effect = next_of(ends, d.signal.effect)
+      if d.signal.place == nil then d.signal.place = d.signal.effect end
+    elseif field == "place" then
+      local options = {}
+      for _, e in ipairs(ends) do options[#options + 1] = e end
+      options[#options + 1] = "mitte"
+      d.signal.place = next_of(options, d.signal.place)
+    else
+      return false, "Unbekanntes Feld."
+    end
+    return true
+  end
+
+  -- Signal im Gleis um eine Stelle verschieben (delta -1 = naeher an Anschluss 1, +1 = naeher an Anschluss 2); die Reihenfolge muss danach neu bestaetigt werden
+  function w.guided_signal_move(did, delta)
+    for _, track in pairs(w.config.tracks) do
+      if track.dir then
+        for i, ref in ipairs(track.signals) do
+          if ref == did then
+            local j = i + delta
+            if j < 1 or j > #track.signals then return false, delta < 0 and "Das Signal ist schon das erste." or "Das Signal ist schon das letzte." end
+            track.signals[i], track.signals[j] = track.signals[j], track.signals[i]
+            track.order_ok = nil
+            return true
+          end
+        end
+      end
+    end
+    return false, "Das Signal gehoert zu keinem Gleis."
+  end
+
+  -- Reihenfolge der Signale eines Gleises bestaetigen (nur sinnvoll bei mindestens zwei Signalen)
+  function w.guided_order_confirm(tid)
+    local track = w.config.tracks[tid]
+    if not track or not track.dir then return false, "Das Gleis gibt es nicht." end
+    if #track.signals < 2 then return false, "Bei einem Signal gibt es keine Reihenfolge." end
+    track.order_ok = true
+    return true
+  end
+
+  -- Einfahrtsignal eines Knotengleises festlegen: genau dieses Signal wird als Einfahrt gesperrt, die uebrigen Signale des Gleises sind Streckensignale
+  function w.guided_einfahrt_mark(did)
+    for _, track in pairs(w.config.tracks) do
+      for _, ref in ipairs(track.signals) do
+        if ref == did then
+          if not (track.junction and track.junction.role == "ein") then return false, "Das ist kein Einfahrtsgleis eines Knotens." end
+          for _, other in ipairs(track.signals) do
+            local d = w.config.devices[other]
+            if d then
+              d.signal = d.signal or {}
+              d.signal.use = (other == did) and "einfahrt" or "strecke"
+            end
+          end
+          return true
+        end
+      end
+    end
+    return false, "Das Signal gehoert zu keinem Gleis."
+  end
+
+  -- Gleise mit mehreren Signalen, deren Reihenfolge noch nicht bestaetigt ist: { { track, name, count } ... }
+  function w.order_problems()
+    local list = {}
+    for _, row in ipairs(w.guided_rows()) do
+      if #row.signals >= 2 and not row.order_ok then list[#list + 1] = { track = row.track, name = row.name, count = #row.signals } end
+    end
+    return list
+  end
+
+  -- Signale ohne Wirkrichtung: { { id, device, track_name } ... }
+  function w.signal_problems()
+    local list = {}
+    for _, row in ipairs(w.guided_rows()) do
+      for _, sg in ipairs(row.signals) do
+        if not sg.effect then list[#list + 1] = { id = sg.id, device = sg.device, track_name = row.name } end
+      end
+    end
+    return list
+  end
+
+  -- Name oder Richtung eines Gleises wurden zentral geaendert (info = { id, name, direction, rev }): lokal nachziehen; liefert die Zahl neu bewerteter Signale
+  function w.guided_track_update(info)
+    for tid, track in pairs(w.config.tracks) do
+      if track.dir and track.dir.id == info.id then
+        track.name = info.name
+        local moved = track.dir.direction ~= info.direction
+        track.dir.direction, track.dir.rev = info.direction, info.rev
+        return moved and w.guided_direction_changed(tid) or 0, tid
+      end
+    end
+    return nil, "Das Gleis gehoert nicht zu dieser Node."
+  end
+
+  -- Nach einer Aenderung der Gleisrichtung: Signale, deren Wirkrichtung nicht mehr zum Gleis passt, werden neu bewertet
+  -- (eindeutige Richtung uebernommen, sonst offen); gibt die Zahl der betroffenen Signale zurueck
+  function w.guided_direction_changed(tid)
+    local track = w.config.tracks[tid]
+    if not track or not track.dir then return 0 end
+    local direction = track.dir.direction
+    local unique = (direction ~= "beide") and direction or nil
+    local changed = 0
+    local function is_end(name)
+      for _, e in ipairs(w.area_ends()) do if e == name then return true end end
+      return false
+    end
+    for _, did in ipairs(track.signals) do
+      local d = w.config.devices[did]
+      if d then
+        d.signal = d.signal or { use = "strecke" }
+        local effect = d.signal.effect
+        if unique then
+          if effect ~= unique then d.signal.effect, d.signal.place = unique, unique; changed = changed + 1 end
+        elseif effect ~= nil and not is_end(effect) then
+          d.signal.effect, d.signal.place = nil, nil
+          changed = changed + 1
+        end
+      end
+    end
+    if changed > 0 then w.config.tests = {} end
+    return changed
+  end
+
+  -- das zuletzt zugeordnete Signal des Gleises wieder loesen
+  function w.guided_unassign(tid)
+    local track = w.config.tracks[tid]
+    if not track or #track.signals == 0 then return false, "An diesem Gleis ist kein Signal zugeordnet." end
+    model.remove_device(w.config, track.signals[#track.signals])
     return true
   end
 
@@ -360,6 +736,7 @@ function M.new(opts)
   function w.tests()
     sync_config()
     local list = {}
+    if w.guided then return list end          -- die gefuehrte Einrichtung prueft ueber w.pruefung (setup/pruefung.lua)
     local ids = {}
     for id in pairs(w.config.devices) do ids[#ids + 1] = id end
     table.sort(ids)
@@ -367,13 +744,13 @@ function M.new(opts)
       local d = w.config.devices[id]
       if d.kind == "station" or d.kind == "signal" or d.kind == "observer" then
         list[#list + 1] = {
-          id = "lesen:" .. id, kind = "lesen", title = "Lesen: " .. d.device, spec = d.device,
+          id = "lesen:" .. id, kind = "lesen", title = "Lesen: " .. d.device, spec = d.device, fp = test_fingerprint("geraet", id),
           explain = "Der Zustand von " .. d.device .. " wird nur gelesen.",
         }
       end
       if d.kind == "signal" then
         list[#list + 1] = {
-          id = "sperre:" .. id, kind = "schalten", title = "Sperre: " .. d.device, spec = d.device,
+          id = "sperre:" .. id, kind = "schalten", title = "Sperre: " .. d.device, spec = d.device, fp = test_fingerprint("geraet", id),
           explain = "Das Signal " .. d.device .. " wird kurz zusaetzlich auf Rot gesperrt und wieder freigegeben. Es darf gerade keinen Zug schuetzen; ein belegtes Signal bleibt nach dem Aufheben rot.",
         }
       end
@@ -384,7 +761,7 @@ function M.new(opts)
       if track.release then
         local key = (track.release.relay or "Computer") .. " " .. track.release.side
         list[#list + 1] = {
-          id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key,
+          id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key, fp = test_fingerprint("ausgang", tid),
           explain = "Der Freigabeausgang " .. key .. " von Gleis " .. track.name .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
         }
       end
@@ -401,20 +778,20 @@ function M.new(opts)
     if not test then return nil end
     local result = w.config.tests[id]
     if not result then return "offen" end
-    if result.spec ~= test.spec or result.fingerprint ~= (current or fingerprint()) then return "offen" end
+    if result.spec ~= test.spec or result.fp ~= test.fp then return "offen" end
     return result.ok and "ok" or "fehler", result.text
   end
 
   function w.all_tests_ok()
-    local current = fingerprint()
+    if w.guided then return w.pruefung ~= nil and w.pruefung.all_ok() end
     for _, test in ipairs(w.tests()) do
-      if w.test_state(test.id, current, test) ~= "ok" then return false end
+      if w.test_state(test.id, nil, test) ~= "ok" then return false end
     end
     return true
   end
 
   local function record(test, ok, text)
-    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fingerprint = fingerprint(), at = opts.now() }
+    w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fp = test.fp, at = opts.now() }
     return ok, text
   end
 
@@ -459,6 +836,39 @@ function M.new(opts)
       return record(test, true, "Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
     end
     return false, "unbekannte Pruefung"
+  end
+
+  -- Alle noch offenen oder fehlgeschlagenen Pruefungen nacheinander (Konzept 13.1, 13.2): zuerst die lesenden, dann die schaltenden. Gueltige Ergebnisse
+  -- unveraenderter Geraete bleiben (13.5). Schaltende Pruefungen laufen nur mit confirmed = true (gemeinsame Bestaetigung). Bleibt nach einer Schaltpruefung
+  -- ein Zustand unklar ("ACHTUNG"), wird die Serie gestoppt und das gemeldet (13.4).
+  -- Ergebnis: { ok = n, failed = n, open = n (nicht gelaufen), stopped = Titel oder nil }
+  function w.run_open_tests(confirmed)
+    local result = { ok = 0, failed = 0, open = 0 }
+    local pending_switch = {}
+    for _, test in ipairs(w.tests()) do
+      if w.test_state(test.id, nil, test) ~= "ok" then
+        if test.kind == "lesen" then
+          local ok = w.run_test(test.id, false)
+          result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
+        else
+          pending_switch[#pending_switch + 1] = test
+        end
+      end
+    end
+    if #pending_switch > 0 and confirmed ~= true then
+      result.open = #pending_switch
+      return result
+    end
+    for i, test in ipairs(pending_switch) do
+      local ok, text = w.run_test(test.id, true)
+      result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
+      if not ok and tostring(text):sub(1, 7) == "ACHTUNG" then
+        result.stopped = test.title
+        result.open = #pending_switch - i
+        break
+      end
+    end
+    return result
   end
 
   -- Schritt 6 ----------------------------------------------------------------------------------------------------------------------------------

@@ -23,13 +23,18 @@ function M.new(opts)
   d.monitors = opts.monitors or {}
   d.queue = {}
 
+  d.boots = 0
   function d.restart()
+    d.boots = d.boots + 1
     d.raw.v = 0
     local env = {
       fs = d.fs, peripheral = d.world.peripheral, redstone = d.world.redstone, rednet = d.bus.attach(opts.cid or 1),
       raw_clock = function() return d.raw.v end, term = d.screen, host = d.env_host or "CC test",
       wrap = function(name) return d.monitors[name] end,
       start_timer = function() return 1 end,
+      set_label = function(text) d.label = text end,
+      unique = function() return tostring(opts.cid or 1) .. "-" .. tostring(d.boots) end,
+      utc_seconds = d.utc_seconds,
       pull_event = function()
         local ev = table.remove(d.queue, 1)
         if not ev then error("Terminated", 0) end
