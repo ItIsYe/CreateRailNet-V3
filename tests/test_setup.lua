@@ -301,6 +301,8 @@ return {
     ok, why = wiz.next()
     t.eq(ok, false); t.contains(why, "mindestens eine Rolle")
     wiz.set_mode("create")
+    t.eq(#wiz.roles, 1); t.eq(wiz.roles[1], "zentrale", "'Erste Leitstelle erstellen' belegt die Rolle Leitstelle vor")
+    wiz.toggle_role("zentrale")                     -- abgewaehlt: ohne die Rolle geht es nicht weiter
     wiz.toggle_role("passagierbahnhof")
     ok, why = wiz.next()
     t.eq(ok, false); t.contains(why, "erste Leitstelle braucht die Rolle Leitstelle")
