@@ -107,6 +107,10 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.74 | Chunk eines Bahnhofs entladen, Zug bleibt mit gesetzter Freigabe stehen, wieder laden | Freigabe bleibt, der Zug faehrt nach Beladung ab, der Auftrag schliesst ab | |
 | 3.75 | Neue Node einrichten, waehrend der Chunk der Leitstelle entladen ist | Meldung "Kein Netz gefunden: Leitstelle an, Chunk geladen?"; nach dem Laden der Leitstelle findet "Neu suchen" das Netz | |
 | 3.76 | Notieren: Laufen Create-Zuege weiter, wenn die Chunks der Strecke nicht geladen sind? Behalten die Redstone-Ausgaenge eines entladenen Computers ihren Zustand? | Nur Messwerte fuer `docs/MESSWERTE.md`, kein Soll | |
+| 3.77 | Neue Leitstelle ohne Daten: Einrichtung starten, *Erste Leitstelle dieses Netzes erstellen*, Netzname, weiter | Auf der Rollenseite ist *Leitstelle* schon angehakt; keine Anleitungszeile endet mit `~`; die Zusammenfassung nennt Netz, Node und Rolle auf getrennten Zeilen | |
+| 3.78 | Nach dem Aktivieren die Seite *Uebersicht* ansehen, dann eine Strecke anlegen, dann die erste Node einrichten | Zuerst steht dort "Naechster Schritt: Strecke anlegen ...", nach dem ersten Bereich "Naechster Schritt: andere Computer einrichten ...", nach der ersten gemeldeten Node keiner mehr | |
+| 3.79 | Auf der Leitstelle `installer zentrale` fuer eine neuere Version, wenn schon Daten in `/crn_data` liegen | Reicht der Platz nicht, nennt die Meldung `--replace`; im Dialog gibt es die Wahl *Bisherige Version ersetzen*; danach laeuft die Leitstelle mit den alten Daten (Netz, Nodes, Auftraege) weiter | |
+| 3.80 | Funkmodem einer Node abziehen, Computer neu starten, Modem wieder anschliessen | Die Seite *Uebersicht* zeigt erst `KEIN FUNKMODEM`, nach dem Anschliessen kommt die Meldung "Funkmodem angeschlossen" und die Node meldet sich ohne Neustart bei der Leitstelle | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

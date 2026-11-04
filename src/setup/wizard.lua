@@ -71,7 +71,12 @@ function M.new(opts)
     end
   end
 
-  function w.set_mode(mode) w.mode = mode; sync_config() end
+  -- Wer die erste Leitstelle erstellt, braucht die Rolle Leitstelle: sie ist vorbelegt (abwaehlen bleibt moeglich, der naechste Schritt meldet es dann)
+  function w.set_mode(mode)
+    w.mode = mode
+    if mode == "create" and #w.roles == 0 and has(w.available_roles(), "zentrale") then w.roles = { "zentrale" } end
+    sync_config()
+  end
   function w.set_network(name, central, key)
     w.network_name, w.central_id, w.key = name or w.network_name, central or w.central_id, key or w.key
     sync_config()

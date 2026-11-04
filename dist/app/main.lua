@@ -49,7 +49,6 @@ end
 end
 say("Programm: " .. count .. " Dateien, " .. bytes .. " Byte belegt (jede Datei zaehlt mindestens 500)")
 say("Frei auf dem Computer: " .. env.fs.getFreeSpace("/") .. " Byte")
-say("Stufe 0: noch kein Fahrbetrieb.")
 return true
 end
 

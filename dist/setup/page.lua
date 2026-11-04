@@ -244,7 +244,15 @@ end
 local function header(v, rect, title, subtitle)
 local w = session.wiz
 W.label(v, rect.x + 1, rect.y, string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, GUIDED_TITLE[session.screen] or wizardlib.STEPS[w.step]), "hell")
-if subtitle then W.label(v, rect.x + 1, rect.y + 1, subtitle, "dim", rect.w - 2) end
+if subtitle then W.label(v, rect.x + 1, rect.y + 1, W.fit(subtitle, rect.w - 2), "dim", rect.w - 2) end
+end
+
+
+local function put_status(v, rect, y, st, max)
+for i, line in ipairs(W.wrap(st.text or "", rect.w - 2)) do
+if i > (max or 2) then break end
+W.label(v, rect.x + 1, y + i - 1, line, st.kind or "dim", rect.w - 2)
+end
 end
 
 local function body_rect(rect, top)
@@ -288,7 +296,7 @@ local screens = {}
 
 screens["1.modus"] = {
 render = function(v, rect)
-header(v, rect, nil, "Erste Leitstelle erstellen oder einem Netz beitreten?")
+header(v, rect, nil, "Erste Leitstelle erstellen oder Netz beitreten?")
 local items = {}
 session.pick.modes = {}
 if not services.role_available or services.role_available("zentrale") then
@@ -339,11 +347,16 @@ actions = function(v) return { { id = "neu_suchen", label = "Neu suchen", kind =
 
 screens["1.netz"] = {
 render = function(v, rect)
-header(v, rect, nil, "Wie heisst das Netz? (Buchstaben, Ziffern, Leerzeichen, - und _)")
+header(v, rect, nil, "Wie heisst das Netz?")
+W.label(v, rect.x + 1, rect.y + 2, W.fit("Buchstaben, Ziffern, Leerzeichen, - und _", rect.w - 2), "dim", rect.w - 2)
 local f = fields(v)
 W.field(v, "netz", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Netzname", f.netz)
 W.field(v, "schluessel", rect.x + 1, rect.y + 6, math.min(rect.w - 2, 36), "Netzwerkschluessel (freiwillig)", f.schluessel)
-if rect.h > 10 then W.label(v, rect.x + 1, rect.y + 9, "Der Schluessel haelt nur Versehen fern, er ist keine Verschluesselung.", "dim", rect.w - 2) end
+if rect.h > 11 then
+for i, line in ipairs(W.wrap("Der Schluessel haelt nur Versehen fern, er ist keine Verschluesselung.", rect.w - 2)) do
+if i <= 2 then W.label(v, rect.x + 1, rect.y + 8 + i, line, "dim", rect.w - 2) end
+end
+end
 end,
 }
 
@@ -422,7 +435,7 @@ actions = function(v) return { { id = "neu_scannen", label = "Neu lesen", kind =
 
 screens["4.gleise"] = {
 render = function(v, rect)
-header(v, rect, nil, "Gleise dieses Nodes. Ein Geraet gehoert zu hoechstens einem Gleis.")
+header(v, rect, nil, "Ein Geraet gehoert zu hoechstens einem Gleis.")
 local items = {}
 session.pick.tracks = {}
 for _, id in ipairs(session.wiz.tracks()) do
@@ -821,7 +834,7 @@ end
 
 screens["5.test"] = {
 render = function(v, rect)
-header(v, rect, nil, "Pruefungen: lesende laufen sofort, schaltende nach Bestaetigung.")
+header(v, rect, nil, "Lesen sofort, Schalten erst nach Bestaetigung.")
 local items = {}
 session.pick.tests = {}
 for _, test in ipairs(session.wiz.tests()) do
@@ -979,7 +992,7 @@ render = function(v, rect)
 header(v, rect, nil, "In welchem Bereich arbeitet diese Node?")
 local d = session.dir
 local st = dir_status()
-if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
 local items = {}
 session.pick.areas = {}
 for _, a in ipairs(d.areas or {}) do
@@ -1089,7 +1102,7 @@ render = function(v, rect)
 header(v, rect, nil, "Welchen Knoten betreut diese Node?")
 local d = session.dir
 local st = dir_status()
-if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
 local items = {}
 session.pick.junctions = {}
 for _, j in ipairs(d.junctions or {}) do
@@ -1143,7 +1156,7 @@ render = function(v, rect)
 header(v, rect, nil, "Bei welcher Betriebsstelle melden sich Zuege an?")
 local d = session.dir
 local st = dir_status()
-if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
 local items = {}
 session.pick.stations = {}
 for _, s in ipairs(d.stations or {}) do
@@ -1243,7 +1256,7 @@ render = function(v, rect)
 local d = session.dir
 header(v, rect, nil, "Gleise in " .. (d.area and d.area.name or "?") .. ": welche betreut diese Node?")
 local st = dir_status()
-if st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind, rect.w - 2) end
+if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
 local items = {}
 session.pick.gleise = {}
 for _, t in ipairs(d.area and d.area.tracks or {}) do
@@ -1627,7 +1640,8 @@ local roles = {}
 for _, r in ipairs(c.node.roles) do roles[#roles + 1] = model.ROLE_TEXT[r] end
 local lines = {
 "Netz: " .. c.network.name .. (c.network.central_id and ("   Leitstelle: " .. c.network.central_id) or "   (diese Node ist die Leitstelle)"),
-"Node: " .. c.node.name .. " (" .. c.node.id .. ")  Rolle: " .. table.concat(roles, ", "),
+"Node: " .. c.node.name .. " (" .. c.node.id .. ")",
+"Rolle: " .. table.concat(roles, ", "),
 }
 local tracks = #w.tracks()
 if tracks > 0 then lines[#lines + 1] = "Gleise: " .. tracks end
@@ -1636,14 +1650,14 @@ local tests_ok = w.all_tests_ok()
 lines[#lines + 1] = "Pruefungen: " .. (tests_ok and "alle bestanden" or "offen")
 lines[#lines + 1] = (#problems == 0 and tests_ok) and "Bereit zum Aktivieren." or "Wird als ENTWURF gespeichert; die Betriebsfunktion bleibt inaktiv."
 local y = rect.y + 2
-for _, line in ipairs(lines) do
-if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, line, (line:find("ENTWURF", 1, true)) and "attention" or "text", rect.w - 2) end
+local function put(text, kind)
+for _, part in ipairs(W.wrap(text, rect.w - 2)) do
+if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, kind, rect.w - 2) end
 y = y + 1
 end
-for _, p in ipairs(problems) do
-if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, "- " .. p.text, "wait", rect.w - 2) end
-y = y + 1
 end
+for _, line in ipairs(lines) do put(line, (line:find("ENTWURF", 1, true)) and "attention" or "text") end
+for _, p in ipairs(problems) do put("- " .. p.text, "wait") end
 end,
 action = function(v, id)
 if id == "act:speichern" then
@@ -1710,7 +1724,7 @@ return
 end
 if session.owner ~= v then
 W.label(v, rect.x + 1, rect.y, "Einrichtung wird bearbeitet.", "attention")
-W.label(v, rect.x + 1, rect.y + 2, "Eine andere Bedienoberflaeche fuehrt gerade den Assistenten.", "text", rect.w - 2)
+for i, line in ipairs(W.wrap("Eine andere Bedienoberflaeche fuehrt gerade den Assistenten.", rect.w - 2)) do W.label(v, rect.x + 1, rect.y + 1 + i, line, "text", rect.w - 2) end
 return
 end
 local def = screen_def()

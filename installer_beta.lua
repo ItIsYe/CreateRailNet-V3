@@ -5,7 +5,7 @@ Usage: installer                   Dialog: Schritt fuer Schritt auswaehlen (Menu
        installer --rollback        zur Vorversion zurueckkehren
        installer --status          installierte Version zeigen
        installer --check           installierte Dateien gegen das Verzeichnis pruefen
-       Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist)
+       Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist), --replace (bisherige Version ersetzen, wenn Alt und Neu nicht zugleich passen)
 Notes: Der Kanal (main oder beta) steht in dieser Datei: wer sie von main laedt, installiert main, wer installer_beta.lua von beta laedt, installiert beta. installer_beta.lua wird von tools/build.lua aus dieser Datei erzeugt. Eine einzelne Datei ohne Abhaengigkeit zur Anwendung. Daten liegen getrennt in /crn_data und werden nie angefasst; Rolle und Herkunft stehen in /crn/install.lua, damit sie mit der Installation zusammen ausgetauscht werden. Bei jedem Abbruch bleibt entweder die alte oder die neue Installation vollstaendig; der naechste Start raeumt auf (recover).
 ]]
 
@@ -82,6 +82,16 @@ end
 
 local function drop(env, path)
   if env.fs.exists(path) then env.fs.delete(path) end
+end
+
+-- belegter Platz eines Verzeichnisses (jede Datei zaehlt mindestens MIN_FILE)
+local function dir_size(env, path)
+  local fs = env.fs
+  if not fs.exists(path) then return 0 end
+  if not fs.isDir(path) then return math.max(fs.getSize(path), MIN_FILE) end
+  local sum = 0
+  for _, name in ipairs(fs.list(path)) do sum = sum + dir_size(env, path .. "/" .. name) end
+  return sum
 end
 
 -- raeumt nach einem Abbruch auf (siehe Notes oben); aendert nichts, wenn alles in Ordnung ist
@@ -290,7 +300,27 @@ function M.plan(env, source, role)
   local need = MIN_FILE + math.max(#source.text, MIN_FILE) + MIN_FILE
   for _, path in ipairs(paths) do need = need + math.max(manifest.files[path].size, MIN_FILE) end
   local free = env.fs.getFreeSpace("/")
-  return { source = source, role = role, paths = paths, need = need, free = free, short = free < need + MARGIN }
+  local plan = { source = source, role = role, paths = paths, need = need, free = free, short = free < need + MARGIN }
+  -- Passen alte und neue Version nicht zugleich auf den Computer (grosse Rollen, 1 MB), geht nur das Ersetzen: die bisherige Version wird zuerst entfernt
+  if plan.short then
+    plan.prev_size, plan.app_size = dir_size(env, PREV), dir_size(env, APP)
+    plan.can_replace = plan.app_size > 0 and free + plan.prev_size + plan.app_size >= need + MARGIN
+  end
+  return plan
+end
+
+-- Platz schaffen durch Ersetzen: Vorversion und bisherige Version werden entfernt; /crn_data bleibt. Danach laeuft die Installation wie gewohnt; bricht sie ab,
+-- ist CRN nicht installiert und der Aufruf wird wiederholt (der naechste Start raeumt auf).
+function M.make_room(env, plan)
+  drop(env, PREV)
+  drop(env, TMP)
+  if plan.free + plan.prev_size >= plan.need + MARGIN then
+    env.print("Die Vorversion wurde entfernt.")             -- das genuegt: die bisherige Version bleibt bis zum Austausch erhalten
+    return
+  end
+  drop(env, APP)
+  plan.replaced = true
+  env.print("Die bisherige Version wurde entfernt (Daten in /crn_data bleiben).")
 end
 
 -- laedt, prueft und tauscht aus; bei jedem Fehler bleibt alles wie es war
@@ -304,7 +334,11 @@ function M.apply(env, plan)
   local function fail(message)
     drop(env, NEW)
     say(message)
-    say("Es wurde nichts veraendert.")
+    if plan.replaced then
+      say("Die bisherige Version war schon entfernt: CRN ist jetzt nicht installiert. Den Aufruf wiederholen: installer " .. role)
+    else
+      say("Es wurde nichts veraendert.")
+    end
     return false
   end
   local all = { "manifest.lua" }
@@ -367,8 +401,20 @@ function M.install(env, opts)
   end
   if plan.short then
     say("Zu wenig Platz: benoetigt " .. (plan.need + MARGIN) .. " Byte, frei " .. plan.free .. " Byte.")
-    if fs.exists(PREV) then say("Mit 'installer --drop-prev " .. role .. "' wird die Vorversion geloescht.") end
-    return false
+    if fs.exists(PREV) and plan.free + plan.prev_size >= plan.need + MARGIN then
+      say("Mit 'installer --drop-prev " .. role .. "' wird die Vorversion geloescht.")
+    end
+    if plan.can_replace and opts.replace then
+      M.make_room(env, plan)
+    else
+      if plan.can_replace then
+        say("Alte und neue Version passen nicht zugleich auf den Computer. Mit 'installer " .. role .. " --replace' wird die bisherige Version ersetzt")
+        say("(kein Zurueck zur Vorversion; /crn_data bleibt unberuehrt; bricht der Download ab, den Aufruf wiederholen).")
+      else
+        say("Auch ohne die bisherige Version reicht der Platz nicht: Dateien loeschen (ls, delete).")
+      end
+      return false
+    end
   end
   return M.apply(env, plan)
 end
@@ -537,7 +583,11 @@ function M.wizard(env)
         if plan.short then
           show(env, "fehler", "Zu wenig Platz: benoetigt " .. size_text(plan.need + MARGIN) .. ", frei " .. size_text(plan.free) .. ".")
           entries = {}
-          if has_prev then entries[#entries + 1] = { key = "d", text = "Vorversion loeschen und Platz schaffen" } end
+          if has_prev and plan.free + plan.prev_size >= plan.need + MARGIN then entries[#entries + 1] = { key = "d", text = "Vorversion loeschen und Platz schaffen" } end
+          if plan.can_replace then
+            say("Alte und neue Version passen nicht zugleich auf den Computer.")
+            entries[#entries + 1] = { key = "e", text = "Bisherige Version ersetzen (kein Zurueck zur Vorversion; Daten bleiben)" }
+          end
         else
           entries = { { key = "j", text = "Jetzt installieren" } }
         end
@@ -550,7 +600,8 @@ function M.wizard(env)
         elseif key == "d" then
           drop(env, PREV)
           state.keep = true
-        elseif key == "j" then
+        elseif key == "e" or key == "j" then
+          if key == "e" then M.make_room(env, plan) end
           local ok = M.apply(env, plan)
           if ok then
             say("Jetzt starten?")
@@ -571,7 +622,8 @@ local USAGE = {
   "  installer                       Dialog: alles nach und nach auswaehlen",
   "  installer ROLLE [VERSION]       ohne Dialog (VERSION = Tag, Commit oder Zweig; Standard: Kanal dieser Datei)",
   "  installer --status | --check | --rollback",
-  "  Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist)",
+  "  Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist),",
+  "          --replace (bisherige Version ersetzen, wenn alt und neu nicht zugleich passen; grosse Rollen)",
   "  Rollen: zentrale, passagierbahnhof, gueterbahnhof, depot, signal, knoten, anmeldung",
 }
 

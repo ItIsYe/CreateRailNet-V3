@@ -1,8 +1,10 @@
 # CRN - Create Rail Net
 
-Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage ist das Konzept 1.1; die Umsetzung laeuft nach `docs/STUFENPLAN.md`. Gebaut wird stufenweise; der grosse Spieltest am Ende steht in `docs/GROSSER_TEST.md`. Stand: Stufe 0 (Installer), 1 (Kern: Uhr, sicheres Speichern, Journal, Nachrichten, Funk), 2 (Geraete), 3 (Oberflaeche und Einrichtungsassistent) 4 (erster Bahnhof: Zugregister, Anmeldung, Fahrtauftrag mit Lebenszyklus, Freigabeausgang, Bedarfstaste), 5 (mehrere Gleise, Linien im Takt, Tafel), 6 (Signal- und Knoten-Node) 7 (Depot, manuelle Zuege, Ausschleusen und Aufnehmen), 8 (Stoerungen, Wiederanlauf, Ersatzcomputer, Update-Pruefung) und 9 (Lasttest, Abnahmematrix `docs/ABNAHME.md`). Alle Stufen sind offline getestet; der grosse Spieltest steht in `docs/GROSSER_TEST.md`.
+Betriebssystem fuer ein Bahnnetz mit Create und CC:Tweaked (ATM10). Grundlage ist das Konzept 1.1; die Umsetzung laeuft nach `docs/STUFENPLAN.md`. Stand: Stufen 0 bis 9 sind gebaut und offline getestet (Installer, Kern, Geraete, Oberflaeche und Einrichtungsassistent, Bahnhof mit Zugregister und Fahrtauftraegen, Linien und Tafel, Signal- und Knoten-Node, Depot, Stoerungen und Ersatzcomputer, Lasttest), dazu das Netzverzeichnis mit gefuehrter Einrichtung aller Rollen (`docs/NETZVERZEICHNIS.md`). Der Spieltest steht in `docs/GROSSER_TEST.md`, die Abnahmematrix in `docs/ABNAHME.md`.
 
-## Installieren (Stufe 0)
+**Neues Netz aufbauen:** `docs/ERSTAUFBAU.md` (Voraussetzungen, Reihenfolge, haeufige Meldungen). Bedienung der Einrichtung: `docs/SETUP_UI.md`.
+
+## Installieren
 
 Auf dem Computer (HTTP muss erlaubt sein):
 
@@ -28,7 +30,7 @@ Der Installer kennt seinen Kanal (`main` oder `beta`) aus der Datei, die man gel
 
 Ohne Dialog (Skripte) geht zusaetzlich ein Tag, ein Commit oder ein anderer Branch als Version; ein fremder beweglicher Branch wird beanstandet, weil sich der Inhalt zwischen zwei Aufrufen aendern kann. Der eigene Kanal wird nicht beanstandet. Rollen: `zentrale`, `passagierbahnhof`, `gueterbahnhof`, `depot`, `signal`, `knoten`, `anmeldung`.
 
-Ohne Dialog (fuer Skripte): `installer ROLLE [VERSION] [--yes]` (ohne VERSION gilt der Kanal), dazu `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist), `installer --help`. Gestartet wird mit `crn/app/main`.
+Ohne Dialog (fuer Skripte): `installer ROLLE [VERSION] [--yes]` (ohne VERSION gilt der Kanal), dazu `installer --status`, `installer --check`, `installer --rollback` (zur Vorversion), `installer --drop-prev ROLLE` (Vorversion loeschen, wenn der Platz knapp ist), `installer ROLLE --replace` (bisherige Version zuerst entfernen, wenn alt und neu nicht zugleich auf den Computer passen; so ist es bei der Leitstelle, `/crn_data` bleibt), `installer --help`. Gestartet wird mit `crn/app/main`; `startup.lua` startet CRN beim Einschalten.
 
 ## Entwickeln
 

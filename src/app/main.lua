@@ -1,5 +1,5 @@
 --[[
-Purpose: Startprogramm von CRN in Stufe 0: zeigt Version, Rolle, Dateiverzeichnis und freien Platz. Fahrbetrieb gibt es noch nicht; dieses Programm beweist nur, dass die Installation vollstaendig und startbar ist.
+Purpose: Startprogramm von CRN: startet die Bedienoberflaeche des Nodes (Einrichtung, Betrieb), zeigt mit "info" Version, Rolle, Dateiverzeichnis und freien Platz, fuehrt "selftest" aus und verwaltet den Datenstand ("datenstand", "daten-zurueck").
 API: main.info(env) mit env = { fs, print, root }; main.run(env, args) fuer "selftest" (siehe app/selftest.lua); beim Start auf dem Computer laeuft run() mit der echten Umgebung (package.path zeigt auf /crn).
 ]]
 
@@ -49,7 +49,6 @@ function M.info(env)
   end
   say("Programm: " .. count .. " Dateien, " .. bytes .. " Byte belegt (jede Datei zaehlt mindestens 500)")
   say("Frei auf dem Computer: " .. env.fs.getFreeSpace("/") .. " Byte")
-  say("Stufe 0: noch kein Fahrbetrieb.")
   return true
 end
 

@@ -208,4 +208,27 @@ return {
     t.eq(order_of(z2, id2).state, "klaerung")
     t.contains(order_of(z2, id2).reason, "Keine Rueckmeldung von weizenhof")
   end },
+  { "Erscheint das Funkmodem erst nach dem Start (Chunk geladen, Kabelnetz verbindet sich spaeter), oeffnet der Node es nachtraeglich", function()
+    local h, z, w, l = build()
+    h.step(10)
+    t.ok(z.node.roles.zentrale.info().nodes.weizenhof, "vorher bekannt")
+    -- Neustart ohne angeschlossenes Modem
+    w.world.detach("left"); w.world.detach("right")
+    h.unload("weizenhof"); h.load("weizenhof")
+    t.eq(#w.node.net_info.opened, 0, "kein Modem beim Start")
+    -- das Modem erscheint
+    w.world.add_modem("left", true)
+    w.node.handle({ "peripheral", "left" })
+    t.eq(w.node.net_info.opened[1], "left")
+    local text = ""
+    for _, m in ipairs(w.node.messages) do text = text .. "|" .. m.text end
+    t.contains(text, "Funkmodem angeschlossen: left")
+    -- ein weiteres Geraet aendert nichts am Funk und meldet nichts Doppeltes
+    local count = 0
+    for _, m in ipairs(w.node.messages) do if m.text:find("Funkmodem angeschlossen", 1, true) then count = count + 1 end end
+    w.world.add_signal("Create_Signal_9"); w.node.handle({ "peripheral", "Create_Signal_9" })
+    local count2 = 0
+    for _, m in ipairs(w.node.messages) do if m.text:find("Funkmodem angeschlossen", 1, true) then count2 = count2 + 1 end end
+    t.eq(count2, count)
+  end },
 }

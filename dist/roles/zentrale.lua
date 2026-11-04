@@ -989,6 +989,17 @@ drive_all()
 end
 
 
+function role.next_step()
+if #role.netz.areas() == 0 then
+return "Naechster Schritt: Strecke anlegen. Seite 'Bereiche' (Kopfzeile mit > blaettern), dort 'Neu'."
+end
+if next(nodes) == nil then
+return "Naechster Schritt: andere Computer einrichten (Einrichtung, Beitreten, Netz, Rolle, Bereich)."
+end
+return nil
+end
+
+
 function role.info()
 return { nodes = nodes, dir = dir, track_state = track_state, pending = pending, flags = flags, samples = samples, signal_state = signal_state, knoten_state = knoten_state }
 end
@@ -2364,7 +2375,9 @@ id = "tafel", title = "Tafel",
 render = function(v, rect)
 local rows = role.board()
 if #rows == 0 then
-W.label(v, rect.x + 1, rect.y + 1, "Noch keine Linie. Die Tafel zeigt Plan (Termin) und Ist (Zug) getrennt.", "dim", rect.w - 2)
+for i, line in ipairs(W.wrap("Noch keine Linie. Die Tafel zeigt Plan (Termin) und Ist (Zug) getrennt.", rect.w - 2)) do
+W.label(v, rect.x + 1, rect.y + i, line, "dim", rect.w - 2)
+end
 return
 end
 local y = rect.y

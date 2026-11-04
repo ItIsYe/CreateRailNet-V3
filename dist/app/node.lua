@@ -131,6 +131,12 @@ line("Node: " .. n.config.node.name .. " (" .. n.config.node.id .. ")")
 line("Rolle: " .. role_text())
 line("Netz: " .. n.config.network.name .. (n.config.network.central_id and ("   Leitstelle: " .. n.config.network.central_id) or "   (Leitstelle)"))
 line("Zustand: " .. n.config.status .. "   Einrichtung Nr. " .. tostring(n.config.revision))
+
+local central = n.roles and n.roles.zentrale
+local step = central and central.next_step and central.next_step()
+if step then
+for _, text in ipairs(W.wrap(step, rect.w - 2)) do line(text, "attention") end
+end
 else
 line("Dieser Computer ist noch nicht eingerichtet.", "attention")
 line("Weiter mit der Seite 'Einrichtung'.")
@@ -150,6 +156,7 @@ local open = #n.journal.pending()
 if open > 0 then line(open .. " offene Vorgaenge im Journal", "wait") end
 if n.format_blocked then line("Die Daten haben ein neueres Format (" .. tostring(n.format_old) .. ") als dieses Programm: Automatik aus.", "halt") end
 if n.env_hold then line("Modpack oder Schnittstellen haben sich geaendert: Automatik wartet auf die Pruefung.", "attention") end
+
 if n.format_status == "migriert" then line("Daten auf das neue Format gebracht; Sicherung: sicherung_f" .. tostring(n.format_old), "dim") end
 end,
 actions = function(v)
@@ -439,6 +446,14 @@ end
 elseif kind == "peripheral" or kind == "peripheral_detach" then
 local before = n.scan
 n.scan = detect.scan(env.peripheral)
+
+
+if kind == "peripheral" and n.net and n.net_info then
+local info = netlib.open({ rednet = env.rednet, peripheral = env.peripheral })
+local was, now_open = table.concat(n.net_info.opened, ","), table.concat(info.opened, ",")
+n.net_info = info
+if now_open ~= was and #info.opened > 0 then n.notify("info", "Funkmodem angeschlossen: " .. now_open .. ".") end
+end
 local added, removed = detect.diff(before, n.scan)
 for _, name in ipairs(added) do n.notify("info", "Geraet angeschlossen: " .. name) end
 for _, name in ipairs(removed) do n.notify("warnung", "Geraet entfernt: " .. name) end
@@ -810,7 +825,7 @@ function n.directory_status()
 local st = n.dir_state
 if st and st.kind == "wait" and n.clock.now() >= n.dir_until then
 n.dir_req, n.dir_handler = nil, nil
-n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie (Chunk geladen), und ist sie in Funkreichweite (Ender-Modem)?" .. (n.dir_dropped and (" (Antwort verworfen: " .. tostring(n.dir_dropped) .. ")") or "") }
+n.dir_state = { kind = "halt", text = "Die Leitstelle antwortet nicht. Laeuft sie (Chunk geladen), ist ein Ender-Modem in Reichweite?" .. (n.dir_dropped and (" (Antwort verworfen: " .. tostring(n.dir_dropped) .. ")") or "") }
 st = n.dir_state
 end
 return st

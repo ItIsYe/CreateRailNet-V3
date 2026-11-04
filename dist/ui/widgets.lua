@@ -23,6 +23,21 @@ local fg = (kind == "wait") and S.hintergrund or S.hell
 return v.canvas.text(x, y, label, fg, bg)
 end
 
+
+function W.fit(text, width)
+text = tostring(text)
+if #text <= width then return text end
+local plain = text:gsub("%s*%b()%s*$", "")
+if #plain > 0 and #plain <= width then return plain end
+if width <= 1 then return "~" end
+local cut = text:sub(1, width - 1)
+if not text:sub(width, width):match("%s") then
+local at = cut:find("%s[^%s]*$")
+if at and at > width / 2 then cut = cut:sub(1, at - 1) end
+end
+return cut .. "~"
+end
+
 function W.wrap(text, width)
 local lines = {}
 for paragraph in (tostring(text) .. "\n"):gmatch("(.-)\n") do
@@ -74,7 +89,11 @@ v.lists[id] = { state = state, per_page = per_page, count = #items }
 v.list_order[#v.list_order + 1] = id
 v.canvas.fill(rect.x, rect.y, rect.w, rect.h, S.arbeit)
 if #items == 0 then
-v.canvas.text(rect.x + 1, rect.y, opts.empty or "(leer)", S.gedaempft, S.arbeit, rect.w - 2)
+
+local lines = W.wrap(opts.empty or "(leer)", rect.w - 2)
+for i = 1, math.min(#lines, math.max(1, rect.h - 1)) do
+v.canvas.text(rect.x + 1, rect.y + i - 1, lines[i], S.gedaempft, S.arbeit, rect.w - 2)
+end
 end
 for row = 1, per_page do
 local i = state.offset + row
@@ -89,7 +108,8 @@ local title_y = y + math.floor((row_h - 1) / 2)
 local detail = item.detail
 local room = rect.w - 2
 if detail and row_h == 1 then
-local dw = math.min(#detail, math.floor(room / 2))
+
+local dw = math.min(#detail, math.max(math.floor(room / 2), rect.w - 3 - #item.text))
 v.canvas.text(rect.x + room - dw + 2, title_y, detail, KIND_FG[item.kind or "dim"] or S.gedaempft, bg, dw)
 room = room - dw - 1
 v.canvas.text(rect.x, title_y, mark .. item.text, selected and S.hell or S.text, bg, room + 2)
