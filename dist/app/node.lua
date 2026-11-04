@@ -44,16 +44,19 @@ local store = storelib.new(env.fs)
 store.heal(CONFIG)
 store.heal(DATA .. "/clock.lua")
 n.store = store
+
+
+
+local format_target = env.data_format or dataformat.FORMAT
+local format_status, format_old, format_dir, format_error = dataformat.check(env.fs, store, { program = version.number, format = env.data_format, migrations = env.data_steps })
+n.format_status, n.format_old, n.format_dir, n.format_error = format_status, format_old, format_dir, format_error
+n.format_blocked = format_status == "zu_neu" or format_status == "fehlgeschlagen"
+
 n.clock = clocklib.new({ raw = env.raw_clock, store = store, path = DATA .. "/clock.lua" })
 n.journal = journallib.new({ fs = env.fs, path = DATA .. "/journal.log", now = n.clock.now })
 n.ticker = tickerlib.new(n.clock)
 n.config = store.load(CONFIG)
 n.scan = detect.scan(env.peripheral)
-
-
-local format_status, format_old = dataformat.check(env.fs, store, { program = version.number })
-n.format_status, n.format_old = format_status, format_old
-n.format_blocked = format_status == "zu_neu"
 
 
 n.env_hold = false
@@ -69,8 +72,13 @@ if #n.messages > MAX_MESSAGES then table.remove(n.messages, 1) end
 n.dirty = true
 end
 
+if n.format_status == "migriert" then
+n.notify("info", "Daten an das neue Programm angepasst (Format " .. tostring(n.format_old) .. " auf " .. tostring(format_target) .. "). Sicherung: " .. tostring(n.format_dir))
+end
+
 function n.status()
 if not n.config then return { text = "Einrichtung", kind = "wait" } end
+if n.format_status == "fehlgeschlagen" then return { text = "Datenanpassung gescheitert", kind = "halt" } end
 if n.format_blocked then return { text = "Datenformat zu neu", kind = "halt" } end
 if n.config.status ~= "aktiv" then return { text = "Entwurf", kind = "attention" } end
 if n.env_hold then return { text = "Pruefung noetig", kind = "attention" } end
@@ -137,6 +145,12 @@ local step = central and central.next_step and central.next_step()
 if step then
 for _, text in ipairs(W.wrap(step, rect.w - 2)) do line(text, "attention") end
 end
+
+if n.format_status == "fehlgeschlagen" then
+for _, text in ipairs(W.wrap("Daten nicht angepasst, nichts veraendert, Automatik aus: " .. tostring(n.format_error), rect.w - 2)) do line(text, "halt") end
+elseif n.format_blocked then
+for _, text in ipairs(W.wrap("Die Daten haben ein neueres Format (" .. tostring(n.format_old) .. ") als dieses Programm: Automatik aus.", rect.w - 2)) do line(text, "halt") end
+end
 else
 line("Dieser Computer ist noch nicht eingerichtet.", "attention")
 line("Weiter mit der Seite 'Einrichtung'.")
@@ -154,10 +168,9 @@ for _, d in ipairs(n.scan) do if d.kind == "modem" and wireless(d.name) then rad
 line("Funk: " .. (#radio > 0 and table.concat(radio, ",") or "KEIN FUNKMODEM"), #radio > 0 and "dim" or "attention")
 local open = #n.journal.pending()
 if open > 0 then line(open .. " offene Vorgaenge im Journal", "wait") end
-if n.format_blocked then line("Die Daten haben ein neueres Format (" .. tostring(n.format_old) .. ") als dieses Programm: Automatik aus.", "halt") end
 if n.env_hold then line("Modpack oder Schnittstellen haben sich geaendert: Automatik wartet auf die Pruefung.", "attention") end
 
-if n.format_status == "migriert" then line("Daten auf das neue Format gebracht; Sicherung: sicherung_f" .. tostring(n.format_old), "dim") end
+if n.format_status == "migriert" then line("Daten angepasst (Format " .. tostring(n.format_old) .. "); Sicherung: " .. tostring(n.format_dir), "dim") end
 end,
 actions = function(v)
 if n.env_hold then return { { id = "umgebung", label = "Pruefen", kind = "primary" } } end
@@ -921,7 +934,11 @@ attached = {}
 n.roles = {}
 if not n.config or n.config.status ~= "aktiv" or not n.net then return end
 if n.format_blocked then
+if n.format_status == "fehlgeschlagen" then
+n.notify("fehler", "Die Anpassung der Daten ist gescheitert, nichts wurde veraendert und die Automatik startet nicht: " .. tostring(n.format_error))
+else
 n.notify("fehler", "Die Daten stammen von einem neueren Programm (Format " .. tostring(n.format_old) .. "). Die Automatik startet nicht. Mit 'crn/app/main daten-zurueck N' wird eine Sicherung zurueckgespielt.")
+end
 return
 end
 local modules = {}

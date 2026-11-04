@@ -41,6 +41,7 @@ function M.new(opts)
         return ev
       end,
     }
+    for k, v in pairs(d.env_extra or opts.env_extra or {}) do env[k] = v end
     d.env = env
     d.node = require("app.node").new(env)
     d.node.render()

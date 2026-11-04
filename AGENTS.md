@@ -12,6 +12,7 @@ Es gibt genau zwei: `main` (stabil) und `beta` (Test- und Arbeitsbranch). Gearbe
 - Jede Datei beginnt mit einem Kommentar mit `Purpose:`. Deutsche Texte fuer Benutzer ohne Umlaute (ae, oe, ue, ss).
 - Nach jeder Aenderung an `src/` oder `build/`: `lua tools/build.lua`. CI prueft, dass `dist/` aktuell ist.
 - Festes Limit: ein Computer fasst 1 000 000 Byte, jede Datei zaehlt mindestens 500. Das Budget je Rolle steht in `build/budget.lua` und wird im Build geprueft; nie anheben, um etwas passend zu machen.
+- Gespeicherte Dateien (`/crn_data`): aendert sich ihre Form nicht nur durch ergaenzte Felder mit Vorgabe, kommt ein Anpassungsschritt in `src/core/migrations.lua`; `tests/test_integrator.lua` haelt die Form fest (`docs/DATENFORMAT.md`).
 - Zeitueberwachung in Spielzeit (`os.clock`), nie in Echtzeit (Ergaenzung E1).
 - Vom Spiel abhaengiges Verhalten kommt aus `docs/MESSWERTE.md`. Fakes in `tests/fakes/` bilden nur nach, was das Spiel auch tut (feste Kapazitaet, `move` scheitert bei vorhandenem Ziel).
 - Tests zuerst, und pruefen, dass sie aus dem richtigen Grund scheitern. Dateiaenderungen mit Absturz an jeder Stelle testen (siehe `tests/test_installer.lua`).
