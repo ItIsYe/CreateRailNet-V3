@@ -200,7 +200,7 @@ return {
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()
     t.eq(d.node.setup.session().screen, "3.gleise", d.text(v))
-    t.contains(d.text(v), "Gleise in Hauptbahnhof-Nordwest-Ausfahrt: welche~")
+    t.contains(d.text(v), "Hauptbahnhof-Nordwest-Ausfahrt: welche Gleise~")
   end },
   { "Listenzeilen: die Einzelheit bekommt den Platz, den der kurze Titel frei laesst, nicht nur die halbe Zeile", function()
     local d, v = fresh()

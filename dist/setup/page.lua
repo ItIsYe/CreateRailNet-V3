@@ -9,6 +9,7 @@ local model = require("setup.model")
 local detect = require("dev.detect")
 local signallib = require("dev.signal")
 local pruefunglib = require("setup.pruefung")
+local label = require("core.label")
 local W = require("ui.widgets")
 
 local M = {}
@@ -241,10 +242,18 @@ session.wiz.set_name(f.name.value)
 end
 end
 
-local function header(v, rect, title, subtitle)
+
+local function header(v, rect, title, subtitle, lines)
 local w = session.wiz
 W.label(v, rect.x + 1, rect.y, string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, GUIDED_TITLE[session.screen] or wizardlib.STEPS[w.step]), "hell")
-if subtitle then W.label(v, rect.x + 1, rect.y + 1, W.fit(subtitle, rect.w - 2), "dim", rect.w - 2) end
+if subtitle then
+local parts, max = W.wrap(subtitle, rect.w - 2), lines or 1
+for i = 1, math.min(#parts, max) do
+local text = parts[i]
+if i == max and #parts > max then text = W.fit(table.concat(parts, " ", i), rect.w - 2) end
+W.label(v, rect.x + 1, rect.y + i, text, "dim", rect.w - 2)
+end
+end
 end
 
 
@@ -499,7 +508,7 @@ end,
 screens["4.g.name"] = {
 render = function(v, rect)
 local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Gleis bearbeiten: " .. (t and t.name or "?"))
+header(v, rect, nil, "Bearbeiten: " .. (t and label.track(t.name) or "?"))
 W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
 if t then W.label(v, rect.x + 1, rect.y + 6, "Richtung: " .. t.direction .. "   (Taste 'Weiter' fuehrt durch die Einstellungen)", "dim", rect.w - 2) end
 end,
@@ -527,7 +536,7 @@ end
 screens["4.g.richtung"] = {
 render = function(v, rect)
 local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "In welche Richtung wird das Gleis befahren? " .. t.name)
+header(v, rect, nil, "In welche Richtung wird " .. label.track(t.name) .. " befahren?", 2)
 local items = {}
 for _, d in ipairs(DIRECTIONS) do items[#items + 1] = { text = (t.direction == d.id and "(o) " or "( ) ") .. d.text } end
 W.list(v, "richtung", body_rect(rect, 3), items, list_state(v, "richtung"), { row_h = v.layout.mode == "gross" and 3 or 1 })
@@ -546,7 +555,7 @@ end,
 screens["4.g.anschluss"] = {
 render = function(v, rect)
 local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Gehoert Gleis " .. t.name .. " zu einer Einfahrt oder Ausfahrt des Knotens?")
+header(v, rect, nil, "Ist " .. label.track(t.name) .. " eine Einfahrt oder Ausfahrt des Knotens?", 2)
 local j = session.wiz.config.junction
 local names = {}
 for name in pairs(j.connections) do names[#names + 1] = name end
@@ -585,7 +594,7 @@ local function device_choice_screen(id, kind, field, subtitle, single)
 return {
 render = function(v, rect)
 local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, subtitle .. " " .. t.name)
+header(v, rect, nil, subtitle .. " " .. label.track(t.name), 2)
 local items = {}
 session.pick[id] = {}
 for _, d in ipairs(config_devices_of(kind)) do
@@ -613,7 +622,7 @@ end,
 }
 end
 
-screens["4.g.bahnhof"] = device_choice_screen("bahnhof", "station", "station", "Welcher Create-Bahnhof gehoert zu Gleis", true)
+screens["4.g.bahnhof"] = device_choice_screen("bahnhof", "station", "station", "Welcher Create-Bahnhof gehoert zu", true)
 screens["4.g.bahnhof"].next = function(v)
 if #config_devices_of("signal") > 0 then push("4.g.signale")
 elseif #config_devices_of("observer") > 0 then push("4.g.beobachter")
@@ -621,7 +630,7 @@ elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
 else while session.screen ~= "4.gleise" and pop() do end end
 return true
 end
-screens["4.g.signale"] = device_choice_screen("signale", "signal", "signals", "Welche Signale gehoeren zu Gleis")
+screens["4.g.signale"] = device_choice_screen("signale", "signal", "signals", "Welche Signale gehoeren zu")
 
 local function signals_need_detail(track)
 if not track or not track.dir or #track.signals < 2 then return false end
@@ -638,7 +647,7 @@ elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
 else while session.screen ~= "4.gleise" and pop() do end end
 return true
 end
-screens["4.g.beobachter"] = device_choice_screen("beobachter", "observer", "observers", "Welche Beobachter gehoeren zu Gleis")
+screens["4.g.beobachter"] = device_choice_screen("beobachter", "observer", "observers", "Welche Beobachter gehoeren zu")
 screens["4.g.beobachter"].next = function(v)
 local c = session.wiz.config
 if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") then
@@ -652,7 +661,7 @@ end
 screens["4.g.ausgang"] = {
 render = function(v, rect)
 local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Welcher Ausgang gibt Gleis " .. t.name .. " frei? Jeder Ausgang nur einmal.")
+header(v, rect, nil, "Welcher Ausgang gibt " .. label.track(t.name) .. " frei? Jeder Ausgang nur einmal.", 2)
 local items = {}
 session.pick.outputs = {}
 for _, o in ipairs(model.outputs(session.wiz.scan)) do
@@ -778,7 +787,7 @@ end)
 
 screens["4.k.konflikt"] = {
 render = function(v, rect)
-header(v, rect, nil, "Welche zwei Verbindungen schliessen sich aus? (nacheinander antippen)")
+header(v, rect, nil, "Welche zwei Verbindungen schliessen sich aus? (nacheinander antippen)", 2)
 local j = session.wiz.config.junction
 local items = {}
 for i, m in ipairs(j.moves) do
@@ -1207,7 +1216,7 @@ end,
 screens["3.k.pruefen"] = {
 render = function(v, rect)
 local d = session.dir
-header(v, rect, nil, "Knoten " .. (d.junction and d.junction.name or "?") .. ": diese Angaben werden uebernommen")
+header(v, rect, nil, "Knoten " .. (d.junction and d.junction.name or "?") .. ": Angaben uebernehmen")
 local t, why = model.junction_from_directory(d.junction or { connections = {}, routes = {} })
 local lines = {}
 if not t then
@@ -1254,7 +1263,7 @@ end,
 screens["3.gleise"] = {
 render = function(v, rect)
 local d = session.dir
-header(v, rect, nil, "Gleise in " .. (d.area and d.area.name or "?") .. ": welche betreut diese Node?")
+header(v, rect, nil, (d.area and d.area.name or "?") .. ": welche Gleise betreut diese Node?")
 local st = dir_status()
 if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
 local items = {}
@@ -1378,7 +1387,7 @@ no_forward = true,
 render = function(v, rect)
 local row
 for _, r in ipairs(session.wiz.guided_rows()) do if r.track == session.track then row = r end end
-header(v, rect, nil, "Gleis aendern: " .. (row and row.name or "?"))
+header(v, rect, nil, "Aendern: " .. (row and label.track(row.name) or "?"))
 W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
 local edit = session.dir.edit or {}
 W.label(v, rect.x + 1, rect.y + 7, "Richtung: " .. direction_text(edit.direction or (row and row.direction) or "beide"), "text", rect.w - 2)
@@ -1436,7 +1445,7 @@ render = function(v, rect)
 local row = detail_rows()
 local ends = session.wiz.area_ends()
 local entry_track = row ~= nil and row.junction ~= nil and row.junction.role == "ein"
-header(v, rect, nil, "Signale von " .. (row and row.name or "?") .. (row and row.junction and ": Reihenfolge und Einfahrt" or ": Funktion, Wirkrichtung, Standort"))
+header(v, rect, nil, (row and label.track(row.name) or "?") .. (row and row.junction and ": Reihenfolge, Einfahrt" or ": Funktion, Wirkrichtung, Standort"))
 if row and #row.signals >= 2 then
 local text
 if entry_track then
@@ -1521,7 +1530,7 @@ end,
 screens["4.z.signal"] = {
 render = function(v, rect)
 local track = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Welches Signal gehoert zu " .. (track and track.name or "?") .. "?")
+header(v, rect, nil, "Welches Signal gehoert zu " .. (track and label.track(track.name) or "?") .. "?", 2)
 local items = {}
 session.pick.freie = {}
 for _, d in ipairs(session.wiz.guided_free_signals()) do

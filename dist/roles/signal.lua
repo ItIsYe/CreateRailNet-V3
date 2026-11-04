@@ -7,6 +7,7 @@
 local signallib = require("dev.signal")
 local ser = require("core.ser")
 local W = require("ui.widgets")
+local label = require("core.label")
 
 local M = {}
 
@@ -261,9 +262,9 @@ end
 
 local function describe(d)
 if d.kind == "bereich" then return "Die Node gehoert jetzt zum Bereich " .. tostring(d.name) end
-if d.kind == "fehlt" then return "Gleis " .. d.name .. " fehlt im Verzeichnis" end
-if d.kind == "name" then return "Gleis " .. d.from .. " heisst jetzt " .. d.to end
-return "Gleis " .. d.name .. ": Richtung " .. tostring(d.from) .. " -> " .. tostring(d.to)
+if d.kind == "fehlt" then return label.track(d.name) .. " fehlt im Verzeichnis" end
+if d.kind == "name" then return label.track(d.from) .. " heisst jetzt " .. d.to end
+return label.track(d.name) .. ": Richtung " .. tostring(d.from) .. " -> " .. tostring(d.to)
 end
 role.describe_difference = describe
 

@@ -5,6 +5,7 @@
 
 
 local ser = require("core.ser")
+local label = require("core.label")
 
 local M = {}
 
@@ -170,13 +171,13 @@ local planned = {}
 for _, entry in ipairs(list) do
 local tname, why_t = valid_name(entry.name)
 if not tname then return nil, why_t end
-for _, other in ipairs(planned) do if same(other.name, tname) then return nil, "Das Gleis " .. tname .. " ist doppelt angegeben." end end
+for _, other in ipairs(planned) do if same(other.name, tname) then return nil, label.track(tname) .. " ist doppelt angegeben." end end
 local direction = entry.direction or "beide"
-if type(direction) ~= "string" then return nil, "Die Richtung von Gleis " .. tname .. " ist ungueltig." end
+if type(direction) ~= "string" then return nil, "Die Richtung von " .. label.track(tname) .. " ist ungueltig." end
 if direction:lower() == "beide" then direction = "beide"
 elseif same(direction, ends[1]) then direction = ends[1]
 elseif same(direction, ends[2]) then direction = ends[2]
-else return nil, "Die Richtung '" .. direction .. "' von Gleis " .. tname .. " ist kein Anschluss des Bereichs (" .. ends[1] .. ", " .. ends[2] .. " oder beide)." end
+else return nil, "Die Richtung '" .. direction .. "' von " .. label.track(tname) .. " ist kein Anschluss des Bereichs (" .. ends[1] .. ", " .. ends[2] .. " oder beide)." end
 planned[#planned + 1] = { name = tname, direction = direction }
 end
 local area_id = new_id("bereich", "B")
@@ -373,7 +374,7 @@ if not area then return nil, "Den Bereich gibt es nicht." end
 if track_count(area_id) >= M.MAX_TRACKS then return nil, "Ein Bereich hat hoechstens " .. M.MAX_TRACKS .. " Gleise." end
 local clean_name, why = valid_name(name)
 if not clean_name then return nil, why end
-if track_name_taken(area_id, clean_name) then return nil, "Das Gleis " .. clean_name .. " gibt es in diesem Bereich schon." end
+if track_name_taken(area_id, clean_name) then return nil, label.track(clean_name) .. " gibt es in diesem Bereich schon." end
 direction = direction or "beide"
 if not is_end(area, direction) then return nil, "Die Richtung muss 'beide' oder ein Anschluss des Bereichs sein." end
 local tid = new_id("gleis", "A")
@@ -393,7 +394,7 @@ if old then return nil, old end
 if fields.name ~= nil then
 local name, why = valid_name(fields.name)
 if not name then return nil, why end
-if track_name_taken(t.area, name, id) then return nil, "Das Gleis " .. name .. " gibt es in diesem Bereich schon." end
+if track_name_taken(t.area, name, id) then return nil, label.track(name) .. " gibt es in diesem Bereich schon." end
 t.name = name
 end
 if fields.direction ~= nil then

@@ -383,7 +383,7 @@ return {
     d.tap_row(v, "ausgang", "Computer back")
     d.tap(v, "act:weiter")                   -- zurueck zur Liste
     d.tap(v, "act:kopieren")
-    t.ok(d.has(v, "Gleis bearbeiten: Gleis 1 Kopie"))
+    t.ok(d.has(v, "Bearbeiten: Gleis 1 Kopie"))
     t.ok(d.has(v, "Kopie: Geraete und Ausgang neu zuordnen."))
   end },
   { "Wizard: Knotenpunkt ueber die Oberflaeche", function()

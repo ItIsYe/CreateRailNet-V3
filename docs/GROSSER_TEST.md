@@ -117,6 +117,7 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.84 | Nach dem Neustart die Seite *Update* ansehen | "Neuer Stand in der Probezeit", nach 2 Minuten Meldung *Update auf Version ... bestaetigt*; die Vorversion bleibt (`installer --status`) | |
 | 3.85 | Rueckfall pruefen (nur wo eine Vorversion da ist): im Lua-Prompt `/crn_data/probe` mit dem Inhalt `2` und einer Zeile `bad=test` anlegen, neu starten | Die Startdatei kehrt zur Vorversion zurueck (`installer --status`), CRN startet, die Seite *Update* nennt den Stand `test` als zurueckgenommen | |
 | 3.86 | Leitstelle: `crn/app/main update pruefen`, dann `jetzt` | Bei neuem Stand meldet *jetzt* "Alt und neu passen nicht zugleich ... --replace"; nichts wird veraendert; waehrend einer Fahrt installiert sich die Leitstelle nicht von selbst | |
+| 3.87 | Bahnhof einrichten, Schritt 4 *Gleise*: Gleis bearbeiten, Bahnhof waehlen, weiter bis zum Ausgang | Die Fragen nennen das Gleis einmal ("Welcher Create-Bahnhof gehoert zu Gleis 1", "Welcher Ausgang gibt Gleis 1 frei? Jeder Ausgang nur einmal."), nichts ist mit ~ abgeschnitten; die Titelzeile zeigt den Node-Namen oder "neue Node" | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

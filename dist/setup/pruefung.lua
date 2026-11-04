@@ -7,6 +7,7 @@
 local signallib = require("dev.signal")
 local detect = require("dev.detect")
 local model = require("setup.model")
+local label = require("core.label")
 
 local M = {}
 
@@ -99,7 +100,7 @@ table.sort(track_ids)
 if #track_ids == 0 then add("Es ist noch kein Gleis uebernommen.") end
 for _, tid in ipairs(track_ids) do
 local track = c.tracks[tid]
-if #(track.signals or {}) == 0 then add("Gleis " .. track.name .. ": Das Signal fehlt noch.") end
+if #(track.signals or {}) == 0 then add(label.track(track.name) .. ": Das Signal fehlt noch.") end
 count = count + #(track.signals or {})
 end
 for _, problem in ipairs(model.validate(c, scan)) do

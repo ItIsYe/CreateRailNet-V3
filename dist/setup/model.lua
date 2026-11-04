@@ -5,6 +5,7 @@
 
 
 local detect = require("dev.detect")
+local label = require("core.label")
 
 local M = {}
 
@@ -88,7 +89,7 @@ function M.junction_from_directory(j)
 local owner, order = {}, {}
 for _, c in ipairs(j.connections or {}) do
 for _, t in ipairs(c.tracks or {}) do
-if owner[t.id] then return nil, "Das Gleis " .. t.name .. " steht in zwei Anschluessen." end
+if owner[t.id] then return nil, label.track(t.name) .. " steht in zwei Anschluessen." end
 owner[t.id] = { connection = c.name, name = t.name, area = t.area }
 order[#order + 1] = t.id
 end
@@ -107,7 +108,7 @@ move_keys[a.connection .. "\0" .. b.connection] = { from = a.connection, to = b.
 end
 for _, id in ipairs(order) do
 if from_ends[id] and to_ends[id] then
-return nil, "Das Gleis " .. owner[id].name .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: das kennt die Node nicht, bitte in der Leitstelle trennen oder von Hand einrichten."
+return nil, label.track(owner[id].name) .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: das kennt die Node nicht, bitte in der Leitstelle trennen oder von Hand einrichten."
 end
 end
 local moves = {}
@@ -295,7 +296,7 @@ names[track.name] = true
 local function claim(device_id, what)
 if not device_id then return end
 if not config.devices[device_id] then
-add("gleis_geraet", "Gleis " .. track.name .. ": " .. what .. " " .. device_id .. " ist nicht eingetragen.")
+add("gleis_geraet", label.track(track.name) .. ": " .. what .. " " .. device_id .. " ist nicht eingetragen.")
 return
 end
 if owner[device_id] and owner[device_id] ~= id then
@@ -303,47 +304,47 @@ add("geraet_zwei_gleise", "Geraet " .. config.devices[device_id].device .. " geh
 end
 owner[device_id] = id
 end
-if track.direction ~= "hin" and track.direction ~= "rueck" and track.direction ~= "beide" then add("gleis_richtung", "Gleis " .. track.name .. ": Richtung fehlt oder ist ungueltig.") end
+if track.direction ~= "hin" and track.direction ~= "rueck" and track.direction ~= "beide" then add("gleis_richtung", label.track(track.name) .. ": Richtung fehlt oder ist ungueltig.") end
 for field, kind in pairs({ station = "station", signals = "signal", observers = "observer" }) do
 local refs = field == "station" and (track.station and { track.station } or {}) or track[field]
 for _, ref in ipairs(refs) do
-if config.devices[ref] and config.devices[ref].kind ~= kind then add("gleis_art", "Gleis " .. track.name .. ": falsche Geraeteart fuer " .. field .. ".") end
+if config.devices[ref] and config.devices[ref].kind ~= kind then add("gleis_art", label.track(track.name) .. ": falsche Geraeteart fuer " .. field .. ".") end
 end
 end
 claim(track.station, "Bahnhof")
 
 if track.dir and #track.signals >= 2 and not track.order_ok then
 local ends = config.node.area_ends
-add("signal_reihenfolge", "Gleis " .. track.name .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
+add("signal_reihenfolge", label.track(track.name) .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
 end
 for _, s in ipairs(track.signals) do
 claim(s, "Signal")
 
 local info = config.devices[s] and config.devices[s].signal
-if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
+if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (" .. label.track(track.name) .. "): Wirkrichtung fehlt.") end
 end
 for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
-if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
-if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+if needs_station and not track.station then add("gleis_bahnhof", label.track(track.name) .. " hat keinen Bahnhof.") end
+if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", label.track(track.name) .. " hat kein Signal.") end
 
 local entry_code, entry_text = M.entry_signal_problem(config, track)
 if entry_code then add(entry_code, entry_text) end
 if track.junction then
 if not config.junction.connections[track.junction.connection] then
-add("knoten_gleis", "Gleis " .. track.name .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")
+add("knoten_gleis", label.track(track.name) .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")
 elseif track.junction.role == "ein" and #track.signals == 0 then
 add("knoten_gleis", "Einfahrtsgleis " .. track.name .. " braucht ein Signal, das die Einfahrt zusaetzlich sperrt.")
 elseif #track.observers == 0 then
-add("knoten_gleis", "Gleis " .. track.name .. " braucht einen Beobachter als Meldepunkt (Einfahrt erkennen, Raeumung nachweisen).")
+add("knoten_gleis", label.track(track.name) .. " braucht einen Beobachter als Meldepunkt (Einfahrt erkennen, Raeumung nachweisen).")
 end
 end
 if track.release then
 local valid_side = false
 for _, side in ipairs(SIDES) do if track.release.side == side then valid_side = true end end
-if not valid_side then add("ausgang_seite", "Gleis " .. track.name .. ": ungueltige Ausgangsseite.") end
+if not valid_side then add("ausgang_seite", label.track(track.name) .. ": ungueltige Ausgangsseite.") end
 if track.release.relay then
 local relay = detect.find(scan, track.release.relay)
-if not relay or relay.kind ~= "relay" or #detect.missing("relay", relay) > 0 then add("ausgang_relay", "Gleis " .. track.name .. ": Relay fehlt oder ist nicht verwendbar.") end
+if not relay or relay.kind ~= "relay" or #detect.missing("relay", relay) > 0 then add("ausgang_relay", label.track(track.name) .. ": Relay fehlt oder ist nicht verwendbar.") end
 end
 local key = output_key(track.release)
 if outputs[key] then
@@ -351,7 +352,7 @@ add("ausgang_doppelt", "Der Ausgang " .. key .. " dient zwei Gleisen: " .. outpu
 end
 outputs[key] = track.name
 elseif needs_station and (has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof")) and track.station then
-add("gleis_ausgang", "Gleis " .. track.name .. " hat keinen Freigabeausgang.")
+add("gleis_ausgang", label.track(track.name) .. " hat keinen Freigabeausgang.")
 end
 end
 

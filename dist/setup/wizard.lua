@@ -5,6 +5,7 @@
 
 
 local model = require("setup.model")
+local label = require("core.label")
 local ser = require("core.ser")
 local adler = require("core.adler")
 local detect = require("dev.detect")
@@ -443,7 +444,7 @@ end
 
 function w.knoten_precheck()
 for _, track in pairs(w.config.tracks) do
-if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (Gleis " .. track.name .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
+if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (" .. label.track(track.name) .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
 end
 return true
 end
@@ -767,7 +768,7 @@ if track.release then
 local key = (track.release.relay or "Computer") .. " " .. track.release.side
 list[#list + 1] = {
 id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key, fp = test_fingerprint("ausgang", tid),
-explain = "Der Freigabeausgang " .. key .. " von Gleis " .. track.name .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
+explain = "Der Freigabeausgang " .. key .. " von " .. label.track(track.name) .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
 }
 end
 end

@@ -4,6 +4,8 @@
 
 
 
+local label = require("core.label")
+
 local M = {}
 
 function M.new(opts)
@@ -26,10 +28,10 @@ if type(members) ~= "table" or #members == 0 then return nil, "Der Bahnhof brauc
 local seen = {}
 for _, member in ipairs(members) do
 if type(member) ~= "string" or member == "" then return nil, "Ein Gleisname ist leer." end
-if seen[member] then return nil, "Das Gleis " .. member .. " steht doppelt in der Liste." end
+if seen[member] then return nil, label.track(member) .. " steht doppelt in der Liste." end
 seen[member] = true
 local other = s.group_of(member)
-if other and other ~= name then return nil, "Das Gleis " .. member .. " gehoert schon zum Bahnhof " .. other .. "." end
+if other and other ~= name then return nil, label.track(member) .. " gehoert schon zum Bahnhof " .. other .. "." end
 end
 if seen[name] and #members > 1 then return nil, "Der Bahnhofsname darf nicht zugleich ein Gleisname sein." end
 local previous = data.groups[name]

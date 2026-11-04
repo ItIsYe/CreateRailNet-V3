@@ -14,6 +14,7 @@ local forms = require("ui.forms")
 local netzlib = require("domain.netz")
 local model = require("setup.model")
 local chunks = require("core.chunks")
+local label = require("core.label")
 local adler = require("core.adler")
 local ser = require("core.ser")
 
@@ -472,7 +473,7 @@ end
 for _, order in ipairs(role.orders.active()) do
 local at = order.at or order.start
 if at and at.node == p.node and at.track == tr.id and (order.state == "fahrplan_uebergeben" or order.state == "abfahrt_freigegeben" or order.state == "vorbereitet") then
-to_clarification(order, "Das Geraet am Gleis " .. tostring(tr.name) .. " ist nicht verfuegbar: Lage klaeren.")
+to_clarification(order, "Das Geraet an " .. label.track(tr.name) .. " ist nicht verfuegbar: Lage klaeren.")
 end
 end
 end
@@ -919,7 +920,7 @@ table.sort(tids)
 for _, tid in ipairs(tids) do
 if #by_track[tid] > 1 then
 local tr = role.netz.track(tid)
-out[#out + 1] = { key = "bahnhof:" .. tid, nodes = by_track[tid], text = "Gleis " .. (tr and tr.name or tid) .. " (" .. tid .. ") gehoert " .. table.concat(by_track[tid], " und ") .. " als Bahnhofsgleis: wer steuert die Freigabe?" }
+out[#out + 1] = { key = "bahnhof:" .. tid, nodes = by_track[tid], text = label.track(tr and tr.name or tid) .. " (" .. tid .. ") gehoert " .. table.concat(by_track[tid], " und ") .. " als Bahnhofsgleis: wer steuert die Freigabe?" }
 end
 end
 local seen = {}
@@ -944,7 +945,7 @@ for _, key in ipairs(keys) do
 local g = seen[key]
 if #g.nodes > 1 then
 local tr = role.netz.track(g.dir)
-out[#out + 1] = { key = "signal:" .. key, nodes = g.nodes, text = "Signal am Gleis " .. (tr and tr.name or g.dir) .. " (Wirkrichtung " .. g.effect .. ", Standort " .. g.place .. ") wird von " .. table.concat(g.nodes, " und ") .. " gemeldet: doppelte Steuerung?" }
+out[#out + 1] = { key = "signal:" .. key, nodes = g.nodes, text = "Signal an " .. label.track(tr and tr.name or g.dir) .. " (Wirkrichtung " .. g.effect .. ", Standort " .. g.place .. ") wird von " .. table.concat(g.nodes, " und ") .. " gemeldet: doppelte Steuerung?" }
 end
 end
 return out
@@ -1801,7 +1802,7 @@ return true
 end,
 extra = {
 { id = "loeschen", label = function(t) return t and netz_arm.track == t.id and "Wirklich?" or "Loeschen" end, kind = "danger",
-run = function(v, t) return two_step("track", t.id, "das Gleis " .. t.name .. " wird geloescht.", function() return role.netz.remove_track(t.id) end) end },
+run = function(v, t) return two_step("track", t.id, label.track(t.name) .. " wird geloescht.", function() return role.netz.remove_track(t.id) end) end },
 },
 })
 

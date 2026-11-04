@@ -95,7 +95,7 @@ end
 local ctx = {
 title = function()
 if not n.config then return "CRN - noch nicht eingerichtet" end
-return n.config.node.name .. " - " .. role_text()
+return (n.config.node.name ~= "" and W.fit(n.config.node.name, 22) or "neue Node") .. " - " .. role_text()
 end,
 status = function() return n.status() end,
 on_action = function(v, id)
@@ -135,7 +135,7 @@ local y = rect.y
 local function line(text, kind) W.label(v, rect.x + 1, y, text, kind or "text", rect.w - 2) y = y + 1 end
 line(version.name .. " " .. version.number, "hell")
 if n.config then
-line("Node: " .. n.config.node.name .. " (" .. n.config.node.id .. ")")
+line("Node: " .. (n.config.node.name ~= "" and n.config.node.name or "(noch ohne Namen)") .. " (" .. n.config.node.id .. ")")
 line("Rolle: " .. role_text())
 line("Netz: " .. n.config.network.name .. (n.config.network.central_id and ("   Leitstelle: " .. n.config.network.central_id) or "   (Leitstelle)"))
 line("Zustand: " .. n.config.status .. "   Einrichtung Nr. " .. tostring(n.config.revision))

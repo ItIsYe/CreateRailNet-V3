@@ -4,6 +4,8 @@ API: stations.new{ store, path } -> s; s.set(name, mitglieder) -> ok, fehler; s.
 Notes: Mitglieder sind Create-Bahnhofsnamen in Rangfolge (erster = bevorzugt). Ein Create-Bahnhof gehoert hoechstens zu einer Gruppe. info(name) liefert { problem = Text oder nil }; die Pruefungen selbst (Erreichbarkeit, Belegung, Zuweisung, Sperre, Laenge) liegen bei der Leitstelle, damit hier nichts geraten wird.
 ]]
 
+local label = require("core.label")
+
 local M = {}
 
 function M.new(opts)
@@ -26,10 +28,10 @@ function M.new(opts)
     local seen = {}
     for _, member in ipairs(members) do
       if type(member) ~= "string" or member == "" then return nil, "Ein Gleisname ist leer." end
-      if seen[member] then return nil, "Das Gleis " .. member .. " steht doppelt in der Liste." end
+      if seen[member] then return nil, label.track(member) .. " steht doppelt in der Liste." end
       seen[member] = true
       local other = s.group_of(member)
-      if other and other ~= name then return nil, "Das Gleis " .. member .. " gehoert schon zum Bahnhof " .. other .. "." end
+      if other and other ~= name then return nil, label.track(member) .. " gehoert schon zum Bahnhof " .. other .. "." end
     end
     if seen[name] and #members > 1 then return nil, "Der Bahnhofsname darf nicht zugleich ein Gleisname sein." end
     local previous = data.groups[name]
