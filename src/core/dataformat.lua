@@ -118,6 +118,14 @@ local function make_context(fs, store)
     return names
   end
   function ctx.exists(name) return fs.exists(DATA .. "/" .. name) end
+  -- Datei samt .tmp und .prev entfernen (die Sicherung vor der Anpassung behaelt sie)
+  function ctx.delete(name)
+    for _, suffix in ipairs({ "", ".tmp", ".prev" }) do
+      local path = DATA .. "/" .. name .. suffix
+      if fs.exists(path) then fs.delete(path) end
+    end
+    return true
+  end
   function ctx.load(name) return (store.load(DATA .. "/" .. name)) end
   function ctx.save(name, value)
     local ok, why = store.save(DATA .. "/" .. name, value)

@@ -16,7 +16,7 @@ local function setup(count, opts)
   local config = model.new("Signal West-Ost N0001", { "signal" }, { name = "Testnetz", central_id = "hauptstelle" })
   config.node.id = "N0001"
   if opts.claimed ~= false then config.node.claimed, config.node.label = true, "N0001 | SIG | B0001" end
-  config.status = "entwurf"
+  config.status = "offen"
   local devs = {}
   for i = 1, count do
     local name = "Create_Signal_" .. i
@@ -27,6 +27,7 @@ local function setup(count, opts)
     devs[i] = { name = name, id = did, track = tid }
   end
   local persisted = {}
+  local file = { marker = nil }          -- die Marke in ihrer eigenen Datei
   local clock_v = 0
   local p = pruefung.new({
     env = { peripheral = world.peripheral },
@@ -34,12 +35,14 @@ local function setup(count, opts)
     now = function() return 100 end,
     clock = opts.clock or function() return clock_v end,
     scan = function() return detect.scan(world.peripheral) end,
-    persist = opts.persist or function()
-      persisted[#persisted + 1] = config.pruefung and config.pruefung.lauf and config.pruefung.lauf.device or false
+    mark = opts.mark or function(lauf)
+      persisted[#persisted + 1] = lauf and lauf.device or false
+      file.marker = lauf or nil
       return true
     end,
+    marker = function() return file.marker end,
   })
-  return p, config, world, devs, persisted
+  return p, config, world, devs, persisted, file
 end
 
 local function forced(world, name) return world.devices[name].state.forced end
@@ -100,15 +103,31 @@ return {
     t.eq(st.phase, "fertig"); t.eq(st.done, 4); t.eq(st.total, 4); t.eq(st.ok, true); t.eq(#st.devices, 4)
     t.eq(st.devices[1].track, "Gleis 1")
   end },
-  { "Marke wird vor dem Schalten gespeichert und danach geloescht", function()
-    local p, config, world, devs, persisted = setup(2)
+  { "Marke wird vor dem Schalten in ihre eigene Datei geschrieben und danach geloescht (die Einrichtung wird dafuer nicht gespeichert)", function()
+    local p, config, world, devs, persisted, file = setup(2)
     p.start(true); p.step(1e9)
-    -- je Signal: einmal mit Marke (vor dem Schalten), einmal ohne (danach); am Ende ein Speichern
+    -- je Signal: einmal mit Marke (vor dem Schalten), einmal ohne (danach)
+    t.eq(#persisted, 4)
     t.eq(persisted[1], devs[1].id); t.eq(persisted[2], false)
     t.eq(persisted[3], devs[2].id); t.eq(persisted[4], false)
+    t.eq(file.marker, nil)
+  end },
+  { "Die Marke nennt Geraet und Namen des Signals (der Wiederanlauf braucht keine gespeicherte Einrichtung)", function()
+    local seen
+    local p, config, world, devs = setup(1, { mark = function(lauf) if lauf then seen = lauf end return true end })
+    p.start(true); p.step(1e9)
+    t.eq(seen.device, devs[1].id); t.eq(seen.name, devs[1].name); t.eq(type(seen.t), "number")
+  end },
+  { "Bleibt die Testsperre nach dem Aufheben gesetzt, bleibt auch die Marke fuer den naechsten Start", function()
+    local p, config, world, devs, persisted, file = setup(1)
+    local real = world.devices[devs[1].name].methods.setForcedRed
+    world.devices[devs[1].name].methods.setForcedRed = function(v) if v == false then return end return real(v) end      -- Aufheben wirkt nicht
+    p.start(true); p.step(1e9)
+    t.eq(forced(world, devs[1].name), true)
+    t.ok(file.marker ~= nil and file.marker.name == devs[1].name, "Marke bleibt")
   end },
   { "Kann die Marke nicht gespeichert werden, wird nicht geschaltet", function()
-    local p, config, world, devs = setup(1, { persist = function() return nil, "Platte voll" end })
+    local p, config, world, devs = setup(1, { mark = function() return nil, "Platte voll" end })
     local calls = 0
     local real = world.devices[devs[1].name].methods.setForcedRed
     world.devices[devs[1].name].methods.setForcedRed = function(v) calls = calls + 1 return real(v) end
@@ -242,37 +261,46 @@ return {
     t.eq(calls, 0)
   end },
   { "Wiederanlauf: stehengebliebene Marke und Testsperre werden erkannt und aufgehoben", function()
-    local p, config, world, devs = setup(2)
-    config.pruefung = { devices = {}, lauf = { device = devs[1].id, t = 5 } }
+    local p, config, world, devs, _, file = setup(2)
+    file.marker = { device = devs[1].id, name = devs[1].name, t = 5 }
     world.devices[devs[1].name].state.forced = true                 -- Absturz mitten in der Testsperre
     local note, ok = p.recover()
     t.contains(note, "aufgehoben"); t.eq(ok, true)
     t.eq(forced(world, devs[1].name), false)
-    t.eq(config.pruefung.lauf, nil)
+    t.eq(file.marker, nil, "Marke ist erledigt")
     t.eq(p.recover(), nil, "nichts mehr zu tun")
   end },
   { "Wiederanlauf: Marke ohne gesetzte Sperre, und eine Sperre, die sich nicht loesen laesst", function()
-    local p, config, world, devs = setup(2)
-    config.pruefung = { devices = {}, lauf = { device = devs[1].id, t = 5 } }
+    local p, config, world, devs, _, file = setup(2)
+    file.marker = { device = devs[1].id, name = devs[1].name, t = 5 }
     local note, ok = p.recover()
     t.contains(note, "unterbrochene Pruefung"); t.eq(ok, true)
-    -- Aufheben wirkt nicht
-    config.pruefung = { devices = {}, lauf = { device = devs[2].id, t = 5 } }
+    t.eq(file.marker, nil)
+    -- Aufheben wirkt nicht: die Marke bleibt, der naechste Start versucht es erneut
+    file.marker = { device = devs[2].id, name = devs[2].name, t = 5 }
     world.devices[devs[2].name].state.forced = true
     world.devices[devs[2].name].state.ignore_hold = true
     note, ok = p.recover()
     t.contains(note, "ACHTUNG"); t.eq(ok, false)
-    -- unbekanntes Geraet in der Marke
-    config.pruefung = { devices = {}, lauf = { device = "geraet99", t = 5 } }
+    t.ok(file.marker ~= nil, "Marke bleibt, solange die Sperre steht")
+    -- das Signal wurde von Hand freigegeben: der naechste Start meldet nichts Schlimmes und raeumt die Marke weg
+    world.devices[devs[2].name].state.forced = false
     note, ok = p.recover()
     t.ok(note and ok)
-    t.eq(config.pruefung.lauf, nil)
+    t.eq(file.marker, nil)
+    -- unbekanntes Geraet in der Marke
+    file.marker = { device = "geraet99", name = "Create_Signal_99", t = 5 }
+    note, ok = p.recover()
+    t.ok(note and ok)
+    t.eq(file.marker, nil)
   end },
   { "Wiederanlauf entwertet das unterbrochene Ergebnis: das Signal wird neu geprueft", function()
-    local p, config, world, devs = setup(1)
+    local p, config, world, devs, _, file = setup(1)
     p.start(true); p.step(1e9)
     t.eq(p.all_ok(), true)
-    config.pruefung.lauf = { device = devs[1].id, t = 5 }
+    p.recover()
+    t.eq(p.device(devs[1].id).sperre.state, "ok", "ohne Marke bleibt das Ergebnis")
+    file.marker = { device = devs[1].id, name = devs[1].name, t = 5 }
     p.recover()
     t.eq(p.device(devs[1].id).sperre.state, "offen")
     t.eq(p.all_ok(), false)

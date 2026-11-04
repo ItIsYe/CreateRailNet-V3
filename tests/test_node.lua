@@ -121,8 +121,7 @@ return {
     d.tap(v, "act:weiter")
     d.tap_row(v, "beobachter", "Create_TrainObserver_1")
     d.tap(v, "act:weiter")
-    d.tap_row(v, "ausgang", "Computer back")
-    d.tap(v, "act:weiter")
+    t.ok(not d.has(v, "Welcher Ausgang"), "kein Ausgang-Menue: " .. d.text(v))
     t.ok(d.has(v, "Gleis 1"), "zurueck in der Gleisliste")
     t.ok(d.has(v, "> Gleis 1"))
     t.ok(d.has(v, "Bahnhof, 1 Signal"), "Zusammenfassung des Gleises in der Liste: " .. d.text(v))
@@ -138,11 +137,7 @@ return {
     t.eq(w.devices["Create_Signal_5"].state.forced, false, "noch nichts geschaltet")
     d.tap(v, "act:start_test")
     t.ok(d.has(v, "ok: Sperre gesetzt und aufgehoben"), d.text(v))
-    d.tap_row(v, "tests", "Ausgang: Gleis 1")
-    d.tap(v, "act:ausfuehren")
-    d.tap(v, "act:start_test")
-    t.ok(d.has(v, "ok: Ausgang geschaltet"))
-    t.eq(w.sides.back, false)
+    t.ok(not d.has(v, "Ausgang: Gleis"), "keine Ausgangspruefung ohne Ausgang")
     d.tap(v, "act:weiter")
     -- Schritt 6
     t.ok(d.has(v, "Schritt 6 von 6: Fertig"))
@@ -156,7 +151,8 @@ return {
     -- gespeichert und lesbar
     local saved = storelib.new(d.fs).load("/crn_data/config.lua")
     t.eq(saved.status, "aktiv")
-    t.eq(saved.tracks.gleis1.release.side, "back")
+    t.eq(saved.tracks.gleis1.release, nil, "kein Redstone-Ausgang: die Freigabe laeuft ueber die Station")
+    t.ok(saved.tracks.gleis1.station)
   end },
   { "nach dem Speichern: Monitor aus der Konfiguration wird zweite Ansicht, Beruehrung dort wirkt nur dort", function()
     local d = new_driver()
@@ -214,16 +210,21 @@ return {
     t.ok(d.node.config, "Konfiguration aus .prev")
     t.eq(d.node.config.node.name, "Depot Nord")
   end },
-  { "Entwurf: Zustand 'Entwurf' und Hinweis, kein Funk", function()
+  { "Ein Entwurf aus einer aelteren Version wird ignoriert: Zustand 'Einrichtung', kein Funk, die Einrichtung beginnt von vorn", function()
     local d = new_driver()
     local cfg = require("setup.model").new("Depot Nord", { "depot" }, { name = "Testnetz", central_id = "h" })
+    cfg.status = "entwurf"
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
     d.restart()
-    t.eq(d.node.status().text, "Entwurf")
+    t.eq(d.node.config, nil)
+    t.eq(d.node.status().text, "Einrichtung")
     t.eq(d.node.net, nil)
-    local text = ""
-    for _, m in ipairs(d.node.messages) do text = text .. m.text end
-    t.contains(text, "nur ein Entwurf")
+    for _, m in ipairs(d.node.messages) do t.ok(not m.text:find("Entwurf", 1, true), m.text) end
+    local v = d.view()
+    d.tap(v, "nav:einrichtung")
+    t.ok(d.has(v, "Einrichtung starten"), d.text(v))
+    d.tap(v, "act:start")
+    t.eq(d.node.setup.session().screen, "1.modus")
   end },
   { "Geraeteaenderung zur Laufzeit erzeugt Meldungen", function()
     local d, w = new_driver()
@@ -339,6 +340,7 @@ return {
   { "Wizard: nur eine Ansicht bearbeitet, die andere zeigt den Hinweis", function()
     local d = new_driver()
     local cfg = require("setup.model").new("Westbahnhof", { "passagierbahnhof" }, { name = "N", central_id = "h" })
+    cfg.status = "aktiv"
     require("setup.model").add_device(cfg, "monitor", "monitor_0")
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
     d.restart()
@@ -355,22 +357,21 @@ return {
     t.ok(d.has(tv, "Schritt 1 von 6"), "die zweite Ansicht kann den Assistenten nicht weiterschalten")
     t.eq(d.node.setup.session().screen, "1.modus")
   end },
-  { "Wizard: ohne Pruefungen nur als Entwurf speichern", function()
+  { "Wizard: ohne Pruefungen laesst sich nichts aktivieren und nichts speichern (kein Entwurf)", function()
     local d, w = new_driver()
     local v = d.view()
     setup_station(d, v)
     d.tap_row(v, "bahnhof", "Create_Station_1")
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
-    d.tap_row(v, "ausgang", "Computer back")
-    d.tap(v, "act:weiter")
     d.tap(v, "act:weiter")              -- Pruefungen
     d.tap(v, "act:weiter")              -- Fertig
     t.eq(d.node.setup.session().screen, "5.test", "offene Tests blockieren Weiter")
     t.eq(d.area(v, "act:weiter").enabled, false)
-    d.tap(v, "act:entwurf")
-    t.eq(d.node.config.status, "entwurf")
-    t.eq(d.node.status().text, "Entwurf")
-    t.eq(d.node.net, nil, "kein Funk fuer einen Entwurf")
+    t.eq(d.area(v, "act:entwurf"), nil, "es gibt keinen Entwurf-Knopf")
+    t.eq(d.node.config, nil, "nichts gespeichert")
+    t.ok(not d.fs.exists("/crn_data/config.lua"))
+    t.eq(d.node.status().text, "Einrichtung")
+    t.eq(d.node.net, nil, "kein Funk")
   end },
   { "Wizard: Vorlage kopieren verlangt neue Zuordnung", function()
     local d, w = new_driver()
@@ -379,12 +380,10 @@ return {
     d.tap_row(v, "bahnhof", "Create_Station_1")
     d.tap(v, "act:weiter")                   -- Signale
     d.tap(v, "act:weiter")                   -- Beobachter
-    d.tap(v, "act:weiter")                   -- Ausgang
-    d.tap_row(v, "ausgang", "Computer back")
     d.tap(v, "act:weiter")                   -- zurueck zur Liste
     d.tap(v, "act:kopieren")
     t.ok(d.has(v, "Bearbeiten: Gleis 1 Kopie"))
-    t.ok(d.has(v, "Kopie: Geraete und Ausgang neu zuordnen."))
+    t.ok(d.has(v, "Kopie: Geraete neu zuordnen."))
   end },
   { "Wizard: Knotenpunkt ueber die Oberflaeche", function()
     local d, w = new_driver()
@@ -422,9 +421,8 @@ return {
     d.tap(v, "act:weiter")
     t.eq(d.node.setup.session().screen, "4.gleise", "Ein Knoten ohne Gleise darf nicht zum Test")
     t.eq(d.area(v,"act:weiter").enabled,false)
-    d.tap(v, "act:entwurf")
-    t.eq(d.node.config.status, "entwurf", "nicht vollstaendig: nur als Entwurf gespeichert")
-    t.eq(#d.node.config.junction.conflicts, 1)
+    t.eq(d.node.config, nil, "nicht vollstaendig: nichts gespeichert")
+    t.eq(#d.node.setup.session().wiz.config.junction.conflicts, 1)
   end },
   { "main startet die Laufzeit und beendet sich sauber, wenn das Programm abgebrochen wird", function()
     local main = dofile("src/app/main.lua")
@@ -436,6 +434,7 @@ return {
   { "Wizard auf dem grossen Monitor", function()
     local d = new_driver()
     local cfg = require("setup.model").new("Westbahnhof", { "passagierbahnhof" }, { name = "N", central_id = "h" })
+    cfg.status = "aktiv"
     require("setup.model").add_device(cfg, "monitor", "monitor_0")
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
     d.restart()

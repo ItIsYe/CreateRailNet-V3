@@ -205,20 +205,6 @@ gleisname = { value = "", max = 30 },
 bname = { value = "", max = 30 }, bende1 = { value = "", max = 30 }, bende2 = { value = "", max = 30 }, bzahl = { value = "2", max = 2 },
 anschluss = { value = "", max = 20 },
 }
-
-if session.wiz.guided then
-session.dir = { claim = existing.node.claim }
-local note = ensure_check().recover()
-session.known_signals = nil
-goto_screen("4.zuordnung")
-select_next_open(v, 0)
-v.hint = note or "Entwurf geladen: Signale zuordnen und pruefen."
-elseif existing and existing.node.claimed == true and (existing.node.area or existing.node.junction or existing.node.station) and existing.status ~= "aktiv" then
-
-session.dir = { claim = existing.node.claim }
-goto_screen("3.geraete")
-v.hint = "Entwurf geladen: Geraete und Gleise zuordnen, dann pruefen."
-end
 end
 
 local function fields(v) return v.page_state("einrichtung").fields end
@@ -407,10 +393,13 @@ end,
 
 screens["2.name"] = {
 render = function(v, rect)
-header(v, rect, nil, "Wie heisst dieser Node? (z.B. Westbahnhof)")
-W.field(v, "name", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Name", fields(v).name)
+header(v, rect, nil, "Wie soll dieser Node heissen? (z.B. Westbahnhof)")
+local f = fields(v)
+if f.name.value == "" then f.name.value = session.wiz.suggest_name() end
+W.field(v, "name", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Name", f.name)
 local c = session.wiz.config
-if c.node.name ~= "" then W.label(v, rect.x + 1, rect.y + 6, "Kennung im Netz: " .. model.slug(c.node.name), "dim", rect.w - 2) end
+W.label(v, rect.x + 1, rect.y + 6, "Kennung im Netz: " .. model.slug(c.node.name), "dim", rect.w - 2)
+W.label(v, rect.x + 1, rect.y + 7, "Der Name ist nur Anzeige und laesst sich leeren.", "dim", rect.w - 2)
 end,
 }
 
@@ -482,7 +471,7 @@ local tid = session.wiz.copy_track(selected, src.name .. " Kopie")
 session.track = tid
 fields(v).gleisname.value = session.wiz.config.tracks[tid].name
 push("4.g.name")
-v.hint = "Kopie: Geraete und Ausgang neu zuordnen."
+v.hint = "Kopie: Geraete neu zuordnen."
 return true
 elseif id == "act:entfernen" and selected then
 session.wiz.remove_track(selected)
@@ -530,7 +519,7 @@ end
 if model.has_role(c, "knoten") then return "4.g.anschluss"
 elseif model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then return "4.g.bahnhof"
 elseif model.has_role(c, "signal") then return "4.g.signale" end
-return "4.g.ausgang"
+return "4.g.bahnhof"
 end
 
 screens["4.g.richtung"] = {
@@ -626,7 +615,6 @@ screens["4.g.bahnhof"] = device_choice_screen("bahnhof", "station", "station", "
 screens["4.g.bahnhof"].next = function(v)
 if #config_devices_of("signal") > 0 then push("4.g.signale")
 elseif #config_devices_of("observer") > 0 then push("4.g.beobachter")
-elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
 else while session.screen ~= "4.gleise" and pop() do end end
 return true
 end
@@ -643,56 +631,14 @@ push("4.z.detail")
 return true
 end
 if #config_devices_of("observer") > 0 then push("4.g.beobachter")
-elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
 else while session.screen ~= "4.gleise" and pop() do end end
 return true
 end
 screens["4.g.beobachter"] = device_choice_screen("beobachter", "observer", "observers", "Welche Beobachter gehoeren zu")
 screens["4.g.beobachter"].next = function(v)
-local c = session.wiz.config
-if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") then
-push("4.g.ausgang")
-else
-while session.screen ~= "4.gleise" and pop() do end
-end
-return true
-end
-
-screens["4.g.ausgang"] = {
-render = function(v, rect)
-local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Welcher Ausgang gibt " .. label.track(t.name) .. " frei? Jeder Ausgang nur einmal.", 2)
-local items = {}
-session.pick.outputs = {}
-for _, o in ipairs(model.outputs(session.wiz.scan)) do
-local on = t.release and t.release.side == o.side and t.release.relay == o.relay
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. o.label }
-session.pick.outputs[#items] = o
-end
-W.list(v, "ausgang", body_rect(rect, 3), items, list_state(v, "ausgang"), { row_h = v.layout.mode == "gross" and 3 or 1 })
-end,
-action = function(v, id)
-local n = id:match("^sel:ausgang:(%d+)$")
-if n then
-local o = session.pick.outputs and session.pick.outputs[tonumber(n)]
-if o then
-local t = session.wiz.config.tracks[session.track]
-if t.release and t.release.side == o.side and t.release.relay == o.relay then
-session.wiz.set_release(session.track, nil)
-else
-local ok, why = session.wiz.set_release(session.track, { side = o.side, relay = o.relay })
-if not ok then v.hint = why end
-end
-end
-return true
-end
-end,
-next = function(v)
-
 while session.screen ~= "4.gleise" and pop() do end
 return true
-end,
-}
+end
 
 screens["4.knoten"] = {
 render = function(v, rect)
@@ -975,12 +921,16 @@ now = services.now,
 clock = services.env.raw_clock,
 scan = function() return services.scan() end,
 
-persist = function() return services.store.save(services.config_path, session.wiz.config) end,
+mark = function(lauf) if services.check_mark then return services.check_mark(lauf) end return true end,
+marker = function() return services.check_marker and services.check_marker() or nil end,
 })
 return w.pruefung
 end
 
 local function dir_status() return services.directory_status and services.directory_status() or nil end
+
+local function node_claim() return services.claim and services.claim() or services.new_claim() end
+local function new_token() return services.new_token and services.new_token() or services.new_claim() end
 
 local function direction_text(direction)
 if direction == "beide" then return "beide Richtungen" end
@@ -1095,7 +1045,7 @@ if spec.ends[1] == "" or spec.ends[2] == "" then v.hint = "Beide Anschlussnamen 
 if not spec.count then v.hint = "Die Gleisanzahl fehlt (Zahl)." return true end
 
 local key = table.concat({ spec.name, spec.ends[1], spec.ends[2], tostring(spec.count), spec.pattern }, "|")
-if d.neu.key ~= key then d.neu.key, d.neu.token = key, services.new_claim() end
+if d.neu.key ~= key then d.neu.key, d.neu.token = key, new_token() end
 services.directory_reset()
 d.creating = { token = d.neu.token }
 services.directory_area_create(session.wiz.central_id, d.neu.token, spec)
@@ -1204,7 +1154,7 @@ end,
 next = function(v)
 local d = session.dir
 if d.claiming then v.hint = "Frage die Leitstelle nach der Kennung ..." return true end
-d.claim = d.claim or services.new_claim()
+d.claim = d.claim or node_claim()
 d.claiming = { station = d.station_choice }
 services.directory_reset()
 services.directory_claim(session.wiz.central_id, d.claim, "anmeldung", nil, nil, nil, session.wiz.legacy_id(), { station = d.station_choice.id })
@@ -1251,7 +1201,7 @@ next = function(v)
 local d = session.dir
 local pre, why = session.wiz.knoten_precheck()
 if not pre then v.hint = why return true end
-d.claim = d.claim or services.new_claim()
+d.claim = d.claim or node_claim()
 d.claiming = { junction = d.junction }
 services.directory_reset()
 services.directory_claim(session.wiz.central_id, d.claim, "knoten", nil, nil, d.junction.id, session.wiz.legacy_id())
@@ -1293,7 +1243,7 @@ end
 if #chosen == 0 then v.hint = "Mindestens ein Gleis uebernehmen." return true end
 local pre, why = session.wiz.guided_precheck(info)
 if not pre then v.hint = why return true end
-d.claim = d.claim or services.new_claim()
+d.claim = d.claim or node_claim()
 d.claiming = { tracks = info }
 services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen, nil, session.wiz.legacy_id(), { roles = session.wiz.roles })
 v.hint = "Frage die Leitstelle nach der Kennung ..."
@@ -1657,7 +1607,7 @@ if tracks > 0 then lines[#lines + 1] = "Gleise: " .. tracks end
 local problems = w.warnings()
 local tests_ok = w.all_tests_ok()
 lines[#lines + 1] = "Pruefungen: " .. (tests_ok and "alle bestanden" or "offen")
-lines[#lines + 1] = (#problems == 0 and tests_ok) and "Bereit zum Aktivieren." or "Wird als ENTWURF gespeichert; die Betriebsfunktion bleibt inaktiv."
+lines[#lines + 1] = (#problems == 0 and tests_ok) and "Bereit zum Aktivieren." or "Noch nicht bereit: Aktivieren geht erst nach allen Pruefungen."
 local y = rect.y + 2
 local function put(text, kind)
 for _, part in ipairs(W.wrap(text, rect.w - 2)) do
@@ -1665,7 +1615,7 @@ if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, kind, rect.w - 
 y = y + 1
 end
 end
-for _, line in ipairs(lines) do put(line, (line:find("ENTWURF", 1, true)) and "attention" or "text") end
+for _, line in ipairs(lines) do put(line, (line:find("Noch nicht bereit", 1, true)) and "attention" or "text") end
 for _, p in ipairs(problems) do put("- " .. p.text, "wait") end
 end,
 action = function(v, id)
@@ -1674,12 +1624,12 @@ local ok, why = session.wiz.step_ok(5)
 if not ok then v.hint = why return true end
 local status, problems, err = session.wiz.finish(services.store, services.config_path)
 if not status then
-v.hint = "Speichern fehlgeschlagen: " .. tostring(err)
+v.hint = "Aktivieren nicht moeglich: " .. tostring(err)
 return true
 end
 services.on_saved(session.wiz.config)
-services.notify(status == "aktiv" and "info" or "warnung", "Einrichtung gespeichert: " .. status)
-v.hint = "Gespeichert: " .. status
+services.notify("info", "Einrichtung aktiviert.")
+v.hint = "Aktiviert."
 session.wiz, session.owner = nil, nil
 return true
 end
@@ -1726,7 +1676,7 @@ if not session.wiz then
 W.label(v, rect.x + 1, rect.y, "Einrichtung", "hell")
 local config = services.config()
 local text = config
-and ("Dieser Node ist eingerichtet: " .. config.node.name .. " (" .. config.status .. "). Die Einrichtung kann geaendert werden.")
+and ("Dieser Node ist eingerichtet: " .. (config.node.name ~= "" and config.node.name or config.node.id) .. ". Die Einrichtung kann geaendert werden.")
 or "Dieser Computer ist noch nicht eingerichtet. Der Assistent fuehrt in sechs Schritten durch Anlage, Rolle, Geraete, Gleise, Test und Abschluss."
 for i, line in ipairs(W.wrap(text, rect.w - 2)) do W.label(v, rect.x + 1, rect.y + 1 + i, line, "text", rect.w - 2) end
 return
@@ -1743,11 +1693,10 @@ local x = rect.x + rect.w - 26
 v.canvas.fill(x, rect.y, 26, rect.h, S.navigation)
 W.label(v, x + 2, rect.y + 1, "DEINE EINRICHTUNG", "hell", 22)
 local w = session.wiz
-local lines = { w.name ~= "" and w.name or "Name noch offen", "Netz: " .. w.network_name }
+local lines = { w.config.node.name ~= "" and w.config.node.name or "Name folgt", "Netz: " .. w.network_name }
 for _, role in ipairs(w.roles) do lines[#lines+1] = model.ROLE_TEXT[role] end
 lines[#lines+1] = ""
 lines[#lines+1] = "Schritt " .. w.step .. " von 6"
-lines[#lines+1] = "Entwurf jederzeit speichern."
 lines[#lines+1] = "Aktiv erst nach allen Pflichtpruefungen."
 local y=rect.y+3
 for _, text in ipairs(lines) do
@@ -1815,7 +1764,6 @@ if track then
 if screen == "4.g.bahnhof" and not track.station then return false, "Bitte eine Train Station zuordnen." end
 if screen == "4.g.signale" and (model.has_role(w.config, "signal") or track.junction and track.junction.role == "ein") and #track.signals == 0 then return false, "Bitte ein Signal zuordnen." end
 if screen == "4.g.beobachter" and track.junction and #track.observers == 0 then return false, "Der Meldepunkt braucht einen Beobachter." end
-if screen == "4.g.ausgang" and not track.release then return false, "Bitte einen Freigabeausgang zuordnen." end
 end
 if screen == "4.gleise" then return w.step_ok(4, true, { anmeldung_station = true }) end
 if screen == "4.anmeldung" then return w.step_ok(4, true) end
@@ -1872,8 +1820,6 @@ local ok, why = can_advance(v)
 list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why }
 end
 end
-local active = session.wiz and session.wiz.was_active
-list[#list + 1] = { id = "entwurf", label = "Entwurf", kind = "secondary", enabled = not active, reason = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." }
 list[#list + 1] = { id = "abbrechen", label = session.cancel_armed and "Wirklich?" or "Abbrechen", kind = "danger", side = "rechts" }
 return list
 end
@@ -1973,16 +1919,6 @@ end
 return false
 end
 if session.owner ~= v then return false end
-if id == "act:entwurf" then
-if session.wiz.was_active then v.hint = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." return true end
-commit(v)
-local status, _, err = session.wiz.finish(services.store, services.config_path, true)
-if not status then v.hint = "Speichern fehlgeschlagen: " .. tostring(err) return true end
-services.on_saved(session.wiz.config)
-session.wiz, session.owner = nil, nil
-v.hint = "Entwurf gespeichert; die Node bleibt inaktiv."
-return true
-end
 if id == "act:weiter" then return advance(v) end
 if id == "act:zurueck" or id == "back" then
 commit(v)
@@ -1991,7 +1927,7 @@ end
 if id == "act:abbrechen" then
 if session.cancel_armed then
 session.wiz, session.owner, session.stack = nil, nil, {}
-v.hint = "Verworfen; gespeicherte Einrichtung bleibt."
+v.hint = services.config() and "Verworfen; die laufende Einrichtung bleibt." or "Verworfen. Die Einrichtung kann neu begonnen werden."
 else
 session.cancel_armed = true
 v.hint = "Nochmal druecken verwirft die Eingaben."
@@ -2064,6 +2000,11 @@ end
 elseif st.kind == "halt" and d.claiming then
 d.claiming = nil
 v.hint = st.text
+
+if tostring(st.text):find("verworfen", 1, true) and services.new_claim then
+d.claim = services.new_claim()
+v.hint = "Die bisherige Anforderung wurde in der Leitstelle verworfen. Es gibt jetzt eine neue: bitte noch einmal Weiter."
+end
 end
 if d.creating then
 if st.kind == "ok" and st.created then

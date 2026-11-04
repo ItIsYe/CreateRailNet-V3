@@ -322,7 +322,11 @@ return {
       for _, d in ipairs({ z, s, b }) do
         local files = old[d.id]
         for path in pairs(d.fs._state.files) do if path:match("^crn_data/") then d.fs._state.files[path] = nil end end
-        for path, text in pairs(files) do d.fs._state.files[path] = text end
+        for path, text in pairs(files) do
+          local dir = path:match("^(.*)/[^/]+$")
+          if dir and not d.fs.exists(dir) then d.fs.makeDir(dir) end
+          d.fs._state.files[path] = text
+        end
         expect[d.id] = ser.encode(storelib.new(d.fs).load("/crn_data/config.lua"))
         d.restart()
       end
@@ -330,7 +334,8 @@ return {
       for _, d in ipairs({ z, s, b }) do
         local n = d.node
         local where = version .. "/" .. d.id
-        t.eq(n.format_status, "gleich", where)
+        -- Formate dieser Staende sind aelter als das aktuelle Programm: einmal angepasst (aktive Einrichtungen bleiben dabei unveraendert)
+        t.eq(n.format_status, "migriert", where)
         t.eq(n.status().kind, "ok", where .. ": " .. n.status().text)
         for _, m in ipairs(n.messages) do t.ok(m.level ~= "fehler", where .. ": " .. m.text) end
         t.eq(ser.encode(storelib.new(d.fs).load("/crn_data/config.lua")), expect[d.id], where .. ": Konfiguration unveraendert")
@@ -340,6 +345,51 @@ return {
       local nodes = z.node.roles.zentrale.info().nodes
       t.ok(nodes.strecke and nodes.bahnhof, version .. ": die Leitstelle kennt beide Nodes")
     end
+  end },
+
+  { "Schritt 1 -> 2 (Entwurf entfaellt): ein gespeicherter Entwurf wird verworfen, Anforderungskennung und Testsperre-Marke bleiben nutzbar, eine aktive Einrichtung bleibt unveraendert", function()
+    local step = migrations.STEPS[1]
+    t.eq(step.text, "Entwurf der Einrichtung verwerfen")
+    local function run(config)
+      local fs, store = world()
+      store.save("/crn_data/format.lua", { format = 1, program = "0.1" })
+      if config then store.save("/crn_data/config.lua", config) end
+      local status, _, dir, err = dataformat.check(fs, store, { program = "0.2" })
+      return status, fs, store, dir, err
+    end
+    -- Entwurf mit Anforderungskennung und stehengebliebener Testsperre
+    local draft = { status = "entwurf", node = { id = "N0007", name = "", claim = "c1-123456789012", claimed = true }, devices = { signal1 = { kind = "signal", device = "Create_Signal_9" } },
+      tracks = {}, pruefung = { lauf = { device = "signal1", t = 42 }, devices = {} } }
+    local status, fs, store, dir, err = run(draft)
+    t.eq(status, "migriert", tostring(err))
+    t.ok(not fs.exists("/crn_data/config.lua"), "der Entwurf ist weg")
+    t.eq(store.load("/crn_data/anforderung.lua").claim, "c1-123456789012", "die Kennung im Verzeichnis bleibt")
+    local mark = store.load("/crn_data/pruefmarke.lua")
+    t.eq(mark.name, "Create_Signal_9"); t.eq(mark.device, "signal1")
+    t.eq(store.load(dir .. "/config.lua").status, "entwurf", "die Sicherung behaelt ihn")
+    t.eq(store.load("/crn_data/format.lua").format, migrations.FORMAT)
+    -- Entwurf ohne Kennung: nur weg
+    status, fs, store = run({ status = "entwurf", node = { id = "x", name = "x" }, devices = {}, tracks = {} })
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua")); t.ok(not fs.exists("/crn_data/anforderung.lua")); t.ok(not fs.exists("/crn_data/pruefmarke.lua"))
+    -- ungueltige Kennung wird nicht uebernommen
+    status, fs = run({ status = "entwurf", node = { id = "x", claim = "../../boese kennung" }, devices = {}, tracks = {} })
+    t.ok(not fs.exists("/crn_data/anforderung.lua"))
+    -- aktive Einrichtung: unveraendert (auch die Datei selbst)
+    local active = { status = "aktiv", revision = 4, node = { id = "n1", name = "Westbahnhof", roles = { "signal" }, claim = "c1-abcdefabcdef" }, devices = {}, tracks = {} }
+    status, fs, store = run(active)
+    t.eq(status, "migriert")
+    t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(active), "aktive Einrichtung unveraendert")
+    t.ok(not fs.exists("/crn_data/pruefmarke.lua") and not fs.exists("/crn_data/anforderung.lua"))
+    -- aktive Einrichtung mit stehengebliebener Marke: die Marke zieht in ihre Datei um, der Rest bleibt
+    local stuck = { status = "aktiv", revision = 4, node = { id = "n1", roles = { "signal" } }, devices = { signal1 = { kind = "signal", device = "Sig_A" } }, tracks = {}, pruefung = { lauf = { device = "signal1", t = 9 }, devices = {} } }
+    status, fs, store = run(stuck)
+    t.eq(status, "migriert")
+    t.eq(store.load("/crn_data/pruefmarke.lua").name, "Sig_A")
+    local c = store.load("/crn_data/config.lua")
+    t.eq(c.status, "aktiv"); t.eq(c.pruefung.lauf, nil); t.eq(c.revision, 4)
+    -- keine Einrichtung: nichts zu tun
+    status, fs = run(nil)
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
   end },
 
   { "Form der gespeicherten Dateien ist festgehalten: aendert sie sich, muss ein Anpassungsschritt her oder die Festlegung bewusst erneuert werden", function()

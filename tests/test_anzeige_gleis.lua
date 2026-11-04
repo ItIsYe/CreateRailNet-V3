@@ -46,13 +46,6 @@ return {
     local text = d.text(v)
     t.contains(text, "Welcher Create-Bahnhof gehoert zu Gleis 1")
     t.not_contains(text, "Gleis Gleis")
-    d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
-    text = d.text(v)
-    t.contains(text, "Welcher Ausgang gibt Gleis 1 frei?")
-    t.contains(text, "nur einmal.")
-    t.not_contains(text, "Gleis Gleis")
-    t.not_contains(text:sub(1, text:find("Computer top", 1, true) or #text), "~", "die Frage ist vollstaendig")
-    t.contains(text, "Computer top", "die Liste beginnt direkt darunter")
     -- ein sehr langer Name: die zweite Zeile wird am Wortende gekuerzt, die Liste bleibt unberuehrt
     local session = d.node.setup.session()
     session.wiz.config.tracks[session.track].name = "Westbahnhof Nordseite Gleis mit sehr langem Namen fuer den Test ausgeschrieben"
@@ -60,9 +53,13 @@ return {
     text = d.text(v)
     local lines = {}
     for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
-    t.contains(lines[5], "Welcher Ausgang gibt")
+    t.contains(lines[5], "Welcher Create-Bahnhof gehoert zu")
     t.contains(lines[6], "~")
-    t.contains(lines[7], "Computer top")
+    t.contains(lines[7], "Create_Station_1")
+    -- nach dem Bahnhof gibt es keine Frage nach einem Ausgang mehr
+    session.wiz.config.tracks[session.track].name = "Gleis 1"
+    d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
+    t.not_contains(d.text(v), "Welcher Ausgang")
   end },
 
   { "Pruefmeldungen und Texte der Einrichtung: kein doppeltes Gleis", function()
@@ -101,19 +98,20 @@ return {
     t.eq(#bad, 0, "label.track fehlt: " .. table.concat(bad, ", "))
   end },
 
-  { "Titelzeile: Node ohne Namen heisst 'neue Node', ein langer Name laesst die Rolle sichtbar", function()
+  { "Titelzeile: Node ohne Namen zeigt ihre Kennung, ein langer Name laesst die Rolle sichtbar", function()
     local h = H.new()
     local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Westbahnhof", release_side = "back" } } })
     local store = storelib.new(s.fs)
     local config = store.load("/crn_data/config.lua")
     config.node.name = ""
-    config.status = "entwurf"
+    config.status = "aktiv"
     store.save("/crn_data/config.lua", config)
     s.restart()
     local v = s.view()
     local first = s.text(v):match("^[^\n]*")
-    t.contains(first, "neue Node - passagierbahnhof")
+    t.contains(first, config.node.id .. " - passagierbahnhof")
     t.not_contains(first, "  - ")
+    t.not_contains(first, "neue Node")
     config.node.name = "Personenbahnhof Hauptbahnhof N0001"
     store.save("/crn_data/config.lua", config)
     s.restart()

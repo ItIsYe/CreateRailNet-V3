@@ -37,7 +37,7 @@ devices = {},
 tracks = {},
 junction = { connections = {}, moves = {}, conflicts = {} },
 tests = {},
-status = "entwurf",
+status = "offen",
 }
 end
 
@@ -58,7 +58,7 @@ end
 
 function M.add_track(config, name)
 local id = next_id(config.tracks, "gleis")
-config.tracks[id] = { name = name, direction = "beide", signals = {}, observers = {}, status = "entwurf" }
+config.tracks[id] = { name = name, direction = "beide", signals = {}, observers = {}, status = "offen" }
 return id
 end
 
@@ -254,7 +254,7 @@ function M.validate(config, scan)
 local problems = {}
 local function add(code, text) problems[#problems + 1] = { code = code, text = text } end
 
-if config.node.name == "" then add("name", "Der Node braucht einen Namen.") end
+
 if #config.node.roles == 0 then add("rolle", "Es ist keine Rolle gewaehlt.") end
 for _, r in ipairs(config.node.roles) do
 if not ROLE_SET[r] then add("rolle", "Unbekannte Rolle " .. tostring(r) .. ".") end
@@ -351,9 +351,9 @@ if outputs[key] then
 add("ausgang_doppelt", "Der Ausgang " .. key .. " dient zwei Gleisen: " .. outputs[key] .. " und " .. track.name .. ". Gemeinsame Leitungen duerfen keine fremde Freigabe ausloesen.")
 end
 outputs[key] = track.name
-elseif needs_station and (has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof")) and track.station then
-add("gleis_ausgang", label.track(track.name) .. " hat keinen Freigabeausgang.")
 end
+
+
 end
 
 

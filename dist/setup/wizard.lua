@@ -35,8 +35,7 @@ if not existing and opts.role_available and not opts.role_available("zentrale") 
 
 w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
 
-local function single_role(list, name) return #list == 1 and list[1] == name end
-w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv" and single_role(existing.node.roles, "signal")) or nil
+w.guided = nil
 w.claimed_id = (existing ~= nil and existing.node.claimed == true) and existing.node.id or nil
 if existing then
 w.network_name = existing.network.name
@@ -58,8 +57,9 @@ local c = w.config
 c.network.name = w.network_name
 c.network.central_id = (w.mode == "join" and w.central_id ~= "") and w.central_id or nil
 c.network.key = (w.key ~= "") and w.key or nil
-c.node.name = w.name
-if not existing then c.node.id = w.claimed_id or model.slug(w.name) end
+
+c.node.name = (w.name ~= "" or w.claimed_id or existing) and w.name or w.suggest_name()
+if not existing then c.node.id = w.claimed_id or model.slug(c.node.name) end
 c.node.roles = {}
 for _, r in ipairs(model.ROLES) do if has(w.roles, r) then c.node.roles[#c.node.roles + 1] = r end end
 end
@@ -82,7 +82,16 @@ function w.set_network(name, central, key)
 w.network_name, w.central_id, w.key = name or w.network_name, central or w.central_id, key or w.key
 sync_config()
 end
-function w.set_name(name) w.name = name; sync_config() end
+
+local NAME_BASE = { zentrale = "Leitstelle", passagierbahnhof = "Bahnhof", gueterbahnhof = "Gueterbahnhof", depot = "Depot", signal = "Signal", knoten = "Knoten", anmeldung = "Anmeldung" }
+function w.suggest_name()
+w.name_number = w.name_number or math.random(100, 999)
+return (NAME_BASE[w.roles[1] or ""] or "Node") .. " " .. w.name_number
+end
+function w.set_name(name)
+w.name = name:match("%S") and name or ""
+sync_config()
+end
 function w.available_roles()
 local roles = {}
 for _, role in ipairs(model.ROLES) do if not opts.role_available or opts.role_available(role) then roles[#roles+1]=role end end
@@ -175,7 +184,6 @@ if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
 if w.mode == "join" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
 return true
 elseif n == 2 then
-if not w.name:match("%S") then return false, "Der Node braucht einen Namen." end
 if #w.roles == 0 then return false, "Bitte mindestens eine Rolle waehlen." end
 for _,role in ipairs(w.roles) do if not has(w.available_roles(),role) then return false, "Die Programmdateien fuer Rolle " .. role .. " fehlen." end end
 if w.mode == "create" and not has(w.roles, "zentrale") then return false, "Die erste Leitstelle braucht die Rolle Leitstelle." end
@@ -879,8 +887,8 @@ end
 
 
 
-function w.finish(store, path, draft)
-if draft and w.was_active then return nil, {}, "Eine laufende Node wird nicht auf Entwurf gesetzt." end
+
+function w.finish(store, path)
 sync_config()
 w.rescan()
 local problems = model.validate(w.config, w.scan)
@@ -888,15 +896,20 @@ for n = 1, 5 do
 local ok, reason = w.step_ok(n, true)
 if not ok then problems[#problems + 1] = { code = "schritt_" .. n, text = reason } end
 end
-local status = (not draft and #problems == 0 and w.all_tests_ok()) and "aktiv" or "entwurf"
-w.config.status = status
+if #problems > 0 or not w.all_tests_ok() then
+return nil, problems, "Pflichtangaben und Pruefungen sind nicht vollstaendig."
+end
+w.config.status = "aktiv"
 for _, track in pairs(w.config.tracks) do
-track.status = (status == "aktiv" and track.station ~= nil or status == "aktiv" and #track.signals > 0) and "aktiv" or "entwurf"
+track.status = (track.station ~= nil or #track.signals > 0) and "aktiv" or "offen"
 end
 w.config.revision = (w.config.revision or 0) + 1
 local ok, err = store.save(path, w.config)
-if not ok then return nil, problems, err end
-return status, problems
+if not ok then
+w.config.status = "offen"
+return nil, problems, err
+end
+return "aktiv", problems
 end
 
 return w

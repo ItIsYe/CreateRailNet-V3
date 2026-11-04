@@ -1,4 +1,4 @@
-# Datenformat 1
+# Datenformat 2
 knoten:config.lua devices.observer#.device string
 knoten:config.lua devices.observer#.kind string
 knoten:config.lua devices.signal#.device string

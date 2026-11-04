@@ -27,8 +27,9 @@ c.pruefung.devices = c.pruefung.devices or {}
 return c.pruefung
 end
 
-local function persist()
-if opts.persist then return opts.persist() end
+
+local function mark(lauf)
+if opts.mark then return opts.mark(lauf) end
 return true
 end
 
@@ -175,15 +176,16 @@ return
 end
 
 store().lauf = { device = did, t = opts.now() }
-local ok, err = persist()
+local ok, err = mark({ device = did, name = d.device, t = opts.now() })
 if not ok then
 store().lauf = nil
-fail(did, "sperre", "Der Entwurf laesst sich nicht speichern (" .. tostring(err) .. "): es wird nicht geschaltet.")
+fail(did, "sperre", "Die Pruefmarke laesst sich nicht speichern (" .. tostring(err) .. "): es wird nicht geschaltet.")
 return
 end
 local held = g.hold()
 local released = g.release()
 store().lauf = nil
+if released.confirmed then mark(nil) end
 if not held.confirmed then
 fail(did, "sperre", "Sperre nicht bestaetigt" .. (held.error and (": " .. held.error) or "") .. ".")
 elseif not released.confirmed then
@@ -191,7 +193,6 @@ fail(did, "sperre", "ACHTUNG: Die Testsperre blieb gesetzt. Bitte von Hand pruef
 else
 pass(did, "sperre", "Sperre gesetzt und aufgehoben (jeweils zurueckgelesen)")
 end
-persist()
 end
 
 
@@ -208,7 +209,6 @@ until (clock() - t0) >= (seconds or 0)
 if run.index >= run.total then
 run.phase = "fertig"
 run.current = nil
-persist()
 end
 return run.phase
 end
@@ -218,33 +218,34 @@ function p.abort()
 if run and run.phase == "laeuft" then
 run.phase = "abgebrochen"
 run.current = nil
-persist()
 end
 end
+
 
 
 function p.recover()
-local pr = store()
-local lauf = pr.lauf
-if not lauf then return nil end
-pr.lauf = nil
-local d = cfg().devices[lauf.device]
+local lauf = opts.marker and opts.marker() or nil
+if type(lauf) ~= "table" then return nil end
 local note, ok = "Eine unterbrochene Pruefung wurde erkannt; das Signal wird neu geprueft.", true
-if d and d.kind == "signal" then
-local g = signallib.new(env, d.device)
+if type(lauf.name) == "string" then
+local g = signallib.new(env, lauf.name)
 local st = g.read()
 if st.available and st.forced then
 local released = g.release()
 if released.confirmed then
-note = "Eine Testsperre war nach der Unterbrechung noch gesetzt und wurde aufgehoben: " .. d.device .. "."
+note = "Eine Testsperre war nach der Unterbrechung noch gesetzt und wurde aufgehoben: " .. lauf.name .. "."
 else
-note, ok = "ACHTUNG: Eine Testsperre an " .. d.device .. " blieb nach der Unterbrechung gesetzt und liess sich nicht aufheben. Bitte von Hand pruefen.", false
+note, ok = "ACHTUNG: Eine Testsperre an " .. lauf.name .. " blieb nach der Unterbrechung gesetzt und liess sich nicht aufheben. Bitte von Hand pruefen.", false
 end
 end
-local rec = pr.devices[lauf.device]
+end
+local c = cfg()
+if c and c.pruefung then
+c.pruefung.lauf = nil
+local rec = c.pruefung.devices and c.pruefung.devices[lauf.device]
 if rec then rec.sperre = nil end
 end
-persist()
+if ok then mark(nil) end
 return note, ok
 end
 

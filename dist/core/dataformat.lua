@@ -118,6 +118,14 @@ for _, f in ipairs(list_files(fs)) do names[#names + 1] = f.name end
 return names
 end
 function ctx.exists(name) return fs.exists(DATA .. "/" .. name) end
+
+function ctx.delete(name)
+for _, suffix in ipairs({ "", ".tmp", ".prev" }) do
+local path = DATA .. "/" .. name .. suffix
+if fs.exists(path) then fs.delete(path) end
+end
+return true
+end
 function ctx.load(name) return (store.load(DATA .. "/" .. name)) end
 function ctx.save(name, value)
 local ok, why = store.save(DATA .. "/" .. name, value)

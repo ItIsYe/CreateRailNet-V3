@@ -1,7 +1,7 @@
 --[[
 Purpose: Konfiguration eines Nodes (Konzept 15): Netz, Node-Kennung und Rollen, Geraetebindung, Gleise (Bahnhof, Signale, Beobachter, Freigabeausgang), Knotenpunkte (Anschluesse, Verbindungen, Konfliktbereiche), Pruefergebnisse. Enthaelt nur Regeln und Rechnen, keine Oberflaeche: Pruefung auf Eindeutigkeit (kein Geraet und kein Ausgang zweimal), Vorlagen fuer weitere Gleise ohne Geraete, Entwurf oder aktiv.
 API: model.new(name, roles, network) -> config; model.validate(config, scan) -> Liste Probleme { code, text }; model.add_device(config, kind, device) -> id; model.add_track(config, name) -> id; model.copy_track(config, id, name) -> neue id; model.remove_track(config, id); model.assign(config, track_id, field, device_id); model.free_devices(config, scan, kind) -> Liste; model.outputs(scan) -> moegliche Ausgaenge; model.slug(text); model.ROLES
-Notes: Eine Node darf mehrere Rollen tragen (15.1). Ein neues oder kopiertes Gleis bleibt "entwurf", bis es einem Geraet zugeordnet und geprueft ist; es nimmt nicht an der Disposition teil (29.2). Technische Anschlussnamen stehen nur in devices; Gleise verweisen auf Geraete-Kennungen (fachlicher Bezug statt Modemadresse).
+Notes: Eine Node darf mehrere Rollen tragen (15.1). Ein neues oder kopiertes Gleis bleibt "offen", bis es einem Geraet zugeordnet und geprueft ist; es nimmt nicht an der Disposition teil (29.2). Technische Anschlussnamen stehen nur in devices; Gleise verweisen auf Geraete-Kennungen (fachlicher Bezug statt Modemadresse).
 ]]
 
 local detect = require("dev.detect")
@@ -37,7 +37,7 @@ function M.new(name, roles, network)
     tracks = {},
     junction = { connections = {}, moves = {}, conflicts = {} },
     tests = {},
-    status = "entwurf",
+    status = "offen",
   }
 end
 
@@ -58,7 +58,7 @@ end
 
 function M.add_track(config, name)
   local id = next_id(config.tracks, "gleis")
-  config.tracks[id] = { name = name, direction = "beide", signals = {}, observers = {}, status = "entwurf" }
+  config.tracks[id] = { name = name, direction = "beide", signals = {}, observers = {}, status = "offen" }
   return id
 end
 
@@ -254,7 +254,7 @@ function M.validate(config, scan)
   local problems = {}
   local function add(code, text) problems[#problems + 1] = { code = code, text = text } end
 
-  if config.node.name == "" then add("name", "Der Node braucht einen Namen.") end
+  -- der Name ist nur Anzeige (ohne Namen gilt die Kennung): er blockiert nie, auch nicht bei einer Einrichtung aus aelteren Versionen
   if #config.node.roles == 0 then add("rolle", "Es ist keine Rolle gewaehlt.") end
   for _, r in ipairs(config.node.roles) do
     if not ROLE_SET[r] then add("rolle", "Unbekannte Rolle " .. tostring(r) .. ".") end
@@ -351,9 +351,9 @@ function M.validate(config, scan)
         add("ausgang_doppelt", "Der Ausgang " .. key .. " dient zwei Gleisen: " .. outputs[key] .. " und " .. track.name .. ". Gemeinsame Leitungen duerfen keine fremde Freigabe ausloesen.")
       end
       outputs[key] = track.name
-    elseif needs_station and (has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof")) and track.station then
-      add("gleis_ausgang", label.track(track.name) .. " hat keinen Freigabeausgang.")
     end
+    -- Ein Gleis braucht keinen Freigabeausgang: die Freigabe der Abfahrt laeuft ueber die Train Station selbst (Fahrplan), nicht ueber Redstone am Computer.
+    -- Ausgaenge aelterer Einrichtungen bleiben gueltig und werden weiter geprueft.
   end
 
   -- Knotenpunkt
