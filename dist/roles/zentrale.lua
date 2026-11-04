@@ -1000,6 +1000,16 @@ return nil
 end
 
 
+function role.update_blocker()
+local running = 0
+for _, order in ipairs(role.orders.active()) do
+local st = order.state
+if st == "fahrplan_uebergeben" or st == "abfahrt_freigegeben" or st == "unterwegs" or st == "am_ziel" then running = running + 1 end
+end
+if running > 0 then return running .. " Fahrt(en) laufen" end
+end
+
+
 function role.info()
 return { nodes = nodes, dir = dir, track_state = track_state, pending = pending, flags = flags, samples = samples, signal_state = signal_state, knoten_state = knoten_state }
 end

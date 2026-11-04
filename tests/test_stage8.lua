@@ -194,7 +194,7 @@ return {
     store.save("/crn_data/register.lua", { trains = { a = 1 } })
     t.eq((dataformat.check(fs, store, { format = 1, program = "0.2" })), "gleich")
     local migrated = false
-    local status, old, dir = dataformat.check(fs, store, { format = 2, program = "0.3", migrations = { [1] = function(s) migrated = true s.save("/crn_data/register.lua", { trains = { a = 2 } }) end } })
+    local status, old, dir = dataformat.check(fs, store, { format = 2, program = "0.3", migrations = { [1] = function(ctx) migrated = true ctx.save("register.lua", { trains = { a = 2 } }) end } })
     t.eq(status, "migriert"); t.eq(old, 1); t.ok(migrated)
     t.ok(fs.exists(dir .. "/register.lua"), "Sicherung angelegt")
     t.eq(store.load("/crn_data/register.lua").trains.a, 2)

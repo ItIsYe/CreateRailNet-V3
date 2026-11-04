@@ -6,7 +6,7 @@ Usage: installer                   Dialog: Schritt fuer Schritt auswaehlen (Menu
        installer --status          installierte Version zeigen
        installer --check           installierte Dateien gegen das Verzeichnis pruefen
        Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist), --replace (bisherige Version ersetzen, wenn Alt und Neu nicht zugleich passen)
-Notes: Der Kanal (main oder beta) steht in dieser Datei: wer sie von main laedt, installiert main, wer installer_beta.lua von beta laedt, installiert beta. installer_beta.lua wird von tools/build.lua aus dieser Datei erzeugt. Eine einzelne Datei ohne Abhaengigkeit zur Anwendung. Daten liegen getrennt in /crn_data und werden nie angefasst; Rolle und Herkunft stehen in /crn/install.lua, damit sie mit der Installation zusammen ausgetauscht werden. Bei jedem Abbruch bleibt entweder die alte oder die neue Installation vollstaendig; der naechste Start raeumt auf (recover).
+Notes: Der Kanal (main oder beta) steht in dieser Datei: wer sie von main laedt, installiert main, wer installer_beta.lua von beta laedt, installiert beta. installer_beta.lua wird von tools/build.lua aus dieser Datei erzeugt. Eine einzelne Datei ohne Abhaengigkeit zur Anwendung. Daten liegen getrennt in /crn_data und werden nie angefasst; Rolle und Herkunft stehen in /crn/install.lua, damit sie mit der Installation zusammen ausgetauscht werden. Bei jedem Abbruch bleibt entweder die alte oder die neue Installation vollstaendig; der naechste Start raeumt auf (recover). Die startup.lua (Fassung 2) fuehrt einen unterbrochenen Austausch zu Ende und nimmt ein nicht bestaetigtes Update zurueck (docs/AKTUALISIERUNG.md); core/updater.lua laedt diese Datei vom Kanal als Bibliothek (__CRN_ENGINE).
 ]]
 
 local M = {}
@@ -181,19 +181,94 @@ local function parse_args(args)
 end
 
 local function install_info_text(role, ref, manifest)
-  return string.format("return { role = %q, version = %q, id = %q, ref = %q }\n", role, manifest.version, manifest.id, ref)
+  return string.format("return { role = %q, version = %q, id = %q, ref = %q, base = %q }\n", role, manifest.version, manifest.id, ref, BASE)
 end
+
+-- Startdatei (Fassung 2): fuehrt einen unterbrochenen Austausch zu Ende und nimmt ein Update, das nach dem Neustart nicht als gesund bestaetigt wurde
+-- (Datei /crn_data/probe, geschrieben von core/updater.lua), nach zwei Abstuerzen zurueck: Vorversion, gesicherte Daten, Merker fuer den Stand
+local STARTUP = [==[-- CRN-STARTUP 2
+-- Startet CRN. Fuehrt einen unterbrochenen Austausch der Installation zu Ende und nimmt ein noch nicht bestaetigtes Update (Datei /crn_data/probe)
+-- nach wiederholtem Absturz zurueck (Vorversion, gesicherte Daten).
+local function has(p) return fs.exists(p) end
+local function get(p)
+  local f = fs.open(p, "rb")
+  if not f then return nil end
+  local t = f.readAll()
+  f.close()
+  return t
+end
+local function put(p, t)
+  local f = fs.open(p, "wb")
+  if f then f.write(t) f.close() end
+end
+local function wipe(p) if has(p) then fs.delete(p) end end
+local function copy_tree(from, to)
+  for _, name in ipairs(fs.list(from)) do
+    local a, b = from .. "/" .. name, to .. "/" .. name
+    if fs.isDir(a) then
+      if not has(b) then fs.makeDir(b) end
+      copy_tree(a, b)
+    elseif name ~= "fertig.lua" then
+      put(b, get(a) or "")
+    end
+  end
+end
+if not has("/crn") then
+  if has("/crn_new/.complete") then fs.move("/crn_new", "/crn")
+  elseif has("/crn_tmp") and has("/crn_prev") then fs.move("/crn_prev", "/crn") end
+end
+if has("/crn") and has("/crn_tmp") and not has("/crn_prev") then fs.move("/crn_tmp", "/crn_prev") end
+local function probe()
+  local text = get("/crn_data/probe")
+  return text and tonumber(text:match("^(%d+)")), text
+end
+local function rollback()
+  local _, text = probe()
+  if not (has("/crn") and has("/crn_prev")) then wipe("/crn_data/probe") return false end
+  wipe("/crn_tmp")
+  fs.move("/crn", "/crn_tmp")
+  fs.move("/crn_prev", "/crn")
+  fs.move("/crn_tmp", "/crn_prev")
+  local dir = text:match("\nrestore=(%S+)")
+  if dir and has("/crn_data/" .. dir) then
+    copy_tree("/crn_data/" .. dir, "/crn_data")
+    for _, f in ipairs({ "format.lua", "format.lua.prev", "format.lua.tmp", "migration.lua" }) do wipe("/crn_data/" .. f) end
+  end
+  local bad = text:match("\nbad=(%S+)")
+  if bad then put("/crn_data/update_bad", bad) end
+  wipe("/crn_data/probe")
+  return true
+end
+local fails = probe()
+if fails and fails >= 2 then
+  if rollback() then os.reboot() return end
+end
+shell.run("/crn/app/main.lua")
+local after, text = probe()
+if after then
+  put("/crn_data/probe", tostring(after + 1) .. (text:match("\n.*$") or ""))
+  os.sleep(3)
+  os.reboot()
+end
+]==]
+M.STARTUP = STARTUP
 
 local function handle_startup(env)
   local say = env.print
   local fs = env.fs
   if not fs.exists("/startup.lua") then
-    write_all(env, "/startup.lua", MARK .. "\nshell.run(\"/crn/app/main.lua\")\n")
+    write_all(env, "/startup.lua", STARTUP)
     say("startup.lua angelegt: CRN startet beim Einschalten.")
     return
   end
   local text = read_all(env, "/startup.lua") or ""
-  if text:sub(1, #MARK) == MARK then return end
+  if text:sub(1, #MARK) == MARK then
+    if text ~= STARTUP then
+      write_all(env, "/startup.lua", STARTUP)
+      say("startup.lua auf den neuen Stand gebracht (Rueckfall bei einem Update, das nicht anlaeuft).")
+    end
+    return
+  end
   say("Hinweis: /startup.lua gehoert zu einem anderen Programm und bleibt unveraendert.")
   say("CRN starten Sie von Hand mit: crn/app/main")
 end
@@ -246,6 +321,7 @@ function M.rollback(env)
   fs.move(APP, TMP)
   fs.move(PREV, APP)
   fs.move(TMP, PREV)
+  drop(env, DATA .. "/probe")        -- eine laufende Probe eines Updates gilt nicht mehr (sonst tauschte die Startdatei bei Abstuerzen zurueck)
   local manifest = load_manifest(env, APP .. "/manifest.lua")
   say("Zurueck bei Version " .. tostring(manifest and manifest.version) .. ".")
   return true
@@ -461,7 +537,7 @@ end
 local function startup_text(env)
   if not env.fs.exists("/startup.lua") then return "wird angelegt (Start beim Einschalten)" end
   local text = read_all(env, "/startup.lua") or ""
-  if text:sub(1, #MARK) == MARK then return "bleibt (gehoert zu CRN)" end
+  if text:sub(1, #MARK) == MARK then return text == STARTUP and "bleibt (gehoert zu CRN)" or "wird erneuert (gehoert zu CRN)" end
   return "bleibt unveraendert (anderes Programm)"
 end
 
@@ -831,7 +907,7 @@ function M.real_env()
   }
 end
 
-if rawget(_G, "__CRN_TEST") then return M end
+if rawget(_G, "__CRN_TEST") or rawget(_G, "__CRN_ENGINE") then return M end     -- __CRN_ENGINE: core/updater.lua laedt diese Datei als Bibliothek
 local args = { ... }
 local env = M.real_env()
 if #args == 0 then env = M.dialog_env(env, term, os.pullEvent) end

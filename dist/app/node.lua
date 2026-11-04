@@ -44,16 +44,19 @@ local store = storelib.new(env.fs)
 store.heal(CONFIG)
 store.heal(DATA .. "/clock.lua")
 n.store = store
+
+
+
+local format_target = env.data_format or dataformat.FORMAT
+local format_status, format_old, format_dir, format_error = dataformat.check(env.fs, store, { program = version.number, format = env.data_format, migrations = env.data_steps })
+n.format_status, n.format_old, n.format_dir, n.format_error = format_status, format_old, format_dir, format_error
+n.format_blocked = format_status == "zu_neu" or format_status == "fehlgeschlagen"
+
 n.clock = clocklib.new({ raw = env.raw_clock, store = store, path = DATA .. "/clock.lua" })
 n.journal = journallib.new({ fs = env.fs, path = DATA .. "/journal.log", now = n.clock.now })
 n.ticker = tickerlib.new(n.clock)
 n.config = store.load(CONFIG)
 n.scan = detect.scan(env.peripheral)
-
-
-local format_status, format_old = dataformat.check(env.fs, store, { program = version.number })
-n.format_status, n.format_old = format_status, format_old
-n.format_blocked = format_status == "zu_neu"
 
 
 n.env_hold = false
@@ -69,8 +72,13 @@ if #n.messages > MAX_MESSAGES then table.remove(n.messages, 1) end
 n.dirty = true
 end
 
+if n.format_status == "migriert" then
+n.notify("info", "Daten an das neue Programm angepasst (Format " .. tostring(n.format_old) .. " auf " .. tostring(format_target) .. "). Sicherung: " .. tostring(n.format_dir))
+end
+
 function n.status()
 if not n.config then return { text = "Einrichtung", kind = "wait" } end
+if n.format_status == "fehlgeschlagen" then return { text = "Datenanpassung gescheitert", kind = "halt" } end
 if n.format_blocked then return { text = "Datenformat zu neu", kind = "halt" } end
 if n.config.status ~= "aktiv" then return { text = "Entwurf", kind = "attention" } end
 if n.env_hold then return { text = "Pruefung noetig", kind = "attention" } end
@@ -137,6 +145,12 @@ local step = central and central.next_step and central.next_step()
 if step then
 for _, text in ipairs(W.wrap(step, rect.w - 2)) do line(text, "attention") end
 end
+
+if n.format_status == "fehlgeschlagen" then
+for _, text in ipairs(W.wrap("Daten nicht angepasst, nichts veraendert, Automatik aus: " .. tostring(n.format_error), rect.w - 2)) do line(text, "halt") end
+elseif n.format_blocked then
+for _, text in ipairs(W.wrap("Die Daten haben ein neueres Format (" .. tostring(n.format_old) .. ") als dieses Programm: Automatik aus.", rect.w - 2)) do line(text, "halt") end
+end
 else
 line("Dieser Computer ist noch nicht eingerichtet.", "attention")
 line("Weiter mit der Seite 'Einrichtung'.")
@@ -154,10 +168,9 @@ for _, d in ipairs(n.scan) do if d.kind == "modem" and wireless(d.name) then rad
 line("Funk: " .. (#radio > 0 and table.concat(radio, ",") or "KEIN FUNKMODEM"), #radio > 0 and "dim" or "attention")
 local open = #n.journal.pending()
 if open > 0 then line(open .. " offene Vorgaenge im Journal", "wait") end
-if n.format_blocked then line("Die Daten haben ein neueres Format (" .. tostring(n.format_old) .. ") als dieses Programm: Automatik aus.", "halt") end
 if n.env_hold then line("Modpack oder Schnittstellen haben sich geaendert: Automatik wartet auf die Pruefung.", "attention") end
 
-if n.format_status == "migriert" then line("Daten auf das neue Format gebracht; Sicherung: sicherung_f" .. tostring(n.format_old), "dim") end
+if n.format_status == "migriert" then line("Daten angepasst (Format " .. tostring(n.format_old) .. "); Sicherung: " .. tostring(n.format_dir), "dim") end
 end,
 actions = function(v)
 if n.env_hold then return { { id = "umgebung", label = "Pruefen", kind = "primary" } } end
@@ -275,6 +288,74 @@ n.dirty = true
 end,
 })
 pages[#pages + 1] = n.setup
+
+
+local MODE_TEXT = { auto = "automatisch", melden = "nur melden", aus = "aus" }
+local MODE_NEXT = { auto = "melden", melden = "aus", aus = "auto" }
+local update_armed = false
+pages[#pages + 1] = {
+id = "update", title = "Update",
+render = function(v, rect)
+local y = rect.y
+local function line(text, kind)
+for _, part in ipairs(W.wrap(text, rect.w - 2)) do W.label(v, rect.x + 1, y, part, kind or "text", rect.w - 2) y = y + 1 end
+end
+local u = n.updater
+if not u then
+line("Dieser Computer wurde nicht ueber den Installer eingerichtet: keine Selbstaktualisierung.", "attention")
+return
+end
+local st = u.state()
+line("Installiert: " .. tostring(st.version) .. " (Stand " .. tostring(st.id) .. ")", "hell")
+line("Kanal: " .. tostring(st.ref) .. "   Rolle: " .. tostring(st.role), "dim")
+line("Betriebsart: " .. MODE_TEXT[st.mode] .. (st.replace and "   (Ersetzen erlaubt)" or ""))
+y = y + 1
+if st.moving == false then
+line("Feste Version: wird nicht automatisch aktualisiert.", "dim")
+elseif st.available then
+line("Neu: Version " .. tostring(st.available.version) .. " (Stand " .. st.available.id .. ")", "attention")
+elseif st.checked then
+line("Aktuell, geprueft vor " .. math.floor((n.clock.now() - st.checked) / 60) .. " min.", "dim")
+else
+line("Noch nicht geprueft.", "dim")
+end
+if st.probe then line("Neuer Stand in der Probezeit: nach 2 Minuten ohne Absturz gilt er als bestaetigt.", "wait") end
+if st.skipped then line("Zurueckgenommener Stand " .. st.skipped .. " wird nicht mehr versucht.", "attention") end
+if st.note then line(st.note, "attention") end
+end,
+actions = function(v)
+local u = n.updater
+if not u then return {} end
+local st = u.state()
+local list = { { id = "update_pruefen", label = "Pruefen", kind = "secondary" }, { id = "update_modus", label = "Modus: " .. MODE_TEXT[st.mode], kind = "secondary" } }
+if st.available then list[#list + 1] = { id = "update_jetzt", label = update_armed and "Wirklich?" or "Installieren", kind = "danger" } end
+return list
+end,
+on_action = function(v, id)
+local u = n.updater
+if not u then return end
+if id == "act:update_modus" then
+update_armed = false
+u.set_mode(MODE_NEXT[u.state().mode])
+return true
+elseif id == "act:update_pruefen" then
+update_armed = false
+local _, text = u.check()
+v.hint = text
+return true
+elseif id == "act:update_jetzt" then
+if not update_armed then
+update_armed = true
+v.hint = "Der Computer startet danach neu. Zum Bestaetigen noch einmal druecken."
+return true
+end
+update_armed = false
+local _, text = u.install({ force = true })
+v.hint = text
+return true
+end
+end,
+}
 
 function n.all_pages()
 local list = {}
@@ -921,7 +1002,11 @@ attached = {}
 n.roles = {}
 if not n.config or n.config.status ~= "aktiv" or not n.net then return end
 if n.format_blocked then
+if n.format_status == "fehlgeschlagen" then
+n.notify("fehler", "Die Anpassung der Daten ist gescheitert, nichts wurde veraendert und die Automatik startet nicht: " .. tostring(n.format_error))
+else
 n.notify("fehler", "Die Daten stammen von einem neueren Programm (Format " .. tostring(n.format_old) .. "). Die Automatik startet nicht. Mit 'crn/app/main daten-zurueck N' wird eine Sicherung zurueckgespielt.")
+end
 return
 end
 local modules = {}
@@ -958,6 +1043,28 @@ attached[#attached + 1] = entry
 end
 end
 n.rebuild_views()
+end
+
+
+if env.fs.exists("/crn/install.lua") then
+n.updater = require("core.updater").new({
+fs = env.fs, store = store, http = env.http, now = n.clock.now, node_id = n.config and n.config.node.id or "?",
+notify = n.notify,
+healthy = function() return not n.format_blocked end,
+blockers = function()
+for _, role in pairs(n.roles or {}) do
+local reason = role.update_blocker and role.update_blocker()
+if reason then return reason end
+end
+return nil
+end,
+reboot = function()
+n.clock.save()
+if env.reboot then env.reboot() else n.running = false end
+end,
+})
+if n.format_status == "migriert" then n.updater.note_migration(n.format_dir) end
+n.ticker.every("update", 1, function() n.updater.tick() end)
 end
 
 n.ticker.every("uhr", 30, function() n.clock.save() end)

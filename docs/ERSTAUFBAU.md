@@ -21,6 +21,8 @@ Kurzanleitung fuer ein neues Netz, von den Computern bis zur ersten aktiven Sign
 
 ## Aktualisieren
 
+Nodes aktualisieren sich selbst (Seite *Update*, `docs/AKTUALISIERUNG.md`): pruefen alle 30 Minuten, installieren in ruhigen Zeiten, nehmen einen Stand zurueck, der nicht anlaeuft. Von Hand:
+
 `installer` (Dialog) oder `installer ROLLE`. Die Vorversion bleibt erhalten (`installer --rollback`). Reicht der Platz nicht fuer alte und neue Version zugleich (die Leitstelle mit dem 32-KB-Installer und ihren Daten ist so ein Fall), steht im Dialog die Wahl *Bisherige Version ersetzen*; ohne Dialog `installer zentrale --replace`. Dabei wird die bisherige Version zuerst entfernt (kein Zurueck zur Vorversion, `/crn_data` bleibt); bricht der Download ab, den Aufruf wiederholen.
 
 ## Wenn etwas nicht klappt
