@@ -288,7 +288,10 @@ return {
     local v = d.view()
     t.ok(not d.has(v, "Gleisbild"), "im kompakten Layout zunaechst hinter dem Blaetterpfeil")
     t.ok(d.area(v, "navscroll:next"), "Pfeil zum Blaettern vorhanden")
-    d.tap(v, "navscroll:next")
+    for _ = 1, 6 do                                              -- die Kopfzeile blaettert, bis der Reiter sichtbar ist
+      if d.has(v, "Gleisbild") then break end
+      d.tap(v, "navscroll:next")
+    end
     t.ok(d.has(v, "Gleisbild"))
     d.tap(v, "nav:gleisbild")
     t.ok(d.has(v, "Gleisbild folgt"))

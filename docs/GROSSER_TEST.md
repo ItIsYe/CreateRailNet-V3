@@ -111,6 +111,12 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.78 | Nach dem Aktivieren die Seite *Uebersicht* ansehen, dann eine Strecke anlegen, dann die erste Node einrichten | Zuerst steht dort "Naechster Schritt: Strecke anlegen ...", nach dem ersten Bereich "Naechster Schritt: andere Computer einrichten ...", nach der ersten gemeldeten Node keiner mehr | |
 | 3.79 | Auf der Leitstelle `installer zentrale` fuer eine neuere Version, wenn schon Daten in `/crn_data` liegen | Reicht der Platz nicht, nennt die Meldung `--replace`; im Dialog gibt es die Wahl *Bisherige Version ersetzen*; danach laeuft die Leitstelle mit den alten Daten (Netz, Nodes, Auftraege) weiter | |
 | 3.80 | Funkmodem einer Node abziehen, Computer neu starten, Modem wieder anschliessen | Die Seite *Uebersicht* zeigt erst `KEIN FUNKMODEM`, nach dem Anschliessen kommt die Meldung "Funkmodem angeschlossen" und die Node meldet sich ohne Neustart bei der Leitstelle | |
+| 3.81 | Seite *Update* auf einer Node oeffnen | Zeigt installierte Version und Stand, Kanal, Rolle, Betriebsart *automatisch*, "Aktuell, geprueft vor ... min" (nach einigen Minuten) | |
+| 3.82 | Knopf *Modus* dreimal druecken | automatisch, nur melden, aus, wieder automatisch; die Wahl bleibt nach einem Neustart | |
+| 3.83 | Neue Version auf den Kanal bringen (beta), auf einer Node *Pruefen* | "Neu: Version ... (Stand ...)"; bei *automatisch* und ruhiger Node installiert sie nach hoechstens rund 40 Minuten selbst und startet neu; bei *nur melden* kommt eine Meldung | |
+| 3.84 | Nach dem Neustart die Seite *Update* ansehen | "Neuer Stand in der Probezeit", nach 2 Minuten Meldung *Update auf Version ... bestaetigt*; die Vorversion bleibt (`installer --status`) | |
+| 3.85 | Rueckfall pruefen (nur wo eine Vorversion da ist): im Lua-Prompt `/crn_data/probe` mit dem Inhalt `2` und einer Zeile `bad=test` anlegen, neu starten | Die Startdatei kehrt zur Vorversion zurueck (`installer --status`), CRN startet, die Seite *Update* nennt den Stand `test` als zurueckgenommen | |
+| 3.86 | Leitstelle: `crn/app/main update pruefen`, dann `jetzt` | Bei neuem Stand meldet *jetzt* "Alt und neu passen nicht zugleich ... --replace"; nichts wird veraendert; waehrend einer Fahrt installiert sich die Leitstelle nicht von selbst | |
 
 ## Stufe 4: Erster Bahnhof (Zugregister, Fahrtauftrag, Freigabe)
 

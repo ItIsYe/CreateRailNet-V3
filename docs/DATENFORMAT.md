@@ -16,6 +16,8 @@ Vor dem Laden jeder Datei vergleicht der Node das Datenformat des Computers (`/c
 
 Gesichert werden alle Dateien bis 60 000 Byte je Datei und 150 000 Byte zusammen (ohne Journal, `.tmp`, `.prev`). Passt etwas nicht hinein oder fehlt der Platz, wird **nichts** angepasst, statt ohne Sicherung zu arbeiten.
 
+Bei der Selbstaktualisierung (`docs/AKTUALISIERUNG.md`) gehoert die Sicherung zur Probe: scheitert der neue Stand, spielt die Startdatei die Daten aus der Sicherung zurueck.
+
 ## Stand heute
 
 Das Datenformat ist 1; es ist noch kein Schritt noetig gewesen. Alle bisherigen Aenderungen (zum Beispiel Reihenfolge der Signale, Wirkrichtung, Netzverzeichnis Version 2) haben nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt. Belegt ist das durch `tests/fixtures/alte_staende.lua`: Datenstaende (Leitstelle, Signal-Node, Bahnhof), die zwei aelteren Programmfassungen aus Git geschrieben haben, starten im aktuellen Programm ohne Fehler, mit unveraenderter Einrichtung und mit angemeldeten Nodes.

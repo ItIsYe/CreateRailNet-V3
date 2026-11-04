@@ -91,6 +91,14 @@ function M.new(node)
   end
 
   -- Sperren ----------------------------------------------------------------------------------------------------------------------------
+  -- Selbstaktualisierung (core/updater.lua): solange Knoten oder Leitstelle ein Signal sperren (ein Zug wird gefuehrt), wird nicht neu gestartet;
+  -- Sperren des Bedieners halten nicht auf (sie bleiben ueber den Neustart stehen)
+  function role.update_blocker()
+    for id, entry in pairs(persisted.locks) do
+      if entry.owners.knoten or entry.owners.leitstelle then return "Signal " .. tostring(id) .. " gesperrt (Zug wird gefuehrt)" end
+    end
+  end
+
   function role.lock(id, owner, reason)
     local sg = role.signals[id]
     if not sg then return nil, "Signal unbekannt" end

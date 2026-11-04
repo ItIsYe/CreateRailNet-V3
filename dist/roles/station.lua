@@ -212,6 +212,13 @@ dirty_report = true
 end
 end
 
+
+function role.update_blocker()
+for _, tr in ipairs(role.tracks) do
+if tr.p.release_set then return "Abfahrt freigegeben (" .. tostring(tr.name or tr.device_id or "?") .. ")" end
+end
+end
+
 function role.tick()
 if node.net == nil then return end
 local t = now()

@@ -186,7 +186,7 @@ return {
     t.eq(fs.open("/startup.lua", "r").readAll(), "print('fremd')")
   end },
   { "Platzmangel: Vorversion loeschen anbieten, danach installieren", function()
-    local fs, http, env = w.world({ ref = "main", fs = { capacity = 2 * w.need("depot") + 11000 } })
+    local fs, http, env = w.world({ ref = "main", fs = { capacity = 2 * w.need("depot") + 14000 } })
     t.eq(installer.run({ "depot", "--yes" }, env), true, env.output())
     t.eq(installer.run({ "depot", "--yes" }, env), true, env.output())
     t.ok(fs.exists("/crn_prev"))

@@ -289,6 +289,74 @@ function M.new(env)
   })
   pages[#pages + 1] = n.setup
 
+  -- Update (core/updater.lua): Stand, Betriebsart, Pruefen und Installieren von Hand
+  local MODE_TEXT = { auto = "automatisch", melden = "nur melden", aus = "aus" }
+  local MODE_NEXT = { auto = "melden", melden = "aus", aus = "auto" }
+  local update_armed = false
+  pages[#pages + 1] = {
+    id = "update", title = "Update",
+    render = function(v, rect)
+      local y = rect.y
+      local function line(text, kind)
+        for _, part in ipairs(W.wrap(text, rect.w - 2)) do W.label(v, rect.x + 1, y, part, kind or "text", rect.w - 2) y = y + 1 end
+      end
+      local u = n.updater
+      if not u then
+        line("Dieser Computer wurde nicht ueber den Installer eingerichtet: keine Selbstaktualisierung.", "attention")
+        return
+      end
+      local st = u.state()
+      line("Installiert: " .. tostring(st.version) .. " (Stand " .. tostring(st.id) .. ")", "hell")
+      line("Kanal: " .. tostring(st.ref) .. "   Rolle: " .. tostring(st.role), "dim")
+      line("Betriebsart: " .. MODE_TEXT[st.mode] .. (st.replace and "   (Ersetzen erlaubt)" or ""))
+      y = y + 1
+      if st.moving == false then
+        line("Feste Version: wird nicht automatisch aktualisiert.", "dim")
+      elseif st.available then
+        line("Neu: Version " .. tostring(st.available.version) .. " (Stand " .. st.available.id .. ")", "attention")
+      elseif st.checked then
+        line("Aktuell, geprueft vor " .. math.floor((n.clock.now() - st.checked) / 60) .. " min.", "dim")
+      else
+        line("Noch nicht geprueft.", "dim")
+      end
+      if st.probe then line("Neuer Stand in der Probezeit: nach 2 Minuten ohne Absturz gilt er als bestaetigt.", "wait") end
+      if st.skipped then line("Zurueckgenommener Stand " .. st.skipped .. " wird nicht mehr versucht.", "attention") end
+      if st.note then line(st.note, "attention") end
+    end,
+    actions = function(v)
+      local u = n.updater
+      if not u then return {} end
+      local st = u.state()
+      local list = { { id = "update_pruefen", label = "Pruefen", kind = "secondary" }, { id = "update_modus", label = "Modus: " .. MODE_TEXT[st.mode], kind = "secondary" } }
+      if st.available then list[#list + 1] = { id = "update_jetzt", label = update_armed and "Wirklich?" or "Installieren", kind = "danger" } end
+      return list
+    end,
+    on_action = function(v, id)
+      local u = n.updater
+      if not u then return end
+      if id == "act:update_modus" then
+        update_armed = false
+        u.set_mode(MODE_NEXT[u.state().mode])
+        return true
+      elseif id == "act:update_pruefen" then
+        update_armed = false
+        local _, text = u.check()
+        v.hint = text
+        return true
+      elseif id == "act:update_jetzt" then
+        if not update_armed then
+          update_armed = true
+          v.hint = "Der Computer startet danach neu. Zum Bestaetigen noch einmal druecken."
+          return true
+        end
+        update_armed = false
+        local _, text = u.install({ force = true })
+        v.hint = text
+        return true
+      end
+    end,
+  }
+
   function n.all_pages()
     local list = {}
     for _, p in ipairs(pages) do list[#list + 1] = p end
@@ -975,6 +1043,28 @@ function M.new(env)
       end
     end
     n.rebuild_views()
+  end
+
+  -- Selbstaktualisierung nur auf Computern, die ueber den Installer eingerichtet wurden
+  if env.fs.exists("/crn/install.lua") then
+    n.updater = require("core.updater").new({
+      fs = env.fs, store = store, http = env.http, now = n.clock.now, node_id = n.config and n.config.node.id or "?",
+      notify = n.notify,
+      healthy = function() return not n.format_blocked end,
+      blockers = function()
+        for _, role in pairs(n.roles or {}) do
+          local reason = role.update_blocker and role.update_blocker()
+          if reason then return reason end
+        end
+        return nil
+      end,
+      reboot = function()
+        n.clock.save()
+        if env.reboot then env.reboot() else n.running = false end
+      end,
+    })
+    if n.format_status == "migriert" then n.updater.note_migration(n.format_dir) end
+    n.ticker.every("update", 1, function() n.updater.tick() end)
   end
 
   n.ticker.every("uhr", 30, function() n.clock.save() end)

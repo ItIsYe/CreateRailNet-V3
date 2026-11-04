@@ -181,7 +181,8 @@ return {
       if fs.exists("/crn") then t.eq(installer.check(env2), true, "unvollstaendige Installation bei n=" .. n) end
       -- und eine erneute Installation gelingt immer
       local env3 = cc.env(fs, http)
-      t.eq(run(env3, "zentrale", "v0.1.0"), true, "Neuinstallation bei n=" .. n .. ": " .. env3.output())
+      -- die Leitstelle (rund 500 KB) passt nicht zweimal auf den Computer: war die Installation schon fertig, geht die Wiederholung nur mit --replace
+      t.eq(run(env3, "zentrale", "v0.1.0", "--replace"), true, "Neuinstallation bei n=" .. n .. ": " .. env3.output())
       t.eq(installer.check(cc.env(fs, http)), true)
       t.ok(not fs.exists("/crn_new") and not fs.exists("/crn_tmp"), "Reste bei n=" .. n)
       n = n + 1

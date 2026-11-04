@@ -44,3 +44,7 @@ lua5.4 tools/run_tests.lua      # Tests (auch mit lua5.1 und luajit)
 Aufbau: `src/` Quelltext, `build/` Rollen/Module und Budget, `dist/` gebaute Auslieferung (CI prueft, dass sie zu `src/` passt), `installer.lua` laedt `dist/` einer Version, `probe/` Messprogramme fuer das echte Modpack, `docs/` Konzeptergaenzungen, Messwerte und Stufenplan.
 
 Arbeitsregeln: `AGENTS.md`.
+
+## Aktualisieren
+
+Nodes pruefen selbst alle 30 Minuten, ob ihr Kanal einen neueren Stand hat, installieren ihn in ruhigen Zeiten und nehmen einen Stand zurueck, der nicht anlaeuft; gespeicherte Dateien alter Staende werden an das neue Programm angepasst. Siehe `docs/AKTUALISIERUNG.md` und `docs/DATENFORMAT.md`.
