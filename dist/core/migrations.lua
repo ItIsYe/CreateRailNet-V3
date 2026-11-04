@@ -8,6 +8,7 @@ local M={}
 
 
 
+
 M.STEPS={
 
 
@@ -15,6 +16,7 @@ M.STEPS={
 
 [1]={
 text="Entwurf der Einrichtung verwerfen",
+scope={"config.lua"},
 run=function(ctx)
 local c=ctx.load("config.lua")
 if type(c)~="table"then return end

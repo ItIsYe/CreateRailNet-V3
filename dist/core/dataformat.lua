@@ -188,15 +188,33 @@ local has_steps=false
 for from=from_format,format-1 do if steps[from]then has_steps=true end end
 
 
+
+local scope=nil
+if has_steps then
+scope={}
+for from=from_format,format-1 do
+local step=steps[from]
+if step then
+local list=type(step)=="table"and step.scope or nil
+if type(list)~="table"then scope=nil break end
+for _,name in ipairs(list)do scope[name]=true end
+end
+end
+end
+
+
 local files=list_files(fs)
-local total,had_header=0,{}
+local total,had_header,saved_files=0,{},{}
 for _,f in ipairs(files)do
+if not scope or scope[f.name]then saved_files[#saved_files+1]=f end
+end
+for _,f in ipairs(saved_files)do
 if f.size>MAX_FILE then return fail("Die Datei "..f.name.." ist zu gross fuer die Sicherung vor der Anpassung der Daten ("..f.size.." Byte).")end
 total=total+f.size
 end
 if total>MAX_TOTAL then return fail("Die Daten sind zu gross fuer die Sicherung vor der Anpassung ("..total.." Byte, hoechstens "..MAX_TOTAL..").")end
 local need=0
-for _,f in ipairs(files)do need=need+math.max(f.size,500)end
+for _,f in ipairs(saved_files)do need=need+math.max(f.size,500)end
 if fs.getFreeSpace("/")<need+MARGIN then
 return fail("Zu wenig Platz fuer die Sicherung vor der Anpassung der Daten: "..(need+MARGIN).." Byte noetig, frei "..fs.getFreeSpace("/")..".")
 end
@@ -207,7 +225,7 @@ for _,f in ipairs(files)do
 names[#names+1]=f.name
 local head=read_all(fs,DATA.."/"..f.name)
 had_header[f.name]=head~=nil and head:sub(1,7)=="-- crn "
-if not copy(fs,DATA.."/"..f.name,dir.."/"..f.name)then
+if(not scope or scope[f.name])and not copy(fs,DATA.."/"..f.name,dir.."/"..f.name)then
 fs.delete(dir)
 return fail("Sicherung von "..f.name.." fehlgeschlagen.")
 end

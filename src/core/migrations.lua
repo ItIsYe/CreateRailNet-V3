@@ -6,6 +6,7 @@ Notes: Regel (siehe docs/DATENFORMAT.md): Wer die Form einer gespeicherten Datei
 
 local M = {}
 
+-- Ein Schritt darf `scope = { Dateinamen }` nennen: die Dateien, die er aendert oder loescht; nur sie werden vor dem Schritt gesichert.
 -- Bis Format 1 haben alle Aenderungen der Dateiformen nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt
 -- (siehe tests/fixtures/alte_staende.lua: Staende dreier aelterer Programmversionen laufen unveraendert weiter).
 M.STEPS = {
@@ -15,6 +16,7 @@ M.STEPS = {
   -- (damit ein eigenes Testsignal, das beim Absturz gesperrt blieb, trotzdem freigegeben wird).
   [1] = {
     text = "Entwurf der Einrichtung verwerfen",
+    scope = { "config.lua" },          -- nur diese Datei wird geaendert oder geloescht; die Sicherung braucht nur sie (die Daten der Leitstelle koennen gross sein)
     run = function(ctx)
       local c = ctx.load("config.lua")
       if type(c) ~= "table" then return end

@@ -1,5 +1,5 @@
 return {
-  id = "e76e93f5",
+  id = "e60a93f6",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4870, sum = "9d5ba795" },
@@ -8,11 +8,11 @@ return {
     ["core/adler.lua"] = { size = 363, sum = "e6127123" },
     ["core/chunks.lua"] = { size = 4354, sum = "bbf4fdb7" },
     ["core/clock.lua"] = { size = 483, sum = "59aba883" },
-    ["core/dataformat.lua"] = { size = 7820, sum = "2f4c8a8b" },
+    ["core/dataformat.lua"] = { size = 8253, sum = "0f4925da" },
     ["core/envcheck.lua"] = { size = 1009, sum = "8eb36429" },
     ["core/journal.lua"] = { size = 4593, sum = "8bd04bbe" },
     ["core/label.lua"] = { size = 203, sum = "7cee4383" },
-    ["core/migrations.lua"] = { size = 1338, sum = "7f13cac2" },
+    ["core/migrations.lua"] = { size = 1361, sum = "dc9bd27b" },
     ["core/msg.lua"] = { size = 3563, sum = "8b9a08d0" },
     ["core/net.lua"] = { size = 2649, sum = "bebeb3e1" },
     ["core/ser.lua"] = { size = 1733, sum = "7bdd5389" },
