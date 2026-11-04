@@ -50,22 +50,43 @@ function M.same_bytecode(a, b)
   return false
 end
 
--- Kommentare, Einrueckung und Leerzeichen am Zeilenende entfernen. Die Zeilenzahl bleibt (Fehlermeldungen zeigen dieselbe Zeilennummer wie in src/);
--- Zeichenketten und lange Zeichenketten werden unveraendert kopiert. Der Aufruf prueft selbst, dass der Bytecode (ohne Zeilenangaben) gleich bleibt.
+-- Kommentare, Einrueckung, Leerzeichen am Zeilenende und ueberfluessige Leerzeichen zwischen Zeichen entfernen. Die Zeilenzahl bleibt (Fehlermeldungen zeigen
+-- dieselbe Zeilennummer wie in src/); Zeichenketten und lange Zeichenketten werden unveraendert kopiert. Ein Leerzeichen bleibt nur, wo ohne es zwei Zeichen
+-- zu einem anderen Wort oder Zeichen verschmelzen wuerden (zwei Namen oder Zahlen, "- -" gegen Kommentar, "[ [" gegen lange Zeichenkette, ". ." und Zahl ".."
+-- gegen verunglueckte Zahlen). Der Aufruf prueft selbst, dass der Bytecode (ohne Zeilenangaben) gleich bleibt.
 function M.minify(text, name)
   local out, line, len, i = {}, {}, #text, 1
   local at_start = true
+  local pending = false          -- zwischen zwei Teilen stand ein Leerzeichen
   local function flush(newline)
     local piece = table.concat(line):gsub("%s+$", "")
     out[#out + 1] = piece
     if newline then out[#out + 1] = "\n" end
     line = {}
+    pending = false
+  end
+  local function put(piece)
+    if pending then
+      local last = line[#line]
+      local a, b = last and last:sub(-1) or "", piece:sub(1, 1)
+      if a ~= "" then
+        local keep = (a:match("[%w_]") and b:match("[%w_]"))
+          or (a == "-" and b == "-") or (a == "[" and (b == "[" or b == "=")) or (a == "." and b == ".") or (a:match("%d") and b == ".")
+          or (a == "=" and b == "=") or (a == "~" and b == "=") or (a == "<" and b == "=") or (a == ">" and b == "=")
+        if keep then line[#line + 1] = " " end
+      end
+      pending = false
+    end
+    line[#line + 1] = piece
   end
   while i <= len do
     local c = text:sub(i, i)
     if c == "\n" then
       flush(true); at_start = true; i = i + 1
     elseif at_start and (c == " " or c == "\t") then
+      i = i + 1
+    elseif c == " " or c == "\t" then
+      pending = true
       i = i + 1
     else
       at_start = false
@@ -77,7 +98,7 @@ function M.minify(text, name)
           if not stop then error((name or "?") .. ": Kommentar nicht geschlossen") end
           local body = text:sub(i, stop + #close - 1)
           local _, newlines = body:gsub("\n", "")
-          line[#line + 1] = " "
+          pending = true
           for _ = 1, newlines do flush(true) end
           i = stop + #close
         else
@@ -93,17 +114,17 @@ function M.minify(text, name)
           else j = j + 1 end
         end
         if j > len then error((name or "?") .. ": Zeichenkette nicht geschlossen") end
-        line[#line + 1] = text:sub(i, j)
+        put(text:sub(i, j))
         i = j + 1
       elseif c == "[" and text:match("^%[=*%[", i) then
         local eq = text:match("^%[(=*)%[", i)
         local close = "]" .. eq .. "]"
         local stop = text:find(close, i, true)
         if not stop then error((name or "?") .. ": lange Zeichenkette nicht geschlossen") end
-        line[#line + 1] = text:sub(i, stop + #close - 1)
+        put(text:sub(i, stop + #close - 1))
         i = stop + #close
       else
-        line[#line + 1] = c
+        put(c)
         i = i + 1
       end
     end

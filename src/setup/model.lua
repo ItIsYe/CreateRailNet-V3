@@ -108,7 +108,7 @@ function M.junction_from_directory(j)
   end
   for _, id in ipairs(order) do
     if from_ends[id] and to_ends[id] then
-      return nil, label.track(owner[id].name) .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: das kennt die Node nicht, bitte in der Leitstelle trennen oder von Hand einrichten."
+      return nil, label.track(owner[id].name) .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: in der Leitstelle trennen."
     end
   end
   local moves = {}
@@ -335,7 +335,7 @@ function M.validate(config, scan)
       elseif track.junction.role == "ein" and #track.signals == 0 then
         add("knoten_gleis", "Einfahrtsgleis " .. track.name .. " braucht ein Signal, das die Einfahrt zusaetzlich sperrt.")
       elseif #track.observers == 0 then
-        add("knoten_gleis", label.track(track.name) .. " braucht einen Beobachter als Meldepunkt (Einfahrt erkennen, Raeumung nachweisen).")
+        add("knoten_gleis", label.track(track.name) .. " braucht einen Beobachter als Meldepunkt.")
       end
     end
     if track.release then
@@ -376,7 +376,7 @@ function M.validate(config, scan)
     end
     for i, move in ipairs(j.moves) do
       if j.connections[move.from] and not has_in[move.from] then add("knoten_einfahrt", "Der Anschluss " .. move.from .. " hat kein Einfahrtsgleis mit Signal.") end
-      if j.connections[move.to] and not has_out[move.to] then add("knoten_ausfahrt", "Der Anschluss " .. move.to .. " hat kein Ausfahrtsgleis mit Beobachter (ohne ihn gibt es keine Raeumungsmeldung).") end
+      if j.connections[move.to] and not has_out[move.to] then add("knoten_ausfahrt", "Der Anschluss " .. move.to .. " hat kein Ausfahrtsgleis mit Beobachter.") end
     end
     for i, conflict in ipairs(j.conflicts) do
       if #conflict.moves < 2 then add("knoten_konflikt", "Konfliktbereich " .. i .. " braucht mindestens zwei Verbindungen.") end

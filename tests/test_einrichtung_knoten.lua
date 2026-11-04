@@ -59,7 +59,7 @@ return {
     d.tap(v, "sel:knoten_wahl:1")
     h.step(5); d.node.render()
     d.tap(v, "act:weiter")
-    t.eq(screen(d), "3.k.pruefen", d.text(v))
+    t.eq(screen(d), "2.k.pruefen", d.text(v))
     t.contains(d.text(v), "2 Anschluesse: Ost, West")
     t.contains(d.text(v), "2 Verbindungen")
     t.contains(d.text(v), "1 Konflikte")
@@ -122,7 +122,7 @@ return {
     d.tap(v, "act:knoten_laden"); h.step(5); d.node.render()
     d.tap(v, "sel:knoten_wahl:1"); h.step(5); d.node.render()
     d.tap(v, "act:weiter")
-    t.eq(screen(d), "3.k.pruefen", d.text(v))
+    t.eq(screen(d), "2.k.pruefen", d.text(v))
   end },
   { "Ohne Auswahl geht es nicht weiter; leeres Netz zeigt einen Hinweis", function()
     local h, z, d, v, netz, k = setup()

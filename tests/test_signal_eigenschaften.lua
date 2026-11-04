@@ -161,7 +161,7 @@ return {
     t.eq(screen(d), "4.z.detail", d.text(v))
     t.contains(d.text(v), "WIRKRICHTUNG FEHLT")
     d.tap(v, "act:d_richtung")
-    t.contains(d.text(v), "wirkt Richtung West")
+    t.contains(d.text(v), "Richtung West")
     d.tap(v, "act:d_funktion")
     t.eq(d.node.setup.session().wiz.guided_rows()[1].signals[1].use, "einfahrt")
     d.tap(v, "act:d_standort")

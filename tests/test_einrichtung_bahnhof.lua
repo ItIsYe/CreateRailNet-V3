@@ -131,7 +131,7 @@ return {
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     d.tap(v, "act:zurueck")
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     d.tap(v, "sel:gleise_auswahl:2")                 -- Gleis 2 abwaehlen
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()

@@ -25,10 +25,19 @@ function M.new(services)
   -- Gefuehrte Einrichtung einer Signal-Node nach dem Netzverzeichnis (Konzept 12.1): Bereich waehlen, Gleise uebernehmen, Signale zuordnen,
   -- pruefen und aktivieren. Von Hand geht es weiter wie bisher ("Von Hand" auf dem Bildschirm Bereich).
   local GUIDED_TITLE = {
-    ["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["2.knoten"] = "Knoten waehlen", ["2.station"] = "Betriebsstelle waehlen", ["3.k.pruefen"] = "Knoten uebernehmen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
-    ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern", ["5.pruefen"] = "Pruefen und aktivieren",
+    ["1.modus"] = "Netz erstellen oder beitreten", ["1.netzwahl"] = "Netz waehlen", ["1.netz"] = "Name des Netzes", ["1.zentrale"] = "Kennung der Leitstelle",
+    ["2.rollen"] = "Rolle waehlen", ["2.name"] = "Name der Node", ["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["2.knoten"] = "Knoten waehlen",
+    ["2.station"] = "Betriebsstelle waehlen", ["2.k.pruefen"] = "Knoten uebernehmen", ["2.gleise"] = "Gleise uebernehmen",
+    ["3.geraete"] = "Geraete waehlen",
+    ["4.gleise"] = "Gleise einrichten", ["4.g.name"] = "Name des Gleises", ["4.g.richtung"] = "Richtung", ["4.g.anschluss"] = "Anschluss des Knotens",
+    ["4.g.bahnhof"] = "Bahnhof zuordnen", ["4.g.signale"] = "Signale zuordnen", ["4.g.beobachter"] = "Beobachter zuordnen",
+    ["4.knoten"] = "Anschluesse und Verbindungen", ["4.k.von"] = "Verbindung: Einfahrt", ["4.k.nach"] = "Verbindung: Ausfahrt", ["4.k.konflikt"] = "Konflikt",
+    ["4.anmeldung"] = "Anmeldestation", ["4.zuordnung"] = "Signale zuordnen",
+    ["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern",
+    ["5.test"] = "Pruefungen", ["5.alle_bestaetigen"] = "Pruefungen bestaetigen", ["5.bestaetigen"] = "Pruefung bestaetigen", ["5.pruefen"] = "Pruefen und aktivieren",
+    ["6.fertig"] = "Zusammenfassung",
   }
-  local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
+  local GUIDED_SEQUENCE = { "2.bereich", "2.gleise", "4.zuordnung", "5.pruefen" }
 
   local ensure_check, select_next_open            -- weiter unten bei den gefuehrten Bildschirmen
   local first_device_screen                       -- weiter unten bei den Gleisbildschirmen
@@ -102,7 +111,7 @@ function M.new(services)
       return seq
     end
     if station_mode() then
-      for _, id in ipairs({ "2.bereich", "3.gleise", "3.geraete", "4.gleise" }) do seq[#seq + 1] = id end
+      for _, id in ipairs({ "2.bereich", "2.gleise", "3.geraete", "4.gleise" }) do seq[#seq + 1] = id end
       for _, r in ipairs(session.wiz.roles) do if r == "anmeldung" then seq[#seq + 1] = "4.anmeldung" break end end
       seq[#seq + 1] = "5.test"; seq[#seq + 1] = "6.fertig"
       return seq
@@ -112,7 +121,7 @@ function M.new(services)
       return seq
     end
     if knoten_mode() then
-      for _, id in ipairs({ "2.knoten", "3.k.pruefen", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
+      for _, id in ipairs({ "2.knoten", "2.k.pruefen", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
       return seq
     end
     seq[#seq + 1] = "2.name"
@@ -231,7 +240,10 @@ function M.new(services)
   -- subtitle: eine Zeile; lines = 2 nur auf Seiten, deren Inhalt erst ab Zeile 3 beginnt (Listen): dort wird umgebrochen statt abgeschnitten
   local function header(v, rect, title, subtitle, lines)
     local w = session.wiz
-    W.label(v, rect.x + 1, rect.y, string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, GUIDED_TITLE[session.screen] or wizardlib.STEPS[w.step]), "hell")
+    -- kompakt steht der Schritt in der Leiste darueber; auf dem grossen Monitor nennt die Ueberschrift ihn
+    local heading = GUIDED_TITLE[session.screen] or wizardlib.STEPS[w.step]
+    if v.layout.mode == "gross" then heading = string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, heading) end
+    W.label(v, rect.x + 1, rect.y, heading, "hell", rect.w - 2)
     if subtitle then
       local parts, max = W.wrap(subtitle, rect.w - 2), lines or 1
       for i = 1, math.min(#parts, max) do
@@ -252,6 +264,15 @@ function M.new(services)
 
   local function body_rect(rect, top)
     return { x = rect.x, y = rect.y + top, w = rect.w, h = rect.h - top }
+  end
+
+  -- Zeilenhoehe einer Liste: Titel und Einzelheit stehen auf einer Zeile, wenn beides hineinpasst, sonst auf zwei (nichts wird abgeschnitten)
+  local function row_h_for(v, items, rect)
+    if v.layout.mode == "gross" then return 3 end
+    for _, item in ipairs(items) do
+      if item.detail and #item.text + #item.detail + 4 > rect.w - 2 then return 2 end
+    end
+    return 1
   end
 
   local function device_items(kinds, selected_only)
@@ -291,7 +312,7 @@ function M.new(services)
 
   screens["1.modus"] = {
     render = function(v, rect)
-      header(v, rect, nil, "Erste Leitstelle erstellen oder Netz beitreten?")
+      header(v, rect, nil, "Was soll dieser Computer tun?")
       local items = {}
       session.pick.modes = {}
       if not services.role_available or services.role_available("zentrale") then
@@ -358,7 +379,7 @@ function M.new(services)
   screens["1.zentrale"] = {
     render = function(v, rect)
       header(v, rect, nil, "Welche Leitstelle fuehrt dieses Netz?")
-      W.field(v, "zentrale", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Node-Kennung der Leitstelle (z.B. hauptstelle)", fields(v).zentrale)
+      W.field(v, "zentrale", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Kennung der Leitstelle (z.B. hauptstelle)", fields(v).zentrale)
     end,
   }
 
@@ -417,7 +438,8 @@ function M.new(services)
       end
       local modem_line = "Funk: " .. (#wireless > 0 and table.concat(wireless, ",") or "KEIN FUNKMODEM") .. "   Kabel: " .. (#wired > 0 and table.concat(wired, ",") or "-")
       W.label(v, rect.x + 1, rect.y + 2, modem_line, #wireless > 0 and "dim" or "attention", rect.w - 2)
-      W.list(v, "geraete", body_rect(rect, 3), items, list_state(v, "geraete"), { empty = "Keine passenden Geraete gefunden." })
+      local area = body_rect(rect, 3)
+      W.list(v, "geraete", area, items, list_state(v, "geraete"), { row_h = row_h_for(v, items, area), empty = "Keine passenden Geraete gefunden." })
     end,
     action = function(v, id)
       local n = id:match("^sel:geraete:(%d+)$")
@@ -433,7 +455,7 @@ function M.new(services)
 
   screens["4.gleise"] = {
     render = function(v, rect)
-      header(v, rect, nil, "Ein Geraet gehoert zu hoechstens einem Gleis.")
+      header(v, rect, nil, "Gleis waehlen und die Geraete dazu zuordnen.")
       local items = {}
       session.pick.tracks = {}
       for _, id in ipairs(session.wiz.tracks()) do
@@ -443,10 +465,11 @@ function M.new(services)
         if #t.signals > 0 then parts[#parts + 1] = #t.signals .. " Signal(e)" end
         if #t.observers > 0 then parts[#parts + 1] = #t.observers .. " Beobachter" end
         if t.release then parts[#parts + 1] = "Ausgang" end
-        items[#items + 1] = { text = t.name, detail = (#parts > 0 and table.concat(parts, ", ") or "leer") .. " - " .. t.status, kind = (t.status == "aktiv") and "ok" or "wait" }
+        items[#items + 1] = { text = t.name, detail = #parts > 0 and table.concat(parts, ", ") or "noch leer", kind = #parts > 0 and "ok" or "wait" }
         session.pick.tracks[#items] = id
       end
-      W.list(v, "gleise", body_rect(rect, 3), items, list_state(v, "gleise"), { empty = session.wiz.config.node.claimed and "Keine Gleise uebernommen." or "Noch kein Gleis. 'Neues Gleis' legt eines an." })
+      local area = body_rect(rect, 3)
+      W.list(v, "gleise", area, items, list_state(v, "gleise"), { row_h = row_h_for(v, items, area), empty = session.wiz.config.node.claimed and "Keine Gleise uebernommen." or "Noch kein Gleis. 'Neues Gleis' legt eines an." })
       local problems = session.wiz.warnings()
       if #problems > 0 and rect.h > 8 then v.hint = problems[1].text end
     end,
@@ -499,7 +522,10 @@ function M.new(services)
       local t = session.wiz.config.tracks[session.track]
       header(v, rect, nil, "Bearbeiten: " .. (t and label.track(t.name) or "?"))
       W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
-      if t then W.label(v, rect.x + 1, rect.y + 6, "Richtung: " .. t.direction .. "   (Taste 'Weiter' fuehrt durch die Einstellungen)", "dim", rect.w - 2) end
+      if t then
+        W.label(v, rect.x + 1, rect.y + 6, "Richtung: " .. t.direction, "dim", rect.w - 2)
+        W.label(v, rect.x + 1, rect.y + 7, "Weiter fuehrt durch die Einstellungen.", "dim", rect.w - 2)
+      end
     end,
     next = function(v)
       session.wiz.rename_track(session.track, fields(v).gleisname.value)
@@ -691,7 +717,7 @@ function M.new(services)
       local count = 0
       for _ in pairs(j.connections) do count = count + 1 end
       return {
-        { id = "anschluss_neu", label = "Hinzufuegen" },
+        { id = "anschluss_neu", label = "Neu" },
         { id = "anschluss_weg", label = "Entfernen", kind = "danger", enabled = has_selection, reason = "Erst einen Anschluss waehlen." },
         { id = "verbindung", label = "Verbindung", kind = "secondary", enabled = count >= 2, reason = "Zuerst mindestens zwei Anschluesse anlegen." },
         { id = "konflikt", label = "Konflikt", kind = "secondary", enabled = #j.moves >= 2, reason = "Zuerst mindestens zwei Verbindungen anlegen." },
@@ -798,7 +824,8 @@ function M.new(services)
         items[#items + 1] = { text = test.title, detail = state .. (test.kind == "schalten" and " (schaltet)" or "") .. (text and state == "fehler" and (": " .. text) or ""), kind = kind }
         session.pick.tests[#items] = test
       end
-      W.list(v, "tests", body_rect(rect, 3), items, list_state(v, "tests"), { empty = "Keine Pruefungen noetig." })
+      local area = body_rect(rect, 3)
+      W.list(v, "tests", area, items, list_state(v, "tests"), { row_h = row_h_for(v, items, area), empty = "Keine Pruefungen noetig." })
     end,
     action = function(v, id)
       local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
@@ -960,7 +987,8 @@ function M.new(services)
         session.pick.areas[#items] = a
       end
       local empty = (st and st.kind == "ok" and d.areas) and "Das Netz hat noch keinen Bereich. In der Leitstelle auf der Seite Bereiche anlegen, dann 'Neu laden'." or ""
-      W.list(v, "bereich", body_rect(rect, 4), items, list_state(v, "bereich"), { empty = empty })
+      local area = body_rect(rect, 4)
+      W.list(v, "bereich", area, items, list_state(v, "bereich"), { row_h = row_h_for(v, items, area), empty = empty })
     end,
     action = function(v, id)
       local n = id:match("^sel:bereich:(%d+)$")
@@ -999,7 +1027,7 @@ function M.new(services)
         d.selected = {}
         for _, t in ipairs(d.area.tracks) do d.selected[t.id] = true end
       end
-      push("3.gleise")
+      push("2.gleise")
       return true
     end,
   }
@@ -1009,22 +1037,22 @@ function M.new(services)
     no_forward = true,
     render = function(v, rect)
       local d = session.dir
-      header(v, rect, nil, "Neuen Bereich im Netz anlegen")
+      header(v, rect, nil, "Name und die beiden Enden, z.B. West-Ost")
       local f = fields(v)
-      local w = math.min(rect.w - 2, 36)
-      W.field(v, "bname", rect.x + 1, rect.y + 2, w, "Name des Bereichs (z.B. West-Ost)", f.bname)
-      W.field(v, "bende1", rect.x + 1, rect.y + 4, w, "Anschluss 1 (z.B. Westbahnhof)", f.bende1)
-      W.field(v, "bende2", rect.x + 1, rect.y + 6, w, "Anschluss 2 (z.B. Ostbahnhof)", f.bende2)
-      W.field(v, "bzahl", rect.x + 1, rect.y + 8, 12, "Gleise", f.bzahl)
-      W.label(v, rect.x + 1, rect.y + 11, "Vorlage: " .. (PATTERN_TEXT[d.neu and d.neu.pattern or "gegenlaeufig"] or "?"), "text", rect.w - 2)
+      local half = math.floor((rect.w - 3) / 2)
+      W.field(v, "bname", rect.x + 1, rect.y + 2, math.min(rect.w - 2, 36), "Name des Bereichs", f.bname)
+      W.field(v, "bende1", rect.x + 1, rect.y + 4, half, "Anschluss 1 (z.B. West)", f.bende1)
+      W.field(v, "bende2", rect.x + 2 + half, rect.y + 4, half, "Anschluss 2 (z.B. Ost)", f.bende2)
+      W.field(v, "bzahl", rect.x + 1, rect.y + 6, 12, "Gleise", f.bzahl)
+      W.label(v, rect.x + 1, rect.y + 8, "Vorlage: " .. (PATTERN_TEXT[d.neu and d.neu.pattern or "gegenlaeufig"] or "?"), "text", rect.w - 2)
       local st = dir_status()
-      if d.creating and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 13, st.text or "", st.kind, rect.w - 2) end
+      if d.creating and st and st.kind ~= "ok" then put_status(v, rect, rect.y + 9, st, 2) end
     end,
     actions = function(v)
       local busy = session.dir.creating ~= nil
       return {
         { id = "b_vorlage", label = "Vorlage", kind = "secondary", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
-        { id = "b_anlegen", label = "Anlegen", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
+        { id = "b_anlegen", label = "Anlegen", enabled = not busy, reason = "Die Leitstelle arbeitet noch.", nav = true },
       }
     end,
     action = function(v, id)
@@ -1074,7 +1102,8 @@ function M.new(services)
         session.pick.junctions[#items] = j
       end
       local empty = (st and st.kind == "ok" and d.junctions) and "Das Netz hat noch keinen Knoten. In der Leitstelle auf der Seite Knoten anlegen und bestaetigen, dann 'Neu laden'." or ""
-      W.list(v, "knoten_wahl", body_rect(rect, 4), items, list_state(v, "knoten_wahl"), { empty = empty })
+      local area = body_rect(rect, 4)
+      W.list(v, "knoten_wahl", area, items, list_state(v, "knoten_wahl"), { row_h = row_h_for(v, items, area), empty = empty })
     end,
     action = function(v, id)
       local d = session.dir
@@ -1104,7 +1133,7 @@ function M.new(services)
       }
     end,
     next = function(v)
-      push("3.k.pruefen")
+      push("2.k.pruefen")
       return true
     end,
   }
@@ -1124,7 +1153,8 @@ function M.new(services)
         session.pick.stations[#items] = s
       end
       local empty = (st and st.kind == "ok" and d.stations) and "Das Netz hat noch keine Betriebsstelle. In der Leitstelle auf der Seite Betriebsstellen anlegen, dann 'Neu laden'." or ""
-      W.list(v, "station_wahl", body_rect(rect, 4), items, list_state(v, "station_wahl"), { empty = empty })
+      local area = body_rect(rect, 4)
+      W.list(v, "station_wahl", area, items, list_state(v, "station_wahl"), { row_h = row_h_for(v, items, area), empty = empty })
     end,
     action = function(v, id)
       local d = session.dir
@@ -1163,7 +1193,7 @@ function M.new(services)
     end,
   }
 
-  screens["3.k.pruefen"] = {
+  screens["2.k.pruefen"] = {
     render = function(v, rect)
       local d = session.dir
       header(v, rect, nil, "Knoten " .. (d.junction and d.junction.name or "?") .. ": Angaben uebernehmen")
@@ -1210,7 +1240,7 @@ function M.new(services)
     end,
   }
 
-  screens["3.gleise"] = {
+  screens["2.gleise"] = {
     render = function(v, rect)
       local d = session.dir
       header(v, rect, nil, (d.area and d.area.name or "?") .. ": welche Gleise betreut diese Node?")
@@ -1222,7 +1252,8 @@ function M.new(services)
         items[#items + 1] = { text = (d.selected and d.selected[t.id] and "[x] " or "[ ] ") .. t.name, detail = direction_text(t.direction) }
         session.pick.gleise[#items] = t
       end
-      W.list(v, "gleise_auswahl", body_rect(rect, 4), items, list_state(v, "gleise_auswahl"), { empty = "Dieser Bereich hat keine Gleise." })
+      local area = body_rect(rect, 4)
+      W.list(v, "gleise_auswahl", area, items, list_state(v, "gleise_auswahl"), { row_h = row_h_for(v, items, area), empty = "Dieser Bereich hat keine Gleise." })
     end,
     action = function(v, id)
       local n = id:match("^sel:gleise_auswahl:(%d+)$")
@@ -1270,6 +1301,15 @@ function M.new(services)
     end
   end
 
+  -- Liste der Signale eines Gleises in eine Zeile: voll, sonst ohne "Create_", sonst nur die Anzahl (Einzelheiten stehen unter "Details")
+  local function fit_signals(prefix, devices, count, width)
+    local full = prefix .. table.concat(devices, ", ")
+    if #full <= width then return full end
+    local short = (full:gsub("Create_", ""))
+    if #short <= width then return short end
+    return prefix .. count .. " Signale (Details)"
+  end
+
   screens["4.zuordnung"] = {
     render = function(v, rect)
       header(v, rect, nil, "Welches Signal gehoert zu welchem Gleis?")
@@ -1284,12 +1324,13 @@ function M.new(services)
         if #r.signals >= 2 and not r.order_ok then open = true end
         items[#items + 1] = {
           text = r.name .. "  " .. direction_text(r.direction),
-          detail = #devices > 0 and (((#r.signals >= 2 and not r.order_ok) and "Reihenfolge? " or "") .. table.concat(devices, ", ")) or "Signal fehlt",
+          detail = #devices > 0 and fit_signals((#r.signals >= 2 and not r.order_ok) and "Reihenfolge? " or "", devices, #r.signals, rect.w - 4) or "Signal fehlt",
           kind = (#devices > 0 and not open) and "ok" or "wait",
         }
         session.pick.rows[#items] = r
       end
-      W.list(v, "zuordnung", body_rect(rect, 3), items, list_state(v, "zuordnung"), { empty = "Keine Gleise uebernommen." })
+      local area = body_rect(rect, 3)
+      W.list(v, "zuordnung", area, items, list_state(v, "zuordnung"), { row_h = row_h_for(v, items, area), empty = "Keine Gleise uebernommen." })
     end,
     actions = function(v)
       local row = session.pick.rows and session.pick.rows[list_state(v, "zuordnung").index]
@@ -1420,13 +1461,14 @@ function M.new(services)
         else
           items[#items + 1] = {
             text = numbered .. "  " .. (wizardlib.USE_TEXT[sg.use] or sg.use),
-            detail = (sg.effect and ("wirkt Richtung " .. sg.effect) or "WIRKRICHTUNG FEHLT") .. ", Standort " .. (sg.place and (sg.place == "mitte" and "Mitte" or ("Ende " .. sg.place)) or "offen"),
+            detail = (sg.effect and ("Richtung " .. sg.effect) or "WIRKRICHTUNG FEHLT") .. ", Standort " .. (sg.place and (sg.place == "mitte" and "Mitte" or ("Ende " .. sg.place)) or "offen"),
             kind = sg.effect and "ok" or "wait",
           }
         end
         session.pick.detail[#items] = sg
       end
-      W.list(v, "detail", body_rect(rect, 3), items, list_state(v, "detail"), { empty = "Kein Signal an diesem Gleis." })
+      local area = body_rect(rect, 3)
+      W.list(v, "detail", area, items, list_state(v, "detail"), { row_h = row_h_for(v, items, area), empty = "Kein Signal an diesem Gleis." })
     end,
     actions = function(v)
       local sg = session.pick.detail and session.pick.detail[list_state(v, "detail").index]
@@ -1488,7 +1530,8 @@ function M.new(services)
         items[#items + 1] = { text = d.name .. (fresh and "  (neu)" or ""), detail = (session.pick.sigstate and session.pick.sigstate[d.name]) or "" }
         session.pick.freie[#items] = d
       end
-      W.list(v, "signal", body_rect(rect, 3), items, list_state(v, "signal"), { empty = "Kein freies Signal angeschlossen." })
+      local area = body_rect(rect, 3)
+      W.list(v, "signal", area, items, list_state(v, "signal"), { row_h = row_h_for(v, items, area), empty = "Kein freies Signal angeschlossen." })
     end,
     action = function(v, id)
       local n = id:match("^sel:signal:(%d+)$")
@@ -1562,7 +1605,8 @@ function M.new(services)
         else detail, kind = "offen", "wait" end
         items[#items + 1] = { text = d.track .. "  " .. d.device, detail = detail, kind = kind }
       end
-      W.list(v, "pruefliste", body_rect(rect, 4), items, list_state(v, "pruefliste"), { empty = "Keine Signale." })
+      local area = body_rect(rect, 4)
+      W.list(v, "pruefliste", area, items, list_state(v, "pruefliste"), { row_h = row_h_for(v, items, area), empty = "Keine Signale." })
     end,
     actions = function(v)
       local p = ensure_check()
@@ -1571,7 +1615,7 @@ function M.new(services)
         return { { id = "pruefung_stopp", label = "Stoppen", kind = "danger" } }
       end
       local problems = p.required()
-      return { { id = "pruefen", label = st.phase == "idle" and "Pruefen+Aktivieren" or "Erneut pruefen", enabled = #problems == 0, reason = problems[1] } }
+      return { { id = "pruefen", label = st.phase == "idle" and "Pruefen+Aktivieren" or "Erneut pruefen", enabled = #problems == 0, reason = problems[1], nav = true } }
     end,
     action = function(v, id)
       local p = ensure_check()
@@ -1592,14 +1636,14 @@ function M.new(services)
 
   screens["6.fertig"] = {
     render = function(v, rect)
-      header(v, rect, nil, "Zusammenfassung")
+      header(v, rect, nil, nil)
       local w = session.wiz
       local c = w.config
       local roles = {}
       for _, r in ipairs(c.node.roles) do roles[#roles + 1] = model.ROLE_TEXT[r] end
       local lines = {
         "Netz: " .. c.network.name .. (c.network.central_id and ("   Leitstelle: " .. c.network.central_id) or "   (diese Node ist die Leitstelle)"),
-        "Node: " .. c.node.name .. " (" .. c.node.id .. ")",
+        "Node: " .. ((c.node.name == "" or c.node.name:find(c.node.id, 1, true)) and (c.node.name ~= "" and c.node.name or c.node.id) or (c.node.name .. " (" .. c.node.id .. ")")),
         "Rolle: " .. table.concat(roles, ", "),
       }
       local tracks = #w.tracks()
@@ -1636,7 +1680,7 @@ function M.new(services)
     end,
     actions = function(v)
       local ok = session.wiz and #session.wiz.warnings() == 0 and session.wiz.all_tests_ok()
-      return { { id = "speichern", label = "Aktivieren", enabled = ok, reason = "Pflichtangaben und Pruefungen muessen vollstaendig sein." } }
+      return { { id = "speichern", label = "Aktivieren", enabled = ok, reason = "Pflichtangaben und Pruefungen muessen vollstaendig sein.", nav = true } }
     end,
   }
 
@@ -1677,7 +1721,7 @@ function M.new(services)
       local config = services.config()
       local text = config
         and ("Dieser Node ist eingerichtet: " .. (config.node.name ~= "" and config.node.name or config.node.id) .. ". Die Einrichtung kann geaendert werden.")
-        or "Dieser Computer ist noch nicht eingerichtet. Der Assistent fuehrt in sechs Schritten durch Anlage, Rolle, Geraete, Gleise, Test und Abschluss."
+        or "Dieser Computer ist noch nicht eingerichtet. Der Assistent fuehrt in sechs Schritten durch Netz, Aufgabe, Geraete, Gleise, Test und Fertig."
       for i, line in ipairs(W.wrap(text, rect.w - 2)) do W.label(v, rect.x + 1, rect.y + 1 + i, line, "text", rect.w - 2) end
       return
     end
@@ -1693,7 +1737,7 @@ function M.new(services)
       v.canvas.fill(x, rect.y, 26, rect.h, S.navigation)
       W.label(v, x + 2, rect.y + 1, "DEINE EINRICHTUNG", "hell", 22)
       local w = session.wiz
-      local lines = { w.config.node.name ~= "" and w.config.node.name or "Name folgt", "Netz: " .. w.network_name }
+      local lines = { w.name ~= "" and w.name or "Name folgt", "Netz: " .. w.network_name }
       for _, role in ipairs(w.roles) do lines[#lines+1] = model.ROLE_TEXT[role] end
       lines[#lines+1] = ""
       lines[#lines+1] = "Schritt " .. w.step .. " von 6"
@@ -1736,12 +1780,12 @@ function M.new(services)
       local _, why = model.junction_from_directory(d.junction)
       if why then return false, why end
     end
-    if screen == "3.k.pruefen" then
+    if screen == "2.k.pruefen" then
       if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
       local _, why = model.junction_from_directory(session.dir.junction or { connections = {}, routes = {} })
       if why then return false, why end
     end
-    if screen == "3.gleise" then
+    if screen == "2.gleise" then
       if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
       local any = false
       for _ in pairs(session.dir.selected or {}) do any = true end
@@ -1786,8 +1830,9 @@ function M.new(services)
   function page.navigation(v)
     if not session.wiz or session.owner ~= v then return nil end
     local items = {}
-    for i, title in ipairs(wizardlib.STEPS) do
-      items[i] = { title = i .. "  " .. title, active = session.wiz.step == i }
+    for i, name in ipairs(wizardlib.STEPS) do
+      local active = session.wiz.step == i
+      items[i] = { title = i .. "  " .. name, num = tostring(i), name = name, active = active, done = i < session.wiz.step }
     end
     return items
   end
@@ -1799,7 +1844,7 @@ function M.new(services)
         { id = "r_liste", label = session.replace_list and "Eingeben" or "Liste", kind = "secondary" },
         { id = "r_holen", label = "Holen" },
         { id = "r_uebernehmen", label = "Uebernehmen", enabled = st ~= nil and st.config ~= nil, reason = "Erst die Konfiguration holen." },
-        { id = "r_abbruch", label = "Abbrechen", kind = "danger", side = "rechts" },
+        { id = "r_abbruch", label = "Abbrechen", kind = "danger", side = "rechts", far = true },
       }
     end
     if not session.wiz then
@@ -1810,17 +1855,24 @@ function M.new(services)
     end
     if session.owner ~= v then return {} end
     local def = screen_def()
-    local list = {}
-    if def and def.actions then for _, a in ipairs(def.actions(v)) do list[#list + 1] = a end end
-    local hide = def and ((type(def.hide_nav_buttons) == "function" and def.hide_nav_buttons(v)) or def.hide_nav_buttons == true)
-    if not hide then
-      list[#list + 1] = { id = "zurueck", label = "Zurueck", kind = "secondary", side = "rechts" }
-      if session.screen ~= "6.fertig" and not (def and def.no_forward) then
-        local ok, why = can_advance(v)
-        list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why }
+    local list, main = {}, {}
+    if def and def.actions then
+      for _, a in ipairs(def.actions(v)) do
+        if a.nav then main[#main + 1] = a else list[#list + 1] = a end
       end
     end
-    list[#list + 1] = { id = "abbrechen", label = session.cancel_armed and "Wirklich?" or "Abbrechen", kind = "danger", side = "rechts" }
+    local hide = def and ((type(def.hide_nav_buttons) == "function" and def.hide_nav_buttons(v)) or def.hide_nav_buttons == true)
+    if hide then
+      for _, a in ipairs(main) do list[#list + 1] = a end
+    else
+      list[#list + 1] = { id = "zurueck", label = "Zurueck", kind = "secondary", side = "rechts", nav = true }
+      for _, a in ipairs(main) do list[#list + 1] = a end
+      if session.screen ~= "6.fertig" and not (def and def.no_forward) then
+        local ok, why = can_advance(v)
+        list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why, nav = true }
+      end
+    end
+    list[#list + 1] = { id = "abbrechen", label = session.cancel_armed and "Wirklich?" or "Abbrechen", kind = "danger", side = "rechts", nav = true, far = true }
     return list
   end
 
@@ -2003,7 +2055,7 @@ function M.new(services)
       -- die Leitstelle hat die bisherige Anforderung dieses Computers verworfen: mit einer neuen Kennung kann es weitergehen
       if tostring(st.text):find("verworfen", 1, true) and services.new_claim then
         d.claim = services.new_claim()
-        v.hint = "Die bisherige Anforderung wurde in der Leitstelle verworfen. Es gibt jetzt eine neue: bitte noch einmal Weiter."
+        v.hint = "Anforderung war verworfen, neue gestellt: bitte Weiter."
       end
     end
     if d.creating then

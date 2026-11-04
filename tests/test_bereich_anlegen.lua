@@ -47,7 +47,7 @@ return {
     t.eq(screen(d), "2.bereich", d.text(v))
     t.ok(d.has(v, "(o) West-Ost"), "der neue Bereich ist schon gewaehlt: " .. d.text(v))
     d.tap(v, "act:weiter")
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     t.ok(d.has(v, "[x] Gleis 3"), d.text(v))
   end },
   { "Vorlage waehlen: 'gleich' und 'beide' wirken auf die Gleisrichtungen", function()

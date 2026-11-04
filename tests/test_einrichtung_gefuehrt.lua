@@ -60,7 +60,7 @@ return {
     d.tap(v, "sel:bereich:1")
     h.step(3); d.node.render()
     d.tap(v, "act:weiter")
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     t.ok(d.has(v, "[x] Gleis 1"), d.text(v)); t.ok(d.has(v, "Richtung Ostbahnhof"), d.text(v))
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()
@@ -191,7 +191,7 @@ return {
       return real(m)
     end
     d.tap(v, "act:weiter"); h.step(3); d.node.render()
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     t.contains(v.hint, "Das Verzeichnis ist gesperrt")
     t.eq(d.area(v, "act:weiter").enabled, true, "nach der Ablehnung darf man es erneut versuchen")
     z.node.roles.zentrale.handle_directory = real
@@ -280,7 +280,7 @@ return {
     d.tap(v2, "sel:bereich:1"); h.step(3); d.node.render()
     d.tap(v2, "act:weiter"); d.tap(v2, "act:weiter")
     h.step(3); d.node.render()
-    t.eq(screen(d), "3.gleise", d.text(v2))
+    t.eq(screen(d), "2.gleise", d.text(v2))
     t.contains(v2.hint, "verworfen")
     t.contains(v2.hint, "neue")
     d.tap(v2, "act:weiter")

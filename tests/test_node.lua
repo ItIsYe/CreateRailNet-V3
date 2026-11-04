@@ -76,7 +76,7 @@ return {
     local v = d.view()
     d.tap(v, "nav:einrichtung")
     d.tap(v, "act:start")
-    t.ok(d.has(v, "Schritt 1 von 6: Anlage"))
+    t.ok(d.has(v, "[1 Netz]"), "Schrittleiste: " .. d.text(v))
     -- Schritt 1: Netz beitreten
     d.tap(v, "sel:modus:2")
     d.tap(v, "act:weiter")
@@ -91,7 +91,7 @@ return {
     d.type(v, "zentrale", "hauptstelle")
     d.tap(v, "act:weiter")
     -- Schritt 2
-    t.ok(d.has(v, "Schritt 2 von 6: Rolle"))
+    t.ok(d.has(v, "[2 Aufgabe]") and d.has(v, "Rolle waehlen"), d.text(v))
     d.tap(v, "act:weiter")
     t.ok(d.has(v, "mindestens eine Rolle"), "Hinweis ohne Rolle")
     d.tap_row(v, "rollen", "Passagierbahnhof")
@@ -101,7 +101,7 @@ return {
     t.ok(d.has(v, "Kennung im Netz: westbahnhof"))
     d.tap(v, "act:weiter")
     -- Schritt 3: Geraete
-    t.ok(d.has(v, "Schritt 3 von 6: Geraete"))
+    t.ok(d.has(v, "[3 Geraete]") and d.has(v, "Geraete waehlen"), d.text(v))
     t.ok(d.has(v, "Funk: left"), "Funkmodem wird gezeigt")
     d.tap_row(v, "geraete", "Create_Station_1")
     t.ok(d.has(v, "[x] Create_Station_1"))
@@ -109,7 +109,7 @@ return {
     d.tap_row(v, "geraete", "Create_TrainObserver_1")
     d.tap(v, "act:weiter")
     -- Schritt 4: ein Gleis
-    t.ok(d.has(v, "Schritt 4 von 6: Gleise"))
+    t.ok(d.has(v, "[4 Gleise]"), d.text(v))
     d.tap(v, "act:neues_gleis")
     d.type(v, "gleisname", "Gleis 1")
     d.tap(v, "act:weiter")
@@ -127,7 +127,7 @@ return {
     t.ok(d.has(v, "Bahnhof, 1 Signal"), "Zusammenfassung des Gleises in der Liste: " .. d.text(v))
     d.tap(v, "act:weiter")
     -- Schritt 5: Pruefungen
-    t.ok(d.has(v, "Schritt 5 von 6: Test"))
+    t.ok(d.has(v, "[5 Test]"), d.text(v))
     d.tap(v, "act:alle_lesen")
     t.ok(d.has(v, "3 lesende Pruefungen ausgefuehrt"))
     d.tap_row(v, "tests", "Sperre: Create_Signal_5")
@@ -140,7 +140,7 @@ return {
     t.ok(not d.has(v, "Ausgang: Gleis"), "keine Ausgangspruefung ohne Ausgang")
     d.tap(v, "act:weiter")
     -- Schritt 6
-    t.ok(d.has(v, "Schritt 6 von 6: Fertig"))
+    t.ok(d.has(v, "[6 Fertig]"), d.text(v))
     t.ok(d.has(v, "Bereit zum Aktivieren."))
     t.ok(d.has(v, "Aktivieren"))
     d.tap(v, "act:speichern")
@@ -332,7 +332,7 @@ return {
     d.tap(v, "act:start")
     d.tap(v, "act:abbrechen")
     t.ok(d.has(v, "Nochmal druecken verwirft die Eingaben."))
-    t.ok(d.has(v, "Schritt 1 von 6"))
+    t.ok(d.has(v, "[1 Netz]"))
     d.tap(v, "act:abbrechen")
     t.ok(d.has(v, "Einrichtung starten"))
     t.eq(d.node.config, nil)
@@ -350,11 +350,11 @@ return {
     mv.set_page("einrichtung")
     d.node.render()
     t.ok(d.has(mv, "Einrichtung wird bearbeitet."))
-    t.ok(d.has(tv, "Schritt 1 von 6"))
+    t.ok(d.has(tv, "[1 Netz]"))
     mv.dispatch("act:weiter")
     mv.dispatch("sel:modus:2")
     d.node.render()
-    t.ok(d.has(tv, "Schritt 1 von 6"), "die zweite Ansicht kann den Assistenten nicht weiterschalten")
+    t.ok(d.has(tv, "[1 Netz]"), "die zweite Ansicht kann den Assistenten nicht weiterschalten")
     t.eq(d.node.setup.session().screen, "1.modus")
   end },
   { "Wizard: ohne Pruefungen laesst sich nichts aktivieren und nichts speichern (kein Entwurf)", function()
@@ -446,7 +446,7 @@ return {
     d.type(mv, "netz", "Gross")
     t.ok(d.has(mv, "Gross"))
     d.tap(mv, "act:weiter")
-    t.ok(d.has(mv, "Schritt 2 von 6"))
+    t.ok(d.has(mv, "Schritt 2 von 6"), "auf dem grossen Monitor nennt die Ueberschrift den Schritt")
   end },
 }
 

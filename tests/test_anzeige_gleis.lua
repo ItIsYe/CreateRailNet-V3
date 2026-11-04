@@ -53,9 +53,10 @@ return {
     text = d.text(v)
     local lines = {}
     for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
-    t.contains(lines[5], "Welcher Create-Bahnhof gehoert zu")
-    t.contains(lines[6], "~")
-    t.contains(lines[7], "Create_Station_1")
+    t.contains(lines[3], "Bahnhof zuordnen")
+    t.contains(lines[4], "Welcher Create-Bahnhof gehoert zu")
+    t.contains(lines[5], "~")
+    t.contains(lines[6], "Create_Station_1")
     -- nach dem Bahnhof gibt es keine Frage nach einem Ausgang mehr
     session.wiz.config.tracks[session.track].name = "Gleis 1"
     d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")

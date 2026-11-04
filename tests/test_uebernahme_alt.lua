@@ -88,7 +88,7 @@ return {
     s.tap(v, "act:weiter")
     t.contains(v.hint, "Abstellgleis")
     t.contains(v.hint, "gibt es im Bereich nicht")
-    t.eq(screen(s), "3.gleise")
+    t.eq(screen(s), "2.gleise")
     t.eq(#netz.nodes(), 0, "keine Kennung reserviert")
   end },
   { "Nach der Uebernahme bleibt die Node im gefuehrten Ablauf konsistent: eine zweite Node mit derselben Kennung bekommt keine neue Anforderung", function()

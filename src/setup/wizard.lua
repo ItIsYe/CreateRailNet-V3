@@ -1,5 +1,5 @@
 --[[
-Purpose: Ablauf des Einrichtungsassistenten in sechs Hauptschritten (Konzept 29.1): Anlage, Rolle, Geraete, Gleise, Test, Fertig. Reine Zustandsfuehrung ohne Oberflaeche: Eingaben, Weiterschalten mit Pruefung, Geraeteauswahl, Gleise und Knotenpunkt bearbeiten, gefuehrte Pruefungen (lesend und schaltend, schaltend nur nach ausdruecklicher Bestaetigung), Speichern als Entwurf oder aktiv.
+Purpose: Ablauf des Einrichtungsassistenten in sechs Hauptschritten (Konzept 29.1): Netz, Aufgabe (Rolle, Bereich, Gleise des Bereichs), Geraete, Gleise, Test, Fertig. Reine Zustandsfuehrung ohne Oberflaeche: Eingaben, Weiterschalten mit Pruefung, Geraeteauswahl, Gleise und Knotenpunkt bearbeiten, gefuehrte Pruefungen (lesend und schaltend, schaltend nur nach ausdruecklicher Bestaetigung), Speichern als Entwurf oder aktiv.
 API: wizard.new{ scan, env, now, existing } -> w; w.step; w.next() / w.back(); w.step_ok(n) -> ok, grund; w.config; w.tests() -> Liste; w.run_test(id, confirmed) -> ok, text; w.finish(store, path) -> status, probleme
 Notes: Lesende Erkennung und schaltende Pruefungen sind getrennt: ein schaltender Test laeuft nur mit confirmed = true, nennt vorher Geraet und erwartete Wirkung (test.explain) und stellt den Ausgangszustand wieder her. Ein erfolgreicher API-Aufruf zaehlt nur als Ausfuehrung des Befehls (Konzept 29.1). Fehlt ein Geraet, wird die Einrichtung als Entwurf gespeichert; die betroffene Betriebsfunktion bleibt inaktiv (status = "entwurf").
 ]]
@@ -19,7 +19,7 @@ local M = {}
 -- Geraeteklassen, die zu einem Node gehoeren koennen (Modems werden nicht zugeordnet, sondern nur gezeigt)
 local SELECTABLE = { station = true, signal = true, observer = true, relay = true, monitor = true, displaylink = true }
 
-M.STEPS = { "Anlage", "Rolle", "Geraete", "Gleise", "Test", "Fertig" }
+M.STEPS = { "Netz", "Aufgabe", "Geraete", "Gleise", "Test", "Fertig" }
 
 -- Funktion eines Signals (Konzept 5.4); die Wirkrichtung ist ein Anschlussname des Bereichs, der oertliche Bezug ein Anschlussname oder "mitte"
 M.SIGNAL_USES = { "strecke", "einfahrt", "ausfahrt" }

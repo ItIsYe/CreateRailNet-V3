@@ -79,7 +79,8 @@ end
 function W.list(v, id, rect, items, state, opts)
   opts = opts or {}
   local row_h = opts.row_h or (v.layout.mode == "gross" and 3 or 1)
-  local footer = 1
+  -- passt alles auf eine Seite, entfaellt die Fusszeile "Seite 1/1" und die Liste bekommt die Zeile
+  local footer = (#items * row_h > rect.h) and 1 or 0
   local per_page = math.max(1, math.floor((rect.h - footer) / row_h))
   state.index = math.max(1, math.min(state.index or 1, math.max(1, #items)))
   local page = math.floor((state.index - 1) / per_page)
@@ -119,13 +120,15 @@ function W.list(v, id, rect, items, state, opts)
     end
     v.touch.add("sel:" .. id .. ":" .. i, rect.x, y, rect.w, row_h)
   end
-  local fy = rect.y + rect.h - 1
-  v.canvas.fill(rect.x, fy, rect.w, 1, S.arbeit)
-  v.canvas.text(rect.x + 2, fy, string.format("Seite %d/%d  (%d Eintraege)", page + 1, pages, #items), S.gedaempft, S.arbeit, rect.w - 4)
-  if pages > 1 then
-    v.canvas.text(rect.x + rect.w - 7, fy, " < > ", S.hell, S.haupt)
-    v.touch.add("page:" .. id .. ":prev", rect.x + rect.w - 7, fy, 3, 1)
-    v.touch.add("page:" .. id .. ":next", rect.x + rect.w - 4, fy, 3, 1)
+  if footer == 1 then
+    local fy = rect.y + rect.h - 1
+    v.canvas.fill(rect.x, fy, rect.w, 1, S.arbeit)
+    v.canvas.text(rect.x + 2, fy, string.format("Seite %d/%d  (%d Eintraege)", page + 1, pages, #items), S.gedaempft, S.arbeit, rect.w - 4)
+    if pages > 1 then
+      v.canvas.text(rect.x + rect.w - 7, fy, " < > ", S.hell, S.haupt)
+      v.touch.add("page:" .. id .. ":prev", rect.x + rect.w - 7, fy, 3, 1)
+      v.touch.add("page:" .. id .. ":next", rect.x + rect.w - 4, fy, 3, 1)
+    end
   end
   return math.min(per_page, math.max(0, #items - state.offset)), per_page
 end
@@ -134,7 +137,7 @@ end
 function W.field(v, id, x, y, w, label, state)
   local focused = v.input_id == id
   v.fields[id] = state
-  v.canvas.text(x, y, label, focused and S.hell or S.gedaempft, S.arbeit, w)
+  v.canvas.text(x, y, label, focused and S.hell or S.gedaempft, S.arbeit, math.max(w, #label))
   local fy = y + 1
   v.canvas.fill(x, fy, w, 1, focused and S.zeile or S.trenner)
   local shown = tostring(state.value or "")

@@ -56,6 +56,27 @@ return {
     t.ok(not min:find("aber dies", 1, true) and not min:find("nur ein Hinweis", 1, true) and not min:find("Block", 1, true))
     t.ok(not min:find("\n  ", 1, true) or min:find("\n   Einrueckung", 1, true), "keine Einrueckung ausser in Zeichenketten")
   end },
+  { "Verkleinern: Leerzeichen zwischen Zeichen entfallen, bleiben aber, wo sonst Woerter, Zahlen, Kommentarzeichen oder Zeichenketten verschmelzen", function()
+    local min = build.minify("local a = 1 + 2 * (3 - 4)\nlocal s = 'x y' .. \"z  w\"\nreturn { a = a, s = s, f = function ( x ) return x ~= 5 and x >= 1 or not x end }\n", "probe")
+    t.eq(min, "local a=1+2*(3-4)\nlocal s='x y'..\"z  w\"\nreturn{a=a,s=s,f=function(x)return x~=5 and x>=1 or not x end}\n")
+    local loader = loadstring or load
+    local function same(source, expected_min)
+      local out = build.minify(source, "probe")
+      if expected_min then t.eq(out, expected_min) end
+      local x, y = loader(source)(), loader(out)()
+      return x, y, out
+    end
+    -- Zahl vor ".." und Namen vor Zahl bleiben getrennt, Minus gegen Minus, eckige Klammern gegen lange Zeichenkette
+    local x, y, min = same("local t = {}\nreturn 1 .. 2\n", "local t={}\nreturn 1 ..2\n"); t.eq(y, "12")
+    x, y = same("local a, b = 5, 3\nreturn a - -b\n", "local a,b=5,3\nreturn a- -b\n"); t.eq(y, 8)
+    x, y, min = same("local t = { [ [[k]] ] = 7 }\nreturn t.k\n"); t.eq(y, 7); t.contains(min, "[ [[k]]")
+    x, y = same("local t = { x = 1 }\nreturn t[ 'x' ]\n", "local t={x=1}\nreturn t['x']\n"); t.eq(y, 1)
+    x, y = same("local n = 2\nreturn n .. ' Stueck'\n", "local n=2\nreturn n..' Stueck'\n"); t.eq(y, "2 Stueck")
+    x, y = same("local a = 3\nreturn a == 3 and a ~= 4 and a <= 3 and a >= 3 and not (a < 2)\n"); t.eq(y, true)
+    x, y = same("local a = 4 --[[ x ]] local b = 5\nreturn a + b\n"); t.eq(y, 9)
+    x, y = same("return 3 and 4\n", "return 3 and 4\n"); t.eq(y, 4)
+    x, y = same("return (function(...) return select('#', ...) end)(1, 2, 3)\n"); t.eq(y, 3)
+  end },
   { "Verkleinern: nicht geschlossene Zeichenketten und Kommentare sind Fehler, nichts wird still abgeschnitten", function()
     local ok, err = pcall(build.minify, "local x = 'offen\n", "a")
     t.eq(ok, false); t.contains(tostring(err), "nicht geschlossen")
