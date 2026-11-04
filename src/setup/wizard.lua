@@ -900,9 +900,7 @@ function M.new(opts)
       return nil, problems, "Pflichtangaben und Pruefungen sind nicht vollstaendig."
     end
     w.config.status = "aktiv"
-    for _, track in pairs(w.config.tracks) do
-      track.status = (track.station ~= nil or #track.signals > 0) and "aktiv" or "offen"
-    end
+    for _, track in pairs(w.config.tracks) do track.status = "aktiv" end
     w.config.revision = (w.config.revision or 0) + 1
     local ok, err = store.save(path, w.config)
     if not ok then

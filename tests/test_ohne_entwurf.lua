@@ -127,11 +127,14 @@ return {
   { "Testsperre-Marke: eigene Datei, wird beim Start ausgewertet und danach entfernt; ohne Marke und ohne Sperre passiert nichts", function()
     local d = new_driver()
     local store = storelib.new(d.fs)
-    store.save("/crn_data/pruefmarke.lua", { device = "signal1", name = "Create_Signal_5", t = 3 })
+    store.save("/crn_data/pruefmarke.lua", { device = "signal1", name = "Create_Signal_5", t = 2 })
+    store.save("/crn_data/pruefmarke.lua", { device = "signal1", name = "Create_Signal_5", t = 3 })      -- zweites Speichern: es bleibt eine .prev stehen
+    t.ok(d.fs.exists("/crn_data/pruefmarke.lua.prev"))
     d.world.devices["Create_Signal_5"].state.forced = true
     d.restart()
     t.eq(d.world.devices["Create_Signal_5"].state.forced, false)
     t.ok(not d.fs.exists("/crn_data/pruefmarke.lua"))
+    t.ok(not d.fs.exists("/crn_data/pruefmarke.lua.prev") and not d.fs.exists("/crn_data/pruefmarke.lua.tmp"), "auch Reste der Marke sind weg, sonst kaeme sie beim naechsten Start zurueck")
     local texts = {}
     for _, m in ipairs(d.node.messages) do texts[#texts + 1] = m.text end
     t.contains(table.concat(texts, "|"), "Testsperre")

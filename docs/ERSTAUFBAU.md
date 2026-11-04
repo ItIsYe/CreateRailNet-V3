@@ -32,7 +32,7 @@ Nodes aktualisieren sich selbst (Seite *Update*, `docs/AKTUALISIERUNG.md`): prue
 | `HTTP ist auf diesem Computer nicht verfuegbar` | HTTP fuer Computer in der Servereinstellung erlauben. |
 | `Zu wenig Platz` | Hinweise der Meldung befolgen: `--drop-prev` (Vorversion loeschen) oder `--replace`; sonst unnoetige Dateien loeschen (`ls`, `delete`). |
 | `Kein Netz gefunden: Leitstelle an, Chunk geladen?` | Leitstelle laeuft nicht oder ihr Chunk ist nicht geladen, oder kein Ender-Modem in Reichweite; *Neu suchen* oder *Netz von Hand eingeben*. |
-| `Die Leitstelle antwortet nicht ...` | Wie oben; die Einrichtung bleibt als Entwurf, *Von Hand* geht trotzdem. |
+| `Die Leitstelle antwortet nicht ...` | Wie oben; *Von Hand* geht trotzdem. |
 | Funk: `KEIN FUNKMODEM` auf der Seite *Uebersicht* | Funkmodem anschliessen; ein spaeter angeschlossenes Modem wird erkannt. |
 | Eine Node meldet sich nicht mehr | Chunk geladen? Computer an? Siehe "Nicht geladene Chunks". |
 | Zwei Computer haben dieselbe Kennung | Einen neu einrichten (beide `N0001`: Leitstelle und Node auf den gleichen Stand bringen). |

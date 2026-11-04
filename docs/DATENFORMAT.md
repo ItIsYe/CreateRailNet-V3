@@ -20,13 +20,19 @@ Bei der Selbstaktualisierung (`docs/AKTUALISIERUNG.md`) gehoert die Sicherung zu
 
 ## Stand heute
 
-Das Datenformat ist 1; es ist noch kein Schritt noetig gewesen. Alle bisherigen Aenderungen (zum Beispiel Reihenfolge der Signale, Wirkrichtung, Netzverzeichnis Version 2) haben nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt. Belegt ist das durch `tests/fixtures/alte_staende.lua`: Datenstaende (Leitstelle, Signal-Node, Bahnhof), die zwei aelteren Programmfassungen aus Git geschrieben haben, starten im aktuellen Programm ohne Fehler, mit unveraenderter Einrichtung und mit angemeldeten Nodes.
+Das Datenformat ist **2**. Bis Format 1 haben alle Aenderungen (zum Beispiel Reihenfolge der Signale, Wirkrichtung, Netzverzeichnis Version 2) nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt. Belegt ist das durch `tests/fixtures/alte_staende.lua`: Datenstaende (Leitstelle, Signal-Node, Bahnhof), die zwei aelteren Programmfassungen aus Git geschrieben haben, starten im aktuellen Programm ohne Fehler, mit unveraenderter Einrichtung und mit angemeldeten Nodes (sie werden dabei einmal von Format 1 auf 2 angehoben).
+
+| Schritt | Text | Was er tut |
+|---|---|---|
+| 1 -> 2 | Entwurf der Einrichtung verwerfen | Es gibt keinen Entwurf mehr (nur eine geprueft aktivierte Einrichtung wird gespeichert). Eine `config.lua` ohne Status "aktiv" wird geloescht (die Sicherung `sicherung_f1` behaelt sie); ihre Anforderungskennung (`node.claim`) wandert nach `anforderung.lua`, damit die Leitstelle keine zweite Node-Kennung vergibt, und eine stehengebliebene Testsperre (`pruefung.lauf`) nach `pruefmarke.lua`. Eine aktive Einrichtung bleibt unveraendert; steht in ihr eine Testsperre-Marke, zieht nur diese um. |
+
+Neue Dateien seit Format 2: `/crn_data/anforderung.lua` (`{ claim = "c..." }`, die Anforderungskennung dieses Computers im Netzverzeichnis; bei einer eingerichteten Node gilt `config.node.claim`) und `/crn_data/pruefmarke.lua` (`{ device, name, t }`, nur waehrend einer Testsperre der Abschlusspruefung; der naechste Start hebt die Sperre auf und loescht die Datei).
 
 ## Regel fuer Aenderungen
 
 1. **Nur ergaenzt** (neues Feld, das beim Laden eine Vorgabe bekommt): kein Schritt. `tests/test_integrator.lua` meldet die neue Form trotzdem; die Festlegung `tests/golden/datenform.txt` wird bewusst erneuert: `CRN_UPDATE_GOLDEN=1 lua tools/run_tests.lua integrator`, den Unterschied im Commit ansehen.
 2. **Umbenannt, entfernt, Bedeutung geaendert, Pflichtfeld, Datei verschoben**: ein Schritt an `src/core/migrations.lua` (`STEPS[n] = { text = "...", run = function(ctx) ... end }`; das Format ist dann 1 + Anzahl der Schritte). Danach die Festlegung erneuern, und die Datenstaende der Vorfassung als weitere Fassung in `tests/fixtures/alte_staende.lua` aufnehmen, damit der Schritt an echten alten Dateien laeuft.
-3. Ein Schritt arbeitet nur auf Daten (`ctx.load`, `ctx.save`, `ctx.update`, `ctx.files`, Namen relativ zu `/crn_data`, auch `nodesich/N0001.lua`: die Sicherungen der Leitstelle gehoeren mit angepasst) und ruft keinen anderen Programmteil auf. Fehler oder `return false, "Grund"` nehmen alles zurueck.
+3. Ein Schritt arbeitet nur auf Daten (`ctx.load`, `ctx.save`, `ctx.update`, `ctx.files`, `ctx.exists`, `ctx.delete`, Namen relativ zu `/crn_data`, auch `nodesich/N0001.lua`: die Sicherungen der Leitstelle gehoeren mit angepasst) und ruft keinen anderen Programmteil auf. Fehler oder `return false, "Grund"` nehmen alles zurueck.
 
 ## Grenzen
 
