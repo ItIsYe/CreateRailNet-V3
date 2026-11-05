@@ -152,8 +152,9 @@ if test.kind=="lesen"and session.wiz.test_state(test.id,nil,test)~="ok"then sess
 end
 end
 if screen=="1.netzwahl"then
-session.net_choice=nil
-services.search_networks()
+
+session.net_choice=session.current_net
+if not session.current_net then services.search_networks()end
 elseif screen=="2.station"then
 session.dir=session.dir or{}
 if not session.dir.stations then
@@ -199,9 +200,17 @@ session.track=nil
 session.pick={}
 session.pending_role=nil
 session.net_choice=nil
+session.current_net=nil
+
+if existing and existing.network and type(existing.network.central_id)=="string"and existing.network.central_id~=""and type(existing.network.name)=="string"and existing.network.name~=""then
+session.current_net={netz=existing.network.name,zentrale=existing.network.central_id}
+session.net_choice=session.current_net
+end
 session.manual=nil
 session.checking=false
 session.dir={}
+
+if existing and existing.node and type(existing.node.area)=="string"and existing.node.area~=""then session.dir.preselect=existing.node.area end
 goto_screen("1.modus")
 
 local st=v.page_state("einrichtung")
@@ -333,6 +342,7 @@ screens["1.netzwahl"]={
 render=function(v,rect)
 header(v,rect,nil,"Welchem Netz soll dieser Computer beitreten?")
 local st=services.search_status and services.search_status()or{kind="halt",text="",networks={}}
+if session.current_net then st={kind="ok",text="Dieser Computer gehoert schon zu diesem Netz.",networks={session.current_net}}end
 W.label(v,rect.x+1,rect.y+2,st.text or"",st.kind or"dim",rect.w-2)
 local items={}
 session.pick.nets={}
@@ -358,7 +368,10 @@ services.search_networks()
 return true
 end
 end,
-actions=function(v)return{{id="neu_suchen",label="Neu suchen",kind="secondary"}}end,
+actions=function(v)
+if session.current_net then return{}end
+return{{id="neu_suchen",label="Neu suchen",kind="secondary"}}
+end,
 }
 
 screens["1.netz"]={
