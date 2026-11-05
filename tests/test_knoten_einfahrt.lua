@@ -214,6 +214,9 @@ return {
           t.ok(not d.has(v, "Funktion"), "keine Funktion/Richtung/Standort an Knotengleisen: " .. d.text(v))
           -- richtig markiert, aber die Reihenfolge ist noch nicht bestaetigt: der Assistent bleibt beim Detailbildschirm
           d.tap(v, "sel:detail:3"); d.tap(v, "act:d_einfahrt")
+          d.tap(v, "act:weiter")
+          t.eq(screen(), "4.z.detail", "auch Weiter im Detailbildschirm wartet auf die Bestaetigung")
+          t.contains(v.hint, "Reihenfolge der Signale bestaetigen")
           d.tap(v, "act:zurueck")
           t.eq(screen(), "4.g.signale")
           d.tap(v, "act:weiter")
@@ -226,6 +229,9 @@ return {
           t.eq(screen(), "4.g.signale")
           d.tap(v, "act:weiter")
           t.eq(screen(), "4.z.detail", "die Lage ist falsch: der Assistent fuehrt zurueck zum Detailbildschirm")
+          d.tap(v, "act:weiter")
+          t.eq(screen(), "4.z.detail", "auch hier sperrt Weiter bei falscher Lage")
+          t.contains(v.hint, "letzte Signal vor dem Knoten")
           -- richtig: das dritte Signal ist die Einfahrt
           d.tap(v, "sel:detail:3"); d.tap(v, "act:d_einfahrt")
           t.contains(v.hint, "Create_Signal_3 ist jetzt das Einfahrtsignal")

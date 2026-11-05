@@ -1431,7 +1431,20 @@ function M.new(services)
   end
 
   screens["4.z.detail"] = {
-    no_forward = true,
+    -- Weiter fuehrt direkt dorthin, wo es ohne diesen Bildschirm weiterginge: im Gleis-Ablauf zum Beobachter oder zurueck zur Gleisliste, aus der Signalzuordnung zurueck dorthin (nicht mehrfach Zurueck)
+    next = function(v)
+      if session.stack[#session.stack] == "4.g.signale" then
+        if #config_devices_of("observer") > 0 then
+          pop()
+          push("4.g.beobachter")
+        else
+          while session.screen ~= "4.gleise" and pop() do end
+        end
+      else
+        pop()
+      end
+      return true
+    end,
     render = function(v, rect)
       local row = detail_rows()
       local ends = session.wiz.area_ends()
@@ -1808,6 +1821,11 @@ function M.new(services)
       if screen == "4.g.bahnhof" and not track.station then return false, "Bitte eine Train Station zuordnen." end
       if screen == "4.g.signale" and (model.has_role(w.config, "signal") or track.junction and track.junction.role == "ein") and #track.signals == 0 then return false, "Bitte ein Signal zuordnen." end
       if screen == "4.g.beobachter" and track.junction and #track.observers == 0 then return false, "Der Meldepunkt braucht einen Beobachter." end
+    end
+    if screen == "4.z.detail" and track and signals_need_detail(track) then
+      if not track.order_ok then return false, "Erst die Reihenfolge der Signale bestaetigen." end
+      local entry_code = model.entry_signal_problem(w.config, track)
+      return false, entry_code == "knoten_einfahrtlage" and "Die Einfahrt muss das letzte Signal vor dem Knoten sein." or "Genau ein Signal als Einfahrt markieren (das letzte vor dem Knoten)."
     end
     if screen == "4.gleise" then return w.step_ok(4, true, { anmeldung_station = true }) end
     if screen == "4.anmeldung" then return w.step_ok(4, true) end
