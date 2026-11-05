@@ -4,507 +4,531 @@
 
 
 
-local wizardlib = require("setup.wizard")
-local model = require("setup.model")
-local detect = require("dev.detect")
-local signallib = require("dev.signal")
-local pruefunglib = require("setup.pruefung")
-local W = require("ui.widgets")
+local wizardlib=require("setup.wizard")
+local model=require("setup.model")
+local detect=require("dev.detect")
+local signallib=require("dev.signal")
+local pruefunglib=require("setup.pruefung")
+local label=require("core.label")
+local W=require("ui.widgets")
 
-local M = {}
+local M={}
 
-local DIRECTIONS = { { id = "hin", text = "hin (eine Richtung)" }, { id = "rueck", text = "rueck (Gegenrichtung)" }, { id = "beide", text = "beide Richtungen" } }
+local DIRECTIONS={{id="hin",text="hin (eine Richtung)"},{id="rueck",text="rueck (Gegenrichtung)"},{id="beide",text="beide Richtungen"}}
 
 function M.new(services)
-local page = { id = "einrichtung", title = "Einrichtung" }
+local page={id="einrichtung",title="Einrichtung"}
 
 
-local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, test_pending = nil, pick = {}, dir = {} }
+local session={owner=nil,wiz=nil,screen=nil,stack={},track=nil,cancel_armed=false,test_pending=nil,pick={},dir={}}
 
 
 
-local GUIDED_TITLE = {
-["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich", ["2.knoten"] = "Knoten waehlen", ["2.station"] = "Betriebsstelle waehlen", ["3.k.pruefen"] = "Knoten uebernehmen", ["3.gleise"] = "Gleise uebernehmen", ["4.zuordnung"] = "Signale zuordnen",
-["4.z.signal"] = "Signal waehlen", ["4.z.detail"] = "Signal-Eigenschaften", ["4.z.gleis"] = "Gleis aendern", ["5.pruefen"] = "Pruefen und aktivieren",
+local GUIDED_TITLE={
+["1.modus"]="Netz erstellen oder beitreten",["1.netzwahl"]="Netz waehlen",["1.netz"]="Name des Netzes",["1.zentrale"]="Kennung der Leitstelle",
+["2.rollen"]="Rolle waehlen",["2.name"]="Name der Node",["2.bereich"]="Bereich waehlen",["2.b.neu"]="Neuer Bereich",["2.knoten"]="Knoten waehlen",
+["2.station"]="Betriebsstelle waehlen",["2.k.pruefen"]="Knoten uebernehmen",["2.gleise"]="Gleise uebernehmen",
+["3.geraete"]="Geraete waehlen",
+["4.gleise"]="Gleise einrichten",["4.g.name"]="Name des Gleises",["4.g.richtung"]="Richtung",["4.g.anschluss"]="Anschluss des Knotens",
+["4.g.bahnhof"]="Bahnhof zuordnen",["4.g.signale"]="Signale zuordnen",["4.g.beobachter"]="Beobachter zuordnen",
+["4.knoten"]="Anschluesse und Verbindungen",["4.k.von"]="Verbindung: Einfahrt",["4.k.nach"]="Verbindung: Ausfahrt",["4.k.konflikt"]="Konflikt",
+["4.anmeldung"]="Anmeldestation",["4.zuordnung"]="Signale zuordnen",
+["4.z.signal"]="Signal waehlen",["4.z.detail"]="Signal-Eigenschaften",["4.z.gleis"]="Gleis aendern",
+["5.test"]="Pruefungen",["5.alle_bestaetigen"]="Pruefungen bestaetigen",["5.bestaetigen"]="Pruefung bestaetigen",["5.pruefen"]="Pruefen und aktivieren",
+["6.fertig"]="Zusammenfassung",
 }
-local GUIDED_SEQUENCE = { "2.bereich", "3.gleise", "4.zuordnung", "5.pruefen" }
+local GUIDED_SEQUENCE={"2.bereich","2.gleise","4.zuordnung","5.pruefen"}
 
-local ensure_check, select_next_open
+local ensure_check,select_next_open
 local first_device_screen
 
 local function guided_mode()
-local w = session.wiz
-return w ~= nil and w.mode == "join" and #w.roles == 1 and w.roles[1] == "signal" and not session.manual and services.directory_areas ~= nil
+local w=session.wiz
+return w~=nil and w.mode=="join"and#w.roles==1 and w.roles[1]=="signal"and not session.manual and services.directory_areas~=nil
 end
 
 
 local function preset_role()
-local w = session.wiz
+local w=session.wiz
 if not w then return nil end
-local avail = w.available_roles()
-if #avail ~= 1 then return nil end
-if (w.mode == "create") == (avail[1] == "zentrale") then return avail[1] end
+local avail=w.available_roles()
+if#avail~=1 then return nil end
+if(w.mode=="create")==(avail[1]=="zentrale")then return avail[1]end
 return nil
 end
 
 local function apply_preset()
-local role = preset_role()
-if role and #session.wiz.roles == 0 then session.wiz.toggle_role(role) end
+local role=preset_role()
+if role and#session.wiz.roles==0 then session.wiz.toggle_role(role)end
 end
 
 
 
-local STATION_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true }
-local AREA_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true, signal = true, anmeldung = true }
-local function roles_in(allowed, need_one_of)
-local w = session.wiz
-if not w or #w.roles == 0 then return false end
-local found = false
-for _, r in ipairs(w.roles) do
-if not allowed[r] then return false end
-if need_one_of[r] then found = true end
+local STATION_ROLES={passagierbahnhof=true,gueterbahnhof=true,depot=true}
+local AREA_ROLES={passagierbahnhof=true,gueterbahnhof=true,depot=true,signal=true,anmeldung=true}
+local function roles_in(allowed,need_one_of)
+local w=session.wiz
+if not w or#w.roles==0 then return false end
+local found=false
+for _,r in ipairs(w.roles)do
+if not allowed[r]then return false end
+if need_one_of[r]then found=true end
 end
 return found
 end
 local function station_mode()
-local w = session.wiz
-if guided_mode() then return false end
-return w ~= nil and w.mode == "join" and not session.manual and services.directory_areas ~= nil
-and roles_in(AREA_ROLES, { passagierbahnhof = true, gueterbahnhof = true, depot = true, signal = true })
+local w=session.wiz
+if guided_mode()then return false end
+return w~=nil and w.mode=="join"and not session.manual and services.directory_areas~=nil
+and roles_in(AREA_ROLES,{passagierbahnhof=true,gueterbahnhof=true,depot=true,signal=true})
 end
 
 local function anmeldung_mode()
-local w = session.wiz
-return w ~= nil and w.mode == "join" and #w.roles == 1 and w.roles[1] == "anmeldung" and not session.manual and services.directory_stations ~= nil
+local w=session.wiz
+return w~=nil and w.mode=="join"and#w.roles==1 and w.roles[1]=="anmeldung"and not session.manual and services.directory_stations~=nil
 end
 
 
 local function knoten_mode()
-local w = session.wiz
-return w ~= nil and w.mode == "join" and #w.roles == 1 and w.roles[1] == "knoten" and not session.manual and services.directory_junctions ~= nil
+local w=session.wiz
+return w~=nil and w.mode=="join"and#w.roles==1 and w.roles[1]=="knoten"and not session.manual and services.directory_junctions~=nil
 end
 
 local function sequence()
 apply_preset()
-local seq = { "1.modus" }
-if session.wiz.mode == "join" and services.search_networks then
+local seq={"1.modus"}
+if session.wiz.mode=="join"and services.search_networks then
 
-seq[#seq + 1] = "1.netzwahl"
-if not (type(session.net_choice) == "table") then seq[#seq + 1] = "1.netz"; seq[#seq + 1] = "1.zentrale" end
+seq[#seq+1]="1.netzwahl"
+if not(type(session.net_choice)=="table")then seq[#seq+1]="1.netz";seq[#seq+1]="1.zentrale"end
 else
-seq[#seq + 1] = "1.netz"
-if session.wiz.mode == "join" then seq[#seq + 1] = "1.zentrale" end
+seq[#seq+1]="1.netz"
+if session.wiz.mode=="join"then seq[#seq+1]="1.zentrale"end
 end
-if not preset_role() then seq[#seq + 1] = "2.rollen" end
-if guided_mode() then
-for _, id in ipairs(GUIDED_SEQUENCE) do seq[#seq + 1] = id end
+if not preset_role()then seq[#seq+1]="2.rollen"end
+if guided_mode()then
+for _,id in ipairs(GUIDED_SEQUENCE)do seq[#seq+1]=id end
 return seq
 end
-if station_mode() then
-for _, id in ipairs({ "2.bereich", "3.gleise", "3.geraete", "4.gleise" }) do seq[#seq + 1] = id end
-for _, r in ipairs(session.wiz.roles) do if r == "anmeldung" then seq[#seq + 1] = "4.anmeldung" break end end
-seq[#seq + 1] = "5.test"; seq[#seq + 1] = "6.fertig"
+if station_mode()then
+for _,id in ipairs({"2.bereich","2.gleise","3.geraete","4.gleise"})do seq[#seq+1]=id end
+for _,r in ipairs(session.wiz.roles)do if r=="anmeldung"then seq[#seq+1]="4.anmeldung"break end end
+seq[#seq+1]="5.test";seq[#seq+1]="6.fertig"
 return seq
 end
-if anmeldung_mode() then
-for _, id in ipairs({ "2.station", "3.geraete", "4.anmeldung", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
+if anmeldung_mode()then
+for _,id in ipairs({"2.station","3.geraete","4.anmeldung","5.test","6.fertig"})do seq[#seq+1]=id end
 return seq
 end
-if knoten_mode() then
-for _, id in ipairs({ "2.knoten", "3.k.pruefen", "3.geraete", "4.gleise", "5.test", "6.fertig" }) do seq[#seq + 1] = id end
+if knoten_mode()then
+for _,id in ipairs({"2.knoten","2.k.pruefen","3.geraete","4.gleise","5.test","6.fertig"})do seq[#seq+1]=id end
 return seq
 end
-seq[#seq + 1] = "2.name"
-seq[#seq + 1] = "3.geraete"
-local c = session.wiz.config
+seq[#seq+1]="2.name"
+seq[#seq+1]="3.geraete"
+local c=session.wiz.config
 
-if model.has_role(c, "knoten") then seq[#seq + 1] = "4.knoten" end
-if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") or model.has_role(c, "signal") or model.has_role(c, "knoten") then
-seq[#seq + 1] = "4.gleise"
+if model.has_role(c,"knoten")then seq[#seq+1]="4.knoten"end
+if model.has_role(c,"passagierbahnhof")or model.has_role(c,"gueterbahnhof")or model.has_role(c,"depot")or model.has_role(c,"signal")or model.has_role(c,"knoten")then
+seq[#seq+1]="4.gleise"
 end
-if model.has_role(c, "anmeldung") then seq[#seq + 1] = "4.anmeldung" end
-seq[#seq + 1] = "5.test"
-seq[#seq + 1] = "6.fertig"
+if model.has_role(c,"anmeldung")then seq[#seq+1]="4.anmeldung"end
+seq[#seq+1]="5.test"
+seq[#seq+1]="6.fertig"
 return seq
 end
 
-local function step_of(screen) return tonumber(screen:match("^(%d)")) end
+local function step_of(screen)return tonumber(screen:match("^(%d)"))end
 
 local function goto_screen(screen)
-session.screen = screen
-session.wiz.step = step_of(screen) or session.wiz.step
-session.cancel_armed = false
-if not screen:match("^1%.") then apply_preset() end
+session.screen=screen
+session.wiz.step=step_of(screen)or session.wiz.step
+session.cancel_armed=false
+if not screen:match("^1%.")then apply_preset()end
 
-if screen == "5.test" and not session.wiz.guided then
-for _, test in ipairs(session.wiz.tests()) do
-if test.kind == "lesen" and session.wiz.test_state(test.id, nil, test) ~= "ok" then session.wiz.run_test(test.id, false) end
+if screen=="5.test"and not session.wiz.guided then
+for _,test in ipairs(session.wiz.tests())do
+if test.kind=="lesen"and session.wiz.test_state(test.id,nil,test)~="ok"then session.wiz.run_test(test.id,false)end
 end
 end
-if screen == "1.netzwahl" then
-session.net_choice = nil
+if screen=="1.netzwahl"then
+session.net_choice=nil
 services.search_networks()
-elseif screen == "2.station" then
-session.dir = session.dir or {}
+elseif screen=="2.station"then
+session.dir=session.dir or{}
 if not session.dir.stations then
-session.dir.want = "stations"
+session.dir.want="stations"
 services.directory_stations(session.wiz.central_id)
 end
-elseif screen == "2.knoten" then
-session.dir = session.dir or {}
+elseif screen=="2.knoten"then
+session.dir=session.dir or{}
 if not session.dir.junctions then
-session.dir.want = "junctions"
+session.dir.want="junctions"
 services.directory_junctions(session.wiz.central_id)
 end
-elseif screen == "2.bereich" then
-session.dir = session.dir or {}
+elseif screen=="2.bereich"then
+session.dir=session.dir or{}
 if not session.dir.areas then
-session.dir.want = "areas"
+session.dir.want="areas"
 services.directory_areas(session.wiz.central_id)
 end
 end
 end
 
-local function index_of(seq, screen)
-for i, id in ipairs(seq) do if id == screen then return i end end
+local function index_of(seq,screen)
+for i,id in ipairs(seq)do if id==screen then return i end end
 return nil
 end
 
 local function push(screen)
-session.stack[#session.stack + 1] = session.screen
+session.stack[#session.stack+1]=session.screen
 goto_screen(screen)
 end
 
 local function pop()
-local previous = table.remove(session.stack)
-if previous then goto_screen(previous) return true end
+local previous=table.remove(session.stack)
+if previous then goto_screen(previous)return true end
 return false
 end
 
-local function start(v, existing)
-session.owner = v
-session.wiz = wizardlib.new({ scan = services.scan, env = services.env, now = services.now, existing = existing, role_available = services.role_available })
-session.stack = {}
-session.track = nil
-session.pick = {}
-session.pending_role = nil
-session.net_choice = nil
-session.manual = nil
-session.checking = false
-session.dir = {}
+local function start(v,existing)
+session.owner=v
+session.wiz=wizardlib.new({scan=services.scan,env=services.env,now=services.now,existing=existing,role_available=services.role_available})
+session.stack={}
+session.track=nil
+session.pick={}
+session.pending_role=nil
+session.net_choice=nil
+session.manual=nil
+session.checking=false
+session.dir={}
 goto_screen("1.modus")
 
-local st = v.page_state("einrichtung")
-st.fields = {
-netz = { value = session.wiz.network_name, max = 30 },
-schluessel = { value = session.wiz.key, max = 30 },
-zentrale = { value = session.wiz.central_id, max = 30 },
-name = { value = session.wiz.name, max = 30 },
-gleisname = { value = "", max = 30 },
-bname = { value = "", max = 30 }, bende1 = { value = "", max = 30 }, bende2 = { value = "", max = 30 }, bzahl = { value = "2", max = 2 },
-anschluss = { value = "", max = 20 },
+local st=v.page_state("einrichtung")
+st.fields={
+netz={value=session.wiz.network_name,max=30},
+schluessel={value=session.wiz.key,max=30},
+zentrale={value=session.wiz.central_id,max=30},
+name={value=session.wiz.name,max=30},
+gleisname={value="",max=30},
+bname={value="",max=30},bende1={value="",max=30},bende2={value="",max=30},bzahl={value="2",max=2},
+anschluss={value="",max=20},
 }
-
-if session.wiz.guided then
-session.dir = { claim = existing.node.claim }
-local note = ensure_check().recover()
-session.known_signals = nil
-goto_screen("4.zuordnung")
-select_next_open(v, 0)
-v.hint = note or "Entwurf geladen: Signale zuordnen und pruefen."
-elseif existing and existing.node.claimed == true and (existing.node.area or existing.node.junction or existing.node.station) and existing.status ~= "aktiv" then
-
-session.dir = { claim = existing.node.claim }
-goto_screen("3.geraete")
-v.hint = "Entwurf geladen: Geraete und Gleise zuordnen, dann pruefen."
-end
 end
 
-local function fields(v) return v.page_state("einrichtung").fields end
-local function list_state(v, id)
-local st = v.page_state("einrichtung")
-st.lists = st.lists or {}
-st.lists[id] = st.lists[id] or { index = 1 }
+local function fields(v)return v.page_state("einrichtung").fields end
+local function list_state(v,id)
+local st=v.page_state("einrichtung")
+st.lists=st.lists or{}
+st.lists[id]=st.lists[id]or{index=1}
 return st.lists[id]
 end
 
 
 local function commit(v)
-local f = fields(v)
-local screen = session.screen
-if screen == "1.netz" then
-session.wiz.set_network(f.netz.value, nil, f.schluessel.value)
-elseif screen == "1.zentrale" then
-session.wiz.set_network(nil, f.zentrale.value, nil)
-elseif screen == "2.name" then
+local f=fields(v)
+local screen=session.screen
+if screen=="1.netz"then
+session.wiz.set_network(f.netz.value,nil,f.schluessel.value)
+elseif screen=="1.zentrale"then
+session.wiz.set_network(nil,f.zentrale.value,nil)
+elseif screen=="2.name"then
 session.wiz.set_name(f.name.value)
 end
 end
 
-local function header(v, rect, title, subtitle)
-local w = session.wiz
-W.label(v, rect.x + 1, rect.y, string.format("Schritt %d von %d: %s", w.step, #wizardlib.STEPS, GUIDED_TITLE[session.screen] or wizardlib.STEPS[w.step]), "hell")
-if subtitle then W.label(v, rect.x + 1, rect.y + 1, W.fit(subtitle, rect.w - 2), "dim", rect.w - 2) end
+
+local function header(v,rect,title,subtitle,lines)
+local w=session.wiz
+
+local heading=GUIDED_TITLE[session.screen]or wizardlib.STEPS[w.step]
+if v.layout.mode=="gross"then heading=string.format("Schritt %d von %d: %s",w.step,#wizardlib.STEPS,heading)end
+W.label(v,rect.x+1,rect.y,heading,"hell",rect.w-2)
+if subtitle then
+local parts,max=W.wrap(subtitle,rect.w-2),lines or 1
+for i=1,math.min(#parts,max)do
+local text=parts[i]
+if i==max and#parts>max then text=W.fit(table.concat(parts," ",i),rect.w-2)end
+W.label(v,rect.x+1,rect.y+i,text,"dim",rect.w-2)
+end
+end
 end
 
 
-local function put_status(v, rect, y, st, max)
-for i, line in ipairs(W.wrap(st.text or "", rect.w - 2)) do
-if i > (max or 2) then break end
-W.label(v, rect.x + 1, y + i - 1, line, st.kind or "dim", rect.w - 2)
+local function put_status(v,rect,y,st,max)
+for i,line in ipairs(W.wrap(st.text or"",rect.w-2))do
+if i>(max or 2)then break end
+W.label(v,rect.x+1,y+i-1,line,st.kind or"dim",rect.w-2)
 end
 end
 
-local function body_rect(rect, top)
-return { x = rect.x, y = rect.y + top, w = rect.w, h = rect.h - top }
+local function body_rect(rect,top)
+return{x=rect.x,y=rect.y+top,w=rect.w,h=rect.h-top}
 end
 
-local function device_items(kinds, selected_only)
-local items, map = {}, {}
-for _, d in ipairs(session.wiz.scan) do
-if kinds[d.kind] then
-local chosen = session.wiz.device_selected(d.name)
-local missing = {}
-if d.kind == "station" or d.kind == "signal" or d.kind == "observer" then missing = detect.missing(d.kind, d) end
-items[#items + 1] = {
-text = (chosen and "[x] " or "[ ] ") .. d.name,
-detail = d.kind .. (#missing > 0 and (", fehlt: " .. table.concat(missing, ",")) or ""),
-kind = (#missing > 0) and "attention" or "dim",
+
+local function row_h_for(v,items,rect)
+if v.layout.mode=="gross"then return 3 end
+for _,item in ipairs(items)do
+if item.detail and#item.text+#item.detail+4>rect.w-2 then return 2 end
+end
+return 1
+end
+
+local function device_items(kinds,selected_only)
+local items,map={},{}
+for _,d in ipairs(session.wiz.scan)do
+if kinds[d.kind]then
+local chosen=session.wiz.device_selected(d.name)
+local missing={}
+if d.kind=="station"or d.kind=="signal"or d.kind=="observer"then missing=detect.missing(d.kind,d)end
+items[#items+1]={
+text=(chosen and"[x] "or"[ ] ")..d.name,
+detail=d.kind..(#missing>0 and(", fehlt: "..table.concat(missing,","))or""),
+kind=(#missing>0)and"attention"or"dim",
 }
-map[#items] = d
+map[#items]=d
 end
 end
-return items, map
+return items,map
 end
 
 local function config_devices_of(kind)
-local out = {}
-local ids = {}
-for id, d in pairs(session.wiz.config.devices) do if d.kind == kind then ids[#ids + 1] = id end end
+local out={}
+local ids={}
+for id,d in pairs(session.wiz.config.devices)do if d.kind==kind then ids[#ids+1]=id end end
 table.sort(ids)
-for _, id in ipairs(ids) do out[#out + 1] = { id = id, device = session.wiz.config.devices[id].device } end
+for _,id in ipairs(ids)do out[#out+1]={id=id,device=session.wiz.config.devices[id].device}end
 return out
 end
 
 local function track_label(id)
-local t = session.wiz.config.tracks[id]
+local t=session.wiz.config.tracks[id]
 return t.name
 end
 
 
-local screens = {}
+local screens={}
 
-screens["1.modus"] = {
-render = function(v, rect)
-header(v, rect, nil, "Erste Leitstelle erstellen oder Netz beitreten?")
-local items = {}
-session.pick.modes = {}
-if not services.role_available or services.role_available("zentrale") then
-items[#items+1] = { text = (session.wiz.mode == "create" and "(o) " or "( ) ") .. "Erste Leitstelle dieses Netzes erstellen" }
-session.pick.modes[#items] = "create"
+screens["1.modus"]={
+render=function(v,rect)
+header(v,rect,nil,"Was soll dieser Computer tun?")
+local items={}
+session.pick.modes={}
+if not services.role_available or services.role_available("zentrale")then
+items[#items+1]={text=(session.wiz.mode=="create"and"(o) "or"( ) ").."Erste Leitstelle dieses Netzes erstellen"}
+session.pick.modes[#items]="create"
 end
-items[#items+1] = { text = (session.wiz.mode == "join" and "(o) " or "( ) ") .. "Diesem bestehenden Netz beitreten" }
-session.pick.modes[#items] = "join"
-W.list(v, "modus", body_rect(rect, 3), items, list_state(v, "modus"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+items[#items+1]={text=(session.wiz.mode=="join"and"(o) "or"( ) ").."Diesem bestehenden Netz beitreten"}
+session.pick.modes[#items]="join"
+W.list(v,"modus",body_rect(rect,3),items,list_state(v,"modus"),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, id)
-local n = id:match("^sel:modus:(%d+)$")
-if n then session.wiz.set_mode((session.pick.modes or {})[tonumber(n)] or "join") return true end
+action=function(v,id)
+local n=id:match("^sel:modus:(%d+)$")
+if n then session.wiz.set_mode((session.pick.modes or{})[tonumber(n)]or"join")return true end
 end,
 }
 
-screens["1.netzwahl"] = {
-render = function(v, rect)
-header(v, rect, nil, "Welchem Netz soll dieser Computer beitreten?")
-local st = services.search_status and services.search_status() or { kind = "halt", text = "", networks = {} }
-W.label(v, rect.x + 1, rect.y + 2, st.text or "", st.kind or "dim", rect.w - 2)
-local items = {}
-session.pick.nets = {}
-local chosen = session.net_choice
-for _, net in ipairs(st.networks or {}) do
-local on = type(chosen) == "table" and chosen.zentrale == net.zentrale
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. net.netz, detail = "Leitstelle " .. net.zentrale }
-session.pick.nets[#items] = net
+screens["1.netzwahl"]={
+render=function(v,rect)
+header(v,rect,nil,"Welchem Netz soll dieser Computer beitreten?")
+local st=services.search_status and services.search_status()or{kind="halt",text="",networks={}}
+W.label(v,rect.x+1,rect.y+2,st.text or"",st.kind or"dim",rect.w-2)
+local items={}
+session.pick.nets={}
+local chosen=session.net_choice
+for _,net in ipairs(st.networks or{})do
+local on=type(chosen)=="table"and chosen.zentrale==net.zentrale
+items[#items+1]={text=(on and"(o) "or"( ) ")..net.netz,detail="Leitstelle "..net.zentrale}
+session.pick.nets[#items]=net
 end
-items[#items + 1] = { text = (chosen == "manuell" and "(o) " or "( ) ") .. "Netz von Hand eingeben" }
-session.pick.nets[#items] = "manuell"
-W.list(v, "netzwahl", body_rect(rect, 4), items, list_state(v, "netzwahl"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+items[#items+1]={text=(chosen=="manuell"and"(o) "or"( ) ").."Netz von Hand eingeben"}
+session.pick.nets[#items]="manuell"
+W.list(v,"netzwahl",body_rect(rect,4),items,list_state(v,"netzwahl"),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, id)
-local n = id:match("^sel:netzwahl:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:netzwahl:(%d+)$")
 if n then
-session.net_choice = (session.pick.nets or {})[tonumber(n)]
+session.net_choice=(session.pick.nets or{})[tonumber(n)]
 return true
 end
-if id == "act:neu_suchen" then
-session.net_choice = nil
+if id=="act:neu_suchen"then
+session.net_choice=nil
 services.search_networks()
 return true
 end
 end,
-actions = function(v) return { { id = "neu_suchen", label = "Neu suchen", kind = "secondary" } } end,
+actions=function(v)return{{id="neu_suchen",label="Neu suchen",kind="secondary"}}end,
 }
 
-screens["1.netz"] = {
-render = function(v, rect)
-header(v, rect, nil, "Wie heisst das Netz?")
-W.label(v, rect.x + 1, rect.y + 2, W.fit("Buchstaben, Ziffern, Leerzeichen, - und _", rect.w - 2), "dim", rect.w - 2)
-local f = fields(v)
-W.field(v, "netz", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Netzname", f.netz)
-W.field(v, "schluessel", rect.x + 1, rect.y + 6, math.min(rect.w - 2, 36), "Netzwerkschluessel (freiwillig)", f.schluessel)
-if rect.h > 11 then
-for i, line in ipairs(W.wrap("Der Schluessel haelt nur Versehen fern, er ist keine Verschluesselung.", rect.w - 2)) do
-if i <= 2 then W.label(v, rect.x + 1, rect.y + 8 + i, line, "dim", rect.w - 2) end
+screens["1.netz"]={
+render=function(v,rect)
+header(v,rect,nil,"Wie heisst das Netz?")
+W.label(v,rect.x+1,rect.y+2,W.fit("Buchstaben, Ziffern, Leerzeichen, - und _",rect.w-2),"dim",rect.w-2)
+local f=fields(v)
+W.field(v,"netz",rect.x+1,rect.y+3,math.min(rect.w-2,36),"Netzname",f.netz)
+W.field(v,"schluessel",rect.x+1,rect.y+6,math.min(rect.w-2,36),"Netzwerkschluessel (freiwillig)",f.schluessel)
+if rect.h>11 then
+for i,line in ipairs(W.wrap("Der Schluessel haelt nur Versehen fern, er ist keine Verschluesselung.",rect.w-2))do
+if i<=2 then W.label(v,rect.x+1,rect.y+8+i,line,"dim",rect.w-2)end
 end
 end
 end,
 }
 
-screens["1.zentrale"] = {
-render = function(v, rect)
-header(v, rect, nil, "Welche Leitstelle fuehrt dieses Netz?")
-W.field(v, "zentrale", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Node-Kennung der Leitstelle (z.B. hauptstelle)", fields(v).zentrale)
+screens["1.zentrale"]={
+render=function(v,rect)
+header(v,rect,nil,"Welche Leitstelle fuehrt dieses Netz?")
+W.field(v,"zentrale",rect.x+1,rect.y+3,math.min(rect.w-2,36),"Kennung der Leitstelle (z.B. hauptstelle)",fields(v).zentrale)
 end,
 }
 
-screens["2.rollen"] = {
-render = function(v, rect)
-header(v, rect, nil, "Rollen waehlen (mehrere moeglich).")
-local items = {}
-session.pick.roles = session.wiz.available_roles()
-for _, role in ipairs(session.pick.roles) do
-local on = false
-for _, r in ipairs(session.wiz.roles) do if r == role then on = true end end
-items[#items + 1] = { text = (on and "[x] " or "[ ] ") .. model.ROLE_TEXT[role], detail = role }
+screens["2.rollen"]={
+render=function(v,rect)
+header(v,rect,nil,"Rollen waehlen (mehrere moeglich).")
+local items={}
+session.pick.roles=session.wiz.available_roles()
+for _,role in ipairs(session.pick.roles)do
+local on=false
+for _,r in ipairs(session.wiz.roles)do if r==role then on=true end end
+items[#items+1]={text=(on and"[x] "or"[ ] ")..model.ROLE_TEXT[role],detail=role}
 end
-W.list(v, "rollen", body_rect(rect, 3), items, list_state(v, "rollen"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+W.list(v,"rollen",body_rect(rect,3),items,list_state(v,"rollen"),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, id)
-local n = id:match("^sel:rollen:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:rollen:(%d+)$")
 if n then
-local role = (session.pick.roles or {})[tonumber(n)]
-local ok, why, effect = session.wiz.toggle_role(role, session.pending_role == role)
-if why == "bestaetigen" then
-session.pending_role = role
-v.hint = "Abwaehlen entfernt " .. effect.devices .. " Geraet(e) und " .. effect.tracks .. " Gleis(e). Zum Bestaetigen erneut antippen."
+local role=(session.pick.roles or{})[tonumber(n)]
+local ok,why,effect=session.wiz.toggle_role(role,session.pending_role==role)
+if why=="bestaetigen"then
+session.pending_role=role
+v.hint="Abwaehlen entfernt "..effect.devices.." Geraet(e) und "..effect.tracks.." Gleis(e). Zum Bestaetigen erneut antippen."
 else
-session.pending_role = nil
-v.hint = (ok and effect and (effect.devices > 0 or effect.tracks > 0)) and "Rolle entfernt; Tests muessen erneuert werden." or ""
+session.pending_role=nil
+v.hint=(ok and effect and(effect.devices>0 or effect.tracks>0))and"Rolle entfernt; Tests muessen erneuert werden."or""
 end
 return true
 end
 end,
 }
 
-screens["2.name"] = {
-render = function(v, rect)
-header(v, rect, nil, "Wie heisst dieser Node? (z.B. Westbahnhof)")
-W.field(v, "name", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Name", fields(v).name)
-local c = session.wiz.config
-if c.node.name ~= "" then W.label(v, rect.x + 1, rect.y + 6, "Kennung im Netz: " .. model.slug(c.node.name), "dim", rect.w - 2) end
+screens["2.name"]={
+render=function(v,rect)
+header(v,rect,nil,"Wie soll dieser Node heissen? (z.B. Westbahnhof)")
+local f=fields(v)
+if f.name.value==""then f.name.value=session.wiz.suggest_name()end
+W.field(v,"name",rect.x+1,rect.y+3,math.min(rect.w-2,36),"Name",f.name)
+local c=session.wiz.config
+W.label(v,rect.x+1,rect.y+6,"Kennung im Netz: "..model.slug(c.node.name),"dim",rect.w-2)
+W.label(v,rect.x+1,rect.y+7,"Der Name ist nur Anzeige und laesst sich leeren.","dim",rect.w-2)
 end,
 }
 
-screens["3.geraete"] = {
-render = function(v, rect)
-header(v, rect, nil, "Passende Geraete fuer diese Node auswaehlen.")
-local items, map = device_items(session.wiz.allowed_devices())
-session.pick.devices = map
-local wireless, wired = {}, {}
-for _, d in ipairs(session.wiz.scan) do
-if d.kind == "modem" then
-local ok = d.methods.isWireless and services.modem_is_wireless and services.modem_is_wireless(d.name)
-if ok then wireless[#wireless + 1] = d.name else wired[#wired + 1] = d.name end
+screens["3.geraete"]={
+render=function(v,rect)
+header(v,rect,nil,"Passende Geraete fuer diese Node auswaehlen.")
+local items,map=device_items(session.wiz.allowed_devices())
+session.pick.devices=map
+local wireless,wired={},{}
+for _,d in ipairs(session.wiz.scan)do
+if d.kind=="modem"then
+local ok=d.methods.isWireless and services.modem_is_wireless and services.modem_is_wireless(d.name)
+if ok then wireless[#wireless+1]=d.name else wired[#wired+1]=d.name end
 end
 end
-local modem_line = "Funk: " .. (#wireless > 0 and table.concat(wireless, ",") or "KEIN FUNKMODEM") .. "   Kabel: " .. (#wired > 0 and table.concat(wired, ",") or "-")
-W.label(v, rect.x + 1, rect.y + 2, modem_line, #wireless > 0 and "dim" or "attention", rect.w - 2)
-W.list(v, "geraete", body_rect(rect, 3), items, list_state(v, "geraete"), { empty = "Keine passenden Geraete gefunden." })
+local modem_line="Funk: "..(#wireless>0 and table.concat(wireless,",")or"KEIN FUNKMODEM").."   Kabel: "..(#wired>0 and table.concat(wired,",")or"-")
+W.label(v,rect.x+1,rect.y+2,modem_line,#wireless>0 and"dim"or"attention",rect.w-2)
+local area=body_rect(rect,3)
+W.list(v,"geraete",area,items,list_state(v,"geraete"),{row_h=row_h_for(v,items,area),empty="Keine passenden Geraete gefunden."})
 end,
-action = function(v, id)
-local n = id:match("^sel:geraete:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:geraete:(%d+)$")
 if n then
-local d = session.pick.devices and session.pick.devices[tonumber(n)]
-if d then session.wiz.toggle_device(d.name) end
+local d=session.pick.devices and session.pick.devices[tonumber(n)]
+if d then session.wiz.toggle_device(d.name)end
 return true
 end
-if id == "act:neu_scannen" then session.wiz.rescan() v.hint = "Geraete neu gelesen." return true end
+if id=="act:neu_scannen"then session.wiz.rescan()v.hint="Geraete neu gelesen."return true end
 end,
-actions = function(v) return { { id = "neu_scannen", label = "Neu lesen", kind = "secondary" } } end,
+actions=function(v)return{{id="neu_scannen",label="Neu lesen",kind="secondary"}}end,
 }
 
-screens["4.gleise"] = {
-render = function(v, rect)
-header(v, rect, nil, "Ein Geraet gehoert zu hoechstens einem Gleis.")
-local items = {}
-session.pick.tracks = {}
-for _, id in ipairs(session.wiz.tracks()) do
-local t = session.wiz.config.tracks[id]
-local parts = {}
-if t.station then parts[#parts + 1] = "Bahnhof" end
-if #t.signals > 0 then parts[#parts + 1] = #t.signals .. " Signal(e)" end
-if #t.observers > 0 then parts[#parts + 1] = #t.observers .. " Beobachter" end
-if t.release then parts[#parts + 1] = "Ausgang" end
-items[#items + 1] = { text = t.name, detail = (#parts > 0 and table.concat(parts, ", ") or "leer") .. " - " .. t.status, kind = (t.status == "aktiv") and "ok" or "wait" }
-session.pick.tracks[#items] = id
+screens["4.gleise"]={
+render=function(v,rect)
+header(v,rect,nil,"Gleis waehlen und die Geraete dazu zuordnen.")
+local items={}
+session.pick.tracks={}
+for _,id in ipairs(session.wiz.tracks())do
+local t=session.wiz.config.tracks[id]
+local parts={}
+if t.station then parts[#parts+1]="Bahnhof"end
+if#t.signals>0 then parts[#parts+1]=#t.signals.." Signal(e)"end
+if#t.observers>0 then parts[#parts+1]=#t.observers.." Beobachter"end
+if t.release then parts[#parts+1]="Ausgang"end
+items[#items+1]={text=t.name,detail=#parts>0 and table.concat(parts,", ")or"noch leer",kind=#parts>0 and"ok"or"wait"}
+session.pick.tracks[#items]=id
 end
-W.list(v, "gleise", body_rect(rect, 3), items, list_state(v, "gleise"), { empty = session.wiz.config.node.claimed and "Keine Gleise uebernommen." or "Noch kein Gleis. 'Neues Gleis' legt eines an." })
-local problems = session.wiz.warnings()
-if #problems > 0 and rect.h > 8 then v.hint = problems[1].text end
+local area=body_rect(rect,3)
+W.list(v,"gleise",area,items,list_state(v,"gleise"),{row_h=row_h_for(v,items,area),empty=session.wiz.config.node.claimed and"Keine Gleise uebernommen."or"Noch kein Gleis. 'Neues Gleis' legt eines an."})
+local problems=session.wiz.warnings()
+if#problems>0 and rect.h>8 then v.hint=problems[1].text end
 end,
-action = function(v, id)
-local selected = session.pick.tracks and session.pick.tracks[list_state(v, "gleise").index]
-if id == "act:neues_gleis" then
-local count = #session.wiz.tracks() + 1
-local tid = session.wiz.add_track("Gleis " .. count)
-session.track = tid
-fields(v).gleisname.value = session.wiz.config.tracks[tid].name
+action=function(v,id)
+local selected=session.pick.tracks and session.pick.tracks[list_state(v,"gleise").index]
+if id=="act:neues_gleis"then
+local count=#session.wiz.tracks()+1
+local tid=session.wiz.add_track("Gleis "..count)
+session.track=tid
+fields(v).gleisname.value=session.wiz.config.tracks[tid].name
 push("4.g.name")
 return true
-elseif id == "act:bearbeiten" and selected then
-session.track = selected
-fields(v).gleisname.value = session.wiz.config.tracks[selected].name
+elseif id=="act:bearbeiten"and selected then
+session.track=selected
+fields(v).gleisname.value=session.wiz.config.tracks[selected].name
 
-push(session.wiz.config.node.claimed and first_device_screen() or "4.g.name")
+push(session.wiz.config.node.claimed and first_device_screen()or"4.g.name")
 return true
-elseif id == "act:kopieren" and selected then
-local src = session.wiz.config.tracks[selected]
-local tid = session.wiz.copy_track(selected, src.name .. " Kopie")
-session.track = tid
-fields(v).gleisname.value = session.wiz.config.tracks[tid].name
+elseif id=="act:kopieren"and selected then
+local src=session.wiz.config.tracks[selected]
+local tid=session.wiz.copy_track(selected,src.name.." Kopie")
+session.track=tid
+fields(v).gleisname.value=session.wiz.config.tracks[tid].name
 push("4.g.name")
-v.hint = "Kopie: Geraete und Ausgang neu zuordnen."
+v.hint="Kopie: Geraete neu zuordnen."
 return true
-elseif id == "act:entfernen" and selected then
+elseif id=="act:entfernen"and selected then
 session.wiz.remove_track(selected)
 return true
 end
 end,
-actions = function(v)
-local has_selection = session.pick.tracks and session.pick.tracks[list_state(v, "gleise").index] ~= nil
-local reason = "Erst ein Gleis in der Liste waehlen."
+actions=function(v)
+local has_selection=session.pick.tracks and session.pick.tracks[list_state(v,"gleise").index]~=nil
+local reason="Erst ein Gleis in der Liste waehlen."
 if session.wiz.config.node.claimed then
 
-return { { id = "bearbeiten", label = "Zuordnen", enabled = has_selection, reason = reason } }
+return{{id="bearbeiten",label="Zuordnen",enabled=has_selection,reason=reason}}
 end
-return {
-{ id = "neues_gleis", label = "Neu" },
-{ id = "bearbeiten", label = "Bearbeiten", kind = "secondary", enabled = has_selection, reason = reason },
-{ id = "kopieren", label = "Kopieren", kind = "secondary", enabled = has_selection, reason = reason },
-{ id = "entfernen", label = "Entfernen", kind = "danger", enabled = has_selection, reason = reason },
+return{
+{id="neues_gleis",label="Neu"},
+{id="bearbeiten",label="Bearbeiten",kind="secondary",enabled=has_selection,reason=reason},
+{id="kopieren",label="Kopieren",kind="secondary",enabled=has_selection,reason=reason},
+{id="entfernen",label="Entfernen",kind="danger",enabled=has_selection,reason=reason},
 }
 end,
 }
 
-screens["4.g.name"] = {
-render = function(v, rect)
-local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Gleis bearbeiten: " .. (t and t.name or "?"))
-W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
-if t then W.label(v, rect.x + 1, rect.y + 6, "Richtung: " .. t.direction .. "   (Taste 'Weiter' fuehrt durch die Einstellungen)", "dim", rect.w - 2) end
+screens["4.g.name"]={
+render=function(v,rect)
+local t=session.wiz.config.tracks[session.track]
+header(v,rect,nil,"Bearbeiten: "..(t and label.track(t.name)or"?"))
+W.field(v,"gleisname",rect.x+1,rect.y+3,math.min(rect.w-2,36),"Gleisname",fields(v).gleisname)
+if t then
+W.label(v,rect.x+1,rect.y+6,"Richtung: "..t.direction,"dim",rect.w-2)
+W.label(v,rect.x+1,rect.y+7,"Weiter fuehrt durch die Einstellungen.","dim",rect.w-2)
+end
 end,
-next = function(v)
-session.wiz.rename_track(session.track, fields(v).gleisname.value)
+next=function(v)
+session.wiz.rename_track(session.track,fields(v).gleisname.value)
 push("4.g.richtung")
 return true
 end,
@@ -512,67 +536,67 @@ end,
 
 
 function first_device_screen()
-local c = session.wiz.config
-if model.has_role(c, "knoten") and c.node.claimed then
+local c=session.wiz.config
+if model.has_role(c,"knoten")and c.node.claimed then
 
-local track = c.tracks[session.track]
-return (track and track.junction and track.junction.role == "ein") and "4.g.signale" or "4.g.beobachter"
+local track=c.tracks[session.track]
+return(track and track.junction and track.junction.role=="ein")and"4.g.signale"or"4.g.beobachter"
 end
-if model.has_role(c, "knoten") then return "4.g.anschluss"
-elseif model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then return "4.g.bahnhof"
-elseif model.has_role(c, "signal") then return "4.g.signale" end
-return "4.g.ausgang"
+if model.has_role(c,"knoten")then return"4.g.anschluss"
+elseif model.has_role(c,"passagierbahnhof")or model.has_role(c,"gueterbahnhof")or model.has_role(c,"depot")then return"4.g.bahnhof"
+elseif model.has_role(c,"signal")then return"4.g.signale"end
+return"4.g.bahnhof"
 end
 
-screens["4.g.richtung"] = {
-render = function(v, rect)
-local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "In welche Richtung wird das Gleis befahren? " .. t.name)
-local items = {}
-for _, d in ipairs(DIRECTIONS) do items[#items + 1] = { text = (t.direction == d.id and "(o) " or "( ) ") .. d.text } end
-W.list(v, "richtung", body_rect(rect, 3), items, list_state(v, "richtung"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+screens["4.g.richtung"]={
+render=function(v,rect)
+local t=session.wiz.config.tracks[session.track]
+header(v,rect,nil,"In welche Richtung wird "..label.track(t.name).." befahren?",2)
+local items={}
+for _,d in ipairs(DIRECTIONS)do items[#items+1]={text=(t.direction==d.id and"(o) "or"( ) ")..d.text}end
+W.list(v,"richtung",body_rect(rect,3),items,list_state(v,"richtung"),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, id)
-local n = id:match("^sel:richtung:(%d+)$")
-if n then session.wiz.set_direction(session.track, DIRECTIONS[tonumber(n)].id) return true end
+action=function(v,id)
+local n=id:match("^sel:richtung:(%d+)$")
+if n then session.wiz.set_direction(session.track,DIRECTIONS[tonumber(n)].id)return true end
 end,
-next = function(v)
+next=function(v)
 push(first_device_screen())
 return true
 end,
 }
 
 
-screens["4.g.anschluss"] = {
-render = function(v, rect)
-local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Gehoert Gleis " .. t.name .. " zu einer Einfahrt oder Ausfahrt des Knotens?")
-local j = session.wiz.config.junction
-local names = {}
-for name in pairs(j.connections) do names[#names + 1] = name end
+screens["4.g.anschluss"]={
+render=function(v,rect)
+local t=session.wiz.config.tracks[session.track]
+header(v,rect,nil,"Ist "..label.track(t.name).." eine Einfahrt oder Ausfahrt des Knotens?",2)
+local j=session.wiz.config.junction
+local names={}
+for name in pairs(j.connections)do names[#names+1]=name end
 table.sort(names)
-local items = { { text = ((not t.junction) and "(o) " or "( ) ") .. "keinem Anschluss (normales Gleis)" } }
-session.pick.anschluss = { false }
-for _, name in ipairs(names) do
-for _, role in ipairs({ "ein", "aus" }) do
-local on = t.junction and t.junction.connection == name and t.junction.role == role
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. name .. (role == "ein" and ": Einfahrt (Signal)" or ": Ausfahrt (Beobachter)") }
-session.pick.anschluss[#items] = { connection = name, role = role }
+local items={{text=((not t.junction)and"(o) "or"( ) ").."keinem Anschluss (normales Gleis)"}}
+session.pick.anschluss={false}
+for _,name in ipairs(names)do
+for _,role in ipairs({"ein","aus"})do
+local on=t.junction and t.junction.connection==name and t.junction.role==role
+items[#items+1]={text=(on and"(o) "or"( ) ")..name..(role=="ein"and": Einfahrt (Signal)"or": Ausfahrt (Beobachter)")}
+session.pick.anschluss[#items]={connection=name,role=role}
 end
 end
-W.list(v, "anschluss", body_rect(rect, 3), items, list_state(v, "anschluss"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+W.list(v,"anschluss",body_rect(rect,3),items,list_state(v,"anschluss"),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, id)
-local n = id:match("^sel:anschluss:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:anschluss:(%d+)$")
 if n then
-local choice = session.pick.anschluss and session.pick.anschluss[tonumber(n)]
-session.wiz.set_junction_link(session.track, choice or nil)
+local choice=session.pick.anschluss and session.pick.anschluss[tonumber(n)]
+session.wiz.set_junction_link(session.track,choice or nil)
 return true
 end
 end,
-next = function(v)
-local c = session.wiz.config
-if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") or model.has_role(c, "depot") then
+next=function(v)
+local c=session.wiz.config
+if model.has_role(c,"passagierbahnhof")or model.has_role(c,"gueterbahnhof")or model.has_role(c,"depot")then
 push("4.g.bahnhof")
 else
 push("4.g.signale")
@@ -581,31 +605,31 @@ return true
 end,
 }
 
-local function device_choice_screen(id, kind, field, subtitle, single)
-return {
-render = function(v, rect)
-local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, subtitle .. " " .. t.name)
-local items = {}
-session.pick[id] = {}
-for _, d in ipairs(config_devices_of(kind)) do
+local function device_choice_screen(id,kind,field,subtitle,single)
+return{
+render=function(v,rect)
+local t=session.wiz.config.tracks[session.track]
+header(v,rect,nil,subtitle.." "..label.track(t.name),2)
+local items={}
+session.pick[id]={}
+for _,d in ipairs(config_devices_of(kind))do
 local on
-if single then on = (t.station == d.id) else
-on = false
-for _, ref in ipairs(t[field]) do if ref == d.id then on = true end end
+if single then on=(t.station==d.id)else
+on=false
+for _,ref in ipairs(t[field])do if ref==d.id then on=true end end
 end
-items[#items + 1] = { text = (on and "[x] " or "[ ] ") .. d.device }
-session.pick[id][#items] = d.id
+items[#items+1]={text=(on and"[x] "or"[ ] ")..d.device}
+session.pick[id][#items]=d.id
 end
-W.list(v, id, body_rect(rect, 3), items, list_state(v, id), { row_h = 1, empty = "Kein passendes Geraet in Schritt 3 gewaehlt." })
+W.list(v,id,body_rect(rect,3),items,list_state(v,id),{row_h=1,empty="Kein passendes Geraet in Schritt 3 gewaehlt."})
 end,
-action = function(v, act)
-local n = act:match("^sel:" .. id .. ":(%d+)$")
+action=function(v,act)
+local n=act:match("^sel:"..id..":(%d+)$")
 if n then
-local device_id = session.pick[id] and session.pick[id][tonumber(n)]
+local device_id=session.pick[id]and session.pick[id][tonumber(n)]
 if device_id then
-local ok, why = session.wiz.toggle_track_device(session.track, field, device_id)
-if not ok then v.hint = why end
+local ok,why=session.wiz.toggle_track_device(session.track,field,device_id)
+if not ok then v.hint=why end
 end
 return true
 end
@@ -613,190 +637,147 @@ end,
 }
 end
 
-screens["4.g.bahnhof"] = device_choice_screen("bahnhof", "station", "station", "Welcher Create-Bahnhof gehoert zu Gleis", true)
-screens["4.g.bahnhof"].next = function(v)
-if #config_devices_of("signal") > 0 then push("4.g.signale")
-elseif #config_devices_of("observer") > 0 then push("4.g.beobachter")
-elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
-else while session.screen ~= "4.gleise" and pop() do end end
+screens["4.g.bahnhof"]=device_choice_screen("bahnhof","station","station","Welcher Create-Bahnhof gehoert zu",true)
+screens["4.g.bahnhof"].next=function(v)
+if#config_devices_of("signal")>0 then push("4.g.signale")
+elseif#config_devices_of("observer")>0 then push("4.g.beobachter")
+else while session.screen~="4.gleise"and pop()do end end
 return true
 end
-screens["4.g.signale"] = device_choice_screen("signale", "signal", "signals", "Welche Signale gehoeren zu Gleis")
+screens["4.g.signale"]=device_choice_screen("signale","signal","signals","Welche Signale gehoeren zu")
 
 local function signals_need_detail(track)
-if not track or not track.dir or #track.signals < 2 then return false end
+if not track or not track.dir or#track.signals<2 then return false end
 if not track.order_ok then return true end
-return model.entry_signal_problem(session.wiz.config, track) ~= nil
+return model.entry_signal_problem(session.wiz.config,track)~=nil
 end
-screens["4.g.signale"].next = function(v)
-if signals_need_detail(session.wiz.config.tracks[session.track]) then
+screens["4.g.signale"].next=function(v)
+if signals_need_detail(session.wiz.config.tracks[session.track])then
 push("4.z.detail")
 return true
 end
-if #config_devices_of("observer") > 0 then push("4.g.beobachter")
-elseif model.profile(session.wiz.config).release then push("4.g.ausgang")
-else while session.screen ~= "4.gleise" and pop() do end end
+if#config_devices_of("observer")>0 then push("4.g.beobachter")
+else while session.screen~="4.gleise"and pop()do end end
 return true
 end
-screens["4.g.beobachter"] = device_choice_screen("beobachter", "observer", "observers", "Welche Beobachter gehoeren zu Gleis")
-screens["4.g.beobachter"].next = function(v)
-local c = session.wiz.config
-if model.has_role(c, "passagierbahnhof") or model.has_role(c, "gueterbahnhof") then
-push("4.g.ausgang")
-else
-while session.screen ~= "4.gleise" and pop() do end
-end
+screens["4.g.beobachter"]=device_choice_screen("beobachter","observer","observers","Welche Beobachter gehoeren zu")
+screens["4.g.beobachter"].next=function(v)
+while session.screen~="4.gleise"and pop()do end
 return true
 end
 
-screens["4.g.ausgang"] = {
-render = function(v, rect)
-local t = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Welcher Ausgang gibt Gleis " .. t.name .. " frei? Jeder Ausgang nur einmal.")
-local items = {}
-session.pick.outputs = {}
-for _, o in ipairs(model.outputs(session.wiz.scan)) do
-local on = t.release and t.release.side == o.side and t.release.relay == o.relay
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. o.label }
-session.pick.outputs[#items] = o
-end
-W.list(v, "ausgang", body_rect(rect, 3), items, list_state(v, "ausgang"), { row_h = v.layout.mode == "gross" and 3 or 1 })
-end,
-action = function(v, id)
-local n = id:match("^sel:ausgang:(%d+)$")
-if n then
-local o = session.pick.outputs and session.pick.outputs[tonumber(n)]
-if o then
-local t = session.wiz.config.tracks[session.track]
-if t.release and t.release.side == o.side and t.release.relay == o.relay then
-session.wiz.set_release(session.track, nil)
-else
-local ok, why = session.wiz.set_release(session.track, { side = o.side, relay = o.relay })
-if not ok then v.hint = why end
-end
-end
-return true
-end
-end,
-next = function(v)
-
-while session.screen ~= "4.gleise" and pop() do end
-return true
-end,
-}
-
-screens["4.knoten"] = {
-render = function(v, rect)
-header(v, rect, nil, "Anschluesse und Verbindungen des Knotenpunkts")
-local j = session.wiz.config.junction
-local names = {}
-for name in pairs(j.connections) do names[#names + 1] = name end
+screens["4.knoten"]={
+render=function(v,rect)
+header(v,rect,nil,"Anschluesse und Verbindungen des Knotenpunkts")
+local j=session.wiz.config.junction
+local names={}
+for name in pairs(j.connections)do names[#names+1]=name end
 table.sort(names)
-session.pick.connections = names
-local items = {}
-for _, name in ipairs(names) do items[#items + 1] = { text = name } end
-W.field(v, "anschluss", rect.x + 1, rect.y + 2, math.min(rect.w - 2, 30), "Neuer Anschluss (z.B. West)", fields(v).anschluss)
-local move_text = {}
-for i, m in ipairs(j.moves) do move_text[#move_text + 1] = i .. ": " .. m.from .. "->" .. m.to end
-W.label(v, rect.x + 1, rect.y + 5, "Verbindungen: " .. (#move_text > 0 and table.concat(move_text, "  ") or "keine"), "dim", rect.w - 2)
-W.list(v, "anschluesse", body_rect(rect, 6), items, list_state(v, "anschluesse"), { row_h = 1, empty = "Noch kein Anschluss." })
+session.pick.connections=names
+local items={}
+for _,name in ipairs(names)do items[#items+1]={text=name}end
+W.field(v,"anschluss",rect.x+1,rect.y+2,math.min(rect.w-2,30),"Neuer Anschluss (z.B. West)",fields(v).anschluss)
+local move_text={}
+for i,m in ipairs(j.moves)do move_text[#move_text+1]=i..": "..m.from.."->"..m.to end
+W.label(v,rect.x+1,rect.y+5,"Verbindungen: "..(#move_text>0 and table.concat(move_text,"  ")or"keine"),"dim",rect.w-2)
+W.list(v,"anschluesse",body_rect(rect,6),items,list_state(v,"anschluesse"),{row_h=1,empty="Noch kein Anschluss."})
 end,
-action = function(v, id)
-if id == "input:anschluss" or id == "act:anschluss_neu" then
-local value = fields(v).anschluss.value
-local ok, why = session.wiz.add_connection(value)
+action=function(v,id)
+if id=="input:anschluss"or id=="act:anschluss_neu"then
+local value=fields(v).anschluss.value
+local ok,why=session.wiz.add_connection(value)
 if ok then
-fields(v).anschluss.value = ""
-local index = 1
-for name in pairs(session.wiz.config.junction.connections) do if name < value then index=index+1 end end
+fields(v).anschluss.value=""
+local index=1
+for name in pairs(session.wiz.config.junction.connections)do if name<value then index=index+1 end end
 list_state(v,"anschluesse").index=index
-else v.hint = why end
+else v.hint=why end
 return true
 end
-local names = session.pick.connections or {}
-local selected = names[list_state(v, "anschluesse").index]
-if id == "act:anschluss_weg" and selected then session.wiz.remove_connection(selected) return true end
-if id == "act:verbindung" then
-session.pick.from, session.pick.to = nil, nil
+local names=session.pick.connections or{}
+local selected=names[list_state(v,"anschluesse").index]
+if id=="act:anschluss_weg"and selected then session.wiz.remove_connection(selected)return true end
+if id=="act:verbindung"then
+session.pick.from,session.pick.to=nil,nil
 push("4.k.von")
 return true
 end
-if id == "act:konflikt" then
-session.pick.a, session.pick.b = nil, nil
+if id=="act:konflikt"then
+session.pick.a,session.pick.b=nil,nil
 push("4.k.konflikt")
 return true
 end
-local n = id:match("^sel:anschluesse:(%d+)$")
+local n=id:match("^sel:anschluesse:(%d+)$")
 if n then return true end
 end,
-actions = function(v)
-local names = session.pick.connections or {}
-local has_selection = names[list_state(v, "anschluesse").index] ~= nil
-local j = session.wiz.config.junction
-local count = 0
-for _ in pairs(j.connections) do count = count + 1 end
-return {
-{ id = "anschluss_neu", label = "Hinzufuegen" },
-{ id = "anschluss_weg", label = "Entfernen", kind = "danger", enabled = has_selection, reason = "Erst einen Anschluss waehlen." },
-{ id = "verbindung", label = "Verbindung", kind = "secondary", enabled = count >= 2, reason = "Zuerst mindestens zwei Anschluesse anlegen." },
-{ id = "konflikt", label = "Konflikt", kind = "secondary", enabled = #j.moves >= 2, reason = "Zuerst mindestens zwei Verbindungen anlegen." },
+actions=function(v)
+local names=session.pick.connections or{}
+local has_selection=names[list_state(v,"anschluesse").index]~=nil
+local j=session.wiz.config.junction
+local count=0
+for _ in pairs(j.connections)do count=count+1 end
+return{
+{id="anschluss_neu",label="Neu"},
+{id="anschluss_weg",label="Entfernen",kind="danger",enabled=has_selection,reason="Erst einen Anschluss waehlen."},
+{id="verbindung",label="Verbindung",kind="secondary",enabled=count>=2,reason="Zuerst mindestens zwei Anschluesse anlegen."},
+{id="konflikt",label="Konflikt",kind="secondary",enabled=#j.moves>=2,reason="Zuerst mindestens zwei Verbindungen anlegen."},
 }
 end,
 }
 
-local function connection_pick_screen(id, label, store_key, on_done)
-return {
-render = function(v, rect)
-header(v, rect, nil, label)
-local items = {}
-local j = session.wiz.config.junction
-local names = {}
-for name in pairs(j.connections) do names[#names + 1] = name end
+local function connection_pick_screen(id,label,store_key,on_done)
+return{
+render=function(v,rect)
+header(v,rect,nil,label)
+local items={}
+local j=session.wiz.config.junction
+local names={}
+for name in pairs(j.connections)do names[#names+1]=name end
 table.sort(names)
-session.pick[id] = names
-for _, name in ipairs(names) do items[#items + 1] = { text = name } end
-W.list(v, id, body_rect(rect, 3), items, list_state(v, id), { row_h = v.layout.mode == "gross" and 3 or 1 })
+session.pick[id]=names
+for _,name in ipairs(names)do items[#items+1]={text=name}end
+W.list(v,id,body_rect(rect,3),items,list_state(v,id),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, act)
-local n = act:match("^sel:" .. id .. ":(%d+)$")
+action=function(v,act)
+local n=act:match("^sel:"..id..":(%d+)$")
 if n then
-session.pick[store_key] = session.pick[id][tonumber(n)]
+session.pick[store_key]=session.pick[id][tonumber(n)]
 on_done(v)
 return true
 end
 end,
 }
 end
-screens["4.k.von"] = connection_pick_screen("von", "Von welchem Anschluss faehrt der Zug ein?", "from", function(v)
+screens["4.k.von"]=connection_pick_screen("von","Von welchem Anschluss faehrt der Zug ein?","from",function(v)
 goto_screen("4.k.nach")
 end)
-screens["4.k.nach"] = connection_pick_screen("nach", "Zu welchem Anschluss faehrt er aus?", "to", function(v)
-local ok, why = session.wiz.add_move(session.pick.from, session.pick.to)
-v.hint = ok and "Verbindung eingetragen." or why
+screens["4.k.nach"]=connection_pick_screen("nach","Zu welchem Anschluss faehrt er aus?","to",function(v)
+local ok,why=session.wiz.add_move(session.pick.from,session.pick.to)
+v.hint=ok and"Verbindung eingetragen."or why
 pop()
 end)
 
-screens["4.k.konflikt"] = {
-render = function(v, rect)
-header(v, rect, nil, "Welche zwei Verbindungen schliessen sich aus? (nacheinander antippen)")
-local j = session.wiz.config.junction
-local items = {}
-for i, m in ipairs(j.moves) do
-local chosen = (session.pick.a == i or session.pick.b == i)
-items[#items + 1] = { text = (chosen and "[x] " or "[ ] ") .. i .. ": " .. m.from .. " -> " .. m.to }
+screens["4.k.konflikt"]={
+render=function(v,rect)
+header(v,rect,nil,"Welche zwei Verbindungen schliessen sich aus? (nacheinander antippen)",2)
+local j=session.wiz.config.junction
+local items={}
+for i,m in ipairs(j.moves)do
+local chosen=(session.pick.a==i or session.pick.b==i)
+items[#items+1]={text=(chosen and"[x] "or"[ ] ")..i..": "..m.from.." -> "..m.to}
 end
-W.list(v, "konflikt", body_rect(rect, 3), items, list_state(v, "konflikt"), { row_h = v.layout.mode == "gross" and 3 or 1 })
+W.list(v,"konflikt",body_rect(rect,3),items,list_state(v,"konflikt"),{row_h=v.layout.mode=="gross"and 3 or 1})
 end,
-action = function(v, id)
-local n = id:match("^sel:konflikt:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:konflikt:(%d+)$")
 if n then
-n = tonumber(n)
+n=tonumber(n)
 if not session.pick.a then
-session.pick.a = n
-elseif session.pick.a ~= n then
-local ok, why = session.wiz.add_conflict(session.pick.a, n)
-v.hint = ok and "Konflikt eingetragen." or why
-session.pick.a, session.pick.b = nil, nil
+session.pick.a=n
+elseif session.pick.a~=n then
+local ok,why=session.wiz.add_conflict(session.pick.a,n)
+v.hint=ok and"Konflikt eingetragen."or why
+session.pick.a,session.pick.b=nil,nil
 pop()
 end
 return true
@@ -804,619 +785,638 @@ end
 end,
 }
 
-screens["4.anmeldung"] = {
-render = function(v, rect)
-header(v, rect, nil, "Welche Station dient der Zuganmeldung?")
-local items = {}
-session.pick.registration = {}
-for _, d in ipairs(config_devices_of("station")) do
-local on = session.wiz.config.registration_station == d.id
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. d.device }
-session.pick.registration[#items] = d.id
+screens["4.anmeldung"]={
+render=function(v,rect)
+header(v,rect,nil,"Welche Station dient der Zuganmeldung?")
+local items={}
+session.pick.registration={}
+for _,d in ipairs(config_devices_of("station"))do
+local on=session.wiz.config.registration_station==d.id
+items[#items+1]={text=(on and"(o) "or"( ) ")..d.device}
+session.pick.registration[#items]=d.id
 end
-W.list(v, "anmeldung", body_rect(rect, 3), items, list_state(v, "anmeldung"), { row_h = 1, empty = "Zuerst in Schritt 3 einen Bahnhof waehlen." })
+W.list(v,"anmeldung",body_rect(rect,3),items,list_state(v,"anmeldung"),{row_h=1,empty="Zuerst in Schritt 3 einen Bahnhof waehlen."})
 end,
-action = function(v, id)
-local n = id:match("^sel:anmeldung:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:anmeldung:(%d+)$")
 if n then
-local device_id = session.pick.registration and session.pick.registration[tonumber(n)]
-if device_id then session.wiz.set_registration(device_id) end
+local device_id=session.pick.registration and session.pick.registration[tonumber(n)]
+if device_id then session.wiz.set_registration(device_id)end
 return true
 end
 end,
 }
 
 local function summarize_tests(result)
-local text = result.ok .. " ok, " .. result.failed .. " Fehler"
-if result.stopped then text = text .. ". GESTOPPT nach " .. result.stopped .. " (Zustand unklar): " .. result.open .. " Pruefung(en) nicht gelaufen." end
+local text=result.ok.." ok, "..result.failed.." Fehler"
+if result.stopped then text=text..". GESTOPPT nach "..result.stopped.." (Zustand unklar): "..result.open.." Pruefung(en) nicht gelaufen."end
 return text
 end
 
-screens["5.test"] = {
-render = function(v, rect)
-header(v, rect, nil, "Lesen sofort, Schalten erst nach Bestaetigung.")
-local items = {}
-session.pick.tests = {}
-for _, test in ipairs(session.wiz.tests()) do
-local state, text = session.wiz.test_state(test.id)
-local kind = (state == "ok") and "ok" or (state == "fehler") and "halt" or "wait"
-items[#items + 1] = { text = test.title, detail = state .. (test.kind == "schalten" and " (schaltet)" or "") .. (text and state == "fehler" and (": " .. text) or ""), kind = kind }
-session.pick.tests[#items] = test
+screens["5.test"]={
+render=function(v,rect)
+header(v,rect,nil,"Lesen sofort, Schalten erst nach Bestaetigung.")
+local items={}
+session.pick.tests={}
+for _,test in ipairs(session.wiz.tests())do
+local state,text=session.wiz.test_state(test.id)
+local kind=(state=="ok")and"ok"or(state=="fehler")and"halt"or"wait"
+items[#items+1]={text=test.title,detail=state..(test.kind=="schalten"and" (schaltet)"or"")..(text and state=="fehler"and(": "..text)or""),kind=kind}
+session.pick.tests[#items]=test
 end
-W.list(v, "tests", body_rect(rect, 3), items, list_state(v, "tests"), { empty = "Keine Pruefungen noetig." })
+local area=body_rect(rect,3)
+W.list(v,"tests",area,items,list_state(v,"tests"),{row_h=row_h_for(v,items,area),empty="Keine Pruefungen noetig."})
 end,
-action = function(v, id)
-local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
-if id == "act:ausfuehren" and selected then
-if selected.kind == "schalten" then
-session.test_pending = selected
+action=function(v,id)
+local selected=session.pick.tests and session.pick.tests[list_state(v,"tests").index]
+if id=="act:ausfuehren"and selected then
+if selected.kind=="schalten"then
+session.test_pending=selected
 push("5.bestaetigen")
 else
-local ok, text = session.wiz.run_test(selected.id, false)
-v.hint = (ok and "ok: " or "Fehler: ") .. tostring(text)
+local ok,text=session.wiz.run_test(selected.id,false)
+v.hint=(ok and"ok: "or"Fehler: ")..tostring(text)
 end
 return true
-elseif id == "act:alle_lesen" then
-local ran = 0
-for _, test in ipairs(session.wiz.tests()) do
-if test.kind == "lesen" then session.wiz.run_test(test.id, false) ran = ran + 1 end
+elseif id=="act:alle_lesen"then
+local ran=0
+for _,test in ipairs(session.wiz.tests())do
+if test.kind=="lesen"then session.wiz.run_test(test.id,false)ran=ran+1 end
 end
-v.hint = ran .. " lesende Pruefungen ausgefuehrt."
+v.hint=ran.." lesende Pruefungen ausgefuehrt."
 return true
-elseif id == "act:alle_pruefen" then
+elseif id=="act:alle_pruefen"then
 
-local open = session.wiz.run_open_tests(false)
-if open.open > 0 then
+local open=session.wiz.run_open_tests(false)
+if open.open>0 then
 push("5.alle_bestaetigen")
 else
-v.hint = summarize_tests(open)
+v.hint=summarize_tests(open)
 end
 return true
 end
 end,
-actions = function(v)
-local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
-return {
-{ id = "alle_pruefen", label = "Alle pruefen" },
-{ id = "ausfuehren", label = "Einzeln", kind = "secondary", enabled = selected ~= nil, reason = "Erst eine Pruefung waehlen." },
-{ id = "alle_lesen", label = "Lesende", kind = "secondary" },
+actions=function(v)
+local selected=session.pick.tests and session.pick.tests[list_state(v,"tests").index]
+return{
+{id="alle_pruefen",label="Alle pruefen"},
+{id="ausfuehren",label="Einzeln",kind="secondary",enabled=selected~=nil,reason="Erst eine Pruefung waehlen."},
+{id="alle_lesen",label="Lesende",kind="secondary"},
 }
 end,
 }
 
-screens["5.alle_bestaetigen"] = {
-hide_nav_buttons = true,
-render = function(v, rect)
-header(v, rect, nil, "Alle offenen Pruefungen starten")
-local y = rect.y + 2
-local lines = { "Folgende Pruefungen schalten kurz und stellen den Ausgangszustand wieder her:" }
-for _, test in ipairs(session.wiz.tests()) do
-if test.kind == "schalten" and session.wiz.test_state(test.id, nil, test) ~= "ok" then lines[#lines + 1] = "- " .. test.title end
+screens["5.alle_bestaetigen"]={
+hide_nav_buttons=true,
+render=function(v,rect)
+header(v,rect,nil,"Alle offenen Pruefungen starten")
+local y=rect.y+2
+local lines={"Folgende Pruefungen schalten kurz und stellen den Ausgangszustand wieder her:"}
+for _,test in ipairs(session.wiz.tests())do
+if test.kind=="schalten"and session.wiz.test_state(test.id,nil,test)~="ok"then lines[#lines+1]="- "..test.title end
 end
-lines[#lines + 1] = "Der Testbereich muss vorbereitet sein: kein Zug darf auf eine Freigabe warten, kein Signal darf einen Zug schuetzen."
-for _, line in ipairs(lines) do
-for _, part in ipairs(W.wrap(line, rect.w - 2)) do
-if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, "text", rect.w - 2) end
-y = y + 1
+lines[#lines+1]="Der Testbereich muss vorbereitet sein: kein Zug darf auf eine Freigabe warten, kein Signal darf einen Zug schuetzen."
+for _,line in ipairs(lines)do
+for _,part in ipairs(W.wrap(line,rect.w-2))do
+if y<=rect.y+rect.h-1 then W.label(v,rect.x+1,y,part,"text",rect.w-2)end
+y=y+1
 end
-end
-end,
-action = function(v, id)
-if id == "act:alle_starten" then
-local result = session.wiz.run_open_tests(true)
-pop()
-v.hint = summarize_tests(result)
-return true
-elseif id == "act:alle_abbruch" then
-pop()
-v.hint = "Pruefungen nicht gestartet."
-return true
 end
 end,
-actions = function(v)
-return {
-{ id = "alle_starten", label = "Vorbereitung erledigt: alle starten" },
-{ id = "alle_abbruch", label = "Abbrechen", kind = "secondary" },
+action=function(v,id)
+if id=="act:alle_starten"then
+local result=session.wiz.run_open_tests(true)
+pop()
+v.hint=summarize_tests(result)
+return true
+elseif id=="act:alle_abbruch"then
+pop()
+v.hint="Pruefungen nicht gestartet."
+return true
+end
+end,
+actions=function(v)
+return{
+{id="alle_starten",label="Vorbereitung erledigt: alle starten"},
+{id="alle_abbruch",label="Abbrechen",kind="secondary"},
 }
 end,
 }
 
-screens["5.bestaetigen"] = {
-render = function(v, rect)
-local test = session.test_pending
-header(v, rect, nil, "Schaltende Pruefung bestaetigen")
+screens["5.bestaetigen"]={
+render=function(v,rect)
+local test=session.test_pending
+header(v,rect,nil,"Schaltende Pruefung bestaetigen")
 if not test then return end
-W.label(v, rect.x + 1, rect.y + 3, test.title, "hell", rect.w - 2)
-for i, line in ipairs(W.wrap(test.explain, rect.w - 2)) do
-if rect.y + 4 + i <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, rect.y + 4 + i, line, "text", rect.w - 2) end
+W.label(v,rect.x+1,rect.y+3,test.title,"hell",rect.w-2)
+for i,line in ipairs(W.wrap(test.explain,rect.w-2))do
+if rect.y+4+i<=rect.y+rect.h-1 then W.label(v,rect.x+1,rect.y+4+i,line,"text",rect.w-2)end
 end
 end,
-action = function(v, id)
-if id == "act:start_test" then
-local test = session.test_pending
-local ok, text = session.wiz.run_test(test.id, true)
-session.test_pending = nil
+action=function(v,id)
+if id=="act:start_test"then
+local test=session.test_pending
+local ok,text=session.wiz.run_test(test.id,true)
+session.test_pending=nil
 pop()
-v.hint = (ok and "ok: " or "Fehler: ") .. tostring(text)
+v.hint=(ok and"ok: "or"Fehler: ")..tostring(text)
 return true
-elseif id == "act:test_abbruch" then
-session.test_pending = nil
+elseif id=="act:test_abbruch"then
+session.test_pending=nil
 pop()
-v.hint = "Pruefung nicht ausgefuehrt."
+v.hint="Pruefung nicht ausgefuehrt."
 return true
 end
 end,
-actions = function(v)
-return {
-{ id = "start_test", label = "Vorbereitung erledigt: starten" },
-{ id = "test_abbruch", label = "Abbrechen", kind = "secondary" },
+actions=function(v)
+return{
+{id="start_test",label="Vorbereitung erledigt: starten"},
+{id="test_abbruch",label="Abbrechen",kind="secondary"},
 }
 end,
-hide_nav_buttons = true,
+hide_nav_buttons=true,
 }
 
 
 function ensure_check()
-local w = session.wiz
+local w=session.wiz
 if w.pruefung then return w.pruefung end
-w.pruefung = pruefunglib.new({
-env = services.env,
-config = function() return session.wiz.config end,
-now = services.now,
-clock = services.env.raw_clock,
-scan = function() return services.scan() end,
+w.pruefung=pruefunglib.new({
+env=services.env,
+config=function()return session.wiz.config end,
+now=services.now,
+clock=services.env.raw_clock,
+scan=function()return services.scan()end,
 
-persist = function() return services.store.save(services.config_path, session.wiz.config) end,
+mark=function(lauf)if services.check_mark then return services.check_mark(lauf)end return true end,
+marker=function()return services.check_marker and services.check_marker()or nil end,
 })
 return w.pruefung
 end
 
-local function dir_status() return services.directory_status and services.directory_status() or nil end
+local function dir_status()return services.directory_status and services.directory_status()or nil end
+
+local function node_claim()return services.claim and services.claim()or services.new_claim()end
+local function new_token()return services.new_token and services.new_token()or services.new_claim()end
 
 local function direction_text(direction)
-if direction == "beide" then return "beide Richtungen" end
-return "Richtung " .. tostring(direction)
+if direction=="beide"then return"beide Richtungen"end
+return"Richtung "..tostring(direction)
 end
 
 local function choose_area(area)
-local d = session.dir
-d.chosen, d.area, d.selected, d.want = area, nil, nil, "area"
-services.directory_tracks(session.wiz.central_id, area.id)
+local d=session.dir
+d.chosen,d.area,d.selected,d.want=area,nil,nil,"area"
+services.directory_tracks(session.wiz.central_id,area.id)
 end
 
-local PATTERNS = { "gegenlaeufig", "gleich", "beide" }
-local PATTERN_TEXT = { gegenlaeufig = "gegenlaeufig (Haelfte je Richtung)", gleich = "alle in eine Richtung (zum 2. Anschluss)", beide = "Richtung offen (beide)" }
+local PATTERNS={"gegenlaeufig","gleich","beide"}
+local PATTERN_TEXT={gegenlaeufig="gegenlaeufig (Haelfte je Richtung)",gleich="alle in eine Richtung (zum 2. Anschluss)",beide="Richtung offen (beide)"}
 
-screens["2.bereich"] = {
-render = function(v, rect)
-header(v, rect, nil, "In welchem Bereich arbeitet diese Node?")
-local d = session.dir
-local st = dir_status()
-if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
-local items = {}
-session.pick.areas = {}
-for _, a in ipairs(d.areas or {}) do
-local on = d.chosen and d.chosen.id == a.id
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. a.name, detail = a.ends[1] .. " - " .. a.ends[2] .. ", " .. a.tracks .. " Gleis(e)" .. (a.state == "im bau" and ", IM BAU" or ""), kind = (a.state == "im bau") and "wait" or nil }
-session.pick.areas[#items] = a
+screens["2.bereich"]={
+render=function(v,rect)
+header(v,rect,nil,"In welchem Bereich arbeitet diese Node?")
+local d=session.dir
+local st=dir_status()
+if st and st.kind~="ok"then put_status(v,rect,rect.y+2,st,2)end
+local items={}
+session.pick.areas={}
+for _,a in ipairs(d.areas or{})do
+local on=d.chosen and d.chosen.id==a.id
+items[#items+1]={text=(on and"(o) "or"( ) ")..a.name,detail=a.ends[1].." - "..a.ends[2]..", "..a.tracks.." Gleis(e)"..(a.state=="im bau"and", IM BAU"or""),kind=(a.state=="im bau")and"wait"or nil}
+session.pick.areas[#items]=a
 end
-local empty = (st and st.kind == "ok" and d.areas) and "Das Netz hat noch keinen Bereich. In der Leitstelle auf der Seite Bereiche anlegen, dann 'Neu laden'." or ""
-W.list(v, "bereich", body_rect(rect, 4), items, list_state(v, "bereich"), { empty = empty })
+local empty=(st and st.kind=="ok"and d.areas)and"Das Netz hat noch keinen Bereich. In der Leitstelle auf der Seite Bereiche anlegen, dann 'Neu laden'."or""
+local area=body_rect(rect,4)
+W.list(v,"bereich",area,items,list_state(v,"bereich"),{row_h=row_h_for(v,items,area),empty=empty})
 end,
-action = function(v, id)
-local n = id:match("^sel:bereich:(%d+)$")
-local d = session.dir
+action=function(v,id)
+local n=id:match("^sel:bereich:(%d+)$")
+local d=session.dir
 if n then
-local area = (session.pick.areas or {})[tonumber(n)]
-if area then choose_area(area) end
+local area=(session.pick.areas or{})[tonumber(n)]
+if area then choose_area(area)end
 return true
-elseif id == "act:neuer_bereich" then
-local f = fields(v)
-f.bname.value, f.bende1.value, f.bende2.value, f.bzahl.value = "", "", "", "2"
-d.neu = { pattern = "gegenlaeufig" }
+elseif id=="act:neuer_bereich"then
+local f=fields(v)
+f.bname.value,f.bende1.value,f.bende2.value,f.bzahl.value="","","","2"
+d.neu={pattern="gegenlaeufig"}
 push("2.b.neu")
 return true
-elseif id == "act:neu_laden" then
-d.areas, d.chosen, d.area, d.want = nil, nil, nil, "areas"
+elseif id=="act:neu_laden"then
+d.areas,d.chosen,d.area,d.want=nil,nil,nil,"areas"
 services.directory_areas(session.wiz.central_id)
 return true
-elseif id == "act:von_hand" then
-session.manual = true
-session.stack = {}
+elseif id=="act:von_hand"then
+session.manual=true
+session.stack={}
 goto_screen("2.name")
 return true
 end
 end,
-actions = function(v)
-return {
-{ id = "neuer_bereich", label = "Neu" },
-{ id = "neu_laden", label = "Neu laden", kind = "secondary" },
-{ id = "von_hand", label = "Von Hand", kind = "secondary" },
+actions=function(v)
+return{
+{id="neuer_bereich",label="Neu"},
+{id="neu_laden",label="Neu laden",kind="secondary"},
+{id="von_hand",label="Von Hand",kind="secondary"},
 }
 end,
-next = function(v)
-local d = session.dir
+next=function(v)
+local d=session.dir
 if not d.selected then
-d.selected = {}
-for _, t in ipairs(d.area.tracks) do d.selected[t.id] = true end
+d.selected={}
+for _,t in ipairs(d.area.tracks)do d.selected[t.id]=true end
 end
-push("3.gleise")
+push("2.gleise")
 return true
 end,
 }
 
 
-screens["2.b.neu"] = {
-no_forward = true,
-render = function(v, rect)
-local d = session.dir
-header(v, rect, nil, "Neuen Bereich im Netz anlegen")
-local f = fields(v)
-local w = math.min(rect.w - 2, 36)
-W.field(v, "bname", rect.x + 1, rect.y + 2, w, "Name des Bereichs (z.B. West-Ost)", f.bname)
-W.field(v, "bende1", rect.x + 1, rect.y + 4, w, "Anschluss 1 (z.B. Westbahnhof)", f.bende1)
-W.field(v, "bende2", rect.x + 1, rect.y + 6, w, "Anschluss 2 (z.B. Ostbahnhof)", f.bende2)
-W.field(v, "bzahl", rect.x + 1, rect.y + 8, 12, "Gleise", f.bzahl)
-W.label(v, rect.x + 1, rect.y + 11, "Vorlage: " .. (PATTERN_TEXT[d.neu and d.neu.pattern or "gegenlaeufig"] or "?"), "text", rect.w - 2)
-local st = dir_status()
-if d.creating and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 13, st.text or "", st.kind, rect.w - 2) end
+screens["2.b.neu"]={
+no_forward=true,
+render=function(v,rect)
+local d=session.dir
+header(v,rect,nil,"Name und die beiden Enden, z.B. West-Ost")
+local f=fields(v)
+local half=math.floor((rect.w-3)/2)
+W.field(v,"bname",rect.x+1,rect.y+2,math.min(rect.w-2,36),"Name des Bereichs",f.bname)
+W.field(v,"bende1",rect.x+1,rect.y+4,half,"Anschluss 1 (z.B. West)",f.bende1)
+W.field(v,"bende2",rect.x+2+half,rect.y+4,half,"Anschluss 2 (z.B. Ost)",f.bende2)
+W.field(v,"bzahl",rect.x+1,rect.y+6,12,"Gleise",f.bzahl)
+W.label(v,rect.x+1,rect.y+8,"Vorlage: "..(PATTERN_TEXT[d.neu and d.neu.pattern or"gegenlaeufig"]or"?"),"text",rect.w-2)
+local st=dir_status()
+if d.creating and st and st.kind~="ok"then put_status(v,rect,rect.y+9,st,2)end
 end,
-actions = function(v)
-local busy = session.dir.creating ~= nil
-return {
-{ id = "b_vorlage", label = "Vorlage", kind = "secondary", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
-{ id = "b_anlegen", label = "Anlegen", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
+actions=function(v)
+local busy=session.dir.creating~=nil
+return{
+{id="b_vorlage",label="Vorlage",kind="secondary",enabled=not busy,reason="Die Leitstelle arbeitet noch."},
+{id="b_anlegen",label="Anlegen",enabled=not busy,reason="Die Leitstelle arbeitet noch.",nav=true},
 }
 end,
-action = function(v, id)
-local d = session.dir
+action=function(v,id)
+local d=session.dir
 if d.creating then return false end
-if id == "act:b_vorlage" then
-for i, p in ipairs(PATTERNS) do
-if p == d.neu.pattern then d.neu.pattern = PATTERNS[i % #PATTERNS + 1] return true end
+if id=="act:b_vorlage"then
+for i,p in ipairs(PATTERNS)do
+if p==d.neu.pattern then d.neu.pattern=PATTERNS[i%#PATTERNS+1]return true end
 end
-d.neu.pattern = PATTERNS[1]
+d.neu.pattern=PATTERNS[1]
 return true
-elseif id == "act:b_anlegen" then
-local f = fields(v)
-local function trim(x) return (x:match("^%s*(.-)%s*$")) end
-local spec = { name = trim(f.bname.value), ends = { trim(f.bende1.value), trim(f.bende2.value) }, count = tonumber(trim(f.bzahl.value)), pattern = d.neu.pattern }
-if spec.name == "" then v.hint = "Der Name des Bereichs fehlt." return true end
-if spec.ends[1] == "" or spec.ends[2] == "" then v.hint = "Beide Anschlussnamen fehlen." return true end
-if not spec.count then v.hint = "Die Gleisanzahl fehlt (Zahl)." return true end
+elseif id=="act:b_anlegen"then
+local f=fields(v)
+local function trim(x)return(x:match("^%s*(.-)%s*$"))end
+local spec={name=trim(f.bname.value),ends={trim(f.bende1.value),trim(f.bende2.value)},count=tonumber(trim(f.bzahl.value)),pattern=d.neu.pattern}
+if spec.name==""then v.hint="Der Name des Bereichs fehlt."return true end
+if spec.ends[1]==""or spec.ends[2]==""then v.hint="Beide Anschlussnamen fehlen."return true end
+if not spec.count then v.hint="Die Gleisanzahl fehlt (Zahl)."return true end
 
-local key = table.concat({ spec.name, spec.ends[1], spec.ends[2], tostring(spec.count), spec.pattern }, "|")
-if d.neu.key ~= key then d.neu.key, d.neu.token = key, services.new_claim() end
+local key=table.concat({spec.name,spec.ends[1],spec.ends[2],tostring(spec.count),spec.pattern},"|")
+if d.neu.key~=key then d.neu.key,d.neu.token=key,new_token()end
 services.directory_reset()
-d.creating = { token = d.neu.token }
-services.directory_area_create(session.wiz.central_id, d.neu.token, spec)
-v.hint = "Frage die Leitstelle ..."
+d.creating={token=d.neu.token}
+services.directory_area_create(session.wiz.central_id,d.neu.token,spec)
+v.hint="Frage die Leitstelle ..."
 return true
 end
 end,
 }
 
 
-screens["2.knoten"] = {
-render = function(v, rect)
-header(v, rect, nil, "Welchen Knoten betreut diese Node?")
-local d = session.dir
-local st = dir_status()
-if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
-local items = {}
-session.pick.junctions = {}
-for _, j in ipairs(d.junctions or {}) do
-local on = d.junction_choice and d.junction_choice.id == j.id
-items[#items + 1] = {
-text = (on and "(o) " or "( ) ") .. j.name,
-detail = j.connections .. " Anschluesse" .. (j.open > 0 and (", " .. j.open .. " UNBESTAETIGT") or ""),
-kind = j.open > 0 and "wait" or nil,
+screens["2.knoten"]={
+render=function(v,rect)
+header(v,rect,nil,"Welchen Knoten betreut diese Node?")
+local d=session.dir
+local st=dir_status()
+if st and st.kind~="ok"then put_status(v,rect,rect.y+2,st,2)end
+local items={}
+session.pick.junctions={}
+for _,j in ipairs(d.junctions or{})do
+local on=d.junction_choice and d.junction_choice.id==j.id
+items[#items+1]={
+text=(on and"(o) "or"( ) ")..j.name,
+detail=j.connections.." Anschluesse"..(j.open>0 and(", "..j.open.." UNBESTAETIGT")or""),
+kind=j.open>0 and"wait"or nil,
 }
-session.pick.junctions[#items] = j
+session.pick.junctions[#items]=j
 end
-local empty = (st and st.kind == "ok" and d.junctions) and "Das Netz hat noch keinen Knoten. In der Leitstelle auf der Seite Knoten anlegen und bestaetigen, dann 'Neu laden'." or ""
-W.list(v, "knoten_wahl", body_rect(rect, 4), items, list_state(v, "knoten_wahl"), { empty = empty })
+local empty=(st and st.kind=="ok"and d.junctions)and"Das Netz hat noch keinen Knoten. In der Leitstelle auf der Seite Knoten anlegen und bestaetigen, dann 'Neu laden'."or""
+local area=body_rect(rect,4)
+W.list(v,"knoten_wahl",area,items,list_state(v,"knoten_wahl"),{row_h=row_h_for(v,items,area),empty=empty})
 end,
-action = function(v, id)
-local d = session.dir
-local n = id:match("^sel:knoten_wahl:(%d+)$")
+action=function(v,id)
+local d=session.dir
+local n=id:match("^sel:knoten_wahl:(%d+)$")
 if n then
-local j = (session.pick.junctions or {})[tonumber(n)]
+local j=(session.pick.junctions or{})[tonumber(n)]
 if j then
-d.junction_choice, d.junction, d.want = j, nil, "junction"
-services.directory_junction(session.wiz.central_id, j.id)
+d.junction_choice,d.junction,d.want=j,nil,"junction"
+services.directory_junction(session.wiz.central_id,j.id)
 end
 return true
-elseif id == "act:knoten_laden" then
-d.junctions, d.junction_choice, d.junction, d.want = nil, nil, nil, "junctions"
+elseif id=="act:knoten_laden"then
+d.junctions,d.junction_choice,d.junction,d.want=nil,nil,nil,"junctions"
 services.directory_junctions(session.wiz.central_id)
 return true
-elseif id == "act:von_hand" then
-session.manual = true
-session.stack = {}
+elseif id=="act:von_hand"then
+session.manual=true
+session.stack={}
 goto_screen("2.name")
 return true
 end
 end,
-actions = function(v)
-return {
-{ id = "knoten_laden", label = "Neu laden", kind = "secondary" },
-{ id = "von_hand", label = "Von Hand", kind = "secondary" },
+actions=function(v)
+return{
+{id="knoten_laden",label="Neu laden",kind="secondary"},
+{id="von_hand",label="Von Hand",kind="secondary"},
 }
 end,
-next = function(v)
-push("3.k.pruefen")
+next=function(v)
+push("2.k.pruefen")
 return true
 end,
 }
 
 
-screens["2.station"] = {
-render = function(v, rect)
-header(v, rect, nil, "Bei welcher Betriebsstelle melden sich Zuege an?")
-local d = session.dir
-local st = dir_status()
-if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
-local items = {}
-session.pick.stations = {}
-for _, s in ipairs(d.stations or {}) do
-local on = d.station_choice and d.station_choice.id == s.id
-items[#items + 1] = { text = (on and "(o) " or "( ) ") .. s.name, detail = s.kind }
-session.pick.stations[#items] = s
+screens["2.station"]={
+render=function(v,rect)
+header(v,rect,nil,"Bei welcher Betriebsstelle melden sich Zuege an?")
+local d=session.dir
+local st=dir_status()
+if st and st.kind~="ok"then put_status(v,rect,rect.y+2,st,2)end
+local items={}
+session.pick.stations={}
+for _,s in ipairs(d.stations or{})do
+local on=d.station_choice and d.station_choice.id==s.id
+items[#items+1]={text=(on and"(o) "or"( ) ")..s.name,detail=s.kind}
+session.pick.stations[#items]=s
 end
-local empty = (st and st.kind == "ok" and d.stations) and "Das Netz hat noch keine Betriebsstelle. In der Leitstelle auf der Seite Betriebsstellen anlegen, dann 'Neu laden'." or ""
-W.list(v, "station_wahl", body_rect(rect, 4), items, list_state(v, "station_wahl"), { empty = empty })
+local empty=(st and st.kind=="ok"and d.stations)and"Das Netz hat noch keine Betriebsstelle. In der Leitstelle auf der Seite Betriebsstellen anlegen, dann 'Neu laden'."or""
+local area=body_rect(rect,4)
+W.list(v,"station_wahl",area,items,list_state(v,"station_wahl"),{row_h=row_h_for(v,items,area),empty=empty})
 end,
-action = function(v, id)
-local d = session.dir
-local n = id:match("^sel:station_wahl:(%d+)$")
+action=function(v,id)
+local d=session.dir
+local n=id:match("^sel:station_wahl:(%d+)$")
 if n then
-local s = (session.pick.stations or {})[tonumber(n)]
-if s then d.station_choice = s end
+local s=(session.pick.stations or{})[tonumber(n)]
+if s then d.station_choice=s end
 return true
-elseif id == "act:station_laden" then
-d.stations, d.station_choice, d.want = nil, nil, "stations"
+elseif id=="act:station_laden"then
+d.stations,d.station_choice,d.want=nil,nil,"stations"
 services.directory_stations(session.wiz.central_id)
 return true
-elseif id == "act:von_hand" then
-session.manual = true
-session.stack = {}
+elseif id=="act:von_hand"then
+session.manual=true
+session.stack={}
 goto_screen("2.name")
 return true
 end
 end,
-actions = function(v)
-return {
-{ id = "station_laden", label = "Neu laden", kind = "secondary" },
-{ id = "von_hand", label = "Von Hand", kind = "secondary" },
+actions=function(v)
+return{
+{id="station_laden",label="Neu laden",kind="secondary"},
+{id="von_hand",label="Von Hand",kind="secondary"},
 }
 end,
 
-next = function(v)
-local d = session.dir
-if d.claiming then v.hint = "Frage die Leitstelle nach der Kennung ..." return true end
-d.claim = d.claim or services.new_claim()
-d.claiming = { station = d.station_choice }
+next=function(v)
+local d=session.dir
+if d.claiming then v.hint="Frage die Leitstelle nach der Kennung ..."return true end
+d.claim=d.claim or node_claim()
+d.claiming={station=d.station_choice}
 services.directory_reset()
-services.directory_claim(session.wiz.central_id, d.claim, "anmeldung", nil, nil, nil, session.wiz.legacy_id(), { station = d.station_choice.id })
-v.hint = "Frage die Leitstelle nach der Kennung ..."
+services.directory_claim(session.wiz.central_id,d.claim,"anmeldung",nil,nil,nil,session.wiz.legacy_id(),{station=d.station_choice.id})
+v.hint="Frage die Leitstelle nach der Kennung ..."
 return true
 end,
 }
 
-screens["3.k.pruefen"] = {
-render = function(v, rect)
-local d = session.dir
-header(v, rect, nil, "Knoten " .. (d.junction and d.junction.name or "?") .. ": diese Angaben werden uebernommen")
-local t, why = model.junction_from_directory(d.junction or { connections = {}, routes = {} })
-local lines = {}
+screens["2.k.pruefen"]={
+render=function(v,rect)
+local d=session.dir
+header(v,rect,nil,"Knoten "..(d.junction and d.junction.name or"?")..": Angaben uebernehmen")
+local t,why=model.junction_from_directory(d.junction or{connections={},routes={}})
+local lines={}
 if not t then
-lines[#lines + 1] = { why, "halt" }
+lines[#lines+1]={why,"halt"}
 else
-local names = {}
-for name in pairs(t.connections) do names[#names + 1] = name end
+local names={}
+for name in pairs(t.connections)do names[#names+1]=name end
 table.sort(names)
-lines[#lines + 1] = { #names .. " Anschluesse: " .. table.concat(names, ", "), "text" }
-local mv = {}
-for _, m in ipairs(t.moves) do mv[#mv + 1] = m.from .. ">" .. m.to end
-lines[#lines + 1] = { #t.moves .. " Verbindungen: " .. table.concat(mv, ", "), "text" }
-lines[#lines + 1] = { #t.conflicts .. " Konflikte zwischen Verbindungen", "text" }
-local ein, aus = 0, 0
-for _, tr in ipairs(t.tracks) do if tr.role == "ein" then ein = ein + 1 else aus = aus + 1 end end
-lines[#lines + 1] = { ein .. " Einfahrten (Signal und Beobachter), " .. aus .. " Ausfahrten (Beobachter)", "text" }
-if t.unused > 0 then lines[#lines + 1] = { t.unused .. " Gleisende(n) ohne Fahrweg bleiben unberuecksichtigt.", "dim" } end
-lines[#lines + 1] = { "Die Node sperrt jede Einfahrt zusaetzlich und gibt sie nur frei, wenn die Verbindungen frei sind.", "dim" }
+lines[#lines+1]={#names.." Anschluesse: "..table.concat(names,", "),"text"}
+local mv={}
+for _,m in ipairs(t.moves)do mv[#mv+1]=m.from..">"..m.to end
+lines[#lines+1]={#t.moves.." Verbindungen: "..table.concat(mv,", "),"text"}
+lines[#lines+1]={#t.conflicts.." Konflikte zwischen Verbindungen","text"}
+local ein,aus=0,0
+for _,tr in ipairs(t.tracks)do if tr.role=="ein"then ein=ein+1 else aus=aus+1 end end
+lines[#lines+1]={ein.." Einfahrten (Signal und Beobachter), "..aus.." Ausfahrten (Beobachter)","text"}
+if t.unused>0 then lines[#lines+1]={t.unused.." Gleisende(n) ohne Fahrweg bleiben unberuecksichtigt.","dim"}end
+lines[#lines+1]={"Die Node sperrt jede Einfahrt zusaetzlich und gibt sie nur frei, wenn die Verbindungen frei sind.","dim"}
 end
-local y = rect.y + 2
-for _, line in ipairs(lines) do
-for _, part in ipairs(W.wrap(line[1], rect.w - 2)) do
-if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, line[2], rect.w - 2) end
-y = y + 1
+local y=rect.y+2
+for _,line in ipairs(lines)do
+for _,part in ipairs(W.wrap(line[1],rect.w-2))do
+if y<=rect.y+rect.h-1 then W.label(v,rect.x+1,y,part,line[2],rect.w-2)end
+y=y+1
 end
 end
-local st = dir_status()
-if d.claiming and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + rect.h - 1, st.text or "", st.kind, rect.w - 2) end
+local st=dir_status()
+if d.claiming and st and st.kind~="ok"then W.label(v,rect.x+1,rect.y+rect.h-1,st.text or"",st.kind,rect.w-2)end
 end,
 
-next = function(v)
-local d = session.dir
-local pre, why = session.wiz.knoten_precheck()
-if not pre then v.hint = why return true end
-d.claim = d.claim or services.new_claim()
-d.claiming = { junction = d.junction }
+next=function(v)
+local d=session.dir
+local pre,why=session.wiz.knoten_precheck()
+if not pre then v.hint=why return true end
+d.claim=d.claim or node_claim()
+d.claiming={junction=d.junction}
 services.directory_reset()
-services.directory_claim(session.wiz.central_id, d.claim, "knoten", nil, nil, d.junction.id, session.wiz.legacy_id())
-v.hint = "Frage die Leitstelle nach der Kennung ..."
+services.directory_claim(session.wiz.central_id,d.claim,"knoten",nil,nil,d.junction.id,session.wiz.legacy_id())
+v.hint="Frage die Leitstelle nach der Kennung ..."
 return true
 end,
 }
 
-screens["3.gleise"] = {
-render = function(v, rect)
-local d = session.dir
-header(v, rect, nil, "Gleise in " .. (d.area and d.area.name or "?") .. ": welche betreut diese Node?")
-local st = dir_status()
-if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
-local items = {}
-session.pick.gleise = {}
-for _, t in ipairs(d.area and d.area.tracks or {}) do
-items[#items + 1] = { text = (d.selected and d.selected[t.id] and "[x] " or "[ ] ") .. t.name, detail = direction_text(t.direction) }
-session.pick.gleise[#items] = t
+screens["2.gleise"]={
+render=function(v,rect)
+local d=session.dir
+header(v,rect,nil,(d.area and d.area.name or"?")..": welche Gleise betreut diese Node?")
+local st=dir_status()
+if st and st.kind~="ok"then put_status(v,rect,rect.y+2,st,2)end
+local items={}
+session.pick.gleise={}
+for _,t in ipairs(d.area and d.area.tracks or{})do
+items[#items+1]={text=(d.selected and d.selected[t.id]and"[x] "or"[ ] ")..t.name,detail=direction_text(t.direction)}
+session.pick.gleise[#items]=t
 end
-W.list(v, "gleise_auswahl", body_rect(rect, 4), items, list_state(v, "gleise_auswahl"), { empty = "Dieser Bereich hat keine Gleise." })
+local area=body_rect(rect,4)
+W.list(v,"gleise_auswahl",area,items,list_state(v,"gleise_auswahl"),{row_h=row_h_for(v,items,area),empty="Dieser Bereich hat keine Gleise."})
 end,
-action = function(v, id)
-local n = id:match("^sel:gleise_auswahl:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:gleise_auswahl:(%d+)$")
 if n then
-local t = (session.pick.gleise or {})[tonumber(n)]
-local d = session.dir
-if t and d.selected and not d.claiming then d.selected[t.id] = (not d.selected[t.id]) or nil end
+local t=(session.pick.gleise or{})[tonumber(n)]
+local d=session.dir
+if t and d.selected and not d.claiming then d.selected[t.id]=(not d.selected[t.id])or nil end
 return true
 end
 end,
 
-next = function(v)
-local d = session.dir
-local chosen, info = {}, {}
-for _, t in ipairs(d.area.tracks) do
-if d.selected[t.id] then chosen[#chosen + 1] = t.id; info[#info + 1] = t end
+next=function(v)
+local d=session.dir
+local chosen,info={},{}
+for _,t in ipairs(d.area.tracks)do
+if d.selected[t.id]then chosen[#chosen+1]=t.id;info[#info+1]=t end
 end
-if #chosen == 0 then v.hint = "Mindestens ein Gleis uebernehmen." return true end
-local pre, why = session.wiz.guided_precheck(info)
-if not pre then v.hint = why return true end
-d.claim = d.claim or services.new_claim()
-d.claiming = { tracks = info }
-services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "signal", d.area.id, chosen, nil, session.wiz.legacy_id(), { roles = session.wiz.roles })
-v.hint = "Frage die Leitstelle nach der Kennung ..."
+if#chosen==0 then v.hint="Mindestens ein Gleis uebernehmen."return true end
+local pre,why=session.wiz.guided_precheck(info)
+if not pre then v.hint=why return true end
+d.claim=d.claim or node_claim()
+d.claiming={tracks=info}
+services.directory_claim(session.wiz.central_id,d.claim,session.wiz.roles[1]or"signal",d.area.id,chosen,nil,session.wiz.legacy_id(),{roles=session.wiz.roles})
+v.hint="Frage die Leitstelle nach der Kennung ..."
 return true
 end,
 }
 
 
-function select_next_open(v, from)
-local rows = session.wiz.guided_rows()
-local state = list_state(v, "zuordnung")
-local start = from or state.index
-for offset = 1, #rows do
-local i = (start - 1 + offset) % #rows + 1
-if #rows[i].signals == 0 or (#rows[i].signals >= 2 and not rows[i].order_ok) then state.index = i return end
+function select_next_open(v,from)
+local rows=session.wiz.guided_rows()
+local state=list_state(v,"zuordnung")
+local start=from or state.index
+for offset=1,#rows do
+local i=(start-1+offset)%#rows+1
+if#rows[i].signals==0 or(#rows[i].signals>=2 and not rows[i].order_ok)then state.index=i return end
 end
 end
 
 local function signal_states()
-session.pick.sigstate = {}
-for _, d in ipairs(session.wiz.guided_free_signals()) do
-local st = signallib.new(services.env, d.name).read()
-session.pick.sigstate[d.name] = st.available and tostring(st.state) or "nicht lesbar"
+session.pick.sigstate={}
+for _,d in ipairs(session.wiz.guided_free_signals())do
+local st=signallib.new(services.env,d.name).read()
+session.pick.sigstate[d.name]=st.available and tostring(st.state)or"nicht lesbar"
 end
 end
 
-screens["4.zuordnung"] = {
-render = function(v, rect)
-header(v, rect, nil, "Welches Signal gehoert zu welchem Gleis?")
-local items = {}
-session.pick.rows = {}
-for _, r in ipairs(session.wiz.guided_rows()) do
-local devices, open = {}, false
-for i, s in ipairs(r.signals) do
-devices[#devices + 1] = (#r.signals >= 2 and (i .. " ") or "") .. s.device .. (s.effect and "" or " (Richtung?)")
-if not s.effect then open = true end
+
+local function fit_signals(prefix,devices,count,width)
+local full=prefix..table.concat(devices,", ")
+if#full<=width then return full end
+local short=(full:gsub("Create_",""))
+if#short<=width then return short end
+return prefix..count.." Signale (Details)"
 end
-if #r.signals >= 2 and not r.order_ok then open = true end
-items[#items + 1] = {
-text = r.name .. "  " .. direction_text(r.direction),
-detail = #devices > 0 and (((#r.signals >= 2 and not r.order_ok) and "Reihenfolge? " or "") .. table.concat(devices, ", ")) or "Signal fehlt",
-kind = (#devices > 0 and not open) and "ok" or "wait",
-}
-session.pick.rows[#items] = r
+
+screens["4.zuordnung"]={
+render=function(v,rect)
+header(v,rect,nil,"Welches Signal gehoert zu welchem Gleis?")
+local items={}
+session.pick.rows={}
+for _,r in ipairs(session.wiz.guided_rows())do
+local devices,open={},false
+for i,s in ipairs(r.signals)do
+devices[#devices+1]=(#r.signals>=2 and(i.." ")or"")..s.device..(s.effect and""or" (Richtung?)")
+if not s.effect then open=true end
 end
-W.list(v, "zuordnung", body_rect(rect, 3), items, list_state(v, "zuordnung"), { empty = "Keine Gleise uebernommen." })
+if#r.signals>=2 and not r.order_ok then open=true end
+items[#items+1]={
+text=r.name.."  "..direction_text(r.direction),
+detail=#devices>0 and fit_signals((#r.signals>=2 and not r.order_ok)and"Reihenfolge? "or"",devices,#r.signals,rect.w-4)or"Signal fehlt",
+kind=(#devices>0 and not open)and"ok"or"wait",
+}
+session.pick.rows[#items]=r
+end
+local area=body_rect(rect,3)
+W.list(v,"zuordnung",area,items,list_state(v,"zuordnung"),{row_h=row_h_for(v,items,area),empty="Keine Gleise uebernommen."})
 end,
-actions = function(v)
-local row = session.pick.rows and session.pick.rows[list_state(v, "zuordnung").index]
-local free = #session.wiz.guided_free_signals()
-return {
-{ id = "signal_waehlen", label = "Signal", enabled = row ~= nil and free > 0, reason = row == nil and "Erst ein Gleis waehlen." or "Es ist kein freies Signal angeschlossen." },
-{ id = "signal_loesen", label = "Loesen", kind = "secondary", enabled = row ~= nil and #row.signals > 0, reason = "An diesem Gleis ist kein Signal zugeordnet." },
-{ id = "signal_details", label = "Details", kind = "secondary", enabled = row ~= nil and #row.signals > 0, reason = "An diesem Gleis ist kein Signal zugeordnet." },
-{ id = "gleis_aendern", label = "Gleis", kind = "secondary", enabled = row ~= nil, reason = "Erst ein Gleis waehlen." },
+actions=function(v)
+local row=session.pick.rows and session.pick.rows[list_state(v,"zuordnung").index]
+local free=#session.wiz.guided_free_signals()
+return{
+{id="signal_waehlen",label="Signal",enabled=row~=nil and free>0,reason=row==nil and"Erst ein Gleis waehlen."or"Es ist kein freies Signal angeschlossen."},
+{id="signal_loesen",label="Loesen",kind="secondary",enabled=row~=nil and#row.signals>0,reason="An diesem Gleis ist kein Signal zugeordnet."},
+{id="signal_details",label="Details",kind="secondary",enabled=row~=nil and#row.signals>0,reason="An diesem Gleis ist kein Signal zugeordnet."},
+{id="gleis_aendern",label="Gleis",kind="secondary",enabled=row~=nil,reason="Erst ein Gleis waehlen."},
 }
 end,
-action = function(v, id)
-local row = session.pick.rows and session.pick.rows[list_state(v, "zuordnung").index]
-if id == "act:signal_waehlen" and row then
-session.track = row.track
+action=function(v,id)
+local row=session.pick.rows and session.pick.rows[list_state(v,"zuordnung").index]
+if id=="act:signal_waehlen"and row then
+session.track=row.track
 session.wiz.rescan()
 signal_states()
 push("4.z.signal")
 return true
-elseif id == "act:signal_loesen" and row then
-local ok, why = session.wiz.guided_unassign(row.track)
-if not ok then v.hint = why end
+elseif id=="act:signal_loesen"and row then
+local ok,why=session.wiz.guided_unassign(row.track)
+if not ok then v.hint=why end
 return true
-elseif id == "act:signal_details" and row and #row.signals > 0 then
-session.track = row.track
+elseif id=="act:signal_details"and row and#row.signals>0 then
+session.track=row.track
 push("4.z.detail")
 return true
-elseif id == "act:gleis_aendern" and row then
-session.track = row.track
-session.dir.edit = { direction = row.direction }
-fields(v).gleisname.value = row.name
+elseif id=="act:gleis_aendern"and row then
+session.track=row.track
+session.dir.edit={direction=row.direction}
+fields(v).gleisname.value=row.name
 push("4.z.gleis")
 return true
 end
 end,
-next = function(v)
+next=function(v)
 push("5.pruefen")
 return true
 end,
 }
 
 
-screens["4.z.gleis"] = {
-no_forward = true,
-render = function(v, rect)
+screens["4.z.gleis"]={
+no_forward=true,
+render=function(v,rect)
 local row
-for _, r in ipairs(session.wiz.guided_rows()) do if r.track == session.track then row = r end end
-header(v, rect, nil, "Gleis aendern: " .. (row and row.name or "?"))
-W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
-local edit = session.dir.edit or {}
-W.label(v, rect.x + 1, rect.y + 7, "Richtung: " .. direction_text(edit.direction or (row and row.direction) or "beide"), "text", rect.w - 2)
-local st = dir_status()
-if session.dir.editing and st and st.kind ~= "ok" then W.label(v, rect.x + 1, rect.y + 9, st.text or "", st.kind, rect.w - 2) end
+for _,r in ipairs(session.wiz.guided_rows())do if r.track==session.track then row=r end end
+header(v,rect,nil,"Aendern: "..(row and label.track(row.name)or"?"))
+W.field(v,"gleisname",rect.x+1,rect.y+3,math.min(rect.w-2,36),"Gleisname",fields(v).gleisname)
+local edit=session.dir.edit or{}
+W.label(v,rect.x+1,rect.y+7,"Richtung: "..direction_text(edit.direction or(row and row.direction)or"beide"),"text",rect.w-2)
+local st=dir_status()
+if session.dir.editing and st and st.kind~="ok"then W.label(v,rect.x+1,rect.y+9,st.text or"",st.kind,rect.w-2)end
 end,
-actions = function(v)
-return {
-{ id = "g_richtung", label = "Richtung", kind = "secondary", enabled = not session.dir.editing, reason = "Die Leitstelle arbeitet noch." },
-{ id = "g_speichern", label = "Speichern", enabled = not session.dir.editing, reason = "Die Leitstelle arbeitet noch." },
+actions=function(v)
+return{
+{id="g_richtung",label="Richtung",kind="secondary",enabled=not session.dir.editing,reason="Die Leitstelle arbeitet noch."},
+{id="g_speichern",label="Speichern",enabled=not session.dir.editing,reason="Die Leitstelle arbeitet noch."},
 }
 end,
-action = function(v, id)
-local edit = session.dir.edit
+action=function(v,id)
+local edit=session.dir.edit
 if not edit or session.dir.editing then return false end
-if id == "act:g_richtung" then
-local options = {}
-for _, e in ipairs(session.wiz.area_ends()) do options[#options + 1] = e end
-options[#options + 1] = "beide"
-for i, o in ipairs(options) do
-if o == edit.direction then edit.direction = options[i % #options + 1] return true end
+if id=="act:g_richtung"then
+local options={}
+for _,e in ipairs(session.wiz.area_ends())do options[#options+1]=e end
+options[#options+1]="beide"
+for i,o in ipairs(options)do
+if o==edit.direction then edit.direction=options[i%#options+1]return true end
 end
-edit.direction = options[1]
+edit.direction=options[1]
 return true
-elseif id == "act:g_speichern" then
+elseif id=="act:g_speichern"then
 local row
-for _, r in ipairs(session.wiz.guided_rows()) do if r.track == session.track then row = r end end
+for _,r in ipairs(session.wiz.guided_rows())do if r.track==session.track then row=r end end
 if not row then return true end
-local name = fields(v).gleisname.value:match("^%s*(.-)%s*$")
-local change = {}
-if name ~= row.name then change.name = name end
-if edit.direction ~= row.direction then change.direction = edit.direction end
-if next(change) == nil then v.hint = "Nichts geaendert." pop() return true end
-if name == "" then v.hint = "Der Gleisname fehlt." return true end
+local name=fields(v).gleisname.value:match("^%s*(.-)%s*$")
+local change={}
+if name~=row.name then change.name=name end
+if edit.direction~=row.direction then change.direction=edit.direction end
+if next(change)==nil then v.hint="Nichts geaendert."pop()return true end
+if name==""then v.hint="Der Gleisname fehlt."return true end
 services.directory_reset()
-session.dir.editing = { dir_id = row.dir_id }
-services.directory_track_change(session.wiz.central_id, session.dir.claim, row.dir_id, change, row.rev)
-v.hint = "Frage die Leitstelle ..."
+session.dir.editing={dir_id=row.dir_id}
+services.directory_track_change(session.wiz.central_id,session.dir.claim,row.dir_id,change,row.rev)
+v.hint="Frage die Leitstelle ..."
 return true
 end
 end,
@@ -1424,120 +1424,122 @@ end,
 
 
 local function detail_rows()
-for _, r in ipairs(session.wiz.guided_rows()) do
-if r.track == session.track then return r end
+for _,r in ipairs(session.wiz.guided_rows())do
+if r.track==session.track then return r end
 end
 return nil
 end
 
-screens["4.z.detail"] = {
-no_forward = true,
-render = function(v, rect)
-local row = detail_rows()
-local ends = session.wiz.area_ends()
-local entry_track = row ~= nil and row.junction ~= nil and row.junction.role == "ein"
-header(v, rect, nil, "Signale von " .. (row and row.name or "?") .. (row and row.junction and ": Reihenfolge und Einfahrt" or ": Funktion, Wirkrichtung, Standort"))
-if row and #row.signals >= 2 then
+screens["4.z.detail"]={
+no_forward=true,
+render=function(v,rect)
+local row=detail_rows()
+local ends=session.wiz.area_ends()
+local entry_track=row~=nil and row.junction~=nil and row.junction.role=="ein"
+header(v,rect,nil,(row and label.track(row.name)or"?")..(row and row.junction and": Reihenfolge, Einfahrt"or": Funktion, Wirkrichtung, Standort"))
+if row and#row.signals>=2 then
 local text
 if entry_track then
-text = "Reihenfolge zum Knoten (zuletzt: Einfahrt)" .. (row.order_ok and " ok" or " offen")
+text="Reihenfolge zum Knoten (zuletzt: Einfahrt)"..(row.order_ok and" ok"or" offen")
 elseif row.junction then
-text = "Reihenfolge" .. (row.order_ok and " (ok)" or " (offen)")
+text="Reihenfolge"..(row.order_ok and" (ok)"or" (offen)")
 else
-text = "Reihenfolge " .. tostring(ends[1] or "Anschluss 1") .. " -> " .. tostring(ends[2] or "Anschluss 2") .. (row.order_ok and " (ok)" or " (offen)")
+text="Reihenfolge "..tostring(ends[1]or"Anschluss 1").." -> "..tostring(ends[2]or"Anschluss 2")..(row.order_ok and" (ok)"or" (offen)")
 end
-W.label(v, rect.x + 1, rect.y + 2, text, row.order_ok and "ok" or "wait", rect.w - 2)
+W.label(v,rect.x+1,rect.y+2,text,row.order_ok and"ok"or"wait",rect.w-2)
 end
-local items = {}
-session.pick.detail = {}
-for i, sg in ipairs(row and row.signals or {}) do
-local numbered = ((row and #row.signals >= 2) and (i .. ". ") or "") .. sg.device
+local items={}
+session.pick.detail={}
+for i,sg in ipairs(row and row.signals or{})do
+local numbered=((row and#row.signals>=2)and(i..". ")or"")..sg.device
 if row and row.junction then
-items[#items + 1] = {
-text = numbered,
-detail = sg.use == "einfahrt" and "EINFAHRTSIGNAL (sperrt die Einfahrt)" or "Streckensignal (Create regelt es allein)",
-kind = sg.use == "einfahrt" and "ok" or "text",
+items[#items+1]={
+text=numbered,
+detail=sg.use=="einfahrt"and"EINFAHRTSIGNAL (sperrt die Einfahrt)"or"Streckensignal (Create regelt es allein)",
+kind=sg.use=="einfahrt"and"ok"or"text",
 }
 else
-items[#items + 1] = {
-text = numbered .. "  " .. (wizardlib.USE_TEXT[sg.use] or sg.use),
-detail = (sg.effect and ("wirkt Richtung " .. sg.effect) or "WIRKRICHTUNG FEHLT") .. ", Standort " .. (sg.place and (sg.place == "mitte" and "Mitte" or ("Ende " .. sg.place)) or "offen"),
-kind = sg.effect and "ok" or "wait",
+items[#items+1]={
+text=numbered.."  "..(wizardlib.USE_TEXT[sg.use]or sg.use),
+detail=(sg.effect and("Richtung "..sg.effect)or"WIRKRICHTUNG FEHLT")..", Standort "..(sg.place and(sg.place=="mitte"and"Mitte"or("Ende "..sg.place))or"offen"),
+kind=sg.effect and"ok"or"wait",
 }
 end
-session.pick.detail[#items] = sg
+session.pick.detail[#items]=sg
 end
-W.list(v, "detail", body_rect(rect, 3), items, list_state(v, "detail"), { empty = "Kein Signal an diesem Gleis." })
+local area=body_rect(rect,3)
+W.list(v,"detail",area,items,list_state(v,"detail"),{row_h=row_h_for(v,items,area),empty="Kein Signal an diesem Gleis."})
 end,
-actions = function(v)
-local sg = session.pick.detail and session.pick.detail[list_state(v, "detail").index]
-local row = detail_rows()
-local several = row ~= nil and #row.signals >= 2
+actions=function(v)
+local sg=session.pick.detail and session.pick.detail[list_state(v,"detail").index]
+local row=detail_rows()
+local several=row~=nil and#row.signals>=2
 local list
-if row ~= nil and row.junction ~= nil then
-list = {}
-if row.junction.role == "ein" then
-list[1] = { id = "d_einfahrt", label = "Einfahrt", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
+if row~=nil and row.junction~=nil then
+list={}
+if row.junction.role=="ein"then
+list[1]={id="d_einfahrt",label="Einfahrt",enabled=sg~=nil,reason="Erst ein Signal waehlen."}
 end
 else
-list = {
-{ id = "d_funktion", label = "Funktion", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
-{ id = "d_richtung", label = "Richtung", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
-{ id = "d_standort", label = "Standort", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." },
+list={
+{id="d_funktion",label="Funktion",enabled=sg~=nil,reason="Erst ein Signal waehlen."},
+{id="d_richtung",label="Richtung",enabled=sg~=nil,reason="Erst ein Signal waehlen."},
+{id="d_standort",label="Standort",kind="secondary",enabled=sg~=nil,reason="Erst ein Signal waehlen."},
 }
 end
 if several then
-list[#list + 1] = { id = "d_hoch", label = "Hoch", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
-list[#list + 1] = { id = "d_runter", label = "Runter", kind = "secondary", enabled = sg ~= nil, reason = "Erst ein Signal waehlen." }
-list[#list + 1] = { id = "d_reihenfolge", label = row.order_ok and "Reihenf. ok" or "Reihenf. bestaet.", enabled = not row.order_ok, reason = "Die Reihenfolge ist schon bestaetigt." }
+list[#list+1]={id="d_hoch",label="Hoch",kind="secondary",enabled=sg~=nil,reason="Erst ein Signal waehlen."}
+list[#list+1]={id="d_runter",label="Runter",kind="secondary",enabled=sg~=nil,reason="Erst ein Signal waehlen."}
+list[#list+1]={id="d_reihenfolge",label=row.order_ok and"Reihenf. ok"or"Reihenf. bestaet.",enabled=not row.order_ok,reason="Die Reihenfolge ist schon bestaetigt."}
 end
 return list
 end,
-action = function(v, id)
-local state = list_state(v, "detail")
-local sg = session.pick.detail and session.pick.detail[state.index]
-local field = ({ ["act:d_funktion"] = "use", ["act:d_richtung"] = "effect", ["act:d_standort"] = "place" })[id]
+action=function(v,id)
+local state=list_state(v,"detail")
+local sg=session.pick.detail and session.pick.detail[state.index]
+local field=({["act:d_funktion"]="use",["act:d_richtung"]="effect",["act:d_standort"]="place"})[id]
 if field and sg then
-local ok, why = session.wiz.signal_cycle(sg.id, field)
-if not ok then v.hint = why end
+local ok,why=session.wiz.signal_cycle(sg.id,field)
+if not ok then v.hint=why end
 return true
-elseif (id == "act:d_hoch" or id == "act:d_runter") and sg then
-local delta = id == "act:d_hoch" and -1 or 1
-local ok, why = session.wiz.guided_signal_move(sg.id, delta)
-if ok then state.index = state.index + delta else v.hint = why end
+elseif(id=="act:d_hoch"or id=="act:d_runter")and sg then
+local delta=id=="act:d_hoch"and-1 or 1
+local ok,why=session.wiz.guided_signal_move(sg.id,delta)
+if ok then state.index=state.index+delta else v.hint=why end
 return true
-elseif id == "act:d_reihenfolge" then
-local ok, why = session.wiz.guided_order_confirm(session.track)
-v.hint = ok and "Reihenfolge bestaetigt." or why
+elseif id=="act:d_reihenfolge"then
+local ok,why=session.wiz.guided_order_confirm(session.track)
+v.hint=ok and"Reihenfolge bestaetigt."or why
 return true
-elseif id == "act:d_einfahrt" and sg then
-local ok, why = session.wiz.guided_einfahrt_mark(sg.id)
-v.hint = ok and (sg.device .. " ist jetzt das Einfahrtsignal.") or why
+elseif id=="act:d_einfahrt"and sg then
+local ok,why=session.wiz.guided_einfahrt_mark(sg.id)
+v.hint=ok and(sg.device.." ist jetzt das Einfahrtsignal.")or why
 return true
 end
 end,
 }
 
-screens["4.z.signal"] = {
-render = function(v, rect)
-local track = session.wiz.config.tracks[session.track]
-header(v, rect, nil, "Welches Signal gehoert zu " .. (track and track.name or "?") .. "?")
-local items = {}
-session.pick.freie = {}
-for _, d in ipairs(session.wiz.guided_free_signals()) do
-local fresh = session.known_signals and not session.known_signals[d.name]
-items[#items + 1] = { text = d.name .. (fresh and "  (neu)" or ""), detail = (session.pick.sigstate and session.pick.sigstate[d.name]) or "" }
-session.pick.freie[#items] = d
+screens["4.z.signal"]={
+render=function(v,rect)
+local track=session.wiz.config.tracks[session.track]
+header(v,rect,nil,"Welches Signal gehoert zu "..(track and label.track(track.name)or"?").."?",2)
+local items={}
+session.pick.freie={}
+for _,d in ipairs(session.wiz.guided_free_signals())do
+local fresh=session.known_signals and not session.known_signals[d.name]
+items[#items+1]={text=d.name..(fresh and"  (neu)"or""),detail=(session.pick.sigstate and session.pick.sigstate[d.name])or""}
+session.pick.freie[#items]=d
 end
-W.list(v, "signal", body_rect(rect, 3), items, list_state(v, "signal"), { empty = "Kein freies Signal angeschlossen." })
+local area=body_rect(rect,3)
+W.list(v,"signal",area,items,list_state(v,"signal"),{row_h=row_h_for(v,items,area),empty="Kein freies Signal angeschlossen."})
 end,
-action = function(v, id)
-local n = id:match("^sel:signal:(%d+)$")
+action=function(v,id)
+local n=id:match("^sel:signal:(%d+)$")
 if n then
-local d = (session.pick.freie or {})[tonumber(n)]
+local d=(session.pick.freie or{})[tonumber(n)]
 if d then
-local ok, why = session.wiz.guided_assign(session.track, d.name)
-if not ok then v.hint = why return true end
+local ok,why=session.wiz.guided_assign(session.track,d.name)
+if not ok then v.hint=why return true end
 pop()
 select_next_open(v)
 end
@@ -1547,451 +1549,446 @@ end,
 }
 
 local function activate(v)
-local w = session.wiz
-local ok, why = w.step_ok(5)
-if not ok then v.hint = why return false end
-local status, problems, err = w.finish(services.store, services.config_path)
-if not status then v.hint = "Speichern fehlgeschlagen: " .. tostring(err) return false end
-if status ~= "aktiv" then
-v.hint = "Nicht aktiviert: " .. tostring(problems[1] and problems[1].text or "Pflichtangaben offen")
+local w=session.wiz
+local ok,why=w.step_ok(5)
+if not ok then v.hint=why return false end
+local status,problems,err=w.finish(services.store,services.config_path)
+if not status then v.hint="Speichern fehlgeschlagen: "..tostring(err)return false end
+if status~="aktiv"then
+v.hint="Nicht aktiviert: "..tostring(problems[1]and problems[1].text or"Pflichtangaben offen")
 return false
 end
 services.on_saved(w.config)
-services.notify("info", "Einrichtung gespeichert: aktiv (" .. w.config.node.id .. ")")
-v.hint = "Aktiviert: " .. w.config.node.name
-session.wiz, session.owner, session.checking = nil, nil, false
+services.notify("info","Einrichtung gespeichert: aktiv ("..w.config.node.id..")")
+v.hint="Aktiviert: "..w.config.node.name
+session.wiz,session.owner,session.checking=nil,nil,false
 return true
 end
 
-screens["5.pruefen"] = {
-no_forward = true,
-hide_nav_buttons = function() return session.checking end,
-render = function(v, rect)
-header(v, rect, nil, "Zuordnung bestaetigen, pruefen, aktivieren")
-local p = ensure_check()
-local st = p.state()
-local y = rect.y + 2
-if st.phase == "idle" then
-local c = session.wiz.config
-local lines = { c.node.id .. ": " .. #session.wiz.tracks() .. " Gleis(e), " .. #st.devices .. " Signal(e)" }
-local effect = p.effect()
-for _, line in ipairs(W.wrap(effect, rect.w - 2)) do lines[#lines + 1] = line end
-for _, line in ipairs(lines) do
-if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, line, "text", rect.w - 2) end
-y = y + 1
+screens["5.pruefen"]={
+no_forward=true,
+hide_nav_buttons=function()return session.checking end,
+render=function(v,rect)
+header(v,rect,nil,"Zuordnung bestaetigen, pruefen, aktivieren")
+local p=ensure_check()
+local st=p.state()
+local y=rect.y+2
+if st.phase=="idle"then
+local c=session.wiz.config
+local lines={c.node.id..": "..#session.wiz.tracks().." Gleis(e), "..#st.devices.." Signal(e)"}
+local effect=p.effect()
+for _,line in ipairs(W.wrap(effect,rect.w-2))do lines[#lines+1]=line end
+for _,line in ipairs(lines)do
+if y<=rect.y+rect.h-1 then W.label(v,rect.x+1,y,line,"text",rect.w-2)end
+y=y+1
 end
-local problems = p.required()
-if #problems > 0 and y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y + 1, problems[1], "wait", rect.w - 2) end
+local problems=p.required()
+if#problems>0 and y<=rect.y+rect.h-1 then W.label(v,rect.x+1,y+1,problems[1],"wait",rect.w-2)end
 return
 end
 local text
-if st.phase == "laeuft" then
-text = "Pruefe " .. (st.current or "...") .. " (" .. st.done .. " von " .. st.total .. ")"
-elseif st.phase == "abgebrochen" then
-text = "Abgebrochen nach " .. st.done .. " von " .. st.total .. " Pruefungen."
+if st.phase=="laeuft"then
+text="Pruefe "..(st.current or"...").." ("..st.done.." von "..st.total..")"
+elseif st.phase=="abgebrochen"then
+text="Abgebrochen nach "..st.done.." von "..st.total.." Pruefungen."
 else
-text = st.ok and "Alle Pruefungen bestanden." or "Fertig, aber nicht alles bestanden:"
+text=st.ok and"Alle Pruefungen bestanden."or"Fertig, aber nicht alles bestanden:"
 end
-W.label(v, rect.x + 1, rect.y + 2, text, st.phase == "laeuft" and "wait" or (st.ok and "ok" or "attention"), rect.w - 2)
-local items = {}
-for _, d in ipairs(st.devices) do
-local r = d.result
-local detail, kind
-if r.lesen.state == "ok" and r.sperre.state == "ok" then detail, kind = "gelesen, Sperre getestet", "ok"
-elseif r.lesen.state == "fehler" then detail, kind = r.lesen.text or "nicht lesbar", "halt"
-elseif r.sperre.state == "fehler" or r.sperre.state == "gesperrt" then detail, kind = r.sperre.text or "Sperre nicht bestaetigt", "halt"
-else detail, kind = "offen", "wait" end
-items[#items + 1] = { text = d.track .. "  " .. d.device, detail = detail, kind = kind }
+W.label(v,rect.x+1,rect.y+2,text,st.phase=="laeuft"and"wait"or(st.ok and"ok"or"attention"),rect.w-2)
+local items={}
+for _,d in ipairs(st.devices)do
+local r=d.result
+local detail,kind
+if r.lesen.state=="ok"and r.sperre.state=="ok"then detail,kind="gelesen, Sperre getestet","ok"
+elseif r.lesen.state=="fehler"then detail,kind=r.lesen.text or"nicht lesbar","halt"
+elseif r.sperre.state=="fehler"or r.sperre.state=="gesperrt"then detail,kind=r.sperre.text or"Sperre nicht bestaetigt","halt"
+else detail,kind="offen","wait"end
+items[#items+1]={text=d.track.."  "..d.device,detail=detail,kind=kind}
 end
-W.list(v, "pruefliste", body_rect(rect, 4), items, list_state(v, "pruefliste"), { empty = "Keine Signale." })
+local area=body_rect(rect,4)
+W.list(v,"pruefliste",area,items,list_state(v,"pruefliste"),{row_h=row_h_for(v,items,area),empty="Keine Signale."})
 end,
-actions = function(v)
-local p = ensure_check()
-local st = p.state()
-if st.phase == "laeuft" then
-return { { id = "pruefung_stopp", label = "Stoppen", kind = "danger" } }
+actions=function(v)
+local p=ensure_check()
+local st=p.state()
+if st.phase=="laeuft"then
+return{{id="pruefung_stopp",label="Stoppen",kind="danger"}}
 end
-local problems = p.required()
-return { { id = "pruefen", label = st.phase == "idle" and "Pruefen+Aktivieren" or "Erneut pruefen", enabled = #problems == 0, reason = problems[1] } }
+local problems=p.required()
+return{{id="pruefen",label=st.phase=="idle"and"Pruefen+Aktivieren"or"Erneut pruefen",enabled=#problems==0,reason=problems[1],nav=true}}
 end,
-action = function(v, id)
-local p = ensure_check()
-if id == "act:pruefen" then
-local ok, why = p.start(true)
-if not ok then v.hint = why return true end
-session.checking = true
-v.hint = "Pruefung laeuft."
+action=function(v,id)
+local p=ensure_check()
+if id=="act:pruefen"then
+local ok,why=p.start(true)
+if not ok then v.hint=why return true end
+session.checking=true
+v.hint="Pruefung laeuft."
 return true
-elseif id == "act:pruefung_stopp" then
+elseif id=="act:pruefung_stopp"then
 p.abort()
-session.checking = false
-v.hint = "Pruefung gestoppt; es bleibt keine Testsperre zurueck."
+session.checking=false
+v.hint="Pruefung gestoppt; es bleibt keine Testsperre zurueck."
 return true
 end
 end,
 }
 
-screens["6.fertig"] = {
-render = function(v, rect)
-header(v, rect, nil, "Zusammenfassung")
-local w = session.wiz
-local c = w.config
-local roles = {}
-for _, r in ipairs(c.node.roles) do roles[#roles + 1] = model.ROLE_TEXT[r] end
-local lines = {
-"Netz: " .. c.network.name .. (c.network.central_id and ("   Leitstelle: " .. c.network.central_id) or "   (diese Node ist die Leitstelle)"),
-"Node: " .. c.node.name .. " (" .. c.node.id .. ")",
-"Rolle: " .. table.concat(roles, ", "),
+screens["6.fertig"]={
+render=function(v,rect)
+header(v,rect,nil,nil)
+local w=session.wiz
+local c=w.config
+local roles={}
+for _,r in ipairs(c.node.roles)do roles[#roles+1]=model.ROLE_TEXT[r]end
+local lines={
+"Netz: "..c.network.name..(c.network.central_id and("   Leitstelle: "..c.network.central_id)or"   (diese Node ist die Leitstelle)"),
+"Node: "..((c.node.name==""or c.node.name:find(c.node.id,1,true))and(c.node.name~=""and c.node.name or c.node.id)or(c.node.name.." ("..c.node.id..")")),
+"Rolle: "..table.concat(roles,", "),
 }
-local tracks = #w.tracks()
-if tracks > 0 then lines[#lines + 1] = "Gleise: " .. tracks end
-local problems = w.warnings()
-local tests_ok = w.all_tests_ok()
-lines[#lines + 1] = "Pruefungen: " .. (tests_ok and "alle bestanden" or "offen")
-lines[#lines + 1] = (#problems == 0 and tests_ok) and "Bereit zum Aktivieren." or "Wird als ENTWURF gespeichert; die Betriebsfunktion bleibt inaktiv."
-local y = rect.y + 2
-local function put(text, kind)
-for _, part in ipairs(W.wrap(text, rect.w - 2)) do
-if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, kind, rect.w - 2) end
-y = y + 1
+local tracks=#w.tracks()
+if tracks>0 then lines[#lines+1]="Gleise: "..tracks end
+local problems=w.warnings()
+local tests_ok=w.all_tests_ok()
+lines[#lines+1]="Pruefungen: "..(tests_ok and"alle bestanden"or"offen")
+lines[#lines+1]=(#problems==0 and tests_ok)and"Bereit zum Aktivieren."or"Noch nicht bereit: Aktivieren geht erst nach allen Pruefungen."
+local y=rect.y+2
+local function put(text,kind)
+for _,part in ipairs(W.wrap(text,rect.w-2))do
+if y<=rect.y+rect.h-1 then W.label(v,rect.x+1,y,part,kind,rect.w-2)end
+y=y+1
 end
 end
-for _, line in ipairs(lines) do put(line, (line:find("ENTWURF", 1, true)) and "attention" or "text") end
-for _, p in ipairs(problems) do put("- " .. p.text, "wait") end
+for _,line in ipairs(lines)do put(line,(line:find("Noch nicht bereit",1,true))and"attention"or"text")end
+for _,p in ipairs(problems)do put("- "..p.text,"wait")end
 end,
-action = function(v, id)
-if id == "act:speichern" then
-local ok, why = session.wiz.step_ok(5)
-if not ok then v.hint = why return true end
-local status, problems, err = session.wiz.finish(services.store, services.config_path)
+action=function(v,id)
+if id=="act:speichern"then
+local ok,why=session.wiz.step_ok(5)
+if not ok then v.hint=why return true end
+local status,problems,err=session.wiz.finish(services.store,services.config_path)
 if not status then
-v.hint = "Speichern fehlgeschlagen: " .. tostring(err)
+v.hint="Aktivieren nicht moeglich: "..tostring(err)
 return true
 end
 services.on_saved(session.wiz.config)
-services.notify(status == "aktiv" and "info" or "warnung", "Einrichtung gespeichert: " .. status)
-v.hint = "Gespeichert: " .. status
-session.wiz, session.owner = nil, nil
+services.notify("info","Einrichtung aktiviert.")
+v.hint="Aktiviert."
+session.wiz,session.owner=nil,nil
 return true
 end
 end,
-actions = function(v)
-local ok = session.wiz and #session.wiz.warnings() == 0 and session.wiz.all_tests_ok()
-return { { id = "speichern", label = "Aktivieren", enabled = ok, reason = "Pflichtangaben und Pruefungen muessen vollstaendig sein." } }
+actions=function(v)
+local ok=session.wiz and#session.wiz.warnings()==0 and session.wiz.all_tests_ok()
+return{{id="speichern",label="Aktivieren",enabled=ok,reason="Pflichtangaben und Pruefungen muessen vollstaendig sein.",nav=true}}
 end,
 }
 
 
-local function screen_def() return screens[session.screen] end
+local function screen_def()return screens[session.screen]end
 
 
 local function rfields(v)
-local st = v.page_state("einrichtung")
-st.rfields = st.rfields or { central = { value = "", max = 30 }, node = { value = "", max = 30 } }
+local st=v.page_state("einrichtung")
+st.rfields=st.rfields or{central={value="",max=30},node={value="",max=30}}
 return st.rfields
 end
 
-function page.render(v, rect)
+function page.render(v,rect)
 if session.replace and not session.wiz then
-W.label(v, rect.x + 1, rect.y, "Ersatzcomputer: vorhandene Node uebernehmen", "hell", rect.w - 2)
-local f = rfields(v)
-W.field(v, "r_central", rect.x + 1, rect.y + 1, math.min(rect.w - 2, 36), "Kennung der Leitstelle", f.central)
-local st = services.fetch_status and services.fetch_status()
-if session.replace_want then st = dir_status() or st end
+W.label(v,rect.x+1,rect.y,"Ersatzcomputer: vorhandene Node uebernehmen","hell",rect.w-2)
+local f=rfields(v)
+W.field(v,"r_central",rect.x+1,rect.y+1,math.min(rect.w-2,36),"Kennung der Leitstelle",f.central)
+local st=services.fetch_status and services.fetch_status()
+if session.replace_want then st=dir_status()or st end
 if session.replace_list then
 
-local items = {}
-for i, b in ipairs(session.replace_list) do
-local on = f.node.value == b.id
-items[i] = { text = (on and "(o) " or "( ) ") .. b.id .. " " .. b.name, detail = b.state == "aktiv" and "NOCH AKTIV" or b.state, kind = b.state == "aktiv" and "dim" or "ok" }
+local items={}
+for i,b in ipairs(session.replace_list)do
+local on=f.node.value==b.id
+items[i]={text=(on and"(o) "or"( ) ")..b.id.." "..b.name,detail=b.state=="aktiv"and"NOCH AKTIV"or b.state,kind=b.state=="aktiv"and"dim"or"ok"}
 end
-if st then W.label(v, rect.x + 1, rect.y + 4, st.text, st.kind, rect.w - 2) end
-W.list(v, "r_wahl", { x = rect.x, y = rect.y + 5, w = rect.w, h = math.max(3, rect.h - 5) }, items, list_state(v, "r_wahl"), { empty = "Keine Node mit Sicherung gefunden." })
+if st then W.label(v,rect.x+1,rect.y+4,st.text,st.kind,rect.w-2)end
+W.list(v,"r_wahl",{x=rect.x,y=rect.y+5,w=rect.w,h=math.max(3,rect.h-5)},items,list_state(v,"r_wahl"),{empty="Keine Node mit Sicherung gefunden."})
 return
 end
-W.field(v, "r_node", rect.x + 1, rect.y + 4, math.min(rect.w - 2, 36), "Kennung der zu ersetzenden Node", f.node)
-if st then W.label(v, rect.x + 1, rect.y + 8, st.text, st.kind, rect.w - 2) end
+W.field(v,"r_node",rect.x+1,rect.y+4,math.min(rect.w-2,36),"Kennung der zu ersetzenden Node",f.node)
+if st then W.label(v,rect.x+1,rect.y+8,st.text,st.kind,rect.w-2)end
 return
 end
 if not session.wiz then
-W.label(v, rect.x + 1, rect.y, "Einrichtung", "hell")
-local config = services.config()
-local text = config
-and ("Dieser Node ist eingerichtet: " .. config.node.name .. " (" .. config.status .. "). Die Einrichtung kann geaendert werden.")
-or "Dieser Computer ist noch nicht eingerichtet. Der Assistent fuehrt in sechs Schritten durch Anlage, Rolle, Geraete, Gleise, Test und Abschluss."
-for i, line in ipairs(W.wrap(text, rect.w - 2)) do W.label(v, rect.x + 1, rect.y + 1 + i, line, "text", rect.w - 2) end
+W.label(v,rect.x+1,rect.y,"Einrichtung","hell")
+local config=services.config()
+local text=config
+and("Dieser Node ist eingerichtet: "..(config.node.name~=""and config.node.name or config.node.id)..". Die Einrichtung kann geaendert werden.")
+or"Dieser Computer ist noch nicht eingerichtet. Der Assistent fuehrt in sechs Schritten durch Netz, Aufgabe, Geraete, Gleise, Test und Fertig."
+for i,line in ipairs(W.wrap(text,rect.w-2))do W.label(v,rect.x+1,rect.y+1+i,line,"text",rect.w-2)end
 return
 end
-if session.owner ~= v then
-W.label(v, rect.x + 1, rect.y, "Einrichtung wird bearbeitet.", "attention")
-for i, line in ipairs(W.wrap("Eine andere Bedienoberflaeche fuehrt gerade den Assistenten.", rect.w - 2)) do W.label(v, rect.x + 1, rect.y + 1 + i, line, "text", rect.w - 2) end
+if session.owner~=v then
+W.label(v,rect.x+1,rect.y,"Einrichtung wird bearbeitet.","attention")
+for i,line in ipairs(W.wrap("Eine andere Bedienoberflaeche fuehrt gerade den Assistenten.",rect.w-2))do W.label(v,rect.x+1,rect.y+1+i,line,"text",rect.w-2)end
 return
 end
-local def = screen_def()
-if v.layout.mode == "gross" then
-local S = require("ui.palette").SLOT
-local x = rect.x + rect.w - 26
-v.canvas.fill(x, rect.y, 26, rect.h, S.navigation)
-W.label(v, x + 2, rect.y + 1, "DEINE EINRICHTUNG", "hell", 22)
-local w = session.wiz
-local lines = { w.name ~= "" and w.name or "Name noch offen", "Netz: " .. w.network_name }
-for _, role in ipairs(w.roles) do lines[#lines+1] = model.ROLE_TEXT[role] end
-lines[#lines+1] = ""
-lines[#lines+1] = "Schritt " .. w.step .. " von 6"
-lines[#lines+1] = "Entwurf jederzeit speichern."
-lines[#lines+1] = "Aktiv erst nach allen Pflichtpruefungen."
+local def=screen_def()
+if v.layout.mode=="gross"then
+local S=require("ui.palette").SLOT
+local x=rect.x+rect.w-26
+v.canvas.fill(x,rect.y,26,rect.h,S.navigation)
+W.label(v,x+2,rect.y+1,"DEINE EINRICHTUNG","hell",22)
+local w=session.wiz
+local lines={w.name~=""and w.name or"Name folgt","Netz: "..w.network_name}
+for _,role in ipairs(w.roles)do lines[#lines+1]=model.ROLE_TEXT[role]end
+lines[#lines+1]=""
+lines[#lines+1]="Schritt "..w.step.." von 6"
+lines[#lines+1]="Aktiv erst nach allen Pflichtpruefungen."
 local y=rect.y+3
-for _, text in ipairs(lines) do
-for _, part in ipairs(W.wrap(text,22)) do
-if y < rect.y+rect.h then W.label(v,x+2,y,part,"text",22); y=y+1 end
+for _,text in ipairs(lines)do
+for _,part in ipairs(W.wrap(text,22))do
+if y<rect.y+rect.h then W.label(v,x+2,y,part,"text",22);y=y+1 end
 end
 y=y+1
 end
-rect = { x=rect.x, y=rect.y, w=rect.w-28, h=rect.h }
+rect={x=rect.x,y=rect.y,w=rect.w-28,h=rect.h}
 end
-if def then def.render(v, rect) end
+if def then def.render(v,rect)end
 end
 
 local function can_advance(v)
 commit(v)
-local w, screen = session.wiz, session.screen
-local track = session.track and w.config.tracks[session.track]
-if screen == "1.netzwahl" and not session.net_choice then return false, "Bitte ein Netz waehlen oder \"von Hand eingeben\"." end
-if screen == "1.netz" and not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
-if screen == "1.zentrale" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
-if screen == "2.rollen" then
-if #w.roles == 0 then return false, "Bitte mindestens eine Rolle waehlen." end
-if w.mode == "create" and not model.has_role(w.config, "zentrale") then return false, "Die erste Node braucht die Rolle Leitstelle." end
-if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
+local w,screen=session.wiz,session.screen
+local track=session.track and w.config.tracks[session.track]
+if screen=="1.netzwahl"and not session.net_choice then return false,"Bitte ein Netz waehlen oder \"von Hand eingeben\"."end
+if screen=="1.netz"and not w.network_name:match("%S")then return false,"Der Netzname fehlt."end
+if screen=="1.zentrale"and not w.central_id:match("%S")then return false,"Die Kennung der Leitstelle fehlt."end
+if screen=="2.rollen"then
+if#w.roles==0 then return false,"Bitte mindestens eine Rolle waehlen."end
+if w.mode=="create"and not model.has_role(w.config,"zentrale")then return false,"Die erste Node braucht die Rolle Leitstelle."end
+if w.mode=="join"and model.has_role(w.config,"zentrale")then return false,"Eine zweite Leitstelle ist nicht vorgesehen."end
 end
-if screen == "2.bereich" and not session.dir.area then return false, "Bitte einen Bereich waehlen." end
-if screen == "2.station" then
-local d = session.dir
-if not d.station_choice then return false, "Bitte eine Betriebsstelle waehlen." end
-if d.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
+if screen=="2.bereich"and not session.dir.area then return false,"Bitte einen Bereich waehlen."end
+if screen=="2.station"then
+local d=session.dir
+if not d.station_choice then return false,"Bitte eine Betriebsstelle waehlen."end
+if d.claiming then return false,"Frage die Leitstelle nach der Kennung ..."end
 end
-if screen == "2.knoten" then
-local d = session.dir
-if not d.junction_choice then return false, "Bitte einen Knoten waehlen." end
-if d.junction_choice.open > 0 then return false, "Der Knoten hat unbestaetigte Fahrwege oder Konflikte: erst in der Leitstelle bestaetigen." end
-if not d.junction then return false, "Der Knoten wird noch geladen." end
-local _, why = model.junction_from_directory(d.junction)
-if why then return false, why end
+if screen=="2.knoten"then
+local d=session.dir
+if not d.junction_choice then return false,"Bitte einen Knoten waehlen."end
+if d.junction_choice.open>0 then return false,"Der Knoten hat unbestaetigte Fahrwege oder Konflikte: erst in der Leitstelle bestaetigen."end
+if not d.junction then return false,"Der Knoten wird noch geladen."end
+local _,why=model.junction_from_directory(d.junction)
+if why then return false,why end
 end
-if screen == "3.k.pruefen" then
-if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
-local _, why = model.junction_from_directory(session.dir.junction or { connections = {}, routes = {} })
-if why then return false, why end
+if screen=="2.k.pruefen"then
+if session.dir.claiming then return false,"Frage die Leitstelle nach der Kennung ..."end
+local _,why=model.junction_from_directory(session.dir.junction or{connections={},routes={}})
+if why then return false,why end
 end
-if screen == "3.gleise" then
-if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
-local any = false
-for _ in pairs(session.dir.selected or {}) do any = true end
-if not any then return false, "Mindestens ein Gleis uebernehmen." end
+if screen=="2.gleise"then
+if session.dir.claiming then return false,"Frage die Leitstelle nach der Kennung ..."end
+local any=false
+for _ in pairs(session.dir.selected or{})do any=true end
+if not any then return false,"Mindestens ein Gleis uebernehmen."end
 end
-if screen == "4.zuordnung" then
-for _, r in ipairs(w.guided_rows()) do
-if #r.signals == 0 then return false, r.name .. ": Das Signal fehlt noch." end
+if screen=="4.zuordnung"then
+for _,r in ipairs(w.guided_rows())do
+if#r.signals==0 then return false,r.name..": Das Signal fehlt noch."end
 end
-if #w.guided_rows() == 0 then return false, "Keine Gleise uebernommen." end
-local open = w.signal_problems()
-if #open > 0 then return false, open[1].device .. " (" .. open[1].track_name .. "): Wirkrichtung fehlt (Details)." end
-local unordered = w.order_problems()
-if #unordered > 0 then return false, unordered[1].name .. ": Reihenfolge der " .. unordered[1].count .. " Signale bestaetigen (Details)." end
+if#w.guided_rows()==0 then return false,"Keine Gleise uebernommen."end
+local open=w.signal_problems()
+if#open>0 then return false,open[1].device.." ("..open[1].track_name.."): Wirkrichtung fehlt (Details)."end
+local unordered=w.order_problems()
+if#unordered>0 then return false,unordered[1].name..": Reihenfolge der "..unordered[1].count.." Signale bestaetigen (Details)."end
 end
-if screen == "2.name" then return w.step_ok(2, true) end
-if screen == "3.geraete" then return w.step_ok(3, true) end
-if screen == "4.g.name" and not fields(v).gleisname.value:match("%S") then return false, "Der Gleisname fehlt." end
+if screen=="2.name"then return w.step_ok(2,true)end
+if screen=="3.geraete"then return w.step_ok(3,true)end
+if screen=="4.g.name"and not fields(v).gleisname.value:match("%S")then return false,"Der Gleisname fehlt."end
 if track then
-if screen == "4.g.bahnhof" and not track.station then return false, "Bitte eine Train Station zuordnen." end
-if screen == "4.g.signale" and (model.has_role(w.config, "signal") or track.junction and track.junction.role == "ein") and #track.signals == 0 then return false, "Bitte ein Signal zuordnen." end
-if screen == "4.g.beobachter" and track.junction and #track.observers == 0 then return false, "Der Meldepunkt braucht einen Beobachter." end
-if screen == "4.g.ausgang" and not track.release then return false, "Bitte einen Freigabeausgang zuordnen." end
+if screen=="4.g.bahnhof"and not track.station then return false,"Bitte eine Train Station zuordnen."end
+if screen=="4.g.signale"and(model.has_role(w.config,"signal")or track.junction and track.junction.role=="ein")and#track.signals==0 then return false,"Bitte ein Signal zuordnen."end
+if screen=="4.g.beobachter"and track.junction and#track.observers==0 then return false,"Der Meldepunkt braucht einen Beobachter."end
 end
-if screen == "4.gleise" then return w.step_ok(4, true, { anmeldung_station = true }) end
-if screen == "4.anmeldung" then return w.step_ok(4, true) end
-if screen == "4.knoten" then
-local j=w.config.junction; local n=0; for _ in pairs(j.connections) do n=n+1 end
-if n<2 or #j.moves==0 then return false, "Zwei Anschluesse und eine Verbindung sind erforderlich." end
+if screen=="4.gleise"then return w.step_ok(4,true,{anmeldung_station=true})end
+if screen=="4.anmeldung"then return w.step_ok(4,true)end
+if screen=="4.knoten"then
+local j=w.config.junction;local n=0;for _ in pairs(j.connections)do n=n+1 end
+if n<2 or#j.moves==0 then return false,"Zwei Anschluesse und eine Verbindung sind erforderlich."end
 end
-if screen == "5.test" then return w.step_ok(5, true) end
+if screen=="5.test"then return w.step_ok(5,true)end
 return true
 end
 
 function page.hint(v)
-if session.wiz and session.owner == v then
-local ok, why = can_advance(v)
+if session.wiz and session.owner==v then
+local ok,why=can_advance(v)
 if not ok then return why end
 end
-return ""
+return""
 end
 
 function page.navigation(v)
-if not session.wiz or session.owner ~= v then return nil end
-local items = {}
-for i, title in ipairs(wizardlib.STEPS) do
-items[i] = { title = i .. "  " .. title, active = session.wiz.step == i }
+if not session.wiz or session.owner~=v then return nil end
+local items={}
+for i,name in ipairs(wizardlib.STEPS)do
+local active=session.wiz.step==i
+items[i]={title=i.."  "..name,num=tostring(i),name=name,active=active,done=i<session.wiz.step}
 end
 return items
 end
 
 function page.actions(v)
 if session.replace and not session.wiz then
-local st = services.fetch_status and services.fetch_status()
-return {
-{ id = "r_liste", label = session.replace_list and "Eingeben" or "Liste", kind = "secondary" },
-{ id = "r_holen", label = "Holen" },
-{ id = "r_uebernehmen", label = "Uebernehmen", enabled = st ~= nil and st.config ~= nil, reason = "Erst die Konfiguration holen." },
-{ id = "r_abbruch", label = "Abbrechen", kind = "danger", side = "rechts" },
+local st=services.fetch_status and services.fetch_status()
+return{
+{id="r_liste",label=session.replace_list and"Eingeben"or"Liste",kind="secondary"},
+{id="r_holen",label="Holen"},
+{id="r_uebernehmen",label="Uebernehmen",enabled=st~=nil and st.config~=nil,reason="Erst die Konfiguration holen."},
+{id="r_abbruch",label="Abbrechen",kind="danger",side="rechts",far=true},
 }
 end
 if not session.wiz then
-local config = services.config()
-local list = { { id = "start", label = config and "Einrichtung aendern" or "Einrichtung starten" } }
-if not config and services.fetch_config then list[#list + 1] = { id = "ersatz", label = "Ersatz", kind = "secondary" } end
+local config=services.config()
+local list={{id="start",label=config and"Einrichtung aendern"or"Einrichtung starten"}}
+if not config and services.fetch_config then list[#list+1]={id="ersatz",label="Ersatz",kind="secondary"}end
 return list
 end
-if session.owner ~= v then return {} end
-local def = screen_def()
-local list = {}
-if def and def.actions then for _, a in ipairs(def.actions(v)) do list[#list + 1] = a end end
-local hide = def and ((type(def.hide_nav_buttons) == "function" and def.hide_nav_buttons(v)) or def.hide_nav_buttons == true)
-if not hide then
-list[#list + 1] = { id = "zurueck", label = "Zurueck", kind = "secondary", side = "rechts" }
-if session.screen ~= "6.fertig" and not (def and def.no_forward) then
-local ok, why = can_advance(v)
-list[#list + 1] = { id = "weiter", label = "Weiter", side = "rechts", enabled = ok, reason = why }
+if session.owner~=v then return{}end
+local def=screen_def()
+local list,main={},{}
+if def and def.actions then
+for _,a in ipairs(def.actions(v))do
+if a.nav then main[#main+1]=a else list[#list+1]=a end
 end
 end
-local active = session.wiz and session.wiz.was_active
-list[#list + 1] = { id = "entwurf", label = "Entwurf", kind = "secondary", enabled = not active, reason = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." }
-list[#list + 1] = { id = "abbrechen", label = session.cancel_armed and "Wirklich?" or "Abbrechen", kind = "danger", side = "rechts" }
+local hide=def and((type(def.hide_nav_buttons)=="function"and def.hide_nav_buttons(v))or def.hide_nav_buttons==true)
+if hide then
+for _,a in ipairs(main)do list[#list+1]=a end
+else
+list[#list+1]={id="zurueck",label="Zurueck",kind="secondary",side="rechts",nav=true}
+for _,a in ipairs(main)do list[#list+1]=a end
+if session.screen~="6.fertig"and not(def and def.no_forward)then
+local ok,why=can_advance(v)
+list[#list+1]={id="weiter",label="Weiter",side="rechts",enabled=ok,reason=why,nav=true}
+end
+end
+list[#list+1]={id="abbrechen",label=session.cancel_armed and"Wirklich?"or"Abbrechen",kind="danger",side="rechts",nav=true,far=true}
 return list
 end
 
 local function advance(v)
-local def = screen_def()
+local def=screen_def()
 commit(v)
-local allowed, reason = can_advance(v)
-if not allowed then v.hint = reason return true end
-if session.screen == "1.netzwahl" and type(session.net_choice) == "table" then
-session.wiz.set_network(session.net_choice.netz, session.net_choice.zentrale, nil)
+local allowed,reason=can_advance(v)
+if not allowed then v.hint=reason return true end
+if session.screen=="1.netzwahl"and type(session.net_choice)=="table"then
+session.wiz.set_network(session.net_choice.netz,session.net_choice.zentrale,nil)
 end
-if session.screen == "1.netz" and session.wiz.network_name == "" then v.hint = "Der Netzname fehlt." return true end
-if session.screen == "1.zentrale" and session.wiz.central_id == "" then v.hint = "Die Kennung der Leitstelle fehlt." return true end
-if def and def.next then return def.next(v) end
-local seq = sequence()
-local index = index_of(seq, session.screen)
+if session.screen=="1.netz"and session.wiz.network_name==""then v.hint="Der Netzname fehlt."return true end
+if session.screen=="1.zentrale"and session.wiz.central_id==""then v.hint="Die Kennung der Leitstelle fehlt."return true end
+if def and def.next then return def.next(v)end
+local seq=sequence()
+local index=index_of(seq,session.screen)
 if not index then return false end
-local current_step = step_of(session.screen)
-local target = seq[index + 1]
+local current_step=step_of(session.screen)
+local target=seq[index+1]
 if not target then return true end
 
-if step_of(target) ~= current_step then
-local ok, why = session.wiz.step_ok(current_step)
-if not ok then v.hint = why return true end
-elseif session.screen == "2.rollen" then
-local ok, why = session.wiz.step_ok(2)
-if #session.wiz.roles == 0 then v.hint = "Bitte mindestens eine Rolle waehlen." return true end
+if step_of(target)~=current_step then
+local ok,why=session.wiz.step_ok(current_step)
+if not ok then v.hint=why return true end
+elseif session.screen=="2.rollen"then
+local ok,why=session.wiz.step_ok(2)
+if#session.wiz.roles==0 then v.hint="Bitte mindestens eine Rolle waehlen."return true end
 end
-if session.screen == "2.name" then
-local ok, why = session.wiz.step_ok(2)
-if not ok then v.hint = why return true end
+if session.screen=="2.name"then
+local ok,why=session.wiz.step_ok(2)
+if not ok then v.hint=why return true end
 end
-session.stack = {}
+session.stack={}
 goto_screen(target)
-if step_of(target) == 3 then session.wiz.rescan() end
+if step_of(target)==3 then session.wiz.rescan()end
 return true
 end
 
 local function retreat(v)
-if pop() then return true end
-local seq = sequence()
-local index = index_of(seq, session.screen)
-if index and index > 1 then goto_screen(seq[index - 1]) end
+if pop()then return true end
+local seq=sequence()
+local index=index_of(seq,session.screen)
+if index and index>1 then goto_screen(seq[index-1])end
 return true
 end
 
-function page.on_action(v, id)
+function page.on_action(v,id)
 if session.replace and not session.wiz then
-local f = rfields(v)
-local pick = id:match("^sel:r_wahl:(%d+)$")
+local f=rfields(v)
+local pick=id:match("^sel:r_wahl:(%d+)$")
 if pick then
-local b = (session.replace_list or {})[tonumber(pick)]
-if b then f.node.value = b.id end
+local b=(session.replace_list or{})[tonumber(pick)]
+if b then f.node.value=b.id end
 return true
-elseif id == "act:r_liste" then
+elseif id=="act:r_liste"then
 if session.replace_list then
-session.replace_list, session.replace_want = nil, nil
-elseif f.central.value == "" then
-v.hint = "Erst die Kennung der Leitstelle eingeben."
+session.replace_list,session.replace_want=nil,nil
+elseif f.central.value==""then
+v.hint="Erst die Kennung der Leitstelle eingeben."
 elseif services.directory_backups then
-session.replace_want = true
+session.replace_want=true
 services.directory_reset()
 services.directory_backups(f.central.value)
 end
 return true
-elseif id == "act:r_holen" then
-if f.central.value == "" or f.node.value == "" then v.hint = "Beide Kennungen sind noetig." return true end
-session.replace_want = nil
-services.fetch_config(f.central.value, f.node.value)
+elseif id=="act:r_holen"then
+if f.central.value==""or f.node.value==""then v.hint="Beide Kennungen sind noetig."return true end
+session.replace_want=nil
+services.fetch_config(f.central.value,f.node.value)
 return true
-elseif id == "act:r_uebernehmen" then
-local st = services.fetch_status and services.fetch_status()
+elseif id=="act:r_uebernehmen"then
+local st=services.fetch_status and services.fetch_status()
 if st and st.config then
-session.replace, session.replace_list, session.replace_want = nil, nil, nil
-start(v, st.config)
+session.replace,session.replace_list,session.replace_want=nil,nil,nil
+start(v,st.config)
 goto_screen("6.fertig")
-v.hint = "Konfiguration uebernommen: Geraete pruefen, dann speichern."
+v.hint="Konfiguration uebernommen: Geraete pruefen, dann speichern."
 end
 return true
-elseif id == "act:r_abbruch" then
-session.replace, session.replace_list, session.replace_want = nil, nil, nil
+elseif id=="act:r_abbruch"then
+session.replace,session.replace_list,session.replace_want=nil,nil,nil
 return true
-elseif id:match("^input:") then
+elseif id:match("^input:")then
 return true
 end
 return false
 end
 if not session.wiz then
-if id == "act:start" then
-start(v, services.config())
+if id=="act:start"then
+start(v,services.config())
 return true
-elseif id == "act:ersatz" then
-session.replace = true
+elseif id=="act:ersatz"then
+session.replace=true
 return true
 end
 return false
 end
-if session.owner ~= v then return false end
-if id == "act:entwurf" then
-if session.wiz.was_active then v.hint = "Laufende Node: Aenderungen gelten erst mit Aktivieren; Abbrechen verwirft sie." return true end
-commit(v)
-local status, _, err = session.wiz.finish(services.store, services.config_path, true)
-if not status then v.hint = "Speichern fehlgeschlagen: " .. tostring(err) return true end
-services.on_saved(session.wiz.config)
-session.wiz, session.owner = nil, nil
-v.hint = "Entwurf gespeichert; die Node bleibt inaktiv."
-return true
-end
-if id == "act:weiter" then return advance(v) end
-if id == "act:zurueck" or id == "back" then
+if session.owner~=v then return false end
+if id=="act:weiter"then return advance(v)end
+if id=="act:zurueck"or id=="back"then
 commit(v)
 return retreat(v)
 end
-if id == "act:abbrechen" then
+if id=="act:abbrechen"then
 if session.cancel_armed then
-session.wiz, session.owner, session.stack = nil, nil, {}
-v.hint = "Verworfen; gespeicherte Einrichtung bleibt."
+session.wiz,session.owner,session.stack=nil,nil,{}
+v.hint=services.config()and"Verworfen; die laufende Einrichtung bleibt."or"Verworfen. Die Einrichtung kann neu begonnen werden."
 else
-session.cancel_armed = true
-v.hint = "Nochmal druecken verwirft die Eingaben."
+session.cancel_armed=true
+v.hint="Nochmal druecken verwirft die Eingaben."
 end
 return true
 end
-local def = screen_def()
-if def and def.action and def.action(v, id) then return true end
-if id:match("^input:") then
+local def=screen_def()
+if def and def.action and def.action(v,id)then return true end
+if id:match("^input:")then
 commit(v)
 return true
 end
@@ -2001,83 +1998,88 @@ end
 
 function page.poll()
 if session.replace and not session.wiz then
-local st = session.replace_want and dir_status()
-if st and st.kind == "ok" and st.backups then session.replace_list, session.replace_want = st.backups, nil end
+local st=session.replace_want and dir_status()
+if st and st.kind=="ok"and st.backups then session.replace_list,session.replace_want=st.backups,nil end
 return
 end
-local v = session.owner
+local v=session.owner
 if not session.wiz or not v then return end
-local d = session.dir
-local st = dir_status()
+local d=session.dir
+local st=dir_status()
 if not st then return end
-if st.kind == "ok" then
-if st.stations and d.want == "stations" then d.stations, d.want = st.stations, nil end
-if st.junctions and d.want == "junctions" then d.junctions, d.want = st.junctions, nil end
-if st.junction and d.want == "junction" then d.junction, d.want = st.junction, nil end
-if st.areas and d.want == "areas" then
-d.areas, d.want = st.areas, nil
+if st.kind=="ok"then
+if st.stations and d.want=="stations"then d.stations,d.want=st.stations,nil end
+if st.junctions and d.want=="junctions"then d.junctions,d.want=st.junctions,nil end
+if st.junction and d.want=="junction"then d.junction,d.want=st.junction,nil end
+if st.areas and d.want=="areas"then
+d.areas,d.want=st.areas,nil
 if d.preselect then
-for _, a in ipairs(d.areas) do if a.id == d.preselect then choose_area(a) end end
-d.preselect = nil
+for _,a in ipairs(d.areas)do if a.id==d.preselect then choose_area(a)end end
+d.preselect=nil
 end
 end
-if st.area and d.want == "area" then d.area, d.want = st.area, nil end
+if st.area and d.want=="area"then d.area,d.want=st.area,nil end
 if st.node and d.claiming then
-local claiming = d.claiming
-d.claiming = nil
-local role = session.wiz.roles[1]
-if #session.wiz.roles == 1 and role == "anmeldung" then
-session.wiz.anmeldung_begin({ station = claiming.station, claim = d.claim, node = st.node })
-v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+local claiming=d.claiming
+d.claiming=nil
+local role=session.wiz.roles[1]
+if#session.wiz.roles==1 and role=="anmeldung"then
+session.wiz.anmeldung_begin({station=claiming.station,claim=d.claim,node=st.node})
+v.hint="Kennung "..st.node.id.." von der Leitstelle."
 push("3.geraete")
 return
 end
-if role == "knoten" then
-local ok, why = session.wiz.knoten_begin({ junction = claiming.junction, claim = d.claim, node = st.node })
-if not ok then v.hint = why return end
-v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+if role=="knoten"then
+local ok,why=session.wiz.knoten_begin({junction=claiming.junction,claim=d.claim,node=st.node})
+if not ok then v.hint=why return end
+v.hint="Kennung "..st.node.id.." von der Leitstelle."
 push("3.geraete")
 return
 end
-local began, why_begin = session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, roles = session.wiz.roles })
-if not began then v.hint = why_begin return end
-v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
+local began,why_begin=session.wiz.guided_begin({area={id=d.area.id,name=d.area.name,ends=d.area.ends},claim=d.claim,node=st.node,tracks=claiming.tracks,roles=session.wiz.roles})
+if not began then v.hint=why_begin return end
+v.hint="Kennung "..st.node.id.." von der Leitstelle."
 if session.wiz.guided then
 ensure_check()
-session.known_signals = {}
-for _, dev in ipairs(session.wiz.guided_free_signals()) do session.known_signals[dev.name] = true end
+session.known_signals={}
+for _,dev in ipairs(session.wiz.guided_free_signals())do session.known_signals[dev.name]=true end
 push("4.zuordnung")
-select_next_open(v, 0)
+select_next_open(v,0)
 else
 push("3.geraete")
 end
 end
-elseif st.kind == "halt" and d.claiming then
-d.claiming = nil
-v.hint = st.text
+elseif st.kind=="halt"and d.claiming then
+d.claiming=nil
+v.hint=st.text
+
+if tostring(st.text):find("verworfen",1,true)and services.new_claim then
+d.claim=services.new_claim()
+v.hint="Anforderung war verworfen, neue gestellt: bitte Weiter."
+end
 end
 if d.creating then
-if st.kind == "ok" and st.created then
-local created = st.created
-d.creating, d.areas, d.chosen, d.area, d.want, d.preselect = nil, nil, nil, nil, "areas", created.id
-v.hint = "Bereich " .. created.name .. " angelegt."
-if session.screen == "2.b.neu" then pop() end
+if st.kind=="ok"and st.created then
+local created=st.created
+d.creating,d.areas,d.chosen,d.area,d.want,d.preselect=nil,nil,nil,nil,"areas",created.id
+v.hint="Bereich "..created.name.." angelegt."
+if session.screen=="2.b.neu"then pop()end
 services.directory_areas(session.wiz.central_id)
 return
-elseif st.kind == "halt" then
-d.creating = nil
-v.hint = st.text
+elseif st.kind=="halt"then
+d.creating=nil
+v.hint=st.text
 end
 end
 if d.editing then
-if st.kind == "ok" and st.track and st.track.id == d.editing.dir_id then
-d.editing = nil
-local moved = session.wiz.guided_track_update(st.track)
-v.hint = "Gleis geaendert" .. ((moved or 0) > 0 and (": " .. moved .. " Signal(e) neu bewerten (Details).") or ".")
-if session.screen == "4.z.gleis" then pop() end
-elseif st.kind == "halt" then
-d.editing = nil
-v.hint = st.text
+if st.kind=="ok"and st.track and st.track.id==d.editing.dir_id then
+d.editing=nil
+local moved=session.wiz.guided_track_update(st.track)
+v.hint="Gleis geaendert"..((moved or 0)>0 and(": "..moved.." Signal(e) neu bewerten (Details).")or".")
+if session.screen=="4.z.gleis"then pop()end
+elseif st.kind=="halt"then
+d.editing=nil
+v.hint=st.text
 end
 end
 end
@@ -2087,24 +2089,24 @@ function page.tick()
 if not session.wiz or not session.owner then return end
 page.poll()
 if session.checking and session.wiz and session.wiz.pruefung then
-local p = session.wiz.pruefung
-local phase = p.step(0.8)
-if services.mark_dirty then services.mark_dirty() end
-if phase == "fertig" then
-session.checking = false
-if p.all_ok() then
+local p=session.wiz.pruefung
+local phase=p.step(0.8)
+if services.mark_dirty then services.mark_dirty()end
+if phase=="fertig"then
+session.checking=false
+if p.all_ok()then
 activate(session.owner)
 else
-session.owner.hint = "Nicht alles bestanden: Zuordnung oder Sperre pruefen, dann erneut pruefen."
+session.owner.hint="Nicht alles bestanden: Zuordnung oder Sperre pruefen, dann erneut pruefen."
 end
-elseif phase == "abgebrochen" then
-session.checking = false
+elseif phase=="abgebrochen"then
+session.checking=false
 end
 end
 end
 
 
-function page.session() return session end
+function page.session()return session end
 
 return page
 end

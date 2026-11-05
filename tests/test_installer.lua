@@ -329,7 +329,7 @@ return {
     t.ok(not fs.exists("/crn_prev"))
   end },
   { "Ersetzen: schlaegt der Download fehl, sagt der Installer, dass CRN nicht mehr installiert ist und wie es weitergeht", function()
-    local fs, http, env = world()
+    local fs, http, env = world({ fs = { capacity = 800000 } })          -- zwei Staende der Leitstelle passen nicht zugleich
     local fh = fs.open("/installer.lua", "w"); fh.write(string.rep("x", 32061)); fh.close()
     t.eq(run(env, "zentrale", "v0.1.0"), true, env.output())
     w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")

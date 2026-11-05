@@ -106,7 +106,15 @@ function M.new(opts)
           if item.active then c.fill(r.x,y,1,3,S.auswahl) end
         end
       else
-        for _, item in ipairs(custom) do if item.active then c.text(r.x+1,r.y,item.title,S.hell,nil,r.w-2) end end
+        -- Schrittleiste: alle Schritte als Nummer, der aktuelle mit seinem Namen in Klammern; erledigte gruen, kommende gedaempft
+        local x = r.x + 1
+        for _, item in ipairs(custom) do
+          local text = item.active and ("[" .. item.num .. " " .. item.name .. "]") or item.num
+          if x + #text - 1 > r.x + r.w - 1 then break end
+          local fore = item.active and S.hell or (item.done and S.ok or S.gedaempft)
+          c.text(x, r.y, text, fore, item.active and S.haupt or S.navigation, r.w - (x - r.x))
+          x = x + #text + 1
+        end
       end
       return
     end
@@ -166,19 +174,90 @@ function M.new(opts)
     end
   end
 
+  -- Tasten der Einrichtung: unten die Navigation (Zurueck, Weiter; Abbrechen ganz rechts), darueber in einer eigenen Zeile die Tasten des Bildschirms.
+  -- Gibt es keine Navigationstasten (Bestaetigungsbildschirme), bilden die Tasten des Bildschirms die untere Zeile.
+  local function split_actions(list)
+    local nav, tool = {}, {}
+    for _, a in ipairs(list) do if a.nav then nav[#nav + 1] = a else tool[#tool + 1] = a end end
+    if #nav == 0 then nav, tool = tool, {} end
+    return nav, tool
+  end
+
+  -- ordnet Tasten in Zeilen an; was nicht in die Zeile passt, kommt in die naechste (keine Taste wird abgeschnitten oder verdeckt)
+  local function rows_of(list, avail)
+    local rows, row, used = {}, {}, 0
+    for _, a in ipairs(list) do
+      local width = math.min(avail, math.max(8, #a.label + 2))
+      if #row > 0 and used + 1 + width > avail then rows[#rows + 1] = row; row, used = {}, 0 end
+      row[#row + 1] = { a = a, w = width }
+      used = used + (#row > 1 and 1 or 0) + width
+    end
+    if #row > 0 then rows[#rows + 1] = row end
+    return rows
+  end
+
+  -- Plan der Einrichtungsseite: Zeilen der Tasten (von unten nach oben), Hinweis (2 Zeilen) und Arbeitsbereich dazwischen
+  local function plan_einrichtung()
+    local L = v.layout
+    local page = v.current_page()
+    local nav, tool = split_actions(page.actions and page.actions(v) or {})
+    local bh = L.action_row_h
+    local th = (L.mode == "gross") and 3 or 1
+    local avail = L.actions.w - 2
+    local plan = { nav = {}, tool = {} }
+    local y = L.actions.y + L.actions.h - 1
+    local nav_rows = rows_of(nav, avail)
+    for i = #nav_rows, 1, -1 do
+      local row = nav_rows[i]
+      local top = y - bh + 1
+      local entry = { y = top, h = bh, items = {} }
+      local x = L.actions.x + 1
+      if #nav_rows == 1 then
+        local far = {}
+        for _, it in ipairs(row) do if it.a.far then far[#far + 1] = it end end
+        local right = L.actions.x + L.actions.w - 2
+        for j = #far, 1, -1 do entry.items[#entry.items + 1] = { a = far[j].a, x = right - far[j].w + 1, w = far[j].w }; right = right - far[j].w - 1 end
+        for _, it in ipairs(row) do
+          if not it.a.far then entry.items[#entry.items + 1] = { a = it.a, x = x, w = it.w }; x = x + it.w + 1 end
+        end
+      else
+        for _, it in ipairs(row) do entry.items[#entry.items + 1] = { a = it.a, x = x, w = it.w }; x = x + it.w + 1 end
+      end
+      plan.nav[#plan.nav + 1] = entry
+      y = top - 1
+    end
+    -- y ist jetzt die erste freie Zeile ueber der Navigation; die Tasten des Bildschirms folgen mit einer freien Zeile Abstand
+    local tool_rows = rows_of(tool, avail)
+    if #tool_rows > 0 then
+      y = y - 1
+      for i = #tool_rows, 1, -1 do
+        local top = y - th + 1
+        local entry = { y = top, h = th, items = {} }
+        local x = L.actions.x + 1
+        for _, it in ipairs(tool_rows[i]) do entry.items[#entry.items + 1] = { a = it.a, x = x, w = it.w }; x = x + it.w + 1 end
+        plan.tool[#plan.tool + 1] = entry
+        y = top - 1
+      end
+    end
+    -- Hinweis: zwei Zeilen darueber, dann der Arbeitsbereich
+    plan.hint = { x = L.hint.x, y = y - 1, w = L.hint.w, h = 2 }
+    return plan
+  end
+
   local function draw_actions()
     local r = v.layout.actions
     local page = v.current_page()
     v.canvas.fill(r.x, r.y, r.w, r.h, S.hintergrund)
     if not page.actions then return end
     if page.id == "einrichtung" then
-      local x,y=r.x+1,r.y
-      local h=v.layout.action_row_h
-      for _, a in ipairs(page.actions(v)) do
-        local width=math.min(r.w-2,math.max(8,#a.label+2))
-        if x > r.x+1 and x+width > r.x+r.w-1 then x=r.x+1; y=y+h end
-        W.button(v,"act:"..a.id,x,y,width,h,a.label,{kind=a.kind or "primary",enabled=a.enabled,reason=a.reason})
-        x=x+width+1
+      local plan = v.einr_plan
+      for _, rows in ipairs({ plan.nav, plan.tool }) do
+        for _, row in ipairs(rows) do
+          for _, it in ipairs(row.items) do
+            local a = it.a
+            W.button(v, "act:" .. a.id, it.x, row.y, it.w, row.h, a.label, { kind = a.kind or "primary", enabled = a.enabled, reason = a.reason })
+          end
+        end
       end
       return
     end
@@ -230,18 +309,13 @@ function M.new(opts)
       draw_status_only()
     else
       v.layout = layout.compute(size_w, size_h)
+      v.einr_plan = nil
       if v.current_page().id == "einrichtung" then
-        local actions = v.current_page().actions and v.current_page().actions(v) or {}
-        local row_w, rows = 0, 1
-        for _, a in ipairs(actions) do
-          local aw = math.min(v.layout.actions.w-2, math.max(8,#a.label+2))
-          if row_w > 0 and row_w+aw+1 > v.layout.actions.w-2 then rows=rows+1; row_w=0 end
-          row_w=row_w+aw+1
-        end
-        local height=rows*v.layout.action_row_h
-        local delta=math.max(0,height-v.layout.actions.h)
-        v.layout.actions.y=v.layout.actions.y-delta; v.layout.actions.h=v.layout.actions.h+delta
-        v.layout.hint.y=v.layout.hint.y-delta; v.layout.work.h=v.layout.work.h-delta
+        local plan = plan_einrichtung()
+        v.einr_plan = plan
+        local top = (v.layout.mode == "gross") and v.layout.work.y or 3
+        v.layout.hint = plan.hint
+        v.layout.work = { x = v.layout.work.x, y = top, w = v.layout.work.w, h = math.max(1, plan.hint.y - top) }
       end
       local c = v.canvas
       c.clear(S.hintergrund)
@@ -254,8 +328,11 @@ function M.new(opts)
       c.fill(hr.x, hr.y, hr.w, hr.h, S.hintergrund)
       local text = v.hint
       if text == "" and v.current_page().hint then text = v.current_page().hint(v) or "" end
-      for i, line in ipairs(W.wrap(text, hr.w - 2)) do
-        if i <= hr.h then c.text(hr.x + 1, hr.y + i - 1, line, S.wartend, S.hintergrund, hr.w - 2) end
+      local parts = W.wrap(text, hr.w - 2)
+      for i = 1, math.min(#parts, hr.h) do
+        local line = parts[i]
+        if i == hr.h and #parts > hr.h then line = W.fit(table.concat(parts, " ", i), hr.w - 2) end
+        c.text(hr.x + 1, hr.y + i - 1, line, S.wartend, S.hintergrund, hr.w - 2)
       end
       draw_actions()
     end

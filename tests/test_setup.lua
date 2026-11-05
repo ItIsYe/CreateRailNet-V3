@@ -79,7 +79,8 @@ return {
   { "leere Konfiguration nennt die fehlenden Angaben", function()
     local c = model.new("", {}, {})
     local codes = problem_codes(model.validate(c, {}))
-    for _, code in ipairs({ "name", "rolle", "netz", "zentrale" }) do t.contains(codes, code) end
+    for _, code in ipairs({ "rolle", "netz", "zentrale" }) do t.contains(codes, code) end
+    t.ok(not has_code(model.validate(c, {}), "name"), "der Name blockiert nie")
   end },
   { "unbekannte Rolle wird gemeldet", function()
     local c = model.new("X", { "lokfuehrer" }, { name = "N", central_id = "z" })
@@ -148,7 +149,7 @@ return {
     c.tracks[g2].release = { relay = "redstone_relay_0", side = "back" }
     t.ok(not has_code(model.validate(c, scan), "ausgang_doppelt"))
   end },
-  { "Bahnhofsgleis braucht Bahnhof und Freigabeausgang, Depotgleis keinen Ausgang, Signalgleis ein Signal", function()
+  { "Bahnhofsgleis braucht einen Bahnhof, aber keinen Freigabeausgang (die Freigabe laeuft ueber die Station); Signalgleis ein Signal", function()
     local w = world()
     local scan = detect.scan(w.peripheral)
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
@@ -157,7 +158,11 @@ return {
     t.contains(codes, "gleis_bahnhof")
     local s = model.add_device(c, "station", "Create_Station_1")
     model.assign(c, g, "station", s)
-    t.contains(problem_codes(model.validate(c, scan)), "gleis_ausgang")
+    t.eq(#model.validate(c, scan), 0, "kein Ausgang noetig: " .. problem_codes(model.validate(c, scan)))
+    c.tracks[g].release = { side = "back" }
+    t.eq(#model.validate(c, scan), 0, "ein vorhandener Ausgang aus aelterer Einrichtung bleibt gueltig")
+    c.tracks[g].release = { side = "nirgends" }
+    t.contains(problem_codes(model.validate(c, scan)), "ausgang_seite")
     local d = model.new("Depot", { "depot" }, { name = "N", central_id = "z" })
     local dg = model.add_track(d, "Abstell 1")
     local ds = model.add_device(d, "station", "Create_Station_1")
@@ -228,7 +233,7 @@ return {
     c.devices.station1 = {kind="station", device="Create_Station_1"}
     t.eq(#model.validate(c, detect.scan(w.peripheral)), 0)
   end },
-  { "Vorlage kopiert Struktur und Standardwerte, aber keine Geraete; Entwurf", function()
+  { "Vorlage kopiert Struktur und Standardwerte, aber keine Geraete; Gleis bleibt offen", function()
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
     local g1 = model.add_track(c, "Gleis 1")
     c.tracks[g1].direction = "hin"
@@ -242,7 +247,7 @@ return {
     local copy = c.tracks[g2]
     t.eq(copy.direction, "hin"); t.eq(copy.length, 12)
     t.eq(copy.station, nil); t.eq(#copy.signals, 0); t.eq(copy.release, nil)
-    t.eq(copy.status, "entwurf")
+    t.eq(copy.status, "offen")
     t.eq(copy.name, "Gleis 2")
     t.eq(model.copy_track(c, "nix", "x"), nil)
   end },
@@ -289,12 +294,17 @@ return {
     t.eq(wiz.next(), true)
     t.eq(wiz.step, 2)
   end },
-  { "Schritt 2: Name, Rolle, Leitstelle nur beim Erstellen eines Netzes", function()
+  { "Schritt 2: Rolle, Leitstelle nur beim Erstellen eines Netzes; der Name blockiert nie (leer gilt ein Vorschlag)", function()
     local wiz = start(world())
     wiz.set_network("Testnetz")
     wiz.next()
     local ok, why = wiz.next()
-    t.eq(ok, false); t.contains(why, "Namen")
+    t.eq(ok, false); t.contains(why, "mindestens eine Rolle")
+    t.ok(not why:find("Namen", 1, true), "kein Zwang zum Namen")
+    wiz.set_name("   ")
+    t.eq(wiz.name, "", "nur Leerzeichen gelten als leer")
+    t.ok(wiz.config.node.name:match("%S"), "Vorschlag statt leerem Namen")
+    t.eq(wiz.config.node.id, require("setup.model").slug(wiz.config.node.name))
     wiz.set_name("Hauptstelle")
     wiz.set_mode("join")
     wiz.set_network(nil, "z")
@@ -509,29 +519,30 @@ return {
     t.eq(wiz.test_state("ausgang:" .. g1), "offen", "anderer Ausgang")
   end },
   -- Fertig ------------------------------------------------------------------------------------------------------------------------------------
-  { "Fertig: ohne Pruefungen nur Entwurf, mit allen Pruefungen aktiv; Revision steigt; gespeichert und lesbar", function()
+  { "Fertig: ohne Pruefungen wird nichts gespeichert (kein Entwurf); mit allen Pruefungen aktiv; Revision steigt; gespeichert und lesbar", function()
     local w = world()
     local fs = cc.fs()
     fs.makeDir("/crn_data")
     local store = storelib.new(fs)
     local wiz = station_config(w)
-    local status, problems = wiz.finish(store, "/crn_data/config.lua")
-    t.eq(status, "entwurf")
-    t.eq(wiz.config.revision, 2)
-    local saved = store.load("/crn_data/config.lua")
-    t.eq(saved.status, "entwurf")
+    local status, problems, why = wiz.finish(store, "/crn_data/config.lua")
+    t.eq(status, nil)
+    t.contains(why, "nicht vollstaendig")
+    t.ok(not fs.exists("/crn_data/config.lua"), "kein Entwurf auf dem Computer")
+    t.eq(wiz.config.revision, 1)
+    t.eq(wiz.config.status, "offen")
     for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, test.kind == "schalten") end
     t.eq(wiz.all_tests_ok(), true)
     status, problems = wiz.finish(store, "/crn_data/config.lua")
     t.eq(status, "aktiv", problem_codes(problems))
-    t.eq(wiz.config.revision, 3)
-    saved = store.load("/crn_data/config.lua")
+    t.eq(wiz.config.revision, 2)
+    local saved = store.load("/crn_data/config.lua")
     t.eq(saved.status, "aktiv")
     t.eq(saved.node.id, "westbahnhof")
     t.eq(saved.tracks.gleis1.status, "aktiv")
     t.ok(saved.tests["lesen:station1"].ok)
   end },
-  { "Fertig: ein fehlendes Geraet macht die Einrichtung zum Entwurf", function()
+  { "Fertig: ein fehlendes Geraet verhindert das Aktivieren, es wird nichts gespeichert", function()
     local w = world()
     local fs = cc.fs()
     fs.makeDir("/crn_data")
@@ -540,17 +551,20 @@ return {
     w.detach("Create_Station_2")
     wiz.rescan()
     local status, problems = wiz.finish(storelib.new(fs), "/crn_data/config.lua")
-    t.eq(status, "entwurf")
+    t.eq(status, nil)
     t.ok(has_code(problems, "geraet_fehlt"))
-    t.eq(wiz.config.tracks.gleis1.status, "entwurf", "betroffene Betriebsfunktion bleibt inaktiv")
+    t.ok(not fs.exists("/crn_data/config.lua"))
+    t.eq(wiz.config.status, "offen")
   end },
-  { "Fertig: Speichern scheitert -> Fehler wird gemeldet", function()
+  { "Fertig: Speichern scheitert -> Fehler wird gemeldet, die Einrichtung bleibt offen", function()
     local w = world()
     local wiz = station_config(w)
+    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, test.kind == "schalten") end
     local failing = { save = function() return nil, "Platte voll" end }
     local status, problems, err = wiz.finish(failing, "/x")
     t.eq(status, nil)
     t.eq(err, "Platte voll")
+    t.eq(wiz.config.status, "offen")
   end },
   { "Leitstelle, Depot und Anmeldung durchlaufen den Assistenten bis aktiv", function()
     local w = world()
@@ -585,6 +599,7 @@ return {
     local fs = cc.fs(); fs.makeDir("/crn_data")
     local store = storelib.new(fs)
     local first = station_config(w)
+    for _, test in ipairs(first.tests()) do first.run_test(test.id, test.kind == "schalten") end
     first.finish(store, "/crn_data/config.lua")
     local saved = store.load("/crn_data/config.lua")
     local again = start(w, saved)

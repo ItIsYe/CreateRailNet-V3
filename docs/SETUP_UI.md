@@ -12,8 +12,15 @@ und laesst den bisherigen Verlauf als normalen Text stehen. Auf kleinen Flaechen
 (51x19) belegt jeder Auswahleintrag nur eine Zeile, damit der Text Platz behaelt.
 
 Der Setup-Assistent zeigt auf grossen Ausgaben einen festen Schrittstreifen und
-einen Kontextbereich. Die kompakte Ansicht arbeitet mit denselben Pruefungen.
-Aktionsflaechen werden umgebrochen; fehlender Platz entfernt keine Aktion.
+einen Kontextbereich. Die kompakte Ansicht (51x19) arbeitet mit denselben Pruefungen.
+
+**Aufbau jedes Bildes (kompakt).** Zeile 2 ist die **Schrittleiste**: alle sechs Schritte als Nummern, der aktuelle mit Namen in Klammern (`1 2 [3 Geraete] 4 5 6`; erledigte gruen, kommende gedaempft). Die sechs Schritte heissen **Netz** (1), **Aufgabe** (2: Rolle, Bereich, Gleise des Bereichs, Betriebsstelle, Knoten), **Geraete** (3), **Gleise** (4: Gleise, Bahnhof, Signale, Beobachter), **Test** (5) und **Fertig** (6). Darunter steht die Ueberschrift des Bildes ("Gleise uebernehmen", "Bahnhof zuordnen" ...) und eine Zeile Erklaerung. **Unten immer dieselbe Navigation:** `Zurueck`, `Weiter` links, `Abbrechen` ganz rechts (zweimal antippen). Die Tasten des jeweiligen Bildes (Neu, Bearbeiten, Zuordnen, Signal, Details ...) stehen in einer eigenen Zeile darueber, mit einer freien Zeile Abstand. Bildschirme ohne Weiter (Pruefen+Aktivieren, Aktivieren, Anlegen) setzen ihre Haupttaste neben Zurueck. Der **Hinweis** ueber den Tasten hat zwei Zeilen und wird umgebrochen; nichts wird abgeschnitten. Passen Titel und Einzelheit einer Listenzeile nicht nebeneinander, belegt der Eintrag zwei Zeilen. Die Fusszeile "Seite 1/1" erscheint nur, wenn die Liste mehrere Seiten hat. Passen die Tasten nicht in eine Zeile, kommen die uebrigen in die naechste; keine Taste wird verdeckt.
+
+**Kein Entwurf.** Auf dem Computer wird nur eine vollstaendige, geprueft aktivierte Einrichtung gespeichert (`/crn_data/config.lua` mit Status "aktiv"). Waehrend der Einrichtung lebt alles im Arbeitsspeicher; nach einem Neustart oder Update beginnt der Assistent von vorn. Damit die Leitstelle keine zweite Kennung vergibt, merkt sich der Computer nur seine **Anforderungskennung** (`/crn_data/anforderung.lua`): derselbe Computer bekommt immer wieder dieselbe Node-Kennung (N0001 ...). Hat die Leitstelle die Anforderung verworfen, stellt der Assistent von selbst eine neue. Ein Entwurf aus einer aelteren Programmversion wird beim ersten Start vom Integrator verworfen (Sicherung bleibt; Anforderungskennung und eine stehengebliebene Testsperre-Marke werden uebernommen).
+
+**Name.** Der Name der Node ist nur Anzeige und blockiert nie: im Verzeichnis vergibt die Leitstelle Name und Kennung, von Hand schlaegt der Assistent einen Namen vor (Feld leeren geht), ohne Namen gilt die Kennung (Titelzeile, Uebersicht).
+
+**Freigabe der Abfahrt.** Der Assistent fragt keinen Freigabeausgang (Redstone am Computer) mehr: die Freigabe soll allein ueber die Train Station laufen (Fahrplan, siehe `docs/FREIGABE_PER_FAHRPLAN.md`). Ausgaenge aelterer Einrichtungen bleiben gueltig und laufen unveraendert weiter.
 
 ## Gefuehrte Einrichtung einer Signal-Node (Netzverzeichnis)
 
@@ -32,7 +39,7 @@ Das Netz wird einmal zentral beschrieben, jede Signal-Node uebernimmt daraus ihr
 
 **Abschlusspruefung (Konzept 13).** Reihenfolge: Pflichtangaben (Modem, Kennung der Leitstelle, Gleise, Signale, Geraete angeschlossen), dann je Signal lesen und eine kurze eigene Testsperre setzen, zuruecklesen, aufheben, zuruecklesen. Sie laeuft Schritt fuer Schritt im Sekundentakt (hoechstens etwa 0,8 s Arbeit je Takt), zeigt Signal fuer Signal den Fortschritt und laesst sich mit "Stoppen" abbrechen; es bleibt nie eine Testsperre zurueck, weil ein einzelner Test nicht unterbrochen wird. Eine schon gesetzte Sperre (Betrieb oder fremd) wird nie fuer den Test aufgehoben: das Signal bleibt "gesperrt" und die Pruefung offen, bis die Sperre weg ist. Ergebnisse gelten je Signal: ein Umbenennen kostet nichts, ein anderes Geraet macht nur dieses Ergebnis ungueltig; "Erneut pruefen" prueft nur die offenen. Vor jeder Testsperre wird der Entwurf mit einer Marke gespeichert; faellt der Computer dabei aus, erkennt der Start die Marke, hebt eine stehengebliebene Testsperre auf und meldet es. Kann der Entwurf nicht gespeichert werden, wird nicht geschaltet.
 
-**Grenzen (bewusst, siehe Konzept 2 und 13.6).** Die Pruefung beweist weder die reale Lage eines Signals noch die Absicherung der Strecke. Kann die Leitstelle nicht erreicht werden, gibt es keine Kennung: die Einrichtung bleibt Entwurf ("Von Hand" geht trotzdem). Bahnhof-, Depot-, Anmeldung- und Knoten-Nodes werden im selben Ablauf eingerichtet (siehe unten und `docs/NETZVERZEICHNIS.md`). Eine bereits eingerichtete Node kann ueber "Einrichtung aendern" in das Verzeichnismodell uebernommen werden (siehe unten). Eine nie aktivierte Anforderung (abgebrochene Einrichtung) steht in der Leitstelle auf der Seite Netz als RESERVIERT und laesst sich dort verwerfen; die Kennung bleibt vergeben.
+**Grenzen (bewusst, siehe Konzept 2 und 13.6).** Die Pruefung beweist weder die reale Lage eines Signals noch die Absicherung der Strecke. Kann die Leitstelle nicht erreicht werden, gibt es keine Kennung: die Einrichtung laesst sich nicht abschliessen ("Von Hand" geht trotzdem). Bahnhof-, Depot-, Anmeldung- und Knoten-Nodes werden im selben Ablauf eingerichtet (siehe unten und `docs/NETZVERZEICHNIS.md`). Eine bereits eingerichtete Node kann ueber "Einrichtung aendern" in das Verzeichnismodell uebernommen werden (siehe unten). Eine nie aktivierte Anforderung (abgebrochene Einrichtung) steht in der Leitstelle auf der Seite Netz als RESERVIERT und laesst sich dort verwerfen; die Kennung bleibt vergeben.
 
 **Abgleich mit dem Verzeichnis (Konzept 15).** Eine aktive, ueber das Verzeichnis eingerichtete Signal-Node fragt zwanzig Sekunden nach dem Start und danach alle zehn Minuten nach Namen und Richtungen ihrer Gleise. Auf der Seite **Signale** steht das Ergebnis (stimmt / Abweichung / frage / keine Antwort); eine Abweichung wird einmal gemeldet und nur auf Druck von **"Uebernehmen"** uebernommen (Name, Richtung, Bereich, Stand, Wirkrichtung der Signale; die Konfiguration wird gespeichert, bei einem Speicherfehler bleibt alles wie vorher). Wird dabei eine Wirkrichtung offen (die Richtung ist jetzt "beide" und die bisherige Wirkrichtung ist kein Anschluss des Bereichs mehr), steht das im Hinweis und als Meldung; die Schaltpruefungen bleiben gueltig, die Wirkrichtung ist unter "Einrichtung aendern" festzulegen. **"Abgleich"** fragt sofort. Antwortet die Leitstelle nicht oder unlesbar, bleibt die lokale Einrichtung unveraendert und es wird keine Abweichung behauptet. Ein im Verzeichnis geloeschtes Gleis wird gezeigt, aber nie automatisch entfernt.
 
@@ -108,10 +115,9 @@ jeweiligen Hauptschritt geprueft. Die Aktivierung prueft nochmals frisch.
 Gesperrte Aktionen werden auch bei Tastatur und direkter Aktionsausloesung
 abgewiesen. Ein Geraeteausfall entwertet die bisherigen Testnachweise.
 Konfigurationsaenderungen entwerten Tests ueber eine Konfigurationssignatur.
-Ein Entwurf kann bei einer neuen oder bereits als Entwurf gespeicherten Node
-jederzeit gespeichert werden und startet keinen aktiven Betrieb. Bei einer
-laufenden (aktiven) Node ist "Entwurf" gesperrt: die Bearbeitung erfolgt auf
-einer Kopie, die erst mit "Aktivieren" gespeichert wird; "Abbrechen" verwirft sie.
+Es gibt keinen Entwurf: gespeichert wird erst mit "Aktivieren". Bei einer
+laufenden (aktiven) Node erfolgt die Bearbeitung auf einer Kopie, die erst mit
+"Aktivieren" gespeichert wird; "Abbrechen" verwirft sie.
 Das Zeichnen liest die Geraete nicht neu; neu gelesen wird bei "Neu lesen", beim
 Betreten von Schritt 3, bei "Weiter" und bei der Aktivierung.
 Wer eine Rolle abwaehlt, zu der schon Geraete oder Gleise gewaehlt sind, bekommt
@@ -123,10 +129,10 @@ vorher gesagt, was entfaellt, und muss erneut antippen.
    und fremdes Startprogramm pruefen. Lange Hinweise und alle Rollen erreichen.
 2. Setup auf 51x19, 100x40 und Schwarzweiss pruefen; Touch, Tastatur und Resize.
 3. Signalrolle: keine Stations-/Depotzuordnung anbieten; ohne Signal nicht weiter.
-4. Bahnhof: ohne Station oder Ausgang nicht zum Test; Depot ohne Ausgang zulassen.
+4. Bahnhof: ohne Station nicht zum Test; es gibt keine Frage nach einem Ausgang.
 5. Signal direkt vor Aktivierung abziehen: Aktivierung blockiert. Nach Wiederanschluss
    erneut pruefen. Native Create-Signalsicherung bleibt massgeblich.
-6. Tests auslassen: Weiter blockiert, Entwurf speichern funktioniert nach Neustart.
+6. Tests auslassen: Weiter blockiert; nach einem Neustart beginnt die Einrichtung von vorn, die Node behaelt ihre Kennung.
 7. Zuordnung nach bestandenen Tests aendern: Tests erneut erforderlich.
 
 Offline-Pruefungen ersetzen diese Spielabnahme nicht. Kein automatischer Merge.

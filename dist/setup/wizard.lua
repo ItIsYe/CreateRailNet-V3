@@ -4,209 +4,218 @@
 
 
 
-local model = require("setup.model")
-local ser = require("core.ser")
-local adler = require("core.adler")
-local detect = require("dev.detect")
-local stationlib = require("dev.station")
-local signallib = require("dev.signal")
-local observerlib = require("dev.observer")
-local outlib = require("dev.out")
+local model=require("setup.model")
+local label=require("core.label")
+local ser=require("core.ser")
+local adler=require("core.adler")
+local detect=require("dev.detect")
+local stationlib=require("dev.station")
+local signallib=require("dev.signal")
+local observerlib=require("dev.observer")
+local outlib=require("dev.out")
 
-local M = {}
-
-
-local SELECTABLE = { station = true, signal = true, observer = true, relay = true, monitor = true, displaylink = true }
-
-M.STEPS = { "Anlage", "Rolle", "Geraete", "Gleise", "Test", "Fertig" }
+local M={}
 
 
-M.SIGNAL_USES = { "strecke", "einfahrt", "ausfahrt" }
-M.USE_TEXT = { strecke = "Streckensignal", einfahrt = "Knoteneinfahrt", ausfahrt = "Knotenausfahrt" }
+local SELECTABLE={station=true,signal=true,observer=true,relay=true,monitor=true,displaylink=true}
+
+M.STEPS={"Netz","Aufgabe","Geraete","Gleise","Test","Fertig"}
+
+
+M.SIGNAL_USES={"strecke","einfahrt","ausfahrt"}
+M.USE_TEXT={strecke="Streckensignal",einfahrt="Knoteneinfahrt",ausfahrt="Knotenausfahrt"}
 
 function M.new(opts)
-local w = { step = 1, mode = "create", network_name = "", central_id = "", key = "", name = "", roles = {}, scan = opts.scan() }
-local env = opts.env
-local existing = opts.existing
+local w={step=1,mode="create",network_name="",central_id="",key="",name="",roles={},scan=opts.scan()}
+local env=opts.env
+local existing=opts.existing
 
-w.was_active = existing ~= nil and existing.status == "aktiv"
-if not existing and opts.role_available and not opts.role_available("zentrale") then w.mode = "join" end
+w.was_active=existing~=nil and existing.status=="aktiv"
+if not existing and opts.role_available and not opts.role_available("zentrale")then w.mode="join"end
 
-w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
+w.config=existing and assert(ser.decode(ser.encode(existing)))or model.new("",{},{})
 
-local function single_role(list, name) return #list == 1 and list[1] == name end
-w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv" and single_role(existing.node.roles, "signal")) or nil
-w.claimed_id = (existing ~= nil and existing.node.claimed == true) and existing.node.id or nil
+w.guided=nil
+w.claimed_id=(existing~=nil and existing.node.claimed==true)and existing.node.id or nil
 if existing then
-w.network_name = existing.network.name
-w.central_id = existing.network.central_id or ""
-w.key = existing.network.key or ""
-w.name = existing.node.name
-w.roles = {}
-for _, r in ipairs(existing.node.roles) do w.roles[#w.roles + 1] = r end
-w.mode = model.has_role(existing, "zentrale") and "create" or "join"
+w.network_name=existing.network.name
+w.central_id=existing.network.central_id or""
+w.key=existing.network.key or""
+w.name=existing.node.name
+w.roles={}
+for _,r in ipairs(existing.node.roles)do w.roles[#w.roles+1]=r end
+w.mode=model.has_role(existing,"zentrale")and"create"or"join"
 end
 
-local function has(list, v)
-for _, x in ipairs(list) do if x == v then return true end end
+local function has(list,v)
+for _,x in ipairs(list)do if x==v then return true end end
 return false
 end
 
 local function sync_config()
-local c = w.config
-c.network.name = w.network_name
-c.network.central_id = (w.mode == "join" and w.central_id ~= "") and w.central_id or nil
-c.network.key = (w.key ~= "") and w.key or nil
-c.node.name = w.name
-if not existing then c.node.id = w.claimed_id or model.slug(w.name) end
-c.node.roles = {}
-for _, r in ipairs(model.ROLES) do if has(w.roles, r) then c.node.roles[#c.node.roles + 1] = r end end
+local c=w.config
+c.network.name=w.network_name
+c.network.central_id=(w.mode=="join"and w.central_id~="")and w.central_id or nil
+c.network.key=(w.key~="")and w.key or nil
+
+c.node.name=(w.name~=""or w.claimed_id or existing)and w.name or w.suggest_name()
+if not existing then c.node.id=w.claimed_id or model.slug(c.node.name)end
+c.node.roles={}
+for _,r in ipairs(model.ROLES)do if has(w.roles,r)then c.node.roles[#c.node.roles+1]=r end end
 end
 
 function w.rescan()
-w.scan = opts.scan()
-for _, d in pairs(w.config.devices) do
-local found = detect.find(w.scan, d.device)
-if not found or found.kind ~= d.kind or #detect.missing(d.kind, found) > 0 then w.config.tests = {} end
+w.scan=opts.scan()
+for _,d in pairs(w.config.devices)do
+local found=detect.find(w.scan,d.device)
+if not found or found.kind~=d.kind or#detect.missing(d.kind,found)>0 then w.config.tests={}end
 end
 end
 
 
 function w.set_mode(mode)
-w.mode = mode
-if mode == "create" and #w.roles == 0 and has(w.available_roles(), "zentrale") then w.roles = { "zentrale" } end
+w.mode=mode
+if mode=="create"and#w.roles==0 and has(w.available_roles(),"zentrale")then w.roles={"zentrale"}end
 sync_config()
 end
-function w.set_network(name, central, key)
-w.network_name, w.central_id, w.key = name or w.network_name, central or w.central_id, key or w.key
+function w.set_network(name,central,key)
+w.network_name,w.central_id,w.key=name or w.network_name,central or w.central_id,key or w.key
 sync_config()
 end
-function w.set_name(name) w.name = name; sync_config() end
+
+local NAME_BASE={zentrale="Leitstelle",passagierbahnhof="Bahnhof",gueterbahnhof="Gueterbahnhof",depot="Depot",signal="Signal",knoten="Knoten",anmeldung="Anmeldung"}
+function w.suggest_name()
+w.name_number=w.name_number or math.random(100,999)
+return(NAME_BASE[w.roles[1]or""]or"Node").." "..w.name_number
+end
+function w.set_name(name)
+w.name=name:match("%S")and name or""
+sync_config()
+end
 function w.available_roles()
-local roles = {}
-for _, role in ipairs(model.ROLES) do if not opts.role_available or opts.role_available(role) then roles[#roles+1]=role end end
+local roles={}
+for _,role in ipairs(model.ROLES)do if not opts.role_available or opts.role_available(role)then roles[#roles+1]=role end end
 return roles
 end
 
 
 function w.removal_effect(role)
-local effect = { devices = 0, tracks = 0 }
-if not has(w.roles, role) then return effect end
-local roles = {}
-for _, r in ipairs(w.roles) do if r ~= role then roles[#roles + 1] = r end end
-local p = model.profile({ node = { roles = roles } })
-for _, d in pairs(w.config.devices) do if not p.allowed[d.kind] then effect.devices = effect.devices + 1 end end
-if not p.tracks then for _ in pairs(w.config.tracks) do effect.tracks = effect.tracks + 1 end end
+local effect={devices=0,tracks=0}
+if not has(w.roles,role)then return effect end
+local roles={}
+for _,r in ipairs(w.roles)do if r~=role then roles[#roles+1]=r end end
+local p=model.profile({node={roles=roles}})
+for _,d in pairs(w.config.devices)do if not p.allowed[d.kind]then effect.devices=effect.devices+1 end end
+if not p.tracks then for _ in pairs(w.config.tracks)do effect.tracks=effect.tracks+1 end end
 return effect
 end
 
 
-function w.toggle_role(role, confirmed)
-if not has(w.available_roles(), role) then return false end
+function w.toggle_role(role,confirmed)
+if not has(w.available_roles(),role)then return false end
 local removed
-if has(w.roles, role) then
-local effect = w.removal_effect(role)
-if (effect.devices > 0 or effect.tracks > 0) and not confirmed then return false, "bestaetigen", effect end
-removed = effect
+if has(w.roles,role)then
+local effect=w.removal_effect(role)
+if(effect.devices>0 or effect.tracks>0)and not confirmed then return false,"bestaetigen",effect end
+removed=effect
 end
-if has(w.roles, role) then
-local kept = {}
-for _, r in ipairs(w.roles) do if r ~= role then kept[#kept + 1] = r end end
-w.roles = kept
+if has(w.roles,role)then
+local kept={}
+for _,r in ipairs(w.roles)do if r~=role then kept[#kept+1]=r end end
+w.roles=kept
 else
-w.roles[#w.roles + 1] = role
+w.roles[#w.roles+1]=role
 end
 sync_config()
 
-if w.guided and not (#w.roles == 1 and w.roles[1] == "signal") then w.guided = nil end
-local p = model.profile(w.config)
-local remove = {}
-for id, d in pairs(w.config.devices) do if not p.allowed[d.kind] then remove[#remove+1]=id end end
-for _,id in ipairs(remove) do model.remove_device(w.config,id) end
-if not p.release then for _,track in pairs(w.config.tracks) do track.release=nil end end
-if not model.has_role(w.config,"anmeldung") then w.config.registration_station=nil end
-if not model.has_role(w.config,"knoten") then
+if w.guided and not(#w.roles==1 and w.roles[1]=="signal")then w.guided=nil end
+local p=model.profile(w.config)
+local remove={}
+for id,d in pairs(w.config.devices)do if not p.allowed[d.kind]then remove[#remove+1]=id end end
+for _,id in ipairs(remove)do model.remove_device(w.config,id)end
+if not p.release then for _,track in pairs(w.config.tracks)do track.release=nil end end
+if not model.has_role(w.config,"anmeldung")then w.config.registration_station=nil end
+if not model.has_role(w.config,"knoten")then
 w.config.junction={connections={},moves={},conflicts={}}
-for _,track in pairs(w.config.tracks) do track.junction=nil end
+for _,track in pairs(w.config.tracks)do track.junction=nil end
 end
-if not p.tracks then w.config.tracks={} end
+if not p.tracks then w.config.tracks={}end
 w.config.tests={}
-return true, nil, removed
+return true,nil,removed
 end
 
 local function needs(kind_role)
-return model.has_role(w.config, kind_role)
+return model.has_role(w.config,kind_role)
 end
 
-function w.allowed_devices() return model.profile(w.config).allowed end
+function w.allowed_devices()return model.profile(w.config).allowed end
 
 
 
-local function test_fingerprint(kind, ref)
-local c = w.config
+local function test_fingerprint(kind,ref)
+local c=w.config
 local function track_part(track)
-local copy = assert(ser.decode(ser.encode(track)))
-copy.name, copy.status = nil, nil
+local copy=assert(ser.decode(ser.encode(track)))
+copy.name,copy.status=nil,nil
 return copy
 end
-local part = {}
-if kind == "ausgang" then
-if c.tracks[ref] then part.track = track_part(c.tracks[ref]) end
+local part={}
+if kind=="ausgang"then
+if c.tracks[ref]then part.track=track_part(c.tracks[ref])end
 else
-part.device = c.devices[ref]
-for _, track in pairs(c.tracks) do
-local owns = track.station == ref
-for _, did in ipairs(track.signals) do if did == ref then owns = true end end
-for _, did in ipairs(track.observers) do if did == ref then owns = true end end
-if owns then part.track = track_part(track) end
+part.device=c.devices[ref]
+for _,track in pairs(c.tracks)do
+local owns=track.station==ref
+for _,did in ipairs(track.signals)do if did==ref then owns=true end end
+for _,did in ipairs(track.observers)do if did==ref then owns=true end end
+if owns then part.track=track_part(track)end
 end
 end
-local text = ser.encode(part)
-return #text .. ":" .. adler.hex(text)
+local text=ser.encode(part)
+return#text..":"..adler.hex(text)
 end
 
 
 
-function w.step_ok(n, cached, skip)
+function w.step_ok(n,cached,skip)
 sync_config()
-if n == 1 then
-if not w.network_name:match("%S") then return false, "Der Netzname fehlt." end
-if w.mode == "join" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
+if n==1 then
+if not w.network_name:match("%S")then return false,"Der Netzname fehlt."end
+if w.mode=="join"and not w.central_id:match("%S")then return false,"Die Kennung der Leitstelle fehlt."end
 return true
-elseif n == 2 then
-if not w.name:match("%S") then return false, "Der Node braucht einen Namen." end
-if #w.roles == 0 then return false, "Bitte mindestens eine Rolle waehlen." end
-for _,role in ipairs(w.roles) do if not has(w.available_roles(),role) then return false, "Die Programmdateien fuer Rolle " .. role .. " fehlen." end end
-if w.mode == "create" and not has(w.roles, "zentrale") then return false, "Die erste Leitstelle braucht die Rolle Leitstelle." end
-if w.mode == "join" and has(w.roles, "zentrale") then
-return false, "Eine zweite aktive Leitstelle ist nicht vorgesehen. Eine Ersatz-Leitstelle wird ueber 'Vorhandene Node uebernehmen' eingerichtet."
+elseif n==2 then
+if#w.roles==0 then return false,"Bitte mindestens eine Rolle waehlen."end
+for _,role in ipairs(w.roles)do if not has(w.available_roles(),role)then return false,"Die Programmdateien fuer Rolle "..role.." fehlen."end end
+if w.mode=="create"and not has(w.roles,"zentrale")then return false,"Die erste Leitstelle braucht die Rolle Leitstelle."end
+if w.mode=="join"and has(w.roles,"zentrale")then
+return false,"Eine zweite aktive Leitstelle ist nicht vorgesehen. Eine Ersatz-Leitstelle wird ueber 'Vorhandene Node uebernehmen' eingerichtet."
 end
 return true
-elseif n >= 3 then
-if not cached then w.rescan() end
-local modem = false
-for _, d in ipairs(w.scan) do
-if d.kind == "modem" and #detect.missing("modem", d) == 0 then modem = true end
+elseif n>=3 then
+if not cached then w.rescan()end
+local modem=false
+for _,d in ipairs(w.scan)do
+if d.kind=="modem"and#detect.missing("modem",d)==0 then modem=true end
 end
-if not modem then return false, "Ein erreichbares Netzwerkmodem fehlt." end
-local counts = {}
-for _, d in pairs(w.config.devices) do
-local found = detect.find(w.scan, d.device)
-if not w.allowed_devices()[d.kind] then return false, "Geraet " .. d.device .. " passt nicht zur Rolle. Bitte abwaehlen." end
-if not found or found.kind ~= d.kind then return false, "Geraet " .. d.device .. " ist nicht erreichbar oder hat die falsche Art." end
-if #detect.missing(d.kind, found) > 0 then return false, "Geraet " .. d.device .. ": erforderliche Methoden fehlen." end
-counts[d.kind] = (counts[d.kind] or 0) + 1
+if not modem then return false,"Ein erreichbares Netzwerkmodem fehlt."end
+local counts={}
+for _,d in pairs(w.config.devices)do
+local found=detect.find(w.scan,d.device)
+if not w.allowed_devices()[d.kind]then return false,"Geraet "..d.device.." passt nicht zur Rolle. Bitte abwaehlen."end
+if not found or found.kind~=d.kind then return false,"Geraet "..d.device.." ist nicht erreichbar oder hat die falsche Art."end
+if#detect.missing(d.kind,found)>0 then return false,"Geraet "..d.device..": erforderliche Methoden fehlen."end
+counts[d.kind]=(counts[d.kind]or 0)+1
 end
-local p = model.profile(w.config)
-if (p.station or needs("anmeldung")) and not counts.station then return false, "Mindestens eine Train Station muss ausgewaehlt werden." end
-if p.signal and not counts.signal then return false, "Mindestens ein Train Signal muss ausgewaehlt werden." end
-if needs("knoten") and not counts.observer then return false, "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." end
-if n >= 4 then
-for _, p in ipairs(model.validate(w.config, w.scan)) do
-if not (skip and skip[p.code]) then return false, p.text end
+local p=model.profile(w.config)
+if(p.station or needs("anmeldung"))and not counts.station then return false,"Mindestens eine Train Station muss ausgewaehlt werden."end
+if p.signal and not counts.signal then return false,"Mindestens ein Train Signal muss ausgewaehlt werden."end
+if needs("knoten")and not counts.observer then return false,"Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung."end
+if n>=4 then
+for _,p in ipairs(model.validate(w.config,w.scan))do
+if not(skip and skip[p.code])then return false,p.text end
 end
 end
-if n >= 5 and not w.all_tests_ok() then return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen." end
+if n>=5 and not w.all_tests_ok()then return false,"Erforderliche Pruefungen sind noch offen oder fehlgeschlagen."end
 return true
 end
 return true
@@ -214,140 +223,140 @@ end
 
 function w.warnings()
 sync_config()
-local out = {}
-for _, p in ipairs(model.validate(w.config, w.scan)) do out[#out + 1] = p end
+local out={}
+for _,p in ipairs(model.validate(w.config,w.scan))do out[#out+1]=p end
 return out
 end
 
 function w.next()
-local ok, reason = w.step_ok(w.step)
-if not ok then return false, reason end
-if w.step < #M.STEPS then w.step = w.step + 1 end
-if w.step == 3 then w.rescan() end
+local ok,reason=w.step_ok(w.step)
+if not ok then return false,reason end
+if w.step<#M.STEPS then w.step=w.step+1 end
+if w.step==3 then w.rescan()end
 return true
 end
 
 function w.back()
-if w.step > 1 then w.step = w.step - 1 end
-if w.step == 3 then w.rescan() end
+if w.step>1 then w.step=w.step-1 end
+if w.step==3 then w.rescan()end
 return true
 end
 
 
 function w.device_selected(name)
-for _, d in pairs(w.config.devices) do if d.device == name then return true end end
+for _,d in pairs(w.config.devices)do if d.device==name then return true end end
 return false
 end
 
 function w.toggle_device(name)
-local found = detect.find(w.scan, name)
-if not found or not SELECTABLE[found.kind] or not w.allowed_devices()[found.kind] then return false end
-for id, d in pairs(w.config.devices) do
-if d.device == name then
-model.remove_device(w.config, id)
+local found=detect.find(w.scan,name)
+if not found or not SELECTABLE[found.kind]or not w.allowed_devices()[found.kind]then return false end
+for id,d in pairs(w.config.devices)do
+if d.device==name then
+model.remove_device(w.config,id)
 return true
 end
 end
-model.add_device(w.config, found.kind, name)
+model.add_device(w.config,found.kind,name)
 return true
 end
 
 
 function w.tracks()
-local ids = {}
-for id in pairs(w.config.tracks) do ids[#ids + 1] = id end
+local ids={}
+for id in pairs(w.config.tracks)do ids[#ids+1]=id end
 table.sort(ids)
 return ids
 end
 
 function w.add_track(name)
-return model.add_track(w.config, name)
+return model.add_track(w.config,name)
 end
 
-function w.copy_track(id, name)
-return model.copy_track(w.config, id, name)
+function w.copy_track(id,name)
+return model.copy_track(w.config,id,name)
 end
 
 function w.remove_track(id)
-model.remove_track(w.config, id)
+model.remove_track(w.config,id)
 end
 
-function w.rename_track(id, name)
-local track = w.config.tracks[id]
+function w.rename_track(id,name)
+local track=w.config.tracks[id]
 if not track then return false end
-track.name = name
+track.name=name
 return true
 end
 
 
-function w.set_junction_link(id, link)
-local track = w.config.tracks[id]
+function w.set_junction_link(id,link)
+local track=w.config.tracks[id]
 if not track then return false end
-if link == nil then
-track.junction = nil
+if link==nil then
+track.junction=nil
 return true
 end
-if not w.config.junction.connections[link.connection] then return false, "Unbekannter Anschluss." end
-if link.role ~= "ein" and link.role ~= "aus" then return false, "Einfahrt oder Ausfahrt." end
-track.junction = { connection = link.connection, role = link.role }
+if not w.config.junction.connections[link.connection]then return false,"Unbekannter Anschluss."end
+if link.role~="ein"and link.role~="aus"then return false,"Einfahrt oder Ausfahrt."end
+track.junction={connection=link.connection,role=link.role}
 return true
 end
 
-function w.set_direction(id, direction)
-local track = w.config.tracks[id]
+function w.set_direction(id,direction)
+local track=w.config.tracks[id]
 if not track then return false end
-track.direction = direction
+track.direction=direction
 return true
 end
 
 
-function w.toggle_track_device(track_id, field, device_id)
-local track = w.config.tracks[track_id]
-if not track then return false, "unbekanntes Gleis" end
-if field == "station" then
-if track.station == device_id then track.station = nil return true end
-for id, other in pairs(w.config.tracks) do
-if id ~= track_id and other.station == device_id then return false, "Das Geraet gehoert schon zu " .. other.name .. "." end
+function w.toggle_track_device(track_id,field,device_id)
+local track=w.config.tracks[track_id]
+if not track then return false,"unbekanntes Gleis"end
+if field=="station"then
+if track.station==device_id then track.station=nil return true end
+for id,other in pairs(w.config.tracks)do
+if id~=track_id and other.station==device_id then return false,"Das Geraet gehoert schon zu "..other.name.."."end
 end
-track.station = device_id
+track.station=device_id
 return true
 end
-local list = track[field]
-for i, existing_id in ipairs(list) do
-if existing_id == device_id then
-table.remove(list, i)
-if field == "signals" then track.order_ok = nil end
+local list=track[field]
+for i,existing_id in ipairs(list)do
+if existing_id==device_id then
+table.remove(list,i)
+if field=="signals"then track.order_ok=nil end
 return true
 end
 end
-for id, other in pairs(w.config.tracks) do
-if id ~= track_id then
-for _, ref in ipairs(other[field]) do
-if ref == device_id then return false, "Das Geraet gehoert schon zu " .. other.name .. "." end
+for id,other in pairs(w.config.tracks)do
+if id~=track_id then
+for _,ref in ipairs(other[field])do
+if ref==device_id then return false,"Das Geraet gehoert schon zu "..other.name.."."end
 end
 end
 end
-list[#list + 1] = device_id
-if field == "signals" then track.order_ok = nil end
+list[#list+1]=device_id
+if field=="signals"then track.order_ok=nil end
 return true
 end
 
-function w.set_release(track_id, spec)
-local track = w.config.tracks[track_id]
-if not track then return false, "unbekanntes Gleis" end
+function w.set_release(track_id,spec)
+local track=w.config.tracks[track_id]
+if not track then return false,"unbekanntes Gleis"end
 if spec then
-for id, other in pairs(w.config.tracks) do
-if id ~= track_id and other.release and other.release.side == spec.side and other.release.relay == spec.relay then
-return false, "Der Ausgang gehoert schon zu " .. other.name .. "."
+for id,other in pairs(w.config.tracks)do
+if id~=track_id and other.release and other.release.side==spec.side and other.release.relay==spec.relay then
+return false,"Der Ausgang gehoert schon zu "..other.name.."."
 end
 end
 end
-track.release = spec
+track.release=spec
 return true
 end
 
 function w.set_registration(device_id)
-w.config.registration_station = device_id
+w.config.registration_station=device_id
 return true
 end
 
@@ -357,69 +366,69 @@ end
 
 
 function w.legacy_id()
-return (existing ~= nil and existing.node.claimed ~= true) and existing.node.id or nil
+return(existing~=nil and existing.node.claimed~=true)and existing.node.id or nil
 end
 
 function w.guided_precheck(tracks)
-local names, orphans = {}, {}
-for _, t in ipairs(tracks) do names[t.name:lower()] = true end
-for _, track in pairs(w.config.tracks) do
-if not track.dir and not names[track.name:lower()] then orphans[#orphans + 1] = track.name end
+local names,orphans={},{}
+for _,t in ipairs(tracks)do names[t.name:lower()]=true end
+for _,track in pairs(w.config.tracks)do
+if not track.dir and not names[track.name:lower()]then orphans[#orphans+1]=track.name end
 end
-if #orphans > 0 then
+if#orphans>0 then
 table.sort(orphans)
-return nil, "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht (nach Namen): " .. table.concat(orphans, ", ") .. "."
+return nil,"Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht (nach Namen): "..table.concat(orphans,", ").."."
 end
 return true
 end
 
 function w.guided_begin(info)
-local roles = {}
-for _, r in ipairs(info.roles or { info.role or "signal" }) do roles[#roles + 1] = r end
-local pre, why_pre = w.guided_precheck(info.tracks)
-if not pre then return nil, why_pre end
-w.mode = "join"
-w.roles = roles
-w.claimed_id = info.node.id
-w.name = info.node.name
+local roles={}
+for _,r in ipairs(info.roles or{info.role or"signal"})do roles[#roles+1]=r end
+local pre,why_pre=w.guided_precheck(info.tracks)
+if not pre then return nil,why_pre end
+w.mode="join"
+w.roles=roles
+w.claimed_id=info.node.id
+w.name=info.node.name
 
-w.guided = (#roles == 1 and roles[1] == "signal") or nil
+w.guided=(#roles==1 and roles[1]=="signal")or nil
 sync_config()
-local c = w.config
-c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
-c.node.area_ends = info.area.ends and { info.area.ends[1], info.area.ends[2] } or c.node.area_ends
-local wanted, by_dir, taken = {}, {}, {}
-for _, t in ipairs(info.tracks) do wanted[t.id] = t end
-for _, track in pairs(c.tracks) do if track.dir then taken[track.dir.id] = true end end
+local c=w.config
+c.node.claimed,c.node.label,c.node.area,c.node.claim=true,info.node.label,info.area.id,info.claim
+c.node.area_ends=info.area.ends and{info.area.ends[1],info.area.ends[2]}or c.node.area_ends
+local wanted,by_dir,taken={},{},{}
+for _,t in ipairs(info.tracks)do wanted[t.id]=t end
+for _,track in pairs(c.tracks)do if track.dir then taken[track.dir.id]=true end end
 
-for _, track in pairs(c.tracks) do
+for _,track in pairs(c.tracks)do
 if not track.dir then
-for _, t in ipairs(info.tracks) do
-if not taken[t.id] and t.name:lower() == track.name:lower() then
-track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
-taken[t.id] = true
+for _,t in ipairs(info.tracks)do
+if not taken[t.id]and t.name:lower()==track.name:lower()then
+track.dir={id=t.id,area=info.area.id,direction=t.direction,rev=t.rev}
+taken[t.id]=true
 break
 end
 end
 end
 end
-for tid, track in pairs(c.tracks) do
+for tid,track in pairs(c.tracks)do
 if track.dir then
-if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
+if wanted[track.dir.id]then by_dir[track.dir.id]=tid else w.guided_remove_track(tid)end
 end
 end
-for _, t in ipairs(info.tracks) do
-local tid = by_dir[t.id]
-if not tid then tid = model.add_track(c, t.name) end
-local track = c.tracks[tid]
-track.name = t.name
-track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
+for _,t in ipairs(info.tracks)do
+local tid=by_dir[t.id]
+if not tid then tid=model.add_track(c,t.name)end
+local track=c.tracks[tid]
+track.name=t.name
+track.dir={id=t.id,area=info.area.id,direction=t.direction,rev=t.rev}
 
-if has(roles, "signal") then
-local unique = (t.direction ~= "beide") and t.direction or nil
-for _, did in ipairs(track.signals) do
-local d = c.devices[did]
-if d and not d.signal then d.signal = { use = "strecke", effect = unique, place = unique } end
+if has(roles,"signal")then
+local unique=(t.direction~="beide")and t.direction or nil
+for _,did in ipairs(track.signals)do
+local d=c.devices[did]
+if d and not d.signal then d.signal={use="strecke",effect=unique,place=unique}end
 end
 end
 end
@@ -430,216 +439,216 @@ end
 
 
 function w.anmeldung_begin(info)
-w.mode = "join"
-w.roles = { "anmeldung" }
-w.claimed_id = info.node.id
-w.name = info.node.name
-w.guided = nil
+w.mode="join"
+w.roles={"anmeldung"}
+w.claimed_id=info.node.id
+w.name=info.node.name
+w.guided=nil
 sync_config()
-local c = w.config
-c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.id
+local c=w.config
+c.node.claimed,c.node.label,c.node.claim,c.node.station=true,info.node.label,info.claim,info.station.id
 return true
 end
 
 function w.knoten_precheck()
-for _, track in pairs(w.config.tracks) do
-if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (Gleis " .. track.name .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
+for _,track in pairs(w.config.tracks)do
+if not track.dir then return nil,"Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis ("..label.track(track.name).."): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen."end
 end
 return true
 end
 
 function w.knoten_begin(info)
-local t, why = model.junction_from_directory(info.junction)
-if not t then return nil, why end
-local pre, why_pre = w.knoten_precheck()
-if not pre then return nil, why_pre end
-w.mode = "join"
-w.roles = { "knoten" }
-w.claimed_id = info.node.id
-w.name = info.node.name
-w.guided = nil
+local t,why=model.junction_from_directory(info.junction)
+if not t then return nil,why end
+local pre,why_pre=w.knoten_precheck()
+if not pre then return nil,why_pre end
+w.mode="join"
+w.roles={"knoten"}
+w.claimed_id=info.node.id
+w.name=info.node.name
+w.guided=nil
 sync_config()
-local c = w.config
-c.node.claimed, c.node.label, c.node.claim = true, info.node.label, info.claim
-c.node.junction, c.node.junction_rev = info.junction.id, info.junction.rev
-c.junction = { connections = t.connections, moves = t.moves, conflicts = t.conflicts }
-local wanted, by_dir = {}, {}
-for _, tr in ipairs(t.tracks) do wanted[tr.id] = tr end
-for tid, track in pairs(c.tracks) do
+local c=w.config
+c.node.claimed,c.node.label,c.node.claim=true,info.node.label,info.claim
+c.node.junction,c.node.junction_rev=info.junction.id,info.junction.rev
+c.junction={connections=t.connections,moves=t.moves,conflicts=t.conflicts}
+local wanted,by_dir={},{}
+for _,tr in ipairs(t.tracks)do wanted[tr.id]=tr end
+for tid,track in pairs(c.tracks)do
 if track.dir then
-if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
+if wanted[track.dir.id]then by_dir[track.dir.id]=tid else w.guided_remove_track(tid)end
 end
 end
-for _, tr in ipairs(t.tracks) do
-local tid = by_dir[tr.id] or model.add_track(c, tr.name)
-local track = c.tracks[tid]
-track.name = tr.name
-track.dir = { id = tr.id, junction = info.junction.id }
-track.junction = { connection = tr.connection, role = tr.role }
+for _,tr in ipairs(t.tracks)do
+local tid=by_dir[tr.id]or model.add_track(c,tr.name)
+local track=c.tracks[tid]
+track.name=tr.name
+track.dir={id=tr.id,junction=info.junction.id}
+track.junction={connection=tr.connection,role=tr.role}
 end
-w.config.tests = {}
-return true, nil, t
+w.config.tests={}
+return true,nil,t
 end
 
 function w.guided_remove_track(tid)
-local track = w.config.tracks[tid]
+local track=w.config.tracks[tid]
 if not track then return end
-local assigned = {}
-for _, did in ipairs(track.signals) do assigned[#assigned + 1] = did end
-for _, did in ipairs(assigned) do model.remove_device(w.config, did) end
-model.remove_track(w.config, tid)
+local assigned={}
+for _,did in ipairs(track.signals)do assigned[#assigned+1]=did end
+for _,did in ipairs(assigned)do model.remove_device(w.config,did)end
+model.remove_track(w.config,tid)
 end
 
 
 function w.guided_rows()
-local rows = {}
-local ids = {}
-for tid, track in pairs(w.config.tracks) do if track.dir then ids[#ids + 1] = tid end end
-table.sort(ids, function(a, b) return w.config.tracks[a].dir.id < w.config.tracks[b].dir.id end)
-for _, tid in ipairs(ids) do
-local track = w.config.tracks[tid]
-local signals = {}
-for _, did in ipairs(track.signals) do
-local d = w.config.devices[did]
+local rows={}
+local ids={}
+for tid,track in pairs(w.config.tracks)do if track.dir then ids[#ids+1]=tid end end
+table.sort(ids,function(a,b)return w.config.tracks[a].dir.id<w.config.tracks[b].dir.id end)
+for _,tid in ipairs(ids)do
+local track=w.config.tracks[tid]
+local signals={}
+for _,did in ipairs(track.signals)do
+local d=w.config.devices[did]
 if d then
-local info = d.signal or {}
-signals[#signals + 1] = { id = did, device = d.device, use = info.use or "strecke", effect = info.effect, place = info.place }
+local info=d.signal or{}
+signals[#signals+1]={id=did,device=d.device,use=info.use or"strecke",effect=info.effect,place=info.place}
 end
 end
-rows[#rows + 1] = { track = tid, name = track.name, direction = track.dir.direction, rev = track.dir.rev or 0, dir_id = track.dir.id, signals = signals, order_ok = track.order_ok == true, junction = track.junction }
+rows[#rows+1]={track=tid,name=track.name,direction=track.dir.direction,rev=track.dir.rev or 0,dir_id=track.dir.id,signals=signals,order_ok=track.order_ok==true,junction=track.junction}
 end
 return rows
 end
 
 
 function w.guided_free_signals()
-return model.free_devices(w.config, w.scan, "signal")
+return model.free_devices(w.config,w.scan,"signal")
 end
 
-function w.guided_assign(tid, device_name)
-local track = w.config.tracks[tid]
-if not track or not track.dir then return false, "Das Gleis gibt es nicht." end
-local found = detect.find(w.scan, device_name)
-if not found or found.kind ~= "signal" then return false, "Das Signal ist nicht angeschlossen." end
-local missing = detect.missing("signal", found)
-if #missing > 0 then return false, "Dem Geraet fehlen Methoden: " .. table.concat(missing, ",") end
-for _, other in pairs(w.config.tracks) do
-for _, did in ipairs(other.signals) do
-if w.config.devices[did] and w.config.devices[did].device == device_name then return false, "Das Signal gehoert schon zu " .. other.name .. "." end
+function w.guided_assign(tid,device_name)
+local track=w.config.tracks[tid]
+if not track or not track.dir then return false,"Das Gleis gibt es nicht."end
+local found=detect.find(w.scan,device_name)
+if not found or found.kind~="signal"then return false,"Das Signal ist nicht angeschlossen."end
+local missing=detect.missing("signal",found)
+if#missing>0 then return false,"Dem Geraet fehlen Methoden: "..table.concat(missing,",")end
+for _,other in pairs(w.config.tracks)do
+for _,did in ipairs(other.signals)do
+if w.config.devices[did]and w.config.devices[did].device==device_name then return false,"Das Signal gehoert schon zu "..other.name.."."end
 end
 end
-local did = model.add_device(w.config, "signal", device_name)
-model.assign(w.config, tid, "signals", did)
+local did=model.add_device(w.config,"signal",device_name)
+model.assign(w.config,tid,"signals",did)
 
-local direction = track.dir.direction
-local unique = (direction ~= "beide") and direction or nil
-w.config.devices[did].signal = { use = "strecke", effect = unique, place = unique }
+local direction=track.dir.direction
+local unique=(direction~="beide")and direction or nil
+w.config.devices[did].signal={use="strecke",effect=unique,place=unique}
 return true
 end
 
 
 function w.area_ends()
-local ends = w.config.node.area_ends
-if ends and ends[1] and ends[2] then return { ends[1], ends[2] } end
-local seen, list = {}, {}
-for _, track in pairs(w.config.tracks) do
-local d = track.dir and track.dir.direction
-if d and d ~= "beide" and not seen[d] then seen[d] = true; list[#list + 1] = d end
+local ends=w.config.node.area_ends
+if ends and ends[1]and ends[2]then return{ends[1],ends[2]}end
+local seen,list={},{}
+for _,track in pairs(w.config.tracks)do
+local d=track.dir and track.dir.direction
+if d and d~="beide"and not seen[d]then seen[d]=true;list[#list+1]=d end
 end
 table.sort(list)
 return list
 end
 
-local function next_of(list, current)
-for i, v in ipairs(list) do if v == current then return list[i % #list + 1] end end
+local function next_of(list,current)
+for i,v in ipairs(list)do if v==current then return list[i%#list+1]end end
 return list[1]
 end
 
 
-function w.signal_cycle(did, field)
-local d = w.config.devices[did]
-if not d or d.kind ~= "signal" then return false, "Das Signal gibt es nicht." end
-d.signal = d.signal or { use = "strecke" }
-local ends = w.area_ends()
-if field == "use" then
-d.signal.use = next_of(M.SIGNAL_USES, d.signal.use)
-elseif field == "effect" then
-if #ends == 0 then return false, "Der Bereich hat keine benannten Anschluesse." end
-d.signal.effect = next_of(ends, d.signal.effect)
-if d.signal.place == nil then d.signal.place = d.signal.effect end
-elseif field == "place" then
-local options = {}
-for _, e in ipairs(ends) do options[#options + 1] = e end
-options[#options + 1] = "mitte"
-d.signal.place = next_of(options, d.signal.place)
+function w.signal_cycle(did,field)
+local d=w.config.devices[did]
+if not d or d.kind~="signal"then return false,"Das Signal gibt es nicht."end
+d.signal=d.signal or{use="strecke"}
+local ends=w.area_ends()
+if field=="use"then
+d.signal.use=next_of(M.SIGNAL_USES,d.signal.use)
+elseif field=="effect"then
+if#ends==0 then return false,"Der Bereich hat keine benannten Anschluesse."end
+d.signal.effect=next_of(ends,d.signal.effect)
+if d.signal.place==nil then d.signal.place=d.signal.effect end
+elseif field=="place"then
+local options={}
+for _,e in ipairs(ends)do options[#options+1]=e end
+options[#options+1]="mitte"
+d.signal.place=next_of(options,d.signal.place)
 else
-return false, "Unbekanntes Feld."
+return false,"Unbekanntes Feld."
 end
 return true
 end
 
 
-function w.guided_signal_move(did, delta)
-for _, track in pairs(w.config.tracks) do
+function w.guided_signal_move(did,delta)
+for _,track in pairs(w.config.tracks)do
 if track.dir then
-for i, ref in ipairs(track.signals) do
-if ref == did then
-local j = i + delta
-if j < 1 or j > #track.signals then return false, delta < 0 and "Das Signal ist schon das erste." or "Das Signal ist schon das letzte." end
-track.signals[i], track.signals[j] = track.signals[j], track.signals[i]
-track.order_ok = nil
+for i,ref in ipairs(track.signals)do
+if ref==did then
+local j=i+delta
+if j<1 or j>#track.signals then return false,delta<0 and"Das Signal ist schon das erste."or"Das Signal ist schon das letzte."end
+track.signals[i],track.signals[j]=track.signals[j],track.signals[i]
+track.order_ok=nil
 return true
 end
 end
 end
 end
-return false, "Das Signal gehoert zu keinem Gleis."
+return false,"Das Signal gehoert zu keinem Gleis."
 end
 
 
 function w.guided_order_confirm(tid)
-local track = w.config.tracks[tid]
-if not track or not track.dir then return false, "Das Gleis gibt es nicht." end
-if #track.signals < 2 then return false, "Bei einem Signal gibt es keine Reihenfolge." end
-track.order_ok = true
+local track=w.config.tracks[tid]
+if not track or not track.dir then return false,"Das Gleis gibt es nicht."end
+if#track.signals<2 then return false,"Bei einem Signal gibt es keine Reihenfolge."end
+track.order_ok=true
 return true
 end
 
 
 function w.guided_einfahrt_mark(did)
-for _, track in pairs(w.config.tracks) do
-for _, ref in ipairs(track.signals) do
-if ref == did then
-if not (track.junction and track.junction.role == "ein") then return false, "Das ist kein Einfahrtsgleis eines Knotens." end
-for _, other in ipairs(track.signals) do
-local d = w.config.devices[other]
+for _,track in pairs(w.config.tracks)do
+for _,ref in ipairs(track.signals)do
+if ref==did then
+if not(track.junction and track.junction.role=="ein")then return false,"Das ist kein Einfahrtsgleis eines Knotens."end
+for _,other in ipairs(track.signals)do
+local d=w.config.devices[other]
 if d then
-d.signal = d.signal or {}
-d.signal.use = (other == did) and "einfahrt" or "strecke"
+d.signal=d.signal or{}
+d.signal.use=(other==did)and"einfahrt"or"strecke"
 end
 end
 return true
 end
 end
 end
-return false, "Das Signal gehoert zu keinem Gleis."
+return false,"Das Signal gehoert zu keinem Gleis."
 end
 
 
 function w.order_problems()
-local list = {}
-for _, row in ipairs(w.guided_rows()) do
-if #row.signals >= 2 and not row.order_ok then list[#list + 1] = { track = row.track, name = row.name, count = #row.signals } end
+local list={}
+for _,row in ipairs(w.guided_rows())do
+if#row.signals>=2 and not row.order_ok then list[#list+1]={track=row.track,name=row.name,count=#row.signals}end
 end
 return list
 end
 
 
 function w.signal_problems()
-local list = {}
-for _, row in ipairs(w.guided_rows()) do
-for _, sg in ipairs(row.signals) do
-if not sg.effect then list[#list + 1] = { id = sg.id, device = sg.device, track_name = row.name } end
+local list={}
+for _,row in ipairs(w.guided_rows())do
+for _,sg in ipairs(row.signals)do
+if not sg.effect then list[#list+1]={id=sg.id,device=sg.device,track_name=row.name}end
 end
 end
 return list
@@ -647,127 +656,127 @@ end
 
 
 function w.guided_track_update(info)
-for tid, track in pairs(w.config.tracks) do
-if track.dir and track.dir.id == info.id then
-track.name = info.name
-local moved = track.dir.direction ~= info.direction
-track.dir.direction, track.dir.rev = info.direction, info.rev
-return moved and w.guided_direction_changed(tid) or 0, tid
+for tid,track in pairs(w.config.tracks)do
+if track.dir and track.dir.id==info.id then
+track.name=info.name
+local moved=track.dir.direction~=info.direction
+track.dir.direction,track.dir.rev=info.direction,info.rev
+return moved and w.guided_direction_changed(tid)or 0,tid
 end
 end
-return nil, "Das Gleis gehoert nicht zu dieser Node."
+return nil,"Das Gleis gehoert nicht zu dieser Node."
 end
 
 
 
 function w.guided_direction_changed(tid)
-local track = w.config.tracks[tid]
+local track=w.config.tracks[tid]
 if not track or not track.dir then return 0 end
-local direction = track.dir.direction
-local unique = (direction ~= "beide") and direction or nil
-local changed = 0
+local direction=track.dir.direction
+local unique=(direction~="beide")and direction or nil
+local changed=0
 local function is_end(name)
-for _, e in ipairs(w.area_ends()) do if e == name then return true end end
+for _,e in ipairs(w.area_ends())do if e==name then return true end end
 return false
 end
-for _, did in ipairs(track.signals) do
-local d = w.config.devices[did]
+for _,did in ipairs(track.signals)do
+local d=w.config.devices[did]
 if d then
-d.signal = d.signal or { use = "strecke" }
-local effect = d.signal.effect
+d.signal=d.signal or{use="strecke"}
+local effect=d.signal.effect
 if unique then
-if effect ~= unique then d.signal.effect, d.signal.place = unique, unique; changed = changed + 1 end
-elseif effect ~= nil and not is_end(effect) then
-d.signal.effect, d.signal.place = nil, nil
-changed = changed + 1
+if effect~=unique then d.signal.effect,d.signal.place=unique,unique;changed=changed+1 end
+elseif effect~=nil and not is_end(effect)then
+d.signal.effect,d.signal.place=nil,nil
+changed=changed+1
 end
 end
 end
-if changed > 0 then w.config.tests = {} end
+if changed>0 then w.config.tests={}end
 return changed
 end
 
 
 function w.guided_unassign(tid)
-local track = w.config.tracks[tid]
-if not track or #track.signals == 0 then return false, "An diesem Gleis ist kein Signal zugeordnet." end
-model.remove_device(w.config, track.signals[#track.signals])
+local track=w.config.tracks[tid]
+if not track or#track.signals==0 then return false,"An diesem Gleis ist kein Signal zugeordnet."end
+model.remove_device(w.config,track.signals[#track.signals])
 return true
 end
 
 
 function w.add_connection(name)
-if name == "" then return false, "Der Anschluss braucht einen Namen." end
-w.config.junction.connections[name] = true
+if name==""then return false,"Der Anschluss braucht einen Namen."end
+w.config.junction.connections[name]=true
 return true
 end
 
 function w.remove_connection(name)
-local j = w.config.junction
-j.connections[name] = nil
-local kept = {}
-for _, move in ipairs(j.moves) do
-if move.from ~= name and move.to ~= name then kept[#kept + 1] = move end
+local j=w.config.junction
+j.connections[name]=nil
+local kept={}
+for _,move in ipairs(j.moves)do
+if move.from~=name and move.to~=name then kept[#kept+1]=move end
 end
-j.moves = kept
-j.conflicts = {}
+j.moves=kept
+j.conflicts={}
 end
 
-function w.add_move(from, to)
-local j = w.config.junction
-if not j.connections[from] or not j.connections[to] then return false, "Unbekannter Anschluss." end
-if from == to then return false, "Anfang und Ende duerfen nicht gleich sein." end
-for _, move in ipairs(j.moves) do
-if move.from == from and move.to == to then return false, "Diese Verbindung gibt es schon." end
+function w.add_move(from,to)
+local j=w.config.junction
+if not j.connections[from]or not j.connections[to]then return false,"Unbekannter Anschluss."end
+if from==to then return false,"Anfang und Ende duerfen nicht gleich sein."end
+for _,move in ipairs(j.moves)do
+if move.from==from and move.to==to then return false,"Diese Verbindung gibt es schon."end
 end
-j.moves[#j.moves + 1] = { from = from, to = to }
+j.moves[#j.moves+1]={from=from,to=to}
 return true
 end
 
-function w.add_conflict(a, b)
-local j = w.config.junction
-if a == b or not j.moves[a] or not j.moves[b] then return false, "Zwei verschiedene Verbindungen waehlen." end
-local lo, hi = math.min(a, b), math.max(a, b)
-for _, c in ipairs(j.conflicts) do
-if c.moves[1] == lo and c.moves[2] == hi then return false, "Dieser Konflikt ist schon eingetragen." end
+function w.add_conflict(a,b)
+local j=w.config.junction
+if a==b or not j.moves[a]or not j.moves[b]then return false,"Zwei verschiedene Verbindungen waehlen."end
+local lo,hi=math.min(a,b),math.max(a,b)
+for _,c in ipairs(j.conflicts)do
+if c.moves[1]==lo and c.moves[2]==hi then return false,"Dieser Konflikt ist schon eingetragen."end
 end
-j.conflicts[#j.conflicts + 1] = { moves = { lo, hi } }
+j.conflicts[#j.conflicts+1]={moves={lo,hi}}
 return true
 end
 
 
-local function device_name(id) return w.config.devices[id] and w.config.devices[id].device or "?" end
+local function device_name(id)return w.config.devices[id]and w.config.devices[id].device or"?"end
 
 function w.tests()
 sync_config()
-local list = {}
+local list={}
 if w.guided then return list end
-local ids = {}
-for id in pairs(w.config.devices) do ids[#ids + 1] = id end
+local ids={}
+for id in pairs(w.config.devices)do ids[#ids+1]=id end
 table.sort(ids)
-for _, id in ipairs(ids) do
-local d = w.config.devices[id]
-if d.kind == "station" or d.kind == "signal" or d.kind == "observer" then
-list[#list + 1] = {
-id = "lesen:" .. id, kind = "lesen", title = "Lesen: " .. d.device, spec = d.device, fp = test_fingerprint("geraet", id),
-explain = "Der Zustand von " .. d.device .. " wird nur gelesen.",
+for _,id in ipairs(ids)do
+local d=w.config.devices[id]
+if d.kind=="station"or d.kind=="signal"or d.kind=="observer"then
+list[#list+1]={
+id="lesen:"..id,kind="lesen",title="Lesen: "..d.device,spec=d.device,fp=test_fingerprint("geraet",id),
+explain="Der Zustand von "..d.device.." wird nur gelesen.",
 }
 end
-if d.kind == "signal" then
-list[#list + 1] = {
-id = "sperre:" .. id, kind = "schalten", title = "Sperre: " .. d.device, spec = d.device, fp = test_fingerprint("geraet", id),
-explain = "Das Signal " .. d.device .. " wird kurz zusaetzlich auf Rot gesperrt und wieder freigegeben. Es darf gerade keinen Zug schuetzen; ein belegtes Signal bleibt nach dem Aufheben rot.",
+if d.kind=="signal"then
+list[#list+1]={
+id="sperre:"..id,kind="schalten",title="Sperre: "..d.device,spec=d.device,fp=test_fingerprint("geraet",id),
+explain="Das Signal "..d.device.." wird kurz zusaetzlich auf Rot gesperrt und wieder freigegeben. Es darf gerade keinen Zug schuetzen; ein belegtes Signal bleibt nach dem Aufheben rot.",
 }
 end
 end
-local track_ids = w.tracks()
-for _, tid in ipairs(track_ids) do
-local track = w.config.tracks[tid]
+local track_ids=w.tracks()
+for _,tid in ipairs(track_ids)do
+local track=w.config.tracks[tid]
 if track.release then
-local key = (track.release.relay or "Computer") .. " " .. track.release.side
-list[#list + 1] = {
-id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key, fp = test_fingerprint("ausgang", tid),
-explain = "Der Freigabeausgang " .. key .. " von Gleis " .. track.name .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
+local key=(track.release.relay or"Computer").." "..track.release.side
+list[#list+1]={
+id="ausgang:"..tid,kind="schalten",title="Ausgang: "..track.name,spec=key,fp=test_fingerprint("ausgang",tid),
+explain="Der Freigabeausgang "..key.." von "..label.track(track.name).." wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
 }
 end
 end
@@ -775,72 +784,72 @@ return list
 end
 
 local function find_test(id)
-for _, t in ipairs(w.tests()) do if t.id == id then return t end end
+for _,t in ipairs(w.tests())do if t.id==id then return t end end
 end
 
-function w.test_state(id, current, test)
-test = test or find_test(id)
+function w.test_state(id,current,test)
+test=test or find_test(id)
 if not test then return nil end
-local result = w.config.tests[id]
-if not result then return "offen" end
-if result.spec ~= test.spec or result.fp ~= test.fp then return "offen" end
-return result.ok and "ok" or "fehler", result.text
+local result=w.config.tests[id]
+if not result then return"offen"end
+if result.spec~=test.spec or result.fp~=test.fp then return"offen"end
+return result.ok and"ok"or"fehler",result.text
 end
 
 function w.all_tests_ok()
-if w.guided then return w.pruefung ~= nil and w.pruefung.all_ok() end
-for _, test in ipairs(w.tests()) do
-if w.test_state(test.id, nil, test) ~= "ok" then return false end
+if w.guided then return w.pruefung~=nil and w.pruefung.all_ok()end
+for _,test in ipairs(w.tests())do
+if w.test_state(test.id,nil,test)~="ok"then return false end
 end
 return true
 end
 
-local function record(test, ok, text)
-w.config.tests[test.id] = { ok = ok, text = text, spec = test.spec, fp = test.fp, at = opts.now() }
-return ok, text
+local function record(test,ok,text)
+w.config.tests[test.id]={ok=ok,text=text,spec=test.spec,fp=test.fp,at=opts.now()}
+return ok,text
 end
 
-function w.run_test(id, confirmed)
-local test = find_test(id)
-if not test then return false, "unbekannte Pruefung" end
-if test.kind == "schalten" and confirmed ~= true then
-return false, "Schaltende Pruefung: erst die Vorbereitung bestaetigen."
+function w.run_test(id,confirmed)
+local test=find_test(id)
+if not test then return false,"unbekannte Pruefung"end
+if test.kind=="schalten"and confirmed~=true then
+return false,"Schaltende Pruefung: erst die Vorbereitung bestaetigen."
 end
-local kind, ref = id:match("^(%a+):(.+)$")
-if kind == "lesen" then
-local d = w.config.devices[ref]
+local kind,ref=id:match("^(%a+):(.+)$")
+if kind=="lesen"then
+local d=w.config.devices[ref]
 local adapter
-if d.kind == "station" then adapter = stationlib.new(env, d.device)
-elseif d.kind == "signal" then adapter = signallib.new(env, d.device)
-else adapter = observerlib.new(env, d.device) end
-local state = adapter.read()
-if not state.available then return record(test, false, "nicht erreichbar: " .. tostring(state.errors and state.errors[1] or "")) end
-if state.errors and #state.errors > 0 then return record(test, false, state.errors[1]) end
-return record(test, true, "lesbar")
-elseif kind == "sperre" then
-local d = w.config.devices[ref]
-local g = signallib.new(env, d.device)
-local before = g.read()
-if not before.available then return record(test, false, "nicht erreichbar") end
-if before.forced then return record(test, false, "Das Signal ist schon gesperrt; bitte zuerst die Sperre aufheben.") end
-local held = g.hold()
-local released = g.release()
-if not held.confirmed then return record(test, false, "Sperre nicht bestaetigt" .. (held.error and (": " .. held.error) or "")) end
-if not released.confirmed then return record(test, false, "ACHTUNG: Sperre blieb gesetzt. Bitte von Hand pruefen.") end
-return record(test, true, "Sperre gesetzt und aufgehoben (zurueckgelesen)")
-elseif kind == "ausgang" then
-local track = w.config.tracks[ref]
-local o = outlib.new(env, track.release)
-local before = o.get()
-if before == nil then return record(test, false, "Ausgang nicht lesbar") end
-if before == true then return record(test, false, "Der Ausgang ist schon eingeschaltet; bitte von Hand pruefen.") end
-local on = o.set(true)
-local off = o.set(false)
-if not off.confirmed then return record(test, false, "ACHTUNG: Ausgang blieb eingeschaltet. Bitte von Hand pruefen.") end
-if not on.confirmed then return record(test, false, "Ausgang liess sich nicht einschalten") end
-return record(test, true, "Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
+if d.kind=="station"then adapter=stationlib.new(env,d.device)
+elseif d.kind=="signal"then adapter=signallib.new(env,d.device)
+else adapter=observerlib.new(env,d.device)end
+local state=adapter.read()
+if not state.available then return record(test,false,"nicht erreichbar: "..tostring(state.errors and state.errors[1]or""))end
+if state.errors and#state.errors>0 then return record(test,false,state.errors[1])end
+return record(test,true,"lesbar")
+elseif kind=="sperre"then
+local d=w.config.devices[ref]
+local g=signallib.new(env,d.device)
+local before=g.read()
+if not before.available then return record(test,false,"nicht erreichbar")end
+if before.forced then return record(test,false,"Das Signal ist schon gesperrt; bitte zuerst die Sperre aufheben.")end
+local held=g.hold()
+local released=g.release()
+if not held.confirmed then return record(test,false,"Sperre nicht bestaetigt"..(held.error and(": "..held.error)or""))end
+if not released.confirmed then return record(test,false,"ACHTUNG: Sperre blieb gesetzt. Bitte von Hand pruefen.")end
+return record(test,true,"Sperre gesetzt und aufgehoben (zurueckgelesen)")
+elseif kind=="ausgang"then
+local track=w.config.tracks[ref]
+local o=outlib.new(env,track.release)
+local before=o.get()
+if before==nil then return record(test,false,"Ausgang nicht lesbar")end
+if before==true then return record(test,false,"Der Ausgang ist schon eingeschaltet; bitte von Hand pruefen.")end
+local on=o.set(true)
+local off=o.set(false)
+if not off.confirmed then return record(test,false,"ACHTUNG: Ausgang blieb eingeschaltet. Bitte von Hand pruefen.")end
+if not on.confirmed then return record(test,false,"Ausgang liess sich nicht einschalten")end
+return record(test,true,"Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
 end
-return false, "unbekannte Pruefung"
+return false,"unbekannte Pruefung"
 end
 
 
@@ -848,28 +857,28 @@ end
 
 
 function w.run_open_tests(confirmed)
-local result = { ok = 0, failed = 0, open = 0 }
-local pending_switch = {}
-for _, test in ipairs(w.tests()) do
-if w.test_state(test.id, nil, test) ~= "ok" then
-if test.kind == "lesen" then
-local ok = w.run_test(test.id, false)
-result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
+local result={ok=0,failed=0,open=0}
+local pending_switch={}
+for _,test in ipairs(w.tests())do
+if w.test_state(test.id,nil,test)~="ok"then
+if test.kind=="lesen"then
+local ok=w.run_test(test.id,false)
+result[ok and"ok"or"failed"]=result[ok and"ok"or"failed"]+1
 else
-pending_switch[#pending_switch + 1] = test
+pending_switch[#pending_switch+1]=test
 end
 end
 end
-if #pending_switch > 0 and confirmed ~= true then
-result.open = #pending_switch
+if#pending_switch>0 and confirmed~=true then
+result.open=#pending_switch
 return result
 end
-for i, test in ipairs(pending_switch) do
-local ok, text = w.run_test(test.id, true)
-result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
-if not ok and tostring(text):sub(1, 7) == "ACHTUNG" then
-result.stopped = test.title
-result.open = #pending_switch - i
+for i,test in ipairs(pending_switch)do
+local ok,text=w.run_test(test.id,true)
+result[ok and"ok"or"failed"]=result[ok and"ok"or"failed"]+1
+if not ok and tostring(text):sub(1,7)=="ACHTUNG"then
+result.stopped=test.title
+result.open=#pending_switch-i
 break
 end
 end
@@ -878,24 +887,27 @@ end
 
 
 
-function w.finish(store, path, draft)
-if draft and w.was_active then return nil, {}, "Eine laufende Node wird nicht auf Entwurf gesetzt." end
+
+function w.finish(store,path)
 sync_config()
 w.rescan()
-local problems = model.validate(w.config, w.scan)
-for n = 1, 5 do
-local ok, reason = w.step_ok(n, true)
-if not ok then problems[#problems + 1] = { code = "schritt_" .. n, text = reason } end
+local problems=model.validate(w.config,w.scan)
+for n=1,5 do
+local ok,reason=w.step_ok(n,true)
+if not ok then problems[#problems+1]={code="schritt_"..n,text=reason}end
 end
-local status = (not draft and #problems == 0 and w.all_tests_ok()) and "aktiv" or "entwurf"
-w.config.status = status
-for _, track in pairs(w.config.tracks) do
-track.status = (status == "aktiv" and track.station ~= nil or status == "aktiv" and #track.signals > 0) and "aktiv" or "entwurf"
+if#problems>0 or not w.all_tests_ok()then
+return nil,problems,"Pflichtangaben und Pruefungen sind nicht vollstaendig."
 end
-w.config.revision = (w.config.revision or 0) + 1
-local ok, err = store.save(path, w.config)
-if not ok then return nil, problems, err end
-return status, problems
+w.config.status="aktiv"
+for _,track in pairs(w.config.tracks)do track.status="aktiv"end
+w.config.revision=(w.config.revision or 0)+1
+local ok,err=store.save(path,w.config)
+if not ok then
+w.config.status="offen"
+return nil,problems,err
+end
+return"aktiv",problems
 end
 
 return w

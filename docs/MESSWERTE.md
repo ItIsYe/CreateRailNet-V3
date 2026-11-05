@@ -37,7 +37,7 @@ Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: Compute
 
 ## Offen
 
-- `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen.
+- `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen.
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

@@ -29,6 +29,8 @@ local M = {}
 
 local DATA = "/crn_data"
 local CONFIG = DATA .. "/config.lua"
+local CLAIM = DATA .. "/anforderung.lua"           -- Anforderungskennung dieses Computers im Netzverzeichnis (bleibt bei jedem Versuch und jedem Update gleich)
+local PROBE_MARK = DATA .. "/pruefmarke.lua"       -- Testsperre eines Signals, solange die Abschlusspruefung schaltet
 local MAX_MESSAGES = 60
 
 local UI_EVENTS = { key = true, char = true, mouse_click = true, monitor_touch = true }
@@ -45,6 +47,16 @@ function M.new(env)
   store.heal(DATA .. "/clock.lua")
   n.store = store
 
+  -- Marke der Abschlusspruefung (Testsperre eines Signals): eigene Datei, nicht die Einrichtung
+  local function probe_marker() return (store.load(PROBE_MARK)) end
+  local function probe_mark(lauf)
+    if lauf then return store.save(PROBE_MARK, lauf) end
+    for _, suffix in ipairs({ "", ".tmp", ".prev" }) do
+      if env.fs.exists(PROBE_MARK .. suffix) then env.fs.delete(PROBE_MARK .. suffix) end
+    end
+    return true
+  end
+
   -- Datenformat (29.2) vor dem Laden jeder Datei: Daten aelterer Programmversionen werden angepasst (Sicherung, Schritte, bei Fehler alles zurueck);
   -- neuere Daten als dieses Programm kennt oder eine gescheiterte Anpassung -> Automatik bleibt aus (Rueckkehr: Sicherung zurueckspielen)
   local format_target = env.data_format or dataformat.FORMAT
@@ -56,6 +68,8 @@ function M.new(env)
   n.journal = journallib.new({ fs = env.fs, path = DATA .. "/journal.log", now = n.clock.now })
   n.ticker = tickerlib.new(n.clock)
   n.config = store.load(CONFIG)
+  -- Es gibt keinen Entwurf: nur eine aktive Einrichtung gilt. Ein Rest aus einer aelteren Version (ohne Status "aktiv") wird ignoriert, die Einrichtung beginnt von vorn.
+  if n.config and n.config.status ~= "aktiv" then n.config = nil end
   n.scan = detect.scan(env.peripheral)
 
   -- Schnittstellen (14.1, A18): nach einem Modpack-Update wartet die Automatik auf die bestandene Pruefung
@@ -80,7 +94,6 @@ function M.new(env)
     if not n.config then return { text = "Einrichtung", kind = "wait" } end
     if n.format_status == "fehlgeschlagen" then return { text = "Datenanpassung gescheitert", kind = "halt" } end
     if n.format_blocked then return { text = "Datenformat zu neu", kind = "halt" } end
-    if n.config.status ~= "aktiv" then return { text = "Entwurf", kind = "attention" } end
     if n.env_hold then return { text = "Pruefung noetig", kind = "attention" } end
     return { text = "Bereit", kind = "ok" }
   end
@@ -95,7 +108,9 @@ function M.new(env)
   local ctx = {
     title = function()
       if not n.config then return "CRN - noch nicht eingerichtet" end
-      return n.config.node.name .. " - " .. role_text()
+      local who = n.config.node.name ~= "" and n.config.node.name or n.config.node.id
+      local role = role_text()
+      return W.fit(who, math.max(14, 38 - #role)) .. " - " .. role
     end,
     status = function() return n.status() end,
     on_action = function(v, id)
@@ -135,7 +150,7 @@ function M.new(env)
       local function line(text, kind) W.label(v, rect.x + 1, y, text, kind or "text", rect.w - 2) y = y + 1 end
       line(version.name .. " " .. version.number, "hell")
       if n.config then
-        line("Node: " .. n.config.node.name .. " (" .. n.config.node.id .. ")")
+        line("Node: " .. (n.config.node.name ~= "" and (n.config.node.name .. " (" .. n.config.node.id .. ")") or n.config.node.id))
         line("Rolle: " .. role_text())
         line("Netz: " .. n.config.network.name .. (n.config.network.central_id and ("   Leitstelle: " .. n.config.network.central_id) or "   (Leitstelle)"))
         line("Zustand: " .. n.config.status .. "   Einrichtung Nr. " .. tostring(n.config.revision))
@@ -279,7 +294,11 @@ function M.new(env)
     directory_track_change = function(central_id, claim, track_id, fields, if_rev) return n.directory_track_change(central_id, claim, track_id, fields, if_rev) end,
     directory_status = function() return n.directory_status() end,
     directory_reset = function() return n.directory_reset() end,
+    claim = function() return n.claim() end,
     new_claim = function() return n.new_claim() end,
+    new_token = function() return n.new_token() end,
+    check_mark = probe_mark,
+    check_marker = probe_marker,
     on_saved = function(config)
       n.config = config
       n.rebuild_views()
@@ -914,9 +933,27 @@ function M.new(env)
 
   function n.directory_reset() n.dir_req, n.dir_handler, n.dir_state = nil, nil, nil end
 
-  -- eine Anforderungskennung, die bei jedem Versuch gleich bleibt (der Assistent merkt sie sich im Entwurf)
-  function n.new_claim()
+  -- Die Anforderungskennung dieses Computers im Netzverzeichnis: gleich bei jedem Versuch, jedem Neustart und jedem Update (eigene Datei, kein Entwurf), damit
+  -- die Leitstelle fuer diesen Computer immer dieselbe Kennung (N0001, ...) fuehrt und keine zweite anlegt. Eine eingerichtete Node behaelt die ihre (config.node.claim).
+  local function fresh_claim()
     return string.format("c%d-%06d%06d", n.clock.boot_id(), math.random(0, 999999), math.random(0, 999999))
+  end
+  -- eine frische Kennung fuer einmalige Vorgaenge (zum Beispiel "Bereich anlegen": bei Wiederholung derselben Eingabe legt die Leitstelle nichts doppelt an)
+  n.new_token = fresh_claim
+  function n.claim()
+    if n.config and n.config.node and type(n.config.node.claim) == "string" then return n.config.node.claim end
+    local saved = store.load(CLAIM)
+    if type(saved) == "table" and type(saved.claim) == "string" and #saved.claim >= 8 then return saved.claim end
+    local claim = fresh_claim()
+    store.save(CLAIM, { claim = claim })
+    return claim
+  end
+  -- eine neue Anforderung stellen (die Leitstelle hat die bisherige verworfen)
+  function n.new_claim()
+    local claim = fresh_claim()
+    if n.config and n.config.node then n.config.node.claim = nil end
+    store.save(CLAIM, { claim = claim })
+    return claim
   end
 
   -- Antwort auf eine Verzeichnisfrage (neuer Computer ueber die vorlaeufige Kennung, eingerichtete Node ueber ihren Funk)
@@ -979,7 +1016,7 @@ function M.new(env)
       n.fetch_state = { kind = "halt", text = "Die Konfiguration ist nicht lesbar." }
       return
     end
-    config.status = "entwurf"
+    config.status = "offen"
     n.fetch_state = { kind = "ok", text = "Konfiguration von " .. tostring(config.node.id) .. " (Stand " .. tostring(config.revision) .. ") empfangen.", config = config }
   end
 
@@ -1105,18 +1142,17 @@ function M.new(env)
 
   n.rebuild_views()
   -- Absturz mitten in der Abschlusspruefung (Konzept 13.4): eine stehengebliebene eigene Testsperre erkennen, aufheben und melden
-  if n.config and n.config.pruefung and n.config.pruefung.lauf then
+  if env.fs.exists(PROBE_MARK) or env.fs.exists(PROBE_MARK .. ".prev") then
     local check = pruefunglib.new({
       env = env, config = function() return n.config end, now = function() return n.clock.now() end,
       scan = function() return detect.scan(env.peripheral) end,
-      persist = function() return store.save(CONFIG, n.config) end,
+      marker = probe_marker, mark = probe_mark,
     })
     local note, ok = check.recover()
     if note then n.notify(ok and "warnung" or "fehler", note) end
   end
 
   n.start_services()
-  if n.config and n.config.status ~= "aktiv" then n.notify("warnung", "Die Einrichtung ist nur ein Entwurf: die Betriebsfunktion bleibt inaktiv.") end
   if n.env_hold then n.notify("warnung", "Die Umgebung (Modpack/Schnittstellen) hat sich geaendert: neue Abfahrten bleiben aus, bis die Pruefung auf der Seite Uebersicht bestanden ist.") end
   return n
 end

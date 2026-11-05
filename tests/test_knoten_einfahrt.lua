@@ -179,12 +179,14 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     h.step(3); d.node.render()
     t.eq(screen(), "3.geraete", d.text(v))
-    -- die Geraeteliste hat zwei Seiten: erst die sechs der ersten Seite, dann die der zweiten
+    -- die Geraeteliste hat bei kleiner Anzeige mehrere Seiten: erst die der ersten Seite, dann (falls noetig) die der zweiten
     for _, name in ipairs({ "Create_Signal_1", "Create_Signal_2", "Create_Signal_3", "Create_Signal_4", "Create_TrainObserver_1", "Create_TrainObserver_2" }) do
       d.tap_row(v, "geraete", name)
     end
-    d.tap(v, "page:geraete:next")
-    d.node.render()
+    if d.area(v, "page:geraete:next") then
+      d.tap(v, "page:geraete:next")
+      d.node.render()
+    end
     d.tap_row(v, "geraete", "Create_TrainObserver_3"); d.tap_row(v, "geraete", "Create_TrainObserver_4")
     d.tap(v, "act:weiter")
     t.eq(screen(), "4.gleise", d.text(v))

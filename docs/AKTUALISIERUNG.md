@@ -38,7 +38,7 @@ crn/app/main update ersetzen ein|aus
 
 ## Leitstelle
 
-Die Leitstelle belegt rund 500 KB; alte und neue Version passen nicht zugleich auf den Computer. Die Selbstaktualisierung meldet das (*Alt und neu passen nicht zugleich ...*) und installiert nicht von selbst. Mit `crn/app/main update ersetzen ein` darf sie die bisherige Version ersetzen: das geht nur ohne Rueckweg (keine Vorversion, keine Probe mit Rueckfall; bricht der Download ab, ist CRN nicht installiert und `installer zentrale` ist von Hand zu wiederholen). Empfehlung: die Leitstelle von Hand aktualisieren (`installer zentrale --replace`), wenn die anderen Nodes den neuen Stand ohne Fehler zeigen.
+Die Leitstelle belegt rund 460 KB; zwei Staende zusammen rund 920 KB. Das passt zugleich auf den Computer (1 000 000 Byte) nur, solange die Daten unter /crn_data (Netzverzeichnis, Sicherungen der Nodes, Sicherung vor einer Datenanpassung) nicht mehr als rund 80 KB belegen; wird es eng, passen alte und neue Version nicht zugleich. Die Selbstaktualisierung meldet das dann (*Alt und neu passen nicht zugleich ...*) und installiert nicht von selbst. Mit `crn/app/main update ersetzen ein` darf sie die bisherige Version ersetzen: das geht nur ohne Rueckweg (keine Vorversion, keine Probe mit Rueckfall; bricht der Download ab, ist CRN nicht installiert und `installer zentrale` ist von Hand zu wiederholen). Empfehlung: die Leitstelle von Hand aktualisieren (`installer zentrale --replace`), wenn die anderen Nodes den neuen Stand ohne Fehler zeigen.
 
 ## Grenzen
 

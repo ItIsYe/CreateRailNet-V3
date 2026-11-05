@@ -1,10 +1,11 @@
 --[[
 Purpose: Konfiguration eines Nodes (Konzept 15): Netz, Node-Kennung und Rollen, Geraetebindung, Gleise (Bahnhof, Signale, Beobachter, Freigabeausgang), Knotenpunkte (Anschluesse, Verbindungen, Konfliktbereiche), Pruefergebnisse. Enthaelt nur Regeln und Rechnen, keine Oberflaeche: Pruefung auf Eindeutigkeit (kein Geraet und kein Ausgang zweimal), Vorlagen fuer weitere Gleise ohne Geraete, Entwurf oder aktiv.
 API: model.new(name, roles, network) -> config; model.validate(config, scan) -> Liste Probleme { code, text }; model.add_device(config, kind, device) -> id; model.add_track(config, name) -> id; model.copy_track(config, id, name) -> neue id; model.remove_track(config, id); model.assign(config, track_id, field, device_id); model.free_devices(config, scan, kind) -> Liste; model.outputs(scan) -> moegliche Ausgaenge; model.slug(text); model.ROLES
-Notes: Eine Node darf mehrere Rollen tragen (15.1). Ein neues oder kopiertes Gleis bleibt "entwurf", bis es einem Geraet zugeordnet und geprueft ist; es nimmt nicht an der Disposition teil (29.2). Technische Anschlussnamen stehen nur in devices; Gleise verweisen auf Geraete-Kennungen (fachlicher Bezug statt Modemadresse).
+Notes: Eine Node darf mehrere Rollen tragen (15.1). Ein neues oder kopiertes Gleis bleibt "offen", bis es einem Geraet zugeordnet und geprueft ist; es nimmt nicht an der Disposition teil (29.2). Technische Anschlussnamen stehen nur in devices; Gleise verweisen auf Geraete-Kennungen (fachlicher Bezug statt Modemadresse).
 ]]
 
 local detect = require("dev.detect")
+local label = require("core.label")
 
 local M = {}
 
@@ -36,7 +37,7 @@ function M.new(name, roles, network)
     tracks = {},
     junction = { connections = {}, moves = {}, conflicts = {} },
     tests = {},
-    status = "entwurf",
+    status = "offen",
   }
 end
 
@@ -57,7 +58,7 @@ end
 
 function M.add_track(config, name)
   local id = next_id(config.tracks, "gleis")
-  config.tracks[id] = { name = name, direction = "beide", signals = {}, observers = {}, status = "entwurf" }
+  config.tracks[id] = { name = name, direction = "beide", signals = {}, observers = {}, status = "offen" }
   return id
 end
 
@@ -88,7 +89,7 @@ function M.junction_from_directory(j)
   local owner, order = {}, {}
   for _, c in ipairs(j.connections or {}) do
     for _, t in ipairs(c.tracks or {}) do
-      if owner[t.id] then return nil, "Das Gleis " .. t.name .. " steht in zwei Anschluessen." end
+      if owner[t.id] then return nil, label.track(t.name) .. " steht in zwei Anschluessen." end
       owner[t.id] = { connection = c.name, name = t.name, area = t.area }
       order[#order + 1] = t.id
     end
@@ -107,7 +108,7 @@ function M.junction_from_directory(j)
   end
   for _, id in ipairs(order) do
     if from_ends[id] and to_ends[id] then
-      return nil, "Das Gleis " .. owner[id].name .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: das kennt die Node nicht, bitte in der Leitstelle trennen oder von Hand einrichten."
+      return nil, label.track(owner[id].name) .. " (" .. owner[id].connection .. ") ist Ein- und Ausfahrt: in der Leitstelle trennen."
     end
   end
   local moves = {}
@@ -253,7 +254,7 @@ function M.validate(config, scan)
   local problems = {}
   local function add(code, text) problems[#problems + 1] = { code = code, text = text } end
 
-  if config.node.name == "" then add("name", "Der Node braucht einen Namen.") end
+  -- der Name ist nur Anzeige (ohne Namen gilt die Kennung): er blockiert nie, auch nicht bei einer Einrichtung aus aelteren Versionen
   if #config.node.roles == 0 then add("rolle", "Es ist keine Rolle gewaehlt.") end
   for _, r in ipairs(config.node.roles) do
     if not ROLE_SET[r] then add("rolle", "Unbekannte Rolle " .. tostring(r) .. ".") end
@@ -295,7 +296,7 @@ function M.validate(config, scan)
     local function claim(device_id, what)
       if not device_id then return end
       if not config.devices[device_id] then
-        add("gleis_geraet", "Gleis " .. track.name .. ": " .. what .. " " .. device_id .. " ist nicht eingetragen.")
+        add("gleis_geraet", label.track(track.name) .. ": " .. what .. " " .. device_id .. " ist nicht eingetragen.")
         return
       end
       if owner[device_id] and owner[device_id] ~= id then
@@ -303,56 +304,56 @@ function M.validate(config, scan)
       end
       owner[device_id] = id
     end
-    if track.direction ~= "hin" and track.direction ~= "rueck" and track.direction ~= "beide" then add("gleis_richtung", "Gleis " .. track.name .. ": Richtung fehlt oder ist ungueltig.") end
+    if track.direction ~= "hin" and track.direction ~= "rueck" and track.direction ~= "beide" then add("gleis_richtung", label.track(track.name) .. ": Richtung fehlt oder ist ungueltig.") end
     for field, kind in pairs({ station = "station", signals = "signal", observers = "observer" }) do
       local refs = field == "station" and (track.station and { track.station } or {}) or track[field]
       for _, ref in ipairs(refs) do
-        if config.devices[ref] and config.devices[ref].kind ~= kind then add("gleis_art", "Gleis " .. track.name .. ": falsche Geraeteart fuer " .. field .. ".") end
+        if config.devices[ref] and config.devices[ref].kind ~= kind then add("gleis_art", label.track(track.name) .. ": falsche Geraeteart fuer " .. field .. ".") end
       end
     end
     claim(track.station, "Bahnhof")
     -- gefuehrte Einrichtung: mehrere Signale an einem Gleis liegen hintereinander; die Reihenfolge (von Anschluss 1 nach Anschluss 2) muss bestaetigt sein
     if track.dir and #track.signals >= 2 and not track.order_ok then
       local ends = config.node.area_ends
-      add("signal_reihenfolge", "Gleis " .. track.name .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
+      add("signal_reihenfolge", label.track(track.name) .. ": Reihenfolge der " .. #track.signals .. " Signale bestaetigen" .. ((ends and ends[1] and ends[2]) and (" (von " .. ends[1] .. " nach " .. ends[2] .. ")") or "") .. ".")
     end
     for _, s in ipairs(track.signals) do
       claim(s, "Signal")
       -- Konzept 5.4: bei Signalen der gefuehrten Einrichtung muss die Wirkrichtung bekannt sein
       local info = config.devices[s] and config.devices[s].signal
-      if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (Gleis " .. track.name .. "): Wirkrichtung fehlt.") end
+      if info and not info.effect and not track.junction then add("signal_wirkrichtung", "Signal " .. config.devices[s].device .. " (" .. label.track(track.name) .. "): Wirkrichtung fehlt.") end
     end
     for _, o in ipairs(track.observers) do claim(o, "Beobachter") end
-    if needs_station and not track.station then add("gleis_bahnhof", "Gleis " .. track.name .. " hat keinen Bahnhof.") end
-    if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", "Gleis " .. track.name .. " hat kein Signal.") end
+    if needs_station and not track.station then add("gleis_bahnhof", label.track(track.name) .. " hat keinen Bahnhof.") end
+    if has_role(config, "signal") and #track.signals == 0 then add("gleis_signal", label.track(track.name) .. " hat kein Signal.") end
     -- Einfahrtsgleis mit mehreren Signalen: nur das Signal unmittelbar vor dem Knoten sperrt die Einfahrt (siehe M.entry_signal_problem)
     local entry_code, entry_text = M.entry_signal_problem(config, track)
     if entry_code then add(entry_code, entry_text) end
     if track.junction then
       if not config.junction.connections[track.junction.connection] then
-        add("knoten_gleis", "Gleis " .. track.name .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")
+        add("knoten_gleis", label.track(track.name) .. " verweist auf den unbekannten Anschluss " .. tostring(track.junction.connection) .. ".")
       elseif track.junction.role == "ein" and #track.signals == 0 then
         add("knoten_gleis", "Einfahrtsgleis " .. track.name .. " braucht ein Signal, das die Einfahrt zusaetzlich sperrt.")
       elseif #track.observers == 0 then
-        add("knoten_gleis", "Gleis " .. track.name .. " braucht einen Beobachter als Meldepunkt (Einfahrt erkennen, Raeumung nachweisen).")
+        add("knoten_gleis", label.track(track.name) .. " braucht einen Beobachter als Meldepunkt.")
       end
     end
     if track.release then
       local valid_side = false
       for _, side in ipairs(SIDES) do if track.release.side == side then valid_side = true end end
-      if not valid_side then add("ausgang_seite", "Gleis " .. track.name .. ": ungueltige Ausgangsseite.") end
+      if not valid_side then add("ausgang_seite", label.track(track.name) .. ": ungueltige Ausgangsseite.") end
       if track.release.relay then
         local relay = detect.find(scan, track.release.relay)
-        if not relay or relay.kind ~= "relay" or #detect.missing("relay", relay) > 0 then add("ausgang_relay", "Gleis " .. track.name .. ": Relay fehlt oder ist nicht verwendbar.") end
+        if not relay or relay.kind ~= "relay" or #detect.missing("relay", relay) > 0 then add("ausgang_relay", label.track(track.name) .. ": Relay fehlt oder ist nicht verwendbar.") end
       end
       local key = output_key(track.release)
       if outputs[key] then
         add("ausgang_doppelt", "Der Ausgang " .. key .. " dient zwei Gleisen: " .. outputs[key] .. " und " .. track.name .. ". Gemeinsame Leitungen duerfen keine fremde Freigabe ausloesen.")
       end
       outputs[key] = track.name
-    elseif needs_station and (has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof")) and track.station then
-      add("gleis_ausgang", "Gleis " .. track.name .. " hat keinen Freigabeausgang.")
     end
+    -- Ein Gleis braucht keinen Freigabeausgang: die Freigabe der Abfahrt laeuft ueber die Train Station selbst (Fahrplan), nicht ueber Redstone am Computer.
+    -- Ausgaenge aelterer Einrichtungen bleiben gueltig und werden weiter geprueft.
   end
 
   -- Knotenpunkt
@@ -375,7 +376,7 @@ function M.validate(config, scan)
     end
     for i, move in ipairs(j.moves) do
       if j.connections[move.from] and not has_in[move.from] then add("knoten_einfahrt", "Der Anschluss " .. move.from .. " hat kein Einfahrtsgleis mit Signal.") end
-      if j.connections[move.to] and not has_out[move.to] then add("knoten_ausfahrt", "Der Anschluss " .. move.to .. " hat kein Ausfahrtsgleis mit Beobachter (ohne ihn gibt es keine Raeumungsmeldung).") end
+      if j.connections[move.to] and not has_out[move.to] then add("knoten_ausfahrt", "Der Anschluss " .. move.to .. " hat kein Ausfahrtsgleis mit Beobachter.") end
     end
     for i, conflict in ipairs(j.conflicts) do
       if #conflict.moves < 2 then add("knoten_konflikt", "Konfliktbereich " .. i .. " braucht mindestens zwei Verbindungen.") end

@@ -1,10 +1,11 @@
 --[[
-Purpose: Ablauf des Einrichtungsassistenten in sechs Hauptschritten (Konzept 29.1): Anlage, Rolle, Geraete, Gleise, Test, Fertig. Reine Zustandsfuehrung ohne Oberflaeche: Eingaben, Weiterschalten mit Pruefung, Geraeteauswahl, Gleise und Knotenpunkt bearbeiten, gefuehrte Pruefungen (lesend und schaltend, schaltend nur nach ausdruecklicher Bestaetigung), Speichern als Entwurf oder aktiv.
+Purpose: Ablauf des Einrichtungsassistenten in sechs Hauptschritten (Konzept 29.1): Netz, Aufgabe (Rolle, Bereich, Gleise des Bereichs), Geraete, Gleise, Test, Fertig. Reine Zustandsfuehrung ohne Oberflaeche: Eingaben, Weiterschalten mit Pruefung, Geraeteauswahl, Gleise und Knotenpunkt bearbeiten, gefuehrte Pruefungen (lesend und schaltend, schaltend nur nach ausdruecklicher Bestaetigung), Speichern als Entwurf oder aktiv.
 API: wizard.new{ scan, env, now, existing } -> w; w.step; w.next() / w.back(); w.step_ok(n) -> ok, grund; w.config; w.tests() -> Liste; w.run_test(id, confirmed) -> ok, text; w.finish(store, path) -> status, probleme
 Notes: Lesende Erkennung und schaltende Pruefungen sind getrennt: ein schaltender Test laeuft nur mit confirmed = true, nennt vorher Geraet und erwartete Wirkung (test.explain) und stellt den Ausgangszustand wieder her. Ein erfolgreicher API-Aufruf zaehlt nur als Ausfuehrung des Befehls (Konzept 29.1). Fehlt ein Geraet, wird die Einrichtung als Entwurf gespeichert; die betroffene Betriebsfunktion bleibt inaktiv (status = "entwurf").
 ]]
 
 local model = require("setup.model")
+local label = require("core.label")
 local ser = require("core.ser")
 local adler = require("core.adler")
 local detect = require("dev.detect")
@@ -18,7 +19,7 @@ local M = {}
 -- Geraeteklassen, die zu einem Node gehoeren koennen (Modems werden nicht zugeordnet, sondern nur gezeigt)
 local SELECTABLE = { station = true, signal = true, observer = true, relay = true, monitor = true, displaylink = true }
 
-M.STEPS = { "Anlage", "Rolle", "Geraete", "Gleise", "Test", "Fertig" }
+M.STEPS = { "Netz", "Aufgabe", "Geraete", "Gleise", "Test", "Fertig" }
 
 -- Funktion eines Signals (Konzept 5.4); die Wirkrichtung ist ein Anschlussname des Bereichs, der oertliche Bezug ein Anschlussname oder "mitte"
 M.SIGNAL_USES = { "strecke", "einfahrt", "ausfahrt" }
@@ -28,14 +29,13 @@ function M.new(opts)
   local w = { step = 1, mode = "create", network_name = "", central_id = "", key = "", name = "", roles = {}, scan = opts.scan() }
   local env = opts.env
   local existing = opts.existing
-  -- eine laufende Node wird nie per Entwurf stillgelegt: Aenderungen gelten erst mit "Aktivieren"
+  -- eine laufende Node bleibt unberuehrt: Aenderungen gelten erst mit "Aktivieren" (die Bearbeitung laeuft auf einer Kopie)
   w.was_active = existing ~= nil and existing.status == "aktiv"
   if not existing and opts.role_available and not opts.role_available("zentrale") then w.mode = "join" end
 
   w.config = existing and assert(ser.decode(ser.encode(existing))) or model.new("", {}, {})
-  -- gefuehrte Einrichtung (Signal-Node nach dem Netzverzeichnis): die Kennung kommt von der Leitstelle, die Abschlusspruefung ist w.pruefung
-  local function single_role(list, name) return #list == 1 and list[1] == name end
-  w.guided = (existing ~= nil and existing.node.claimed == true and existing.node.area ~= nil and existing.status ~= "aktiv" and single_role(existing.node.roles, "signal")) or nil
+  -- gefuehrte Einrichtung (Signal-Node nach dem Netzverzeichnis): die Kennung kommt von der Leitstelle, die Abschlusspruefung ist w.pruefung; gesetzt in guided_begin
+  w.guided = nil
   w.claimed_id = (existing ~= nil and existing.node.claimed == true) and existing.node.id or nil
   if existing then
     w.network_name = existing.network.name
@@ -57,8 +57,9 @@ function M.new(opts)
     c.network.name = w.network_name
     c.network.central_id = (w.mode == "join" and w.central_id ~= "") and w.central_id or nil
     c.network.key = (w.key ~= "") and w.key or nil
-    c.node.name = w.name
-    if not existing then c.node.id = w.claimed_id or model.slug(w.name) end
+    -- ohne eigenen Namen (und ohne Name aus dem Verzeichnis) gilt der Vorschlag
+    c.node.name = (w.name ~= "" or w.claimed_id or existing) and w.name or w.suggest_name()
+    if not existing then c.node.id = w.claimed_id or model.slug(c.node.name) end
     c.node.roles = {}
     for _, r in ipairs(model.ROLES) do if has(w.roles, r) then c.node.roles[#c.node.roles + 1] = r end end
   end
@@ -81,7 +82,16 @@ function M.new(opts)
     w.network_name, w.central_id, w.key = name or w.network_name, central or w.central_id, key or w.key
     sync_config()
   end
-  function w.set_name(name) w.name = name; sync_config() end
+  -- Der Name ist nur Anzeige und blockiert nie: leer gilt der Vorschlag; im Netzverzeichnis vergibt die Leitstelle Name und Kennung
+  local NAME_BASE = { zentrale = "Leitstelle", passagierbahnhof = "Bahnhof", gueterbahnhof = "Gueterbahnhof", depot = "Depot", signal = "Signal", knoten = "Knoten", anmeldung = "Anmeldung" }
+  function w.suggest_name()
+    w.name_number = w.name_number or math.random(100, 999)
+    return (NAME_BASE[w.roles[1] or ""] or "Node") .. " " .. w.name_number
+  end
+  function w.set_name(name)
+    w.name = name:match("%S") and name or ""
+    sync_config()
+  end
   function w.available_roles()
     local roles = {}
     for _, role in ipairs(model.ROLES) do if not opts.role_available or opts.role_available(role) then roles[#roles+1]=role end end
@@ -174,7 +184,6 @@ function M.new(opts)
       if w.mode == "join" and not w.central_id:match("%S") then return false, "Die Kennung der Leitstelle fehlt." end
       return true
     elseif n == 2 then
-      if not w.name:match("%S") then return false, "Der Node braucht einen Namen." end
       if #w.roles == 0 then return false, "Bitte mindestens eine Rolle waehlen." end
       for _,role in ipairs(w.roles) do if not has(w.available_roles(),role) then return false, "Die Programmdateien fuer Rolle " .. role .. " fehlen." end end
       if w.mode == "create" and not has(w.roles, "zentrale") then return false, "Die erste Leitstelle braucht die Rolle Leitstelle." end
@@ -443,7 +452,7 @@ function M.new(opts)
 
   function w.knoten_precheck()
     for _, track in pairs(w.config.tracks) do
-      if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (Gleis " .. track.name .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
+      if not track.dir then return nil, "Diese Node hat schon eine eigene Einrichtung ohne Netzverzeichnis (" .. label.track(track.name) .. "): 'Von Hand' behaelt sie, sonst zuerst die Gleise loeschen." end
     end
     return true
   end
@@ -767,7 +776,7 @@ function M.new(opts)
         local key = (track.release.relay or "Computer") .. " " .. track.release.side
         list[#list + 1] = {
           id = "ausgang:" .. tid, kind = "schalten", title = "Ausgang: " .. track.name, spec = key, fp = test_fingerprint("ausgang", tid),
-          explain = "Der Freigabeausgang " .. key .. " von Gleis " .. track.name .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
+          explain = "Der Freigabeausgang " .. key .. " von " .. label.track(track.name) .. " wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
         }
       end
     end
@@ -877,9 +886,9 @@ function M.new(opts)
   end
 
   -- Schritt 6 ----------------------------------------------------------------------------------------------------------------------------------
-  -- liefert "aktiv" oder "entwurf" und die offenen Probleme
-  function w.finish(store, path, draft)
-    if draft and w.was_active then return nil, {}, "Eine laufende Node wird nicht auf Entwurf gesetzt." end
+  -- Aktivieren: gespeichert wird nur eine vollstaendige Einrichtung (Pflichtangaben und alle Pruefungen); sonst nichts und die offenen Probleme.
+  -- Liefert "aktiv", die Probleme; oder nil, die Probleme, den Grund
+  function w.finish(store, path)
     sync_config()
     w.rescan()
     local problems = model.validate(w.config, w.scan)
@@ -887,15 +896,18 @@ function M.new(opts)
       local ok, reason = w.step_ok(n, true)
       if not ok then problems[#problems + 1] = { code = "schritt_" .. n, text = reason } end
     end
-    local status = (not draft and #problems == 0 and w.all_tests_ok()) and "aktiv" or "entwurf"
-    w.config.status = status
-    for _, track in pairs(w.config.tracks) do
-      track.status = (status == "aktiv" and track.station ~= nil or status == "aktiv" and #track.signals > 0) and "aktiv" or "entwurf"
+    if #problems > 0 or not w.all_tests_ok() then
+      return nil, problems, "Pflichtangaben und Pruefungen sind nicht vollstaendig."
     end
+    w.config.status = "aktiv"
+    for _, track in pairs(w.config.tracks) do track.status = "aktiv" end
     w.config.revision = (w.config.revision or 0) + 1
     local ok, err = store.save(path, w.config)
-    if not ok then return nil, problems, err end
-    return status, problems
+    if not ok then
+      w.config.status = "offen"
+      return nil, problems, err
+    end
+    return "aktiv", problems
   end
 
   return w

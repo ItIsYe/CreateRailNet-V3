@@ -88,11 +88,11 @@ return {
     f.node.search_networks(); h.step(5)
     t.eq(f.node.replace_factory.node_id, "neu-" .. f.node.clock.boot_id())
   end },
-  { "Ein Computer nach Neustart und abgebrochener Einrichtung bekommt keine alten Antworten wieder", function()
+  { "Ein Computer nach Neustart und abgebrochener Einrichtung fragt neu an (keine gemerkte alte Antwort) und behaelt dieselbe Kennung, es entsteht keine zweite", function()
     local h, z, netz = setup()
     local a, va, sa = join(h, "a")
     t.eq(sa.wiz.claimed_id, "N0001")
-    -- der Computer wird neu gestartet (Einrichtung abgebrochen) und beginnt von vorn: neue Anforderung, neue Kennung
+    -- der Computer wird neu gestartet (Einrichtung abgebrochen) und beginnt von vorn: dieselbe Anforderung dieses Computers, also dieselbe Kennung
     a.restart()
     local v2 = a.view()
     v2.set_page("einrichtung")
@@ -108,7 +108,8 @@ return {
     h.step(3); a.node.render()
     local s2 = a.node.setup.session()
     t.eq(s2.screen, "4.zuordnung", a.text(v2))
-    t.eq(s2.wiz.claimed_id, "N0002", "eine neue Anforderung, nicht die gemerkte Antwort der alten")
+    t.eq(s2.wiz.claimed_id, "N0001", "die Anforderung dieses Computers bleibt, die Leitstelle fuehrt keine zweite Kennung")
+    t.eq(#netz.nodes(), 1)
   end },
   { "Wird eine Antwort verworfen, nennt die Meldung den Grund", function()
     local h, z, netz = setup()

@@ -1,12 +1,13 @@
 --[[
 Purpose: Abschlusspruefung einer Signal-Node nach Konzept 13: erst die Pflichtangaben (Gleise, Signale, Geraete, Kennung), dann je Signal lesen und eine kurze eigene Testsperre setzen, zuruecklesen, wieder aufheben und zuruecklesen. Ein gemeinsamer Start nach Bestaetigung der Wirkung, Schritt fuer Schritt und zeitbegrenzt ausgefuehrt (die Oberflaeche bleibt bedienbar und zeigt den Fortschritt), jederzeit abbrechbar. Aktiviert wird nur bei vollstaendigem Erfolg.
-API: pruefung.new{ env, config = fn -> config, now = fn, clock = fn, persist = fn -> ok, scan = fn -> Geraeteliste } -> p; p.effect() -> text, anzahl; p.required() -> Liste Probleme; p.start(bestaetigt, alles) -> true oder nil, grund; p.step(sekunden) -> phase; p.abort(); p.recover() -> hinweis, ok; p.state() -> Zustand; p.device(id) -> Ergebnis; p.all_ok() -> bool
-Notes: Ergebnisse stehen je Geraet in config.pruefung.devices[id] = { lesen, sperre } mit Signatur (Art und Geraetename): eine Namensaenderung kostet keine Pruefung, ein anderes Geraet oder eine geaenderte Zuordnung macht nur dieses Ergebnis ungueltig. Eine schon gesetzte Sperre (Betrieb oder fremd) wird nie fuer den Test aufgehoben: die Pruefung bleibt dann offen ("gesperrt"). Vor jeder Testsperre wird eine Marke gespeichert (config.pruefung.lauf); bleibt sie nach einem Absturz stehen, liest recover() das Signal, hebt die eigene Testsperre auf und meldet es. Kann die Marke nicht gespeichert werden, wird nicht geschaltet. Die Pruefung beweist weder die reale Lage eines Signals noch die Absicherung der Strecke (Konzept 13.6).
+API: pruefung.new{ env, config = fn -> config, now = fn, clock = fn, mark = fn(lauf oder nil) -> ok, marker = fn -> lauf, scan = fn -> Geraeteliste } -> p; p.effect() -> text, anzahl; p.required() -> Liste Probleme; p.start(bestaetigt, alles) -> true oder nil, grund; p.step(sekunden) -> phase; p.abort(); p.recover() -> hinweis, ok; p.state() -> Zustand; p.device(id) -> Ergebnis; p.all_ok() -> bool
+Notes: Ergebnisse stehen je Geraet in config.pruefung.devices[id] = { lesen, sperre } mit Signatur (Art und Geraetename): eine Namensaenderung kostet keine Pruefung, ein anderes Geraet oder eine geaenderte Zuordnung macht nur dieses Ergebnis ungueltig. Eine schon gesetzte Sperre (Betrieb oder fremd) wird nie fuer den Test aufgehoben: die Pruefung bleibt dann offen ("gesperrt"). Vor jeder Testsperre wird eine Marke in eine eigene Datei geschrieben (/crn_data/pruefmarke.lua: Geraet und Name des Signals, nicht die Einrichtung); bleibt sie nach einem Absturz stehen, liest recover() das Signal, hebt die eigene Testsperre auf und meldet es. Kann die Marke nicht gespeichert werden, wird nicht geschaltet. Die Pruefung beweist weder die reale Lage eines Signals noch die Absicherung der Strecke (Konzept 13.6).
 ]]
 
 local signallib = require("dev.signal")
 local detect = require("dev.detect")
 local model = require("setup.model")
+local label = require("core.label")
 
 local M = {}
 
@@ -26,8 +27,9 @@ function M.new(opts)
     return c.pruefung
   end
 
-  local function persist()
-    if opts.persist then return opts.persist() end
+  -- Marke fuer den Wiederanlauf: eigene kleine Datei (nicht die Einrichtung), damit nach einem Absturz mitten in der Testsperre das Signal freigegeben wird
+  local function mark(lauf)
+    if opts.mark then return opts.mark(lauf) end
     return true
   end
 
@@ -99,7 +101,7 @@ function M.new(opts)
     if #track_ids == 0 then add("Es ist noch kein Gleis uebernommen.") end
     for _, tid in ipairs(track_ids) do
       local track = c.tracks[tid]
-      if #(track.signals or {}) == 0 then add("Gleis " .. track.name .. ": Das Signal fehlt noch.") end
+      if #(track.signals or {}) == 0 then add(label.track(track.name) .. ": Das Signal fehlt noch.") end
       count = count + #(track.signals or {})
     end
     for _, problem in ipairs(model.validate(c, scan)) do
@@ -174,15 +176,16 @@ function M.new(opts)
     end
     -- Marke vor dem Schalten: bleibt sie nach einem Absturz stehen, weiss recover(), welches Signal eine Testsperre tragen kann
     store().lauf = { device = did, t = opts.now() }
-    local ok, err = persist()
+    local ok, err = mark({ device = did, name = d.device, t = opts.now() })
     if not ok then
       store().lauf = nil
-      fail(did, "sperre", "Der Entwurf laesst sich nicht speichern (" .. tostring(err) .. "): es wird nicht geschaltet.")
+      fail(did, "sperre", "Die Pruefmarke laesst sich nicht speichern (" .. tostring(err) .. "): es wird nicht geschaltet.")
       return
     end
     local held = g.hold()
     local released = g.release()
     store().lauf = nil
+    if released.confirmed then mark(nil) end        -- bleibt die Sperre stehen, bleibt auch die Marke (Wiederanlauf)
     if not held.confirmed then
       fail(did, "sperre", "Sperre nicht bestaetigt" .. (held.error and (": " .. held.error) or "") .. ".")
     elseif not released.confirmed then
@@ -190,7 +193,6 @@ function M.new(opts)
     else
       pass(did, "sperre", "Sperre gesetzt und aufgehoben (jeweils zurueckgelesen)")
     end
-    persist()
   end
 
   -- fuehrt Pruefungen aus, bis die Zeit `seconds` ueberschritten ist (mindestens eine); liefert die Phase
@@ -207,7 +209,6 @@ function M.new(opts)
     if run.index >= run.total then
       run.phase = "fertig"
       run.current = nil
-      persist()
     end
     return run.phase
   end
@@ -217,33 +218,34 @@ function M.new(opts)
     if run and run.phase == "laeuft" then
       run.phase = "abgebrochen"
       run.current = nil
-      persist()
     end
   end
 
-  -- nach einem Neustart: unterbrochene Testsperre erkennen und aufheben (13.4)
+  -- nach einem Neustart: unterbrochene Testsperre erkennen und aufheben (13.4). Die Marke steht in einer eigenen Datei (opts.marker), nicht in der Einrichtung:
+  -- es muss dafuer keine halbfertige Einrichtung gespeichert sein. Bleibt die Sperre trotz Freigabeversuch stehen, bleibt auch die Marke.
   function p.recover()
-    local pr = store()
-    local lauf = pr.lauf
-    if not lauf then return nil end
-    pr.lauf = nil
-    local d = cfg().devices[lauf.device]
+    local lauf = opts.marker and opts.marker() or nil
+    if type(lauf) ~= "table" then return nil end
     local note, ok = "Eine unterbrochene Pruefung wurde erkannt; das Signal wird neu geprueft.", true
-    if d and d.kind == "signal" then
-      local g = signallib.new(env, d.device)
+    if type(lauf.name) == "string" then
+      local g = signallib.new(env, lauf.name)
       local st = g.read()
       if st.available and st.forced then
         local released = g.release()
         if released.confirmed then
-          note = "Eine Testsperre war nach der Unterbrechung noch gesetzt und wurde aufgehoben: " .. d.device .. "."
+          note = "Eine Testsperre war nach der Unterbrechung noch gesetzt und wurde aufgehoben: " .. lauf.name .. "."
         else
-          note, ok = "ACHTUNG: Eine Testsperre an " .. d.device .. " blieb nach der Unterbrechung gesetzt und liess sich nicht aufheben. Bitte von Hand pruefen.", false
+          note, ok = "ACHTUNG: Eine Testsperre an " .. lauf.name .. " blieb nach der Unterbrechung gesetzt und liess sich nicht aufheben. Bitte von Hand pruefen.", false
         end
       end
-      local rec = pr.devices[lauf.device]
+    end
+    local c = cfg()
+    if c and c.pruefung then
+      c.pruefung.lauf = nil
+      local rec = c.pruefung.devices and c.pruefung.devices[lauf.device]
       if rec then rec.sperre = nil end
     end
-    persist()
+    if ok then mark(nil) end
     return note, ok
   end
 

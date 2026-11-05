@@ -36,7 +36,7 @@ local function to_devices(h, d, v, role_text)
 end
 
 return {
-  { "Bahnhof: Kennung, Name und Gleise kommen aus dem Verzeichnis; Geraete und Ausgaenge wie bisher; aktiv mit dem Label der Leitstelle", function()
+  { "Bahnhof: Kennung, Name und Gleise kommen aus dem Verzeichnis; Geraete wie bisher, keine Ausgangswahl; aktiv mit dem Label der Leitstelle", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     t.eq(screen(d), "3.geraete", d.text(v))
@@ -48,22 +48,19 @@ return {
     t.contains(d.text(v), "Gleis 1"); t.contains(d.text(v), "Gleis 2")
     t.ok(not d.has(v, "Kopieren"), "Gleise aus dem Verzeichnis lassen sich nicht kopieren: " .. d.text(v))
     t.ok(not d.has(v, "Entfernen"), d.text(v))
-    -- Gleis 1: Bahnhof und Ausgang (Name und Richtung stehen schon fest)
+    -- Gleis 1 und 2: nur der Bahnhof (Name und Richtung stehen schon fest); einen Freigabeausgang gibt es im Assistenten nicht mehr
     d.tap(v, "sel:gleise:1"); d.tap(v, "act:bearbeiten")
     t.eq(screen(d), "4.g.bahnhof", d.text(v))
     d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
-    t.eq(screen(d), "4.g.ausgang", d.text(v))
-    d.tap_row(v, "ausgang", "Computer back"); d.tap(v, "act:weiter")
-    t.eq(screen(d), "4.gleise", d.text(v))
+    t.eq(screen(d), "4.gleise", d.text(v), "nach dem Bahnhof geht es zurueck zur Gleisliste, kein Ausgang-Menue")
+    t.ok(not d.has(v, "Welcher Ausgang"), d.text(v))
     d.tap(v, "sel:gleise:2"); d.tap(v, "act:bearbeiten")
     d.tap_row(v, "bahnhof", "Create_Station_2"); d.tap(v, "act:weiter")
-    d.tap_row(v, "ausgang", "Computer top"); d.tap(v, "act:weiter")
+    t.eq(screen(d), "4.gleise", d.text(v))
     d.tap(v, "act:weiter")
     t.eq(screen(d), "5.test", d.text(v))
     d.tap(v, "act:alle_lesen")
-    for _, title in ipairs({ "Ausgang: Gleis 1", "Ausgang: Gleis 2" }) do
-      d.tap_row(v, "tests", title); d.tap(v, "act:ausfuehren"); d.tap(v, "act:start_test")
-    end
+    t.ok(not d.has(v, "Ausgang: Gleis"), "keine Ausgangspruefungen ohne Ausgang: " .. d.text(v))
     d.tap(v, "act:weiter")
     t.eq(screen(d), "6.fertig", d.text(v))
     d.tap(v, "act:speichern")
@@ -74,7 +71,8 @@ return {
     local tracks = {}
     for _, tr in pairs(config.tracks) do tracks[tr.name] = tr end
     t.eq(tracks["Gleis 1"].dir.id, "A0001"); t.eq(tracks["Gleis 1"].dir.direction, "Ausfahrt")
-    t.ok(tracks["Gleis 1"].station and tracks["Gleis 1"].release, "Bahnhof und Ausgang zugeordnet")
+    t.ok(tracks["Gleis 1"].station, "Bahnhof zugeordnet")
+    t.eq(tracks["Gleis 1"].release, nil, "kein Redstone-Ausgang: die Freigabe laeuft ueber die Station")
     t.eq(d.label, "N0001 | PBF | B0001", "Computerlabel gesetzt")
     local saved = storelib.new(d.fs).load("/crn_data/config.lua")
     t.eq(saved.status, "aktiv"); t.eq(saved.node.claimed, true)
@@ -82,20 +80,21 @@ return {
     h.step(30)
     t.eq(netz.node("N0001").state, "aktiv")
   end },
-  { "Alle pruefen: lesende laufen beim Oeffnen von selbst, die schaltenden werden zusammen bestaetigt und nacheinander ausgefuehrt", function()
+  { "Alle pruefen (vorhandene Ausgaenge): lesende laufen beim Oeffnen von selbst, die schaltenden werden zusammen bestaetigt und nacheinander ausgefuehrt", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     d.tap_row(v, "geraete", "Create_Station_1"); d.tap_row(v, "geraete", "Create_Station_2")
     d.tap(v, "act:weiter")
     d.tap(v, "sel:gleise:1"); d.tap(v, "act:bearbeiten")
     d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
-    d.tap_row(v, "ausgang", "Computer back"); d.tap(v, "act:weiter")
     d.tap(v, "sel:gleise:2"); d.tap(v, "act:bearbeiten")
     d.tap_row(v, "bahnhof", "Create_Station_2"); d.tap(v, "act:weiter")
-    d.tap_row(v, "ausgang", "Computer top"); d.tap(v, "act:weiter")
+    -- Ausgaenge einer aelteren Einrichtung bleiben moeglich (hier ueber die Schnittstelle gesetzt) und werden weiter geprueft
+    local wiz = d.node.setup.session().wiz
+    local tid = wiz.tracks()
+    t.eq(wiz.set_release(tid[1], { side = "back" }), true); t.eq(wiz.set_release(tid[2], { side = "top" }), true)
     d.tap(v, "act:weiter")
     t.eq(screen(d), "5.test", d.text(v))
-    local wiz = d.node.setup.session().wiz
     for _, test in ipairs(wiz.tests()) do
       if test.kind == "lesen" then t.eq(wiz.test_state(test.id, nil, test), "ok", "lesende Pruefungen sind schon gelaufen: " .. test.title) end
       if test.kind == "schalten" then t.eq(wiz.test_state(test.id, nil, test), "offen") end
@@ -132,7 +131,7 @@ return {
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     d.tap(v, "act:zurueck")
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     d.tap(v, "sel:gleise_auswahl:2")                 -- Gleis 2 abwaehlen
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()
@@ -158,18 +157,23 @@ return {
     t.eq(screen(d), "3.geraete")
     t.eq(#netz.nodes(), 0, "nichts im Verzeichnis angefordert")
   end },
-  { "Entwurf mit Kennung wird nach einem Neustart bei den Geraeten fortgesetzt", function()
+  { "Nach einem Neustart beginnt die Einrichtung von vorn (kein Entwurf), die Node behaelt aber ihre Kennung im Verzeichnis", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     d.tap_row(v, "geraete", "Create_Station_1")
-    d.tap(v, "act:entwurf")
-    local saved = storelib.new(d.fs).load("/crn_data/config.lua")
-    t.eq(saved.status, "entwurf"); t.eq(saved.node.claimed, true); t.eq(saved.node.id, "N0001")
+    t.eq(d.node.setup.session().wiz.config.node.id, "N0001")
+    t.ok(not d.fs.exists("/crn_data/config.lua"), "nichts als Entwurf gespeichert")
+    local saved = storelib.new(d.fs).load("/crn_data/anforderung.lua")
+    t.eq(type(saved.claim), "string", "nur die Anforderungskennung dieses Computers bleibt")
     d.restart(); h.step(1)
     local v2 = d.view()
     v2.set_page("einrichtung")
-    d.tap(v2, "act:start")
+    t.eq(d.node.config, nil)
+    t.eq(d.node.status().text, "Einrichtung")
+    to_devices(h, d, v2)
     t.eq(screen(d), "3.geraete", d.text(v2))
-    t.ok(d.has(v2, "[x] Create_Station_1"), d.text(v2))
+    t.ok(not d.has(v2, "[x] Create_Station_1"), "die Auswahl beginnt leer: " .. d.text(v2))
+    t.eq(#netz.nodes(), 1, "keine zweite Kennung im Verzeichnis")
+    t.eq(d.node.setup.session().wiz.config.node.id, "N0001", "dieselbe Kennung")
   end },
 }

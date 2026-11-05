@@ -28,7 +28,8 @@ local function build(signals)
     config = function() return wiz.config end,
     now = function() return 0 end,
     scan = function() return detect.scan(w.peripheral) end,
-    persist = function() return store.save("/crn_data/config.lua", wiz.config) end,
+    mark = function() return true end,
+    marker = function() return nil end,
   })
   return wiz, w, store
 end
@@ -145,30 +146,16 @@ return {
     t.eq(saved.status, "aktiv"); t.eq(saved.node.id, "N0017"); t.eq(saved.node.label, "N0017 | SIG | B0001")
     t.eq(w.devices["Create_Signal_1"].state.forced, false)
   end },
-  { "Ohne Pruefung bleibt es ein Entwurf (Aktivieren verlangt die bestandene Abschlusspruefung)", function()
+  { "Ohne Pruefung wird nicht aktiviert und nichts gespeichert (Aktivieren verlangt die bestandene Abschlusspruefung)", function()
     local wiz, w, store = build()
     wiz.guided_begin(copy(INFO, { INFO.tracks[1] }))
     wiz.rescan()
     wiz.guided_assign(wiz.guided_rows()[1].track, "Create_Signal_1")
     local status = wiz.finish(store, "/crn_data/config.lua")
-    t.eq(status, "entwurf")
+    t.eq(status, nil)
+    t.eq(store.load("/crn_data/config.lua"), nil, "kein Entwurf auf dem Computer")
   end },
-  { "Wiederaufnahme: die gespeicherte Konfiguration setzt den gefuehrten Ablauf mit derselben Kennung fort", function()
-    local wiz, w, store = build()
-    wiz.guided_begin(copy(INFO, { INFO.tracks[1] }))
-    wiz.rescan()
-    wiz.guided_assign(wiz.guided_rows()[1].track, "Create_Signal_1")
-    wiz.finish(store, "/crn_data/config.lua", true)
-    local saved = store.load("/crn_data/config.lua")
-    local again = wizardlib.new({
-      scan = function() return detect.scan(w.peripheral) end,
-      env = { peripheral = w.peripheral, redstone = w.redstone }, now = function() return 0 end, existing = saved,
-    })
-    t.eq(again.guided, true); t.eq(again.claimed_id, "N0017")
-    t.eq(again.config.node.id, "N0017")
-    t.eq(again.guided_rows()[1].signals[1].device, "Create_Signal_1")
-  end },
-  { "Eine schon aktive Node wird nicht in den gefuehrten Ablauf gezogen (ihr Entwurf wuerde sonst die laufende Konfiguration ueberschreiben)", function()
+  { "Eine schon aktive Node wird nicht in den gefuehrten Ablauf gezogen (sie wuerde sonst ihre laufende Einrichtung verlieren)", function()
     local wiz, w, store = build()
     wiz.guided_begin(copy(INFO, { INFO.tracks[1] }))
     wiz.rescan()

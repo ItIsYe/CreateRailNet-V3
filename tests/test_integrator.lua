@@ -178,6 +178,108 @@ return {
     end
   end },
 
+  { "Bereich der Sicherung (scope): ein Schritt, der nur config.lua aendert, sichert nur sie; grosse fremde Dateien verhindern die Anpassung nicht", function()
+    local function with_big()
+      local fs, store = world()
+      seed(fs, store)
+      store.save("/crn_data/nodesich/gross.lua", { text = string.rep("x", 70000) })        -- groesser als die Grenze je Datei
+      return fs, store
+    end
+    local function scoped(run) return opts({ migrations = { [1] = { text = "nur config", scope = { "config.lua" }, run = run } } }) end
+    local function only_config(ctx) ctx.update("config.lua", function(c) c.stand = c.revision; c.revision = nil; return c end) end
+    -- ohne Bereich: alles muss in die Sicherung, die grosse Datei verhindert es (unveraendert)
+    local fs, store = with_big()
+    local status, _, _, err = dataformat.check(fs, store, opts())
+    t.eq(status, "fehlgeschlagen"); t.contains(err, "zu gross")
+    -- mit Bereich: nur config.lua wird gesichert und angepasst
+    fs, store = with_big()
+    local dir
+    status, _, dir, err = dataformat.check(fs, store, scoped(only_config))
+    t.eq(status, "migriert", tostring(err))
+    t.eq(store.load("/crn_data/config.lua").stand, 3)
+    t.eq(store.load(dir .. "/config.lua").revision, 3, "Sicherung enthaelt den alten Stand")
+    t.ok(not fs.exists(dir .. "/sperren.lua") and not fs.exists(dir .. "/nodesich"), "fremde Dateien sind nicht in der Sicherung")
+    t.eq(#store.load("/crn_data/nodesich/gross.lua").text, 70000, "fremde Dateien bleiben unberuehrt")
+    t.eq(#dataformat.backups(fs), 1)
+    -- Schritt scheitert: config.lua kommt zurueck, was er neu angelegt hat, verschwindet, alles andere bleibt
+    fs, store = with_big()
+    status, _, _, err = dataformat.check(fs, store, scoped(function(ctx)
+      only_config(ctx)
+      ctx.save("neu.lua", { x = 1 })
+      error("kaputt")
+    end))
+    t.eq(status, "fehlgeschlagen"); t.contains(err, "kaputt")
+    t.eq(store.load("/crn_data/config.lua").revision, 3, "alter Stand zurueck")
+    t.ok(not fs.exists("/crn_data/neu.lua"), "Neues verschwindet")
+    t.eq(store.load("/crn_data/sperren.lua").locks.s1.owner, "knoten")
+    t.eq(#store.load("/crn_data/nodesich/gross.lua").text, 70000)
+    t.eq(store.load("/crn_data/format.lua").format, 1)
+    -- Absturz an jeder Stelle: danach stimmt der Stand genau einmal
+    local probe_fs, probe_store = with_big()
+    local before = probe_fs._state.ops
+    dataformat.check(probe_fs, probe_store, scoped(only_config))
+    local total = probe_fs._state.ops - before
+    for n = 1, total + 2 do
+      fs, store = with_big()
+      fs._state.crash_at = fs._state.ops + n
+      pcall(dataformat.check, fs, store, scoped(only_config))
+      fs._state.crash_at, fs._state.crashed = nil, nil
+      for _, path in ipairs({ "/crn_data/config.lua", "/crn_data/format.lua" }) do store.heal(path) end
+      local count = 0
+      status, _, _, err = dataformat.check(fs, store, scoped(function(ctx) count = count + 1; only_config(ctx) end))
+      t.ok(status == "migriert" or status == "gleich", "Absturz " .. n .. ": " .. tostring(status) .. " " .. tostring(err))
+      t.eq(store.load("/crn_data/config.lua").stand, 3, "Absturz " .. n)
+      t.eq(store.load("/crn_data/config.lua").revision, nil, "Absturz " .. n)
+      t.eq(store.load("/crn_data/format.lua").format, 2, "Absturz " .. n)
+      t.eq(#store.load("/crn_data/nodesich/gross.lua").text, 70000, "Absturz " .. n)
+      t.ok(count <= 1, "Absturz " .. n)
+    end
+  end },
+
+  { "Bereich der Sicherung: mehrere Schritte vereinen ihre Bereiche; der Platzbedarf zaehlt nur die gesicherten Dateien", function()
+    local fs, store = world()
+    seed(fs, store)
+    store.save("/crn_data/nodesich/gross.lua", { text = string.rep("x", 70000) })
+    local o = {
+      format = 3, program = "0.3",
+      migrations = {
+        [1] = { text = "config", scope = { "config.lua" }, run = function(ctx) ctx.update("config.lua", function(c) c.eins = true end) end },
+        [2] = { text = "sperren", scope = { "sperren.lua" }, run = function(ctx) ctx.update("sperren.lua", function(c) c.zwei = true end) end },
+      },
+    }
+    local status, _, dir, err = dataformat.check(fs, store, o)
+    t.eq(status, "migriert", tostring(err))
+    t.eq(store.load("/crn_data/config.lua").eins, true); t.eq(store.load("/crn_data/sperren.lua").zwei, true)
+    t.ok(fs.exists(dir .. "/config.lua") and fs.exists(dir .. "/sperren.lua"), "beide Bereiche gesichert")
+    t.ok(not fs.exists(dir .. "/nodesich"), "mehr nicht")
+    -- Platz: frei sind nur wenige tausend Byte; gesichert werden zwei kleine Dateien, nicht die 70 000 Byte
+    local small, small_store = world({ capacity = 1000000 })
+    seed(small, small_store)
+    small_store.save("/crn_data/nodesich/gross.lua", { text = string.rep("x", 70000) })
+    local used = 1000000 - small.getFreeSpace("/")
+    local tight, tight_store = world({ capacity = used + 12000 })
+    seed(tight, tight_store)
+    tight_store.save("/crn_data/nodesich/gross.lua", { text = string.rep("x", 70000) })
+    local status2, _, _, err2 = dataformat.check(tight, tight_store, o)
+    t.eq(status2, "migriert", tostring(err2))
+  end },
+
+  { "Der echte Schritt 1 -> 2 braucht nur config.lua in der Sicherung: eine grosse Leitstelle (viele und grosse Dateien) wird trotzdem angepasst", function()
+    t.eq(migrations.STEPS[1].scope[1], "config.lua"); t.eq(#migrations.STEPS[1].scope, 1)
+    local fs, store = world()
+    store.save("/crn_data/format.lua", { format = 1, program = "0.1" })
+    store.save("/crn_data/config.lua", { status = "entwurf", node = { id = "x", claim = "c1-123456789012" }, devices = {}, tracks = {} })
+    fs.makeDir("/crn_data/nodesich")
+    for i = 1, 8 do store.save("/crn_data/nodesich/N000" .. i .. ".lua", { config = string.rep("y", 40000) }) end      -- zusammen weit ueber 150000 Byte
+    store.save("/crn_data/netz.lua", { text = string.rep("z", 59000) })
+    local status, _, dir, err = dataformat.check(fs, store, { program = "0.2" })
+    t.eq(status, "migriert", tostring(err))
+    t.ok(not fs.exists("/crn_data/config.lua"))
+    t.eq(store.load("/crn_data/anforderung.lua").claim, "c1-123456789012")
+    t.eq(store.load(dir .. "/config.lua").status, "entwurf")
+    t.eq(#store.load("/crn_data/netz.lua").text, 59000)
+  end },
+
   { "unvollstaendige Sicherung (Absturz beim Kopieren) zaehlt nicht und wird neu angelegt", function()
     local fs, store = world()
     seed(fs, store)
@@ -322,7 +424,11 @@ return {
       for _, d in ipairs({ z, s, b }) do
         local files = old[d.id]
         for path in pairs(d.fs._state.files) do if path:match("^crn_data/") then d.fs._state.files[path] = nil end end
-        for path, text in pairs(files) do d.fs._state.files[path] = text end
+        for path, text in pairs(files) do
+          local dir = path:match("^(.*)/[^/]+$")
+          if dir and not d.fs.exists(dir) then d.fs.makeDir(dir) end
+          d.fs._state.files[path] = text
+        end
         expect[d.id] = ser.encode(storelib.new(d.fs).load("/crn_data/config.lua"))
         d.restart()
       end
@@ -330,7 +436,8 @@ return {
       for _, d in ipairs({ z, s, b }) do
         local n = d.node
         local where = version .. "/" .. d.id
-        t.eq(n.format_status, "gleich", where)
+        -- Formate dieser Staende sind aelter als das aktuelle Programm: einmal angepasst (aktive Einrichtungen bleiben dabei unveraendert)
+        t.eq(n.format_status, "migriert", where)
         t.eq(n.status().kind, "ok", where .. ": " .. n.status().text)
         for _, m in ipairs(n.messages) do t.ok(m.level ~= "fehler", where .. ": " .. m.text) end
         t.eq(ser.encode(storelib.new(d.fs).load("/crn_data/config.lua")), expect[d.id], where .. ": Konfiguration unveraendert")
@@ -340,6 +447,51 @@ return {
       local nodes = z.node.roles.zentrale.info().nodes
       t.ok(nodes.strecke and nodes.bahnhof, version .. ": die Leitstelle kennt beide Nodes")
     end
+  end },
+
+  { "Schritt 1 -> 2 (Entwurf entfaellt): ein gespeicherter Entwurf wird verworfen, Anforderungskennung und Testsperre-Marke bleiben nutzbar, eine aktive Einrichtung bleibt unveraendert", function()
+    local step = migrations.STEPS[1]
+    t.eq(step.text, "Entwurf der Einrichtung verwerfen")
+    local function run(config)
+      local fs, store = world()
+      store.save("/crn_data/format.lua", { format = 1, program = "0.1" })
+      if config then store.save("/crn_data/config.lua", config) end
+      local status, _, dir, err = dataformat.check(fs, store, { program = "0.2" })
+      return status, fs, store, dir, err
+    end
+    -- Entwurf mit Anforderungskennung und stehengebliebener Testsperre
+    local draft = { status = "entwurf", node = { id = "N0007", name = "", claim = "c1-123456789012", claimed = true }, devices = { signal1 = { kind = "signal", device = "Create_Signal_9" } },
+      tracks = {}, pruefung = { lauf = { device = "signal1", t = 42 }, devices = {} } }
+    local status, fs, store, dir, err = run(draft)
+    t.eq(status, "migriert", tostring(err))
+    t.ok(not fs.exists("/crn_data/config.lua"), "der Entwurf ist weg")
+    t.eq(store.load("/crn_data/anforderung.lua").claim, "c1-123456789012", "die Kennung im Verzeichnis bleibt")
+    local mark = store.load("/crn_data/pruefmarke.lua")
+    t.eq(mark.name, "Create_Signal_9"); t.eq(mark.device, "signal1")
+    t.eq(store.load(dir .. "/config.lua").status, "entwurf", "die Sicherung behaelt ihn")
+    t.eq(store.load("/crn_data/format.lua").format, migrations.FORMAT)
+    -- Entwurf ohne Kennung: nur weg
+    status, fs, store = run({ status = "entwurf", node = { id = "x", name = "x" }, devices = {}, tracks = {} })
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua")); t.ok(not fs.exists("/crn_data/anforderung.lua")); t.ok(not fs.exists("/crn_data/pruefmarke.lua"))
+    -- ungueltige Kennung wird nicht uebernommen
+    status, fs = run({ status = "entwurf", node = { id = "x", claim = "../../boese kennung" }, devices = {}, tracks = {} })
+    t.ok(not fs.exists("/crn_data/anforderung.lua"))
+    -- aktive Einrichtung: unveraendert (auch die Datei selbst)
+    local active = { status = "aktiv", revision = 4, node = { id = "n1", name = "Westbahnhof", roles = { "signal" }, claim = "c1-abcdefabcdef" }, devices = {}, tracks = {} }
+    status, fs, store = run(active)
+    t.eq(status, "migriert")
+    t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(active), "aktive Einrichtung unveraendert")
+    t.ok(not fs.exists("/crn_data/pruefmarke.lua") and not fs.exists("/crn_data/anforderung.lua"))
+    -- aktive Einrichtung mit stehengebliebener Marke: die Marke zieht in ihre Datei um, der Rest bleibt
+    local stuck = { status = "aktiv", revision = 4, node = { id = "n1", roles = { "signal" } }, devices = { signal1 = { kind = "signal", device = "Sig_A" } }, tracks = {}, pruefung = { lauf = { device = "signal1", t = 9 }, devices = {} } }
+    status, fs, store = run(stuck)
+    t.eq(status, "migriert")
+    t.eq(store.load("/crn_data/pruefmarke.lua").name, "Sig_A")
+    local c = store.load("/crn_data/config.lua")
+    t.eq(c.status, "aktiv"); t.eq(c.pruefung.lauf, nil); t.eq(c.revision, 4)
+    -- keine Einrichtung: nichts zu tun
+    status, fs = run(nil)
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
   end },
 
   { "Form der gespeicherten Dateien ist festgehalten: aendert sie sich, muss ein Anpassungsschritt her oder die Festlegung bewusst erneuert werden", function()

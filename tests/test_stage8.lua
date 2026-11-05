@@ -242,7 +242,7 @@ return {
     fresh.node.render()
     t.ok(fresh.has(v, "empfangen"), fresh.text(v))
     fresh.tap(v, "act:r_uebernehmen")
-    t.ok(fresh.has(v, "Schritt 6 von 6"), fresh.text(v))
+    t.ok(fresh.has(v, "[6 Fertig]"), fresh.text(v))
     t.eq(fresh.node.setup.session().wiz.config.node.id, "weizenhof", "Kennung bleibt erhalten")
     local wiz = fresh.node.setup.session().wiz
     for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, true) end        -- Schritt 5: die Pruefungen am neuen Computer

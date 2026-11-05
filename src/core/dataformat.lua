@@ -1,7 +1,7 @@
 --[[
 Purpose: Version des Datenformats in /crn_data (Konzept 29.2) und Integrator fuer alte Staende: vor jeder Anpassung wird alles gesichert; die Schritte aus core/migrations.lua laufen der Reihe nach; scheitert einer oder bricht der Computer ab, kommt der alte Stand zurueck und der naechste Start versucht es von vorn. Bei einer Rueckkehr zu einer aelteren Programmversion mit neuerem Datenformat startet die Automatik nicht, solange keine passende Sicherung zurueckgespielt wurde.
 API: dataformat.FORMAT; dataformat.check(fs, store, opts) -> status ("neu" | "gleich" | "migriert" | "zu_neu" | "fehlgeschlagen"), alt, sicherung, fehlertext; dataformat.backups(fs) -> Liste { format, dir } (nur vollstaendige); dataformat.restore(fs, store, format) -> ok, fehler
-Notes: opts = { format = Zahl (Standard FORMAT), program = Text, migrations = { [von] = Schritt } (Standard: core/migrations.lua) }; ein Schritt ist eine Funktion(ctx) oder { text, run }. Gesichert werden alle Dateien unter /crn_data (auch in Unterordnern) bis 60000 Byte je Datei und 150000 Byte zusammen, ohne Journal, .tmp/.prev und Sicherungsordner; passt etwas nicht hinein oder fehlt der Platz, wird nichts angepasst (fehlgeschlagen). Eine Sicherung gilt erst mit ihrem Abschlussmerker (fertig.lua); der Merker migration.lua zeigt eine unterbrochene Anpassung. Bei "zu_neu" wird nichts veraendert.
+Notes: opts = { format = Zahl (Standard FORMAT), program = Text, migrations = { [von] = Schritt } (Standard: core/migrations.lua) }; ein Schritt ist eine Funktion(ctx) oder { text, run }. Gesichert werden alle Dateien unter /crn_data (auch in Unterordnern) bis 60000 Byte je Datei und 150000 Byte zusammen (nennen alle laufenden Schritte ihren Bereich `scope` = Liste von Dateinamen, nur diese), ohne Journal, .tmp/.prev und Sicherungsordner; passt etwas nicht hinein oder fehlt der Platz, wird nichts angepasst (fehlgeschlagen). Eine Sicherung gilt erst mit ihrem Abschlussmerker (fertig.lua); der Merker migration.lua zeigt eine unterbrochene Anpassung. Bei "zu_neu" wird nichts veraendert.
 ]]
 
 local migrations = require("core.migrations")
@@ -118,6 +118,14 @@ local function make_context(fs, store)
     return names
   end
   function ctx.exists(name) return fs.exists(DATA .. "/" .. name) end
+  -- Datei samt .tmp und .prev entfernen (die Sicherung vor der Anpassung behaelt sie)
+  function ctx.delete(name)
+    for _, suffix in ipairs({ "", ".tmp", ".prev" }) do
+      local path = DATA .. "/" .. name .. suffix
+      if fs.exists(path) then fs.delete(path) end
+    end
+    return true
+  end
   function ctx.load(name) return (store.load(DATA .. "/" .. name)) end
   function ctx.save(name, value)
     local ok, why = store.save(DATA .. "/" .. name, value)
@@ -179,16 +187,34 @@ function M.check(fs, store, opts)
   local has_steps = false
   for from = from_format, format - 1 do if steps[from] then has_steps = true end end
 
+  -- Bereich der Sicherung: nennen alle Schritte, die laufen, die Dateien, die sie aendern (scope), werden nur diese gesichert; so scheitert eine kleine
+  -- Anpassung nicht an der Groesse fremder Dateien (zum Beispiel der Sicherungen der Leitstelle). Ohne Angabe eines Schrittes wird alles gesichert.
+  local scope = nil
+  if has_steps then
+    scope = {}
+    for from = from_format, format - 1 do
+      local step = steps[from]
+      if step then
+        local list = type(step) == "table" and step.scope or nil
+        if type(list) ~= "table" then scope = nil break end
+        for _, name in ipairs(list) do scope[name] = true end
+      end
+    end
+  end
+
   -- Sicherung
   local files = list_files(fs)
-  local total, had_header = 0, {}
+  local total, had_header, saved_files = 0, {}, {}
   for _, f in ipairs(files) do
+    if not scope or scope[f.name] then saved_files[#saved_files + 1] = f end
+  end
+  for _, f in ipairs(saved_files) do
     if f.size > MAX_FILE then return fail("Die Datei " .. f.name .. " ist zu gross fuer die Sicherung vor der Anpassung der Daten (" .. f.size .. " Byte).") end
     total = total + f.size
   end
   if total > MAX_TOTAL then return fail("Die Daten sind zu gross fuer die Sicherung vor der Anpassung (" .. total .. " Byte, hoechstens " .. MAX_TOTAL .. ").") end
   local need = 0
-  for _, f in ipairs(files) do need = need + math.max(f.size, 500) end
+  for _, f in ipairs(saved_files) do need = need + math.max(f.size, 500) end
   if fs.getFreeSpace("/") < need + MARGIN then
     return fail("Zu wenig Platz fuer die Sicherung vor der Anpassung der Daten: " .. (need + MARGIN) .. " Byte noetig, frei " .. fs.getFreeSpace("/") .. ".")
   end
@@ -199,7 +225,7 @@ function M.check(fs, store, opts)
     names[#names + 1] = f.name
     local head = read_all(fs, DATA .. "/" .. f.name)
     had_header[f.name] = head ~= nil and head:sub(1, 7) == "-- crn "
-    if not copy(fs, DATA .. "/" .. f.name, dir .. "/" .. f.name) then
+    if (not scope or scope[f.name]) and not copy(fs, DATA .. "/" .. f.name, dir .. "/" .. f.name) then
       fs.delete(dir)
       return fail("Sicherung von " .. f.name .. " fehlgeschlagen.")
     end

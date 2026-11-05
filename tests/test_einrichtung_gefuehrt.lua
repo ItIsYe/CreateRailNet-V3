@@ -60,7 +60,7 @@ return {
     d.tap(v, "sel:bereich:1")
     h.step(3); d.node.render()
     d.tap(v, "act:weiter")
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     t.ok(d.has(v, "[x] Gleis 1"), d.text(v)); t.ok(d.has(v, "Richtung Ostbahnhof"), d.text(v))
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()
@@ -155,20 +155,21 @@ return {
     h.step(2)
     t.eq(screen(d), "4.zuordnung")
   end },
-  { "Entwurf mit stehengebliebener Testsperre: beim Oeffnen der Einrichtung wird sie aufgehoben und gemeldet", function()
+  { "Stehengebliebene Testsperre (Marke in eigener Datei): beim Start aufgehoben und gemeldet, auch ohne gespeicherte Einrichtung", function()
     local h, z, d, v = setup({ tracks = 2, signals = 2 })
     to_area(h, d, v); through_tracks(h, d, v)
     assign_all(h, d, v, 2)
-    d.tap(v, "act:entwurf")
-    local config = d.node.config
-    local did = config.tracks[next(config.tracks)].signals[1]
-    config.pruefung = { devices = {}, lauf = { device = did, t = 3 } }
-    d.world.devices[config.devices[did].device].state.forced = true
-    local v2 = d.view(); v2.set_page("einrichtung")
-    d.tap(v2, "act:start")
-    t.eq(screen(d), "4.zuordnung")
-    t.contains(v2.hint, "aufgehoben")
-    t.eq(d.world.devices[config.devices[did].device].state.forced, false)
+    t.eq(d.node.config, nil, "es gibt keinen Entwurf")
+    -- Absturz mitten in der Testsperre: Marke steht, das Signal ist gesperrt
+    storelib.new(d.fs).save("/crn_data/pruefmarke.lua", { device = "signal1", name = "Create_Signal_1", t = 3 })
+    d.world.devices["Create_Signal_1"].state.forced = true
+    d.restart()
+    t.eq(d.world.devices["Create_Signal_1"].state.forced, false, "Testsperre aufgehoben")
+    local found = false
+    for _, m in ipairs(d.node.messages) do if m.text:find("Testsperre", 1, true) and m.text:find("aufgehoben", 1, true) then found = true end end
+    t.ok(found, "Meldung ueber die aufgehobene Testsperre")
+    t.ok(not d.fs.exists("/crn_data/pruefmarke.lua"), "Marke erledigt")
+    t.eq(d.node.config, nil)
   end },
   { "Leitstelle antwortet nicht: Hinweis statt Haengen, 'Von Hand' geht trotzdem", function()
     local h, z, d, v = setup()
@@ -190,7 +191,7 @@ return {
       return real(m)
     end
     d.tap(v, "act:weiter"); h.step(3); d.node.render()
-    t.eq(screen(d), "3.gleise", d.text(v))
+    t.eq(screen(d), "2.gleise", d.text(v))
     t.contains(v.hint, "Das Verzeichnis ist gesperrt")
     t.eq(d.area(v, "act:weiter").enabled, true, "nach der Ablehnung darf man es erneut versuchen")
     z.node.roles.zentrale.handle_directory = real
@@ -212,7 +213,7 @@ return {
     d.tap(v, "act:pruefen"); h.step(1)
     t.eq(d.node.status().text, "Bereit")
   end },
-  { "Pruefung abbrechen (Stoppen): keine weiteren Tests, keine Sperre bleibt, Entwurf bleibt erhalten", function()
+  { "Pruefung abbrechen (Stoppen): keine weiteren Tests, keine Sperre bleibt, nichts wird gespeichert", function()
     local h, z, d, v = setup({ tracks = 4, signals = 4 })
     to_area(h, d, v); through_tracks(h, d, v)
     assign_all(h, d, v, 4)
@@ -229,41 +230,63 @@ return {
     d.tap(v, "act:pruefen"); h.step(1)
     t.eq(d.node.status().text, "Bereit", "danach laesst sie sich neu starten")
   end },
-  { "Neustart mitten in der Testsperre: beim Start wird die Testsperre aufgehoben und gemeldet", function()
+  { "Waehrend der Testsperre steht die Marke in ihrer Datei (nicht in einer gespeicherten Einrichtung) und ist danach weg", function()
     local h, z, d, v = setup({ tracks = 2, signals = 2 })
     to_area(h, d, v); through_tracks(h, d, v)
     assign_all(h, d, v, 2)
-    d.tap(v, "act:entwurf")
-    local store = storelib.new(d.fs)
-    local config = store.load("/crn_data/config.lua")
-    t.eq(config.status, "entwurf")
-    -- Absturz: Marke steht, das Signal ist gesperrt
-    local dev = config.tracks[next(config.tracks)].signals[1]
-    config.pruefung = { devices = {}, lauf = { device = dev, t = 3 } }
-    store.save("/crn_data/config.lua", config)
-    d.world.devices[config.devices[dev].device].state.forced = true
-    d.restart()
-    t.eq(d.world.devices[config.devices[dev].device].state.forced, false, "Testsperre aufgehoben")
-    local found = false
-    for _, m in ipairs(d.node.messages) do if m.text:find("Testsperre", 1, true) then found = true end end
-    t.ok(found, "Meldung ueber die aufgehobene Testsperre")
-    t.eq(store.load("/crn_data/config.lua").pruefung.lauf, nil)
+    local seen = {}
+    for i = 1, 2 do
+      local dev = d.world.devices["Create_Signal_" .. i]
+      local real = dev.methods.setForcedRed
+      dev.methods.setForcedRed = function(on)
+        if on == true then
+          local mark = storelib.new(d.fs).load("/crn_data/pruefmarke.lua")
+          seen[#seen + 1] = mark and mark.name or false
+          t.ok(not d.fs.exists("/crn_data/config.lua"), "keine Einrichtung als Entwurf gespeichert")
+        end
+        return real(on)
+      end
+    end
+    d.tap(v, "act:weiter"); d.tap(v, "act:pruefen"); h.step(1)
+    t.eq(seen[1], "Create_Signal_1"); t.eq(seen[2], "Create_Signal_2")
+    t.ok(not d.fs.exists("/crn_data/pruefmarke.lua"), "Marke nach der Pruefung weg")
+    t.eq(d.node.status().text, "Bereit")
   end },
-  { "Wiederaufnahme: ein gespeicherter Entwurf geht bei der Zuordnung weiter, mit derselben Kennung", function()
+  { "Neustart nach abgebrochener Einrichtung: sie beginnt von vorn, die Node behaelt dieselbe Kennung, keine zweite im Verzeichnis", function()
     local h, z, d, v, netz = setup({ tracks = 2, signals = 2 })
     to_area(h, d, v); through_tracks(h, d, v)
     d.tap(v, "act:signal_waehlen"); d.tap(v, "sel:signal:1")
-    d.tap(v, "act:entwurf")
-    d.restart()
-    local v2 = d.view(); v2.set_page("einrichtung")
-    d.tap(v2, "act:start")
-    t.eq(screen(d), "4.zuordnung", d.text(v2))
-    t.ok(d.has(v2, "Create_Signal_1"), d.text(v2))
     t.eq(d.node.setup.session().wiz.config.node.id, "N0001")
-    d.tap(v2, "act:signal_waehlen"); d.tap(v2, "sel:signal:1")
+    d.restart()
+    t.eq(d.node.config, nil, "nichts als Entwurf gespeichert")
+    local v2 = d.view(); v2.set_page("einrichtung")
+    to_area(h, d, v2); through_tracks(h, d, v2)
+    t.eq(screen(d), "4.zuordnung", d.text(v2))
+    t.ok(not d.has(v2, "Create_Signal_1  Signal"), "die Zuordnung beginnt leer")
+    t.eq(d.node.setup.session().wiz.config.node.id, "N0001", "dieselbe Kennung")
+    assign_all(h, d, v2, 2)
     d.tap(v2, "act:weiter"); d.tap(v2, "act:pruefen"); h.step(1)
     t.eq(d.node.status().text, "Bereit")
     t.eq(#netz.nodes(), 1, "keine zweite Kennung")
+  end },
+  { "Hat die Leitstelle die Anforderung dieses Computers verworfen, gibt es eine neue Kennung statt einer Sackgasse", function()
+    local h, z, d, v, netz = setup({ tracks = 2, signals = 2 })
+    to_area(h, d, v); through_tracks(h, d, v)
+    t.eq(netz.node("N0001").state, "reserviert")
+    netz.discard_node("N0001")
+    d.restart()
+    local v2 = d.view(); v2.set_page("einrichtung")
+    to_area(h, d, v2)
+    d.tap(v2, "sel:bereich:1"); h.step(3); d.node.render()
+    d.tap(v2, "act:weiter"); d.tap(v2, "act:weiter")
+    h.step(3); d.node.render()
+    t.eq(screen(d), "2.gleise", d.text(v2))
+    t.contains(v2.hint, "verworfen")
+    t.contains(v2.hint, "neue")
+    d.tap(v2, "act:weiter")
+    h.step(3); d.node.render()
+    t.eq(screen(d), "4.zuordnung", d.text(v2))
+    t.eq(d.node.setup.session().wiz.config.node.id, "N0002", "eine neue Anforderung")
   end },
   { "Ein neu angeschlossenes Signal wird in der Auswahl als (neu) markiert", function()
     local h, z, d, v = setup({ tracks = 2, signals = 2 })

@@ -21,7 +21,7 @@ return {
     for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id,true),true) end
     t.eq(w.all_tests_ok(),true)
     world.devices.sig=nil
-    t.eq(w.finish({save=function() return true end},'/x'),'entwurf')
+    t.eq(w.finish({save=function() return true end},'/x'),nil,'ohne frische Pruefung wird nicht aktiviert')
     world.add_signal('sig'); w.rescan()
     t.eq(w.all_tests_ok(),false,'Ausfall entwertet den alten Test')
   end},
@@ -35,7 +35,7 @@ return {
     t.eq(w.device_selected('station'),false)
     t.eq(w.allowed_devices().station,nil)
   end},
-  {'Laufende Node: Entwurf legt sie nicht still, Abbrechen verwirft die Kopie', function()
+  {'Laufende Node: Es gibt keinen Entwurf-Knopf; Abbrechen verwirft die Kopie, die laufende Einrichtung bleibt', function()
     local driver=dofile('tests/lib/ui_driver.lua')
     local create=dofile('tests/fakes/create.lua')
     local storelib=require('core.store')
@@ -56,16 +56,18 @@ return {
       d.restart()
       local v=d.view();v.set_page('einrichtung')
       d.tap(v,'act:start')
+      d.node.render()
+      -- einen Entwurf gibt es nicht mehr: weder Knopf noch Handler
+      local page=v.current_page()
+      for _,a in ipairs(page.actions(v)) do t.ok(a.id~='entwurf','kein Entwurf-Knopf') end
       v.dispatch('act:entwurf')
       d.node.render()
-      t.eq(store.load('/crn_data/config.lua').status,'aktiv','Entwurf wirkt nicht auf eine laufende Node')
+      t.eq(store.load('/crn_data/config.lua').status,'aktiv')
       t.eq(d.node.status().text,'Bereit')
-      t.contains(v.hint,'Laufende Node')
-      -- die Schaltflaeche ist als gesperrt erkennbar
-      local page=v.current_page()
-      local found
-      for _,a in ipairs(page.actions(v)) do if a.id=='entwurf' then found=a end end
-      t.eq(found.enabled,false)
+      d.tap(v,'act:abbrechen');d.tap(v,'act:abbrechen')
+      t.contains(v.hint,'laufende Einrichtung bleibt')
+      t.eq(store.load('/crn_data/config.lua').status,'aktiv','Abbrechen laesst die laufende Node unberuehrt')
+      t.eq(d.node.status().text,'Bereit')
     end
   end},
   {'Zeichnen liest die Geraete nicht neu und veraendert keine Pruefergebnisse', function()
@@ -92,15 +94,20 @@ return {
     d.tap(v,'act:neu_scannen')
     t.ok(names>before,'ausdrueckliches Neu lesen liest weiterhin')
   end},
-  {'Neue Node: Entwurf speichert weiterhin', function()
+  {'Neue Node: ohne Entwurf; Abbrechen speichert nichts, danach beginnt die Einrichtung von vorn', function()
     local driver=dofile('tests/lib/ui_driver.lua')
     local create=dofile('tests/fakes/create.lua')
     local world=create.world();world.add_modem('left',true)
     local d=driver.new({world=world});d.restart()
     local v=d.view();v.set_page('einrichtung')
     d.tap(v,'act:start')
-    v.dispatch('act:entwurf')
-    t.eq(require('core.store').new(d.fs).load('/crn_data/config.lua').status,'entwurf')
+    v.dispatch('act:entwurf')                 -- gibt es nicht mehr
+    t.ok(not d.fs.exists('/crn_data/config.lua'),'nichts gespeichert')
+    d.tap(v,'act:abbrechen');d.tap(v,'act:abbrechen')
+    t.ok(not d.fs.exists('/crn_data/config.lua'))
+    t.eq(d.node.config,nil)
+    d.tap(v,'act:start')
+    t.eq(d.node.setup.session().screen,'1.modus','von vorn')
   end},
   {'UI sperrt Weiter auch bei direktem Aufruf und zeigt nur passende Geraete', function()
     local driver=dofile('tests/lib/ui_driver.lua')
@@ -146,7 +153,7 @@ return {
   {'Leere Signalnode darf nie aktiviert werden', function()
     local w = fixture('signal'); local saved
     local status=w.finish({save=function(_,c) saved=c; return true end},'/x')
-    t.eq(status,'entwurf'); t.eq(saved.status,'entwurf')
+    t.eq(status,nil); t.eq(saved,nil,'nichts gespeichert')
   end},
   {'Bearbeiten veraendert die aktive Konfiguration nicht', function()
     local c=model.new('Alt',{'signal'},{name='N',central_id='z'})

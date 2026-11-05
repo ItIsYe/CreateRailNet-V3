@@ -6,9 +6,41 @@ Notes: Regel (siehe docs/DATENFORMAT.md): Wer die Form einer gespeicherten Datei
 
 local M = {}
 
--- Noch kein Schritt noetig: alle bisherigen Aenderungen der Dateiformen haben nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt
+-- Ein Schritt darf `scope = { Dateinamen }` nennen: die Dateien, die er aendert oder loescht; nur sie werden vor dem Schritt gesichert.
+-- Bis Format 1 haben alle Aenderungen der Dateiformen nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt
 -- (siehe tests/fixtures/alte_staende.lua: Staende dreier aelterer Programmversionen laufen unveraendert weiter).
-M.STEPS = {}
+M.STEPS = {
+  -- 1 -> 2: Es gibt keinen "Entwurf" der Einrichtung mehr. Ein gespeicherter Entwurf (config.lua ohne Status "aktiv") haette die neue Einrichtung nach dem Update
+  -- mit altem Namen, alter Kennung und halben Gleisen blockiert: er wird verworfen (die Sicherung des Integrators behaelt ihn). Zwei Angaben daraus bleiben nutzbar:
+  -- die Anforderungskennung (damit die Node im Verzeichnis dieselbe Kennung behaelt statt eine zweite anzulegen) und eine stehengebliebene Testsperre-Marke
+  -- (damit ein eigenes Testsignal, das beim Absturz gesperrt blieb, trotzdem freigegeben wird).
+  [1] = {
+    text = "Entwurf der Einrichtung verwerfen",
+    scope = { "config.lua" },          -- nur diese Datei wird geaendert oder geloescht; die Sicherung braucht nur sie (die Daten der Leitstelle koennen gross sein)
+    run = function(ctx)
+      local c = ctx.load("config.lua")
+      if type(c) ~= "table" then return end
+      local lauf = type(c.pruefung) == "table" and c.pruefung.lauf or nil
+      local d = lauf and type(c.devices) == "table" and c.devices[lauf.device] or nil
+      if d and d.kind == "signal" and type(d.device) == "string" and not ctx.exists("pruefmarke.lua") then
+        ctx.save("pruefmarke.lua", { device = lauf.device, name = d.device, t = tonumber(lauf.t) or 0 })
+      end
+      if c.status == "aktiv" then
+        -- eine laufende Node behaelt ihre Einrichtung; die Marke wandert in ihre eigene Datei
+        if lauf then
+          c.pruefung.lauf = nil
+          ctx.save("config.lua", c)
+        end
+        return
+      end
+      local claim = type(c.node) == "table" and c.node.claim or nil
+      if type(claim) == "string" and #claim >= 8 and #claim <= 64 and not claim:find("[^%w%-_]") and not ctx.exists("anforderung.lua") then
+        ctx.save("anforderung.lua", { claim = claim })
+      end
+      ctx.delete("config.lua")
+    end,
+  },
+}
 
 -- liefert nil, wenn die Schritte lueckenlos von 1 an numeriert sind und je Text und Funktion haben, sonst den Grund
 function M.validate(steps)
