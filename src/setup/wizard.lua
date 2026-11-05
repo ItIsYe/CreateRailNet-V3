@@ -207,15 +207,38 @@ function M.new(opts)
         counts[d.kind] = (counts[d.kind] or 0) + 1
       end
       local p = model.profile(w.config)
-      if (p.station or needs("anmeldung")) and not counts.station then return false, "Mindestens eine Train Station muss ausgewaehlt werden." end
-      if p.signal and not counts.signal then return false, "Mindestens ein Train Signal muss ausgewaehlt werden." end
-      if needs("knoten") and not counts.observer then return false, "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." end
+      -- gibt es ein Geraet der Art am Computer? Wenn nicht, hilft Auswaehlen nicht: anschliessen und neu lesen
+      local present = {}
+      for _, d in ipairs(w.scan) do if #detect.missing(d.kind, d) == 0 then present[d.kind] = true end end
+      if (p.station or needs("anmeldung")) and not counts.station then
+        return false, present.station and "Mindestens eine Train Station muss ausgewaehlt werden." or "Keine Train Station am Computer gefunden: anschliessen, dann Neu lesen."
+      end
+      if p.signal and not counts.signal then
+        return false, present.signal and "Mindestens ein Train Signal muss ausgewaehlt werden." or "Kein Train Signal am Computer gefunden: anschliessen, dann Neu lesen."
+      end
+      if needs("knoten") and not counts.observer then
+        return false, present.observer and "Ein Knotenpunkt braucht Beobachter fuer die Rueckmeldung." or "Kein Beobachter am Computer gefunden: anschliessen, dann Neu lesen."
+      end
       if n >= 4 then
         for _, p in ipairs(model.validate(w.config, w.scan)) do
           if not (skip and skip[p.code]) then return false, p.text end
         end
       end
-      if n >= 5 and not w.all_tests_ok() then return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen." end
+      if n >= 5 and not w.all_tests_ok() then
+        if not w.guided then
+          for _, test in ipairs(w.tests()) do
+            local state, text = w.test_state(test.id, nil, test)
+            if state == "fehler" then
+              local line = test.title .. " fehlgeschlagen: " .. tostring(text or "")
+              if #line > 90 then line = line:sub(1, 87) .. "..." end
+              return false, line
+            elseif state ~= "ok" then
+              return false, "Pruefung noch offen: " .. test.title .. "."
+            end
+          end
+        end
+        return false, "Erforderliche Pruefungen sind noch offen oder fehlgeschlagen."
+      end
       return true
     end
     return true
@@ -486,7 +509,8 @@ function M.new(opts)
       track.dir = { id = tr.id, junction = info.junction.id }
       track.junction = { connection = tr.connection, role = tr.role }
     end
-    w.config.tests = {}
+    -- Pruefergebnisse bleiben stehen: die Pruefsumme (fp) jedes Tests verraet, ob sich sein Geraet oder Gleis geaendert hat. Sie zu loeschen verlangte bei jeder Aenderung an einer
+    -- laufenden Knoten-Node die Sperrpruefung der Einfahrtsignale, und die sind im Betrieb gesperrt.
     return true, nil, t
   end
 
@@ -831,7 +855,12 @@ function M.new(opts)
       local g = signallib.new(env, d.device)
       local before = g.read()
       if not before.available then return record(test, false, "nicht erreichbar") end
-      if before.forced then return record(test, false, "Das Signal ist schon gesperrt; bitte zuerst die Sperre aufheben.") end
+      if before.forced then
+        -- Ein Signal der laufenden, schon eingerichteten Node ist im Betrieb gesperrt (zum Beispiel die Einfahrt eines Knotens): die Sperre bleibt, das Aufheben wird hier nicht geprueft
+        local own = existing ~= nil and existing.status == "aktiv" and existing.devices[ref] ~= nil and existing.devices[ref].kind == "signal" and existing.devices[ref].device == d.device
+        if own then return record(test, true, "Signal im laufenden Betrieb gesperrt (Sperre bleibt, Aufheben nicht geprueft)") end
+        return record(test, false, "Das Signal ist schon gesperrt; bitte zuerst die Sperre aufheben.")
+      end
       local held = g.hold()
       local released = g.release()
       if not held.confirmed then return record(test, false, "Sperre nicht bestaetigt" .. (held.error and (": " .. held.error) or "")) end
@@ -910,6 +939,12 @@ function M.new(opts)
     return "aktiv", problems
   end
 
+  -- Ist auf diesem Computer nur die Leitstelle installiert, gibt es nichts zum Beitreten: der Modus steht fest
+  if not existing and opts.role_available and opts.role_available("zentrale") then
+    local other = false
+    for _, role in ipairs(model.ROLES) do if role ~= "zentrale" and opts.role_available(role) then other = true end end
+    if not other then w.set_mode("create") end
+  end
   return w
 end
 

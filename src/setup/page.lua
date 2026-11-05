@@ -328,8 +328,13 @@ function M.new(services)
         items[#items+1] = { text = (session.wiz.mode == "create" and "(o) " or "( ) ") .. "Erste Leitstelle dieses Netzes erstellen" }
         session.pick.modes[#items] = "create"
       end
-      items[#items+1] = { text = (session.wiz.mode == "join" and "(o) " or "( ) ") .. "Diesem bestehenden Netz beitreten" }
-      session.pick.modes[#items] = "join"
+      -- Beitreten braucht eine andere Rolle als die Leitstelle; ist nur sie installiert, gibt es nur das Erstellen
+      local other = not services.role_available
+      for _, role in ipairs(model.ROLES) do if role ~= "zentrale" and services.role_available and services.role_available(role) then other = true end end
+      if other then
+        items[#items+1] = { text = (session.wiz.mode == "join" and "(o) " or "( ) ") .. "Diesem bestehenden Netz beitreten" }
+        session.pick.modes[#items] = "join"
+      end
       W.list(v, "modus", body_rect(rect, 3), items, list_state(v, "modus"), { row_h = v.layout.mode == "gross" and 3 or 1 })
     end,
     action = function(v, id)
@@ -1912,6 +1917,8 @@ function M.new(services)
     commit(v)
     local allowed, reason = can_advance(v)
     if not allowed then v.hint = reason return true end
+    -- "Erste Leitstelle erstellen" ist vorgewaehlt: die Rolle Leitstelle gehoert dazu, auch wenn die Wahl nicht angetippt wurde
+    if session.screen == "1.modus" and session.wiz.mode == "create" then session.wiz.set_mode("create") end
     if session.screen == "1.netzwahl" and type(session.net_choice) == "table" then
       session.wiz.set_network(session.net_choice.netz, session.net_choice.zentrale, nil)
     end

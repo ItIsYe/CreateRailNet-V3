@@ -58,22 +58,45 @@ return {
     join_to_network(h, d, v, 2)
     t.eq(screen(d), "2.rollen", d.text(v))
   end },
-  { "Nur Leitstelle installiert: 'Erste Leitstelle erstellen' setzt die Rolle, 'Beitreten' laesst die Auswahl (und meldet die zweite Leitstelle)", function()
+  { "Nur Leitstelle installiert: es gibt nur 'Erste Leitstelle erstellen' (vorgewaehlt), 'Beitreten' fehlt, weil keine andere Rolle zum Beitreten da ist", function()
     local h, z, d, v = build({ "zentrale" })
     d.tap(v, "act:start")
-    d.tap(v, "sel:modus:1"); d.tap(v, "act:weiter")          -- erste Leitstelle erstellen
+    t.eq(screen(d), "1.modus", d.text(v))
+    t.contains(d.text(v), "(o) Erste Leitstelle dieses Netzes erstellen")
+    t.not_contains(d.text(v), "bestehenden Netz beitreten")
+    t.ok(not d.area(v, "sel:modus:2"), "keine zweite Wahl: " .. d.text(v))
+    d.tap(v, "act:weiter")                                   -- erste Leitstelle erstellen
     t.eq(screen(d), "1.netz", d.text(v))
     d.type(v, "netz", "Neues Netz"); d.tap(v, "act:weiter")
     t.eq(screen(d), "2.name", d.text(v))
     t.eq(d.node.setup.session().wiz.roles[1], "zentrale")
-    -- zurueck bis zur Betriebsart und stattdessen beitreten: jetzt widerspricht die Rolle der Betriebsart, die Auswahl bleibt
+    -- zurueck bis zur Betriebsart: dieselbe einzige Wahl
     d.tap(v, "act:zurueck"); d.tap(v, "act:zurueck")
     t.eq(screen(d), "1.modus", d.text(v))
-    d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
-    h.step(5); d.node.render()
+    t.contains(d.text(v), "(o) Erste Leitstelle dieses Netzes erstellen")
+  end },
+  { "Keine Train Station / kein Signal / kein Beobachter am Computer: der Hinweis sagt anschliessen und Neu lesen, nicht auswaehlen", function()
+    local h = H.new()
+    local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
+    z.node.roles.zentrale.netz.add_area({ name = "Hauptbahnhof", ends = { "Einfahrt", "Ausfahrt" }, count = 1, pattern = "gleich" })
+    local d = h.add_blank({ id = "neu" })
+    h.step(1)
+    local v = d.view(); v.set_page("einrichtung")
+    d.tap(v, "act:start")
+    d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter"); h.step(5); d.node.render()
     d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-    t.eq(screen(d), "2.rollen", d.text(v))
+    d.tap_row(v, "rollen", "Passagierbahnhof"); d.tap(v, "act:weiter"); h.step(3); d.node.render()
+    d.tap(v, "sel:bereich:1"); h.step(3); d.node.render()
+    d.tap(v, "act:weiter"); d.tap(v, "act:weiter"); h.step(3); d.node.render()
+    t.eq(screen(d), "3.geraete", d.text(v))
     d.tap(v, "act:weiter")
-    t.contains(d.text(v), "zweite Leitstelle")
+    t.eq(screen(d), "3.geraete")
+    t.contains(v.hint, "Keine Train Station am Computer gefunden")
+    t.contains(v.hint, "Neu lesen")
+    -- angeschlossen: ohne Auswahl heisst es wieder "auswaehlen"
+    d.world.add_station("Create_Station_1", { station_name = "Hof" })
+    d.tap(v, "act:neu_scannen")
+    d.tap(v, "act:weiter")
+    t.contains(v.hint, "Mindestens eine Train Station muss ausgewaehlt werden")
   end },
 }
