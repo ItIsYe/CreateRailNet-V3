@@ -12,7 +12,7 @@ local MODULES = {
   "test_einrichtung_bahnhof", "test_einrichtung_gefuehrt", "test_einrichtung_knoten", "test_einrichtung_kombi", "test_einrichtung_rolle",
   "test_signal_eigenschaften", "test_knoten_einfahrt", "test_bereich_anlegen", "test_uebernahme_alt", "test_ohne_entwurf",
   "test_setup_gates", "test_node", "test_stage8", "test_vorlaeufige_kennung", "test_ersatz_liste", "test_abgleich_knoten_uebernehmen",
-  "test_detail_weiter",
+  "test_detail_weiter", "test_einrichtung_aendern",
 }
 
 -- ein Einrichtungsbild erkennt man an der Schrittleiste (kompakt) oder der Seitenleiste (gross)
