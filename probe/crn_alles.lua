@@ -4,7 +4,7 @@ Usage: crn_alles                    alles Anwendbare nacheinander; vorher einmal
        crn_alles --hilfe            diese Anleitung (es wird nichts gestartet)
        crn_alles --ja               ohne die Rueckfrage (alles gilt als bestaetigt)
        crn_alles --zeit N           Beobachtungszeit je Signal-Lauf in Sekunden (Standard 150)
-       crn_alles --ziel NAME        Zielbahnhof fuer den Rundlauf des Zuges (Probe D); ohne Angabe wird ein zweiter Bahnhof am Netz benutzt, sonst entfaellt Probe D
+       crn_alles --ziel NAME        Zielbahnhof fuer den Rundlauf des Zuges (Probe D); ohne Angabe der erste andere Bahnhof im Fahrplan des Zuges
        crn_alles --ohne-sperre      kein Signal rot sperren (nur beobachten)
        crn_alles --ohne-fahrt       am Bahnhof nur die Proben A bis C, kein Rundlauf des Zuges
        crn_alles --nur signal       nur den Signalteil (oder --nur abfahrt)
@@ -155,6 +155,8 @@ local function station_name(device)
   local ok, name = call(device, "getStationName")
   return ok and type(name) == "string" and name ~= "" and name or nil
 end
+-- Ziel des Rundlaufs (Probe D): ausdruecklich angegeben, sonst "auto" = erster anderer Bahnhof im Fahrplan des Zuges (crn_probe3 liest ihn,
+-- sobald der Zug am Bahnhof steht; der Zug fuhr dorthin schon, also ist er erreichbar)
 local goal = opts.goal
 local own = train_station and station_name(train_station)
 local goal_note
@@ -163,10 +165,7 @@ if goal and own and goal == own then
   goal_note = "Ziel " .. goal .. " ist der eigene Bahnhof: Create schickt einen Zug nicht direkt wieder dorthin, es gibt keinen Rundlauf (anderen Bahnhof als Ziel nehmen)."
   goal = nil
 elseif not goal and opts.trip then
-  for _, st in ipairs(stations) do
-    local nm = station_name(st)
-    if nm and nm ~= own and st ~= train_station then goal = nm break end
-  end
+  goal = "auto"
 end
 
 local do_signal = #signals > 0 and opts.only ~= "abfahrt"
@@ -194,7 +193,7 @@ if do_signal then
   if opts.hold then plan[#plan + 1] = "S2  das am staerksten befahrene Signal rot sperren (" .. opts.wait .. " s), ein Zug soll davor warten; wird danach freigegeben" end
 end
 if do_depart then
-  plan[#plan + 1] = "B   Fahrplan-Proben am Bahnhof (Fahrplan wird geaendert und zurueckgestellt)" .. ((opts.trip and goal) and (", Rundlauf des Zuges nach " .. goal .. " und zurueck") or ", ohne Rundlauf")
+  plan[#plan + 1] = "B   Fahrplan-Proben am Bahnhof (Fahrplan wird geaendert und zurueckgestellt)" .. ((opts.trip and goal) and (goal == "auto" and ", Rundlauf des Zuges zu einem anderen Bahnhof aus seinem Fahrplan und zurueck" or (", Rundlauf des Zuges nach " .. goal .. " und zurueck")) or ", ohne Rundlauf")
 end
 if opts.upload and #plan > 0 then plan[#plan + 1] = "    Am Ende wird der Bericht " .. opts.out .. " mit pastebin hochgeladen" end
 if #plan == 0 then
@@ -253,7 +252,7 @@ local function phase_signals()
   end
   add("Gesperrt wird " .. busiest .. " (" .. count .. " Wechsel auf ROT in S1); Zuege halten dort bis zu " .. opts.wait .. " s.")
   local ok_b, forced_before = call(busiest, "isForcedRed")
-  local ok2, err2 = run_program("crn_probe4", "--sperre", "--ja", "--signal", busiest, "--wait", tostring(opts.wait), "--out", FILES.s2)
+  local ok2, err2 = run_program("crn_probe4", "--sperre-an", busiest, "--ja", "--wait", tostring(opts.wait), "--out", FILES.s2)
   reports.s2 = read_file(FILES.s2)
   -- Sicherheitsnetz: das Einzelprogramm gibt die Sperre selbst zurueck; ist das Signal trotzdem noch gesperrt, wird es hier freigegeben
   local ok_a, forced_after = call(busiest, "isForcedRed")
@@ -284,7 +283,7 @@ local function phase_depart()
   if not ok or not reports.b then
     set_phase("B", "Abfahrt ueber die Station", "FEHLER", err or "kein Bericht")
   else
-    local note = "Bericht " .. FILES.b .. (opts.trip and goal and (", mit Rundlauf nach " .. goal) or ", ohne Rundlauf")
+    local note = "Bericht " .. FILES.b .. ((opts.trip and goal) and (goal == "auto" and ", Rundlauf zu einem Bahnhof aus dem Fahrplan des Zuges" or (", mit Rundlauf nach " .. goal)) or ", ohne Rundlauf")
     set_phase("B", "Abfahrt ueber die Station", "ok", note)
   end
 end

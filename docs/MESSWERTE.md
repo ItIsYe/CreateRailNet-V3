@@ -61,7 +61,27 @@ Aufbau: `Create_Signal_34` liegt vor einem Bahnhof (`Create_Station_1`), `Create
 
 - Ein Zug, der an Bahnhof 10 steht, kann in Create nicht direkt wieder zu Bahnhof 10 geschickt werden: er muss erst zu einem anderen Bahnhof (11) und kann von dort wieder nach 10. In einem Fahrplan darf deshalb kein Bahnhof zweimal unmittelbar hintereinander stehen.
 - Folge im Programm: `schedule.check` weist einen Fahrplan mit zwei gleichen aufeinanderfolgenden Eintraegen ab (bei einem umlaufenden Fahrplan auch letzter gegen ersten Eintrag); eine Vorlage mit gleichen Halten hintereinander wird nicht angelegt, auch wenn die Rueckfahrt zum Start (`return_to_start`) dasselbe Ziel ergibt (ein einziger Halt mit Rueckfahrt waere A, A); die Zielwahl nimmt nie das Gleis, von dem der Zug kommt (bei einer Bahnhofsgruppe das naechste Mitglied); Abstellen am Bahnhof, an dem der Zug steht, wird abgelehnt. Der erste Eintrag eines Auftragsfahrplans ist der eigene Bahnhof (Aufenthalt bis zur Freigabe), der zweite muss ein anderer sein.
-- Nicht gemessen: was Create genau tut (Zug bleibt stehen, ueberspringt den Eintrag oder meldet nichts), und ob ein Haltefahrplan mit dem eigenen Bahnhof als einzigem Eintrag (H2, `docs/FREIGABE_PER_FAHRPLAN.md`) darunter faellt. Probe B von `crn_probe3` misst den Haltefahrplan.
+- Nicht gemessen: was Create genau tut (Zug bleibt stehen, ueberspringt den Eintrag oder meldet nichts), und ob ein Haltefahrplan mit dem eigenen Bahnhof als einzigem Eintrag (H2, `docs/FREIGABE_PER_FAHRPLAN.md`) darunter faellt. Fuer den Haltefahrplan ist es geklaert: der Zug bleibt stehen (M21, Probe B).
+
+## M21 Erster Lauf von `crn_alles` (vom Betreiber gemessen, 2026-11-06)
+
+Aufbau: ein Bahnhof "Abstell 11" (`Create_Station_1`) mit Zug "Unnamed Train" (Fahrplan zyklisch: Abstell 11, 5 s; Abstell 10, 5 s), `Create_Signal_34` vor dem Bahnhof, `Create_Signal_5` dahinter, ein Beobachter am Bahnhofseingang, zwei Zuege im Wechsel ("Zug 5", "Unnamed Train"). Rohbericht: `tests/fixtures/crn_alles_lauf1.txt`.
+
+**Abfahrt ueber die Station (`crn_probe3`, Proben A bis C; Annahmen H1 bis H3 aus `docs/FREIGABE_PER_FAHRPLAN.md`):**
+- A: `setSchedule` mit geaendertem Inhalt (Fahrplan plus 1 s Wartezeit): ok, gelesen genau wie geschrieben; die Rueckstellung auf den urspruenglichen Fahrplan war nach jeder Probe "IDENTISCH". H1 bestaetigt.
+- B: Haltefahrplan (ein Eintrag am eigenen Bahnhof, 1 s, nicht zyklisch): nach 20 s steht der Zug noch da, `hasSchedule` ist `true`, der Fahrplan bleibt unveraendert lesbar. H2 bestaetigt. Ein Fahrplan, dessen einziger Eintrag der eigene Bahnhof ist, ist also unproblematisch (M20): der Zug bleibt stehen.
+- C: `create:powered` ohne Strom wird angenommen, der Zug haelt mindestens 15 s. H3 bestaetigt.
+- D (Abfahrt per Fahrplan, H4 und H5): **nicht gemessen**. Das Hauptprogramm hatte den eigenen Bahnhof als Ziel gewaehlt, weil beim Planen noch kein Zug am Bahnhof stand (Fehler, behoben: das Ziel kommt jetzt aus dem Fahrplan des Zuges, hier "Abstell 10").
+
+**Signal bei erzwungenem Rot (`crn_probe4 --sperre`, 150 s, `Create_Signal_5` gesperrt):**
+- `setForcedRed(true)`: Ereignis nach 0,05 s, `getState` RED nach 0,2 s; die Rueckstellung klappte.
+- Der erste Zug, der nach der Sperre vom Bahnhof abfuhr (+53,7 s), blieb vor dem Signal stehen: danach 96 s lang kein Ereignis, kein `train_passed`, `Create_Signal_34` blieb ROT (Block besetzt).
+- **Ein wartender Zug steht nicht in `listBlockingTrainNames` des gesperrten Signals:** die Liste blieb von +41,2 s bis zum Ende leer, obwohl der Zug dort wartete. Sie nennt nur Zuege im Block hinter dem Signal. Ob das Signal davor (`Create_Signal_34`, Block des Bahnhofs) den wartenden Zug nennt, ist nicht aufgezeichnet (in S2 war nur das gesperrte Signal gewaehlt; seit dem Fix beobachtet S2 alle Signale).
+- Trotz Sperre erschienen zweimal Zugnamen im Signal (+13,4 s bis +20,6 s "Zug 5"; +35,2 s bis +41,2 s "Unnamed Train"); diese Zuege kamen nicht ueber den Bahnhof (kein `train_departure` davor), vermutlich aus der anderen Richtung. Nicht weiter untersucht.
+
+**Signal gegen Beobachter (150 s ohne Sperre, zweiter Beleg zu M19):**
+- `Create_Signal_34` (Block des Beobachters): der Name verschwindet 0,6 s ("Zug 5") und 0,8 s ("Unnamed Train") nach `train_passed`; mit M19 sind es sechs von sechs Durchfahrten zwischen 0,45 und 0,8 s. Der Name erscheint 7,25 bis 7,5 s vor `train_passing` am Beobachter.
+- `Create_Signal_5` (naechster Block hinter dem Bahnhof): ROT 2,0 s nach `train_departure`, der Name verschwindet 4,1 bis 4,8 s nach `train_passed`. Die Zeilen "38 s VOR train_passed" im Rohbericht sind ein Auswertungsfehler des Messprogramms (erster Namenszeitraum gegen erstes `train_passed`); die Paarung je Durchfahrt ist behoben.
 
 ## Aus dem Quelltext von CC:Tweaked (nicht im Spiel gemessen)
 
@@ -78,7 +98,7 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
-- Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97): Signal beobachten, Signal sperren, Abfahrt ueber die Station.
-- Signal statt Beobachter am Knoten (Spieltest 3.96, `probe/crn_probe4.lua`, Teilergebnisse M18 und M19): offen sind der wartende Zug vor einem erzwungen roten Signal (`--sperre`: steht er in `listBlockingTrainNames`, damit der Knoten wuesste, wer Einfahrt verlangt?), ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block?) und gleiche Zugnamen (M14).
+- Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Stand nach M21: offen sind Probe D (Abfahrt per Fahrplan, H4 und H5: `crn_alles --nur abfahrt`) und ein Lauf an einem echten Knoten.
+- Signal statt Beobachter am Knoten (Spieltest 3.96, Teilergebnisse M18, M19 und M21): offen sind ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block?), ob das Signal vor einem gesperrten Signal den wartenden Zug nennt (S2 beobachtet jetzt alle Signale) und gleiche Zugnamen (M14). Gemessen: der wartende Zug steht nicht in der Liste des gesperrten Signals selbst (M21), die Ankuendigung braucht also weiter den Beobachter an der Einfahrt.
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

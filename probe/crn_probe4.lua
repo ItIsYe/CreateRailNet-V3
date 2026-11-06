@@ -4,6 +4,7 @@ Usage: crn_probe4                          alle Signale und Beobachter am Netz b
        crn_probe4 --signal NAME[,NAME]     nur diese Signale (zum Beispiel Create_Signal_0)
        crn_probe4 --beobachter NAME[,NAME] nur diese Beobachter
        crn_probe4 --sperre                 zusaetzlich: das erste Signal rot sperren (setForcedRed), damit ein Zug davor warten muss; wird vorher mit j bestaetigt und am Ende immer zurueckgestellt
+       crn_probe4 --sperre-an NAME         wie --sperre, aber das Signal NAME wird gesperrt (alle gewaehlten Signale werden beobachtet, auch die davor)
        crn_probe4 --ja                     Rueckfragen gelten als mit j beantwortet (fuer den automatischen Ablauf, crn_alles)
        crn_probe4 --wait N                 Dauer der Beobachtung in Sekunden (Standard 180)
        crn_probe4 --poll S                 Abfrageabstand in Sekunden (Standard 0.2)
@@ -13,7 +14,7 @@ Notes: Aufbau wie am Knoten: der Computer haengt ueber Kabelmodem am Einfahrtssi
 ]]
 
 local args = { ... }
-local opts = { out = "crn_probe4.txt", wait = 180, poll = 0.2, signals = nil, observers = nil, hold = false, yes = false }
+local opts = { out = "crn_probe4.txt", wait = 180, poll = 0.2, signals = nil, observers = nil, hold = false, hold_signal = nil, yes = false }
 
 local function split(text)
   local out = {}
@@ -27,12 +28,13 @@ do
     local a = args[i]
     if a == "--sperre" then opts.hold = true; i = i + 1
     elseif a == "--ja" then opts.yes = true; i = i + 1
+    elseif a == "--sperre-an" then opts.hold = true; opts.hold_signal = args[i + 1]; i = i + 2
     elseif a == "--wait" then opts.wait = tonumber(args[i + 1]) or opts.wait; i = i + 2
     elseif a == "--poll" then opts.poll = math.max(0.05, tonumber(args[i + 1]) or opts.poll); i = i + 2
     elseif a == "--out" then opts.out = args[i + 1] or opts.out; i = i + 2
     elseif a == "--signal" then opts.signals = split(args[i + 1] or ""); i = i + 2
     elseif a == "--beobachter" then opts.observers = split(args[i + 1] or ""); i = i + 2
-    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --signal NAMEN, --beobachter NAMEN, --sperre, --ja, --wait N, --poll S, --out DATEI)", 0) end
+    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --signal NAMEN, --beobachter NAMEN, --sperre, --sperre-an NAME, --ja, --wait N, --poll S, --out DATEI)", 0) end
   end
 end
 
@@ -264,18 +266,28 @@ local function analyse()
       result("Beobachter " .. o .. " Zug " .. n, "passing " .. list(rec.passing) .. "; passed " .. list(rec.passed))
     end
   end
-  -- Gegenueberstellung: wann verschwindet der Name im Signal, wann kommt train_passed am Beobachter?
+  -- Gegenueberstellung je Durchfahrt: zu jedem train_passed am Beobachter der Zeitraum des Namens im Signal, der die Durchfahrt umfasst
+  -- (Beginn spaetestens 1 s danach, Ende frueh genug nicht vor 1 s davor); Abstand = Verschwinden des Namens minus train_passed
   for _, s in ipairs(signals) do
     local iv = blocking_intervals(s)
     for _, o in ipairs(observers) do
       local times = observer_times(o)
       for _, n in ipairs(sorted_keys(iv)) do
-        local first = iv[n][1]
         local rec = times[n]
-        if first and first.to and rec and rec.passed[1] then
-          result("Abstand Signal " .. s .. " zu Beobachter " .. o .. ", Zug " .. n,
-            string.format("Name verschwindet im Signal %.1f s %s train_passed (Abfrageabstand %.2f s)",
-              math.abs(first.to - rec.passed[1]), first.to >= rec.passed[1] and "NACH" or "VOR", opts.poll))
+        if rec then
+          local deltas = {}
+          for _, passed_at in ipairs(rec.passed) do
+            for _, w in ipairs(iv[n]) do
+              if w.to and w.from <= passed_at + 1 and w.to >= passed_at - 1 then
+                deltas[#deltas + 1] = string.format("%+.1f", w.to - passed_at)
+                break
+              end
+            end
+          end
+          if #deltas > 0 then
+            result("Abstand Signal " .. s .. " zu Beobachter " .. o .. ", Zug " .. n,
+              "Name verschwindet im Signal " .. table.concat(deltas, " / ") .. " s nach train_passed (+ = danach; " .. #deltas .. " Durchfahrten; Abfrageabstand " .. string.format("%.2f", opts.poll) .. " s)")
+          end
         end
       end
     end
@@ -294,7 +306,12 @@ local function release_all()
 end
 
 local function take_hold()
-  local s = signals[1]
+  local s = opts.hold_signal or signals[1]
+  if opts.hold_signal then
+    local known = false
+    for _, n in ipairs(signals) do if n == opts.hold_signal then known = true end end
+    if not known then add("--sperre-an: " .. opts.hold_signal .. " ist kein beobachtetes Signal, uebersprungen"); return end
+  end
   if not s then add("--sperre: kein Signal gewaehlt, uebersprungen"); return end
   local ok_f, before = call(s, "isForcedRed")
   if not ok_f then add("--sperre: isForcedRed nicht lesbar (" .. plain(before) .. "), uebersprungen"); return end

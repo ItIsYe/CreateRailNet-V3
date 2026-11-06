@@ -22,6 +22,8 @@ Freigabe **ohne Redstone**, allein ueber die Station: die Leitstelle gibt die Ab
 | H4 | Ein Fahrplan, dessen erster Eintrag der Bahnhof ist, an dem der Zug schon steht, und dessen zweiter Eintrag ein anderer Bahnhof ist, schickt den Zug nach kurzer Zeit los | D (mit `--ziel`) | Das Setzen des Fahrplans waere keine Freigabe |
 | H5 | Zeit von `setSchedule` bis `train_departure` | D | Mindestaufenthalt und Zeitueberwachung der Leitstelle richten sich danach |
 
+**Stand nach dem ersten Spiellauf (`docs/MESSWERTE.md` M21, 2026-11-06):** H1, H2 und H3 sind bestaetigt (Fahrplan mit geaendertem Inhalt wird geschrieben und genauso gelesen; Haltefahrplan haelt; `create:powered` wird angenommen und haelt ohne Strom). H4 und H5 sind offen (Probe D mit einem anderen Bahnhof als Ziel).
+
 ## Vorgesehenes Verfahren (wenn H1, H2 und H4 stimmen)
 
 - Warteauftrag am Bahnhof: Haltefahrplan (ein Eintrag am eigenen Bahnhof, nicht zyklisch). Der Zug haelt, ohne dass Strom noetig ist.

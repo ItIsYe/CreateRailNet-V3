@@ -2,6 +2,7 @@
 Purpose: Messprogramm Stufe 3 fuer das echte Modpack: misst, ob sich die Abfahrt eines Zuges allein ueber die Train Station freigeben laesst (ohne Redstone): ob setSchedule mit geaendertem Inhalt geschrieben und gelesen wird, ob ein Zug nach dem Ende eines Fahrplans haelt, ob create:powered angenommen wird und haelt, und (nur mit --ziel) wie lange es von setSchedule bis zur Abfahrt dauert. Stellt den urspruenglichen Fahrplan danach wieder her.
 Usage: crn_probe3                     Zug an einem Bahnhof (Computer mit Kabelmodem am Bahnhof genuegt): Proben A bis C, Zug bleibt am Bahnhof
        crn_probe3 --ziel NAME         zusaetzlich Probe D: der Zug FAEHRT zum Bahnhof NAME und zurueck (Rundlauf, wird vorher bestaetigt)
+       crn_probe3 --ziel auto         wie --ziel, das Ziel ist der erste andere Bahnhof im Fahrplan des Zuges (sicher erreichbar); steht dort keiner, entfaellt Probe D
        crn_probe3 --station GERAET    bestimmtes Geraet (zum Beispiel Create_Station_1); Standard: der erste Bahnhof mit Zug
        crn_probe3 --no-write          nur lesen, nichts wird veraendert
        crn_probe3 --ja                Rueckfragen gelten als mit j beantwortet (fuer den automatischen Ablauf, crn_alles)
@@ -137,6 +138,17 @@ else
   add("getSchedule: " .. (ok_g and show(original) or ("FEHLER: " .. plain(original))))
   local ok_c, reach, why = call("canTrainReach", name)
   add("canTrainReach(eigener Name): " .. (ok_c and (tostring(reach) .. ", " .. tostring(why)) or ("FEHLER: " .. plain(reach))))
+  -- --ziel auto: erster anderer Bahnhof im Fahrplan des Zuges (der Zug faehrt ihn ohnehin an, also erreichbar)
+  if opts.goal == "auto" then
+    opts.goal = nil
+    if ok_g and type(original) == "table" then
+      for _, e in ipairs(original.entries or {}) do
+        local text = e.instruction and e.instruction.data and e.instruction.data.text
+        if type(text) == "string" and text ~= name then opts.goal = text break end
+      end
+    end
+    add(opts.goal and ("Ziel (aus dem Fahrplan des Zuges): " .. opts.goal) or "Ziel: im Fahrplan des Zuges steht kein anderer Bahnhof, Probe D entfaellt (mit --ziel NAME angeben).")
+  end
   if opts.goal then
     local ok_r, r2, w2 = call("canTrainReach", opts.goal)
     add("canTrainReach(" .. opts.goal .. "): " .. (ok_r and (tostring(r2) .. ", " .. tostring(w2)) or ("FEHLER: " .. plain(r2))))
@@ -212,6 +224,7 @@ else
     if not opts.goal then
       section("Probe D: Abfahrt per Fahrplan")
       add("(nicht gelaufen: mit --ziel BAHNHOFSNAME starten; der Zug faehrt dann dorthin und zurueck)")
+      result("D Abfahrt per Fahrplan", "nicht gemessen: kein Zielbahnhof")
     else
       run("Probe D: Abfahrt per Fahrplan (Rundlauf zu " .. opts.goal .. ")", function()
         -- Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (docs/MESSWERTE.md M20): erst ein anderer Bahnhof

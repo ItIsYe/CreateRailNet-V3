@@ -5,30 +5,38 @@ Purpose: Das Messprogramm probe/crn_probe4.lua gegen ein nachgebildetes Signal u
 local t = dofile("tests/lib/t.lua")
 local unpack = table.unpack or unpack
 
--- Ablauf: Zug 1 faehrt durch. 5,0 s Signal rot und Zug im Block, 5,1 s Beobachter meldet passing, 8,0 s passed, 9,0 s Block geraeumt und Signal gruen
+-- Ablauf: Zug 1 faehrt durch. 5,0 s Signal rot und Zug im Block, 5,1 s Beobachter meldet passing, 8,0 s passed, 9,0 s Block geraeumt und Signal gruen;
+-- mit opts.second faehrt er 40 s spaeter noch einmal
 local function world(opts)
   opts = opts or {}
   local w = { now = 0, timers = {}, queue = {}, next_timer = 0, files = {}, output = {}, writes = {} }
   local forced = false
+  local offsets = opts.second and { 0, 40 } or { 0 }
   local function at(time, ...) w.queue[#w.queue + 1] = { at = time, ev = { ... } } end
-  if not opts.no_train then
-    at(5.0, "train_signal_state_change", "Create_Signal_0", "RED")
-    at(5.1, "train_passing", "Create_TrainObserver_0", "Zug 1")
-    at(8.0, "train_passed", "Create_TrainObserver_0", "Zug 1")
-    at(9.0, "train_signal_state_change", "Create_Signal_0", "GREEN")
+  local function within(a, b)
+    for _, o in ipairs(offsets) do if w.now >= a + o and w.now < b + o then return true end end
+    return false
   end
-  local function occupied() return not opts.no_train and not opts.no_names and w.now >= 5.0 and w.now < 9.0 end
+  if not opts.no_train then
+    for _, o in ipairs(offsets) do
+      at(5.0 + o, "train_signal_state_change", "Create_Signal_0", "RED")
+      at(5.1 + o, "train_passing", "Create_TrainObserver_0", "Zug 1")
+      at(8.0 + o, "train_passed", "Create_TrainObserver_0", "Zug 1")
+      at(9.0 + o, "train_signal_state_change", "Create_Signal_0", "GREEN")
+    end
+  end
+  local function occupied() return not opts.no_train and not opts.no_names and within(5.0, 9.0) end
   local signal = {
-    getState = function() if forced or (not opts.no_train and w.now >= 5.0 and w.now < 9.0) then return "RED" end return "GREEN" end,
+    getState = function() if forced or (not opts.no_train and within(5.0, 9.0)) then return "RED" end return "GREEN" end,
     isForcedRed = function() return forced end,
-    setForcedRed = function(v) w.writes[#w.writes + 1] = tostring(v); forced = v end,
+    setForcedRed = function(v) w.writes[#w.writes + 1] = tostring(v); forced = v and true or false end,
     getSignalType = function() return "ENTRY_SIGNAL" end,
     listBlockingTrainNames = function() if occupied() then return { "Zug 1" } end return {} end,
   }
   local observer = {
-    isTrainPassing = function() return not opts.no_train and w.now >= 5.1 and w.now < 8.0 end,
+    isTrainPassing = function() return not opts.no_train and within(5.1, 8.0) end,
     getPassingTrainName = function()
-      if opts.no_train or w.now < 5.1 or w.now >= 8.0 then error("there is no train passing") end
+      if opts.no_train or not within(5.1, 8.0) then error("there is no train passing") end
       return "Zug 1"
     end,
   }
@@ -106,7 +114,7 @@ return {
     t.contains(out, "Signal Create_Signal_0 nennt Zug Zug 1: JA")
     t.contains(out, "GREEN (+0.0 s) -> RED")
     t.contains(out, "Beobachter Create_TrainObserver_0 Zug Zug 1: passing +5.1 s; passed +8.0 s")
-    t.contains(out, "Abstand Signal Create_Signal_0 zu Beobachter Create_TrainObserver_0, Zug Zug 1: Name verschwindet im Signal 1.0 s NACH train_passed")
+    t.contains(out, "Abstand Signal Create_Signal_0 zu Beobachter Create_TrainObserver_0, Zug Zug 1: Name verschwindet im Signal +1.0 s nach train_passed")
     t.ok(w.files["crn_probe4.txt"] and #w.files["crn_probe4.txt"] > 200, "Bericht geschrieben")
   end },
   { "Signal ohne Zugname: die Kurzfassung sagt NEIN", function()
@@ -142,6 +150,24 @@ return {
     t.eq(table.concat(w.writes, ","), "true,false")
     t.contains(out, "(--ja: ohne Rueckfrage)")
     t.eq(w.forced(), false)
+  end },
+  { "Abstand je Durchfahrt: bei zwei Durchfahrten stehen beide Abstaende in einer Zeile, jede einer passenden Durchfahrt zugeordnet", function()
+    local w = world({ second = true })
+    local ok, err, out = run(w, { "--wait", "60" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "Name verschwindet im Signal +1.0 / +1.0 s nach train_passed (+ = danach; 2 Durchfahrten;")
+  end },
+  { "--sperre-an: das benannte Signal wird gesperrt und zurueckgestellt, ohne Namen eines beobachteten Signals nichts", function()
+    local w = world()
+    local ok, err, out = run(w, { "--wait", "20", "--sperre-an", "Create_Signal_0", "--ja" })
+    t.ok(ok, tostring(err))
+    t.eq(table.concat(w.writes, ","), "true,false")
+    t.contains(out, "Rueckstellung Create_Signal_0: setForcedRed(false) ok")
+    local w2 = world()
+    local ok2, err2, out2 = run(w2, { "--wait", "20", "--sperre-an", "Nope", "--ja" })
+    t.ok(ok2, tostring(err2))
+    t.eq(#w2.writes, 0)
+    t.contains(out2, "Nope ist kein beobachtetes Signal")
   end },
   { "Auch bei einem Fehler waehrend der Beobachtung wird die Sperre zurueckgestellt", function()
     local w = world()

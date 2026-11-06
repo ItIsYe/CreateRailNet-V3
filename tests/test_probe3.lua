@@ -177,6 +177,29 @@ return {
     t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
   end },
 
+  { "--ziel auto: das Ziel ist der erste andere Bahnhof im Fahrplan des Zuges, Probe D laeuft", function()
+    local w = world()
+    local ok, err, out = run(w, { "--ziel", "auto", "--ja" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "Ziel (aus dem Fahrplan des Zuges): Hof B")
+    t.contains(out, "D Rundlauf beendet: JA")
+    t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
+  end },
+
+  { "--ziel auto ohne anderen Bahnhof im Fahrplan: Probe D entfaellt mit Hinweis statt zu raten", function()
+    local w = world()
+    -- Fahrplan nur mit dem eigenen Bahnhof
+    w.station.schedule = deepcopy(ORIGINAL)
+    w.station.schedule.entries = { w.station.schedule.entries[1] }
+    local only_own = deepcopy(w.station.schedule)
+    local ok, err, out = run(w, { "--ziel", "auto", "--ja" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "im Fahrplan des Zuges steht kein anderer Bahnhof")
+    t.contains(out, "D Abfahrt per Fahrplan: nicht gemessen: kein Zielbahnhof")
+    for _, call in ipairs(w.calls) do t.ok(select(2, call:gsub("create:destination", "")) ~= 3, "kein Rundlauf gesetzt") end
+    t.eq(ser.encode(w.station.schedule), ser.encode(only_own))
+  end },
+
   { "Probe mit unerreichbarem Ziel: keine Fahrt, Hinweis", function()
     local w = world()
     local ok, err, out = run(w, { "--ziel", "Nirgendwo" })
