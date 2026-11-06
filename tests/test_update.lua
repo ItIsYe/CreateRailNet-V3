@@ -599,7 +599,7 @@ return {
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
     local b = h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
-      tracks = { { name = "Gleis 1", station_name = "Westbahnhof", release_side = "back" } }, registration = "Gleis 1" })
+      tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })
     local fs, http = installed("passagierbahnhof", "beta")
     for path, text in pairs(fs._state.files) do if path:match("^crn/") or path:match("^startup") then b.fs._state.files[path] = text end end
     for dir in pairs(fs._state.dirs) do b.fs._state.dirs[dir] = true end

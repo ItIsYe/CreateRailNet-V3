@@ -12,7 +12,7 @@ local function build()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local a = h.add_node({ id = "anmeldehof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
-    tracks = { { name = "Gleis 1", station_name = "Anmeldehof", release_side = "back", known = {} } } })
+    tracks = { { name = "Gleis 1", station_name = "Anmeldehof", known = {} } } })
   h.step(3)
   local asks = {}
   local real = z.node.reply
@@ -102,7 +102,7 @@ return {
       local h = H.new({ seed = seed, drop = 0.2, dup = 0.3, reorder = true })
       local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
       local a = h.add_node({ id = "anmeldehof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
-        tracks = { { name = "Gleis 1", station_name = "Anmeldehof", release_side = "back", known = {} } } })
+        tracks = { { name = "Gleis 1", station_name = "Anmeldehof", known = {} } } })
       for i = 1, 70 do
         z.node.roles.zentrale.orders.add_template({
           id = string.format("vorlage-%03d", i), title = long("Fahrt", i) .. string.rep("T", 30), train = "GZ-001",

@@ -482,7 +482,6 @@ function M.new(services)
         if t.station then parts[#parts + 1] = "Bahnhof" end
         if #t.signals > 0 then parts[#parts + 1] = #t.signals .. " Signal(e)" end
         if #t.observers > 0 then parts[#parts + 1] = #t.observers .. " Beobachter" end
-        if t.release then parts[#parts + 1] = "Ausgang" end
         items[#items + 1] = { text = t.name, detail = #parts > 0 and table.concat(parts, ", ") or "noch leer", kind = #parts > 0 and "ok" or "wait" }
         session.pick.tracks[#items] = id
       end

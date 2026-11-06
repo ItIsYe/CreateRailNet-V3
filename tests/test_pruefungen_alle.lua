@@ -37,7 +37,6 @@ local function prepared()
   local signal = model.add_device(cfg, "signal", "Create_Signal_1")
   model.assign(cfg, tid, "station", station)
   model.assign(cfg, tid, "signals", signal)
-  cfg.tracks[tid].release = { side = "back" }
   return wiz, w, tid
 end
 
@@ -45,9 +44,8 @@ return {
   { "Ohne Bestaetigung laufen nur die lesenden Pruefungen, die schaltenden bleiben offen und werden gemeldet", function()
     local wiz, w = prepared()
     local r = wiz.run_open_tests(false)
-    t.eq(r.ok, 2); t.eq(r.failed, 0); t.eq(r.open, 2)
+    t.eq(r.ok, 2); t.eq(r.failed, 0); t.eq(r.open, 1)
     t.eq(w.devices["Create_Signal_1"].state.forced, false, "nichts geschaltet")
-    t.eq(w.sides.back, false)
     for _, test in ipairs(wiz.tests()) do
       if test.kind == "schalten" then t.eq(wiz.test_state(test.id, nil, test), "offen") end
     end
@@ -55,8 +53,8 @@ return {
   { "Mit Bestaetigung laufen alle nacheinander, der Ausgangszustand ist danach wieder hergestellt", function()
     local wiz, w = prepared()
     local r = wiz.run_open_tests(true)
-    t.eq(r.ok, 4); t.eq(r.failed, 0); t.eq(r.open, 0); t.eq(r.stopped, nil)
-    t.eq(w.devices["Create_Signal_1"].state.forced, false); t.eq(w.sides.back, false)
+    t.eq(r.ok, 3); t.eq(r.failed, 0); t.eq(r.open, 0); t.eq(r.stopped, nil)
+    t.eq(w.devices["Create_Signal_1"].state.forced, false)
     t.ok(wiz.all_tests_ok())
   end },
   { "Gueltige Ergebnisse bleiben: ein zweiter Lauf fuehrt nur Offenes aus; Namensaenderungen und andere Gleise entwerten nichts", function()
@@ -71,7 +69,7 @@ return {
     wiz.config.tracks[tid].direction = "rueck"
     t.ok(not wiz.all_tests_ok(), "geaenderte Richtung des Gleises: betroffene Pruefungen erneut")
     local again = wiz.run_open_tests(true)
-    t.eq(again.ok, 4, "alle vier betreffen das geaenderte Gleis")
+    t.eq(again.ok, 3, "alle drei betreffen das geaenderte Gleis")
   end },
   { "Ein Geraet ersetzt: nur dessen Pruefungen sind wieder offen", function()
     local wiz, w, tid = prepared()
@@ -93,23 +91,25 @@ return {
     w.devices["Create_Signal_1"].state.forced = true            -- schon gesperrt: die Sperrpruefung lehnt ab (kein Eingriff in eine fremde Sperre)
     local r = wiz.run_open_tests(true)
     t.eq(r.failed, 1)
-    t.eq(r.ok, 3)
+    t.eq(r.ok, 2)
     t.eq(w.devices["Create_Signal_1"].state.forced, true, "die fremde Sperre bleibt")
   end },
-  { "Bleibt ein Ausgang eingeschaltet (Zustand unklar), stoppt die Serie und meldet es; die nicht gelaufenen bleiben offen", function()
+  { "Bleibt eine Sperre gesetzt (Zustand unklar), stoppt die Serie und meldet es; die nicht gelaufenen bleiben offen", function()
     local wiz, w, tid = prepared()
-    local second = model.add_track(wiz.config, "Gleis 2")
-    wiz.config.tracks[second].release = { side = "top" }
-    -- der Ausgang von Gleis 1 laesst sich nicht mehr ausschalten
-    local real = w.redstone.setOutput
-    w.redstone.setOutput = function(side, value) if side == "back" and value == false then return end return real(side, value) end
+    local cfg = wiz.config
+    w.add_signal("Create_Signal_2")
+    local second = model.add_track(cfg, "Gleis 2")
+    model.assign(cfg, second, "signals", model.add_device(cfg, "signal", "Create_Signal_2"))
+    -- die Sperre von Signal 1 laesst sich nicht mehr aufheben
+    local state = w.devices["Create_Signal_1"].state
+    w.devices["Create_Signal_1"].methods.setForcedRed = function(v) if v then state.forced = true end end
     local r = wiz.run_open_tests(true)
-    t.eq(r.stopped, "Ausgang: Gleis 1")
+    t.eq(r.stopped, "Sperre: Create_Signal_1")
     t.eq(r.failed, 1)
-    t.eq(r.open, 1, "die Pruefung von Gleis 2 lief nicht")
+    t.eq(r.open, 1, "die Sperrpruefung von Signal 2 lief nicht")
     for _, test in ipairs(wiz.tests()) do
-      if test.title == "Ausgang: Gleis 2" then t.eq(wiz.test_state(test.id, nil, test), "offen") end
-      if test.title == "Ausgang: Gleis 1" then t.eq(wiz.test_state(test.id, nil, test), "fehler") end
+      if test.title == "Sperre: Create_Signal_2" then t.eq(wiz.test_state(test.id, nil, test), "offen") end
+      if test.title == "Sperre: Create_Signal_1" then t.eq(wiz.test_state(test.id, nil, test), "fehler") end
     end
     t.ok(not wiz.all_tests_ok())
   end },

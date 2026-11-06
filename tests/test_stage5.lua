@@ -17,14 +17,14 @@ local function build(opts)
   local hbf = h.add_node({
     id = "hbf", roles = { "passagierbahnhof" }, central = "hauptstelle",
     tracks = {
-      { name = "Gleis 1", station_name = "Hbf Gleis 1", release_side = "back", length = opts.lengths and opts.lengths[1] or 8, known = known },
-      { name = "Gleis 2", station_name = "Hbf Gleis 2", release_side = "front", length = opts.lengths and opts.lengths[2] or 8, known = known },
-      { name = "Gleis 3", station_name = "Hbf Gleis 3", release_side = "top", length = opts.lengths and opts.lengths[3] or 8, known = known },
+      { name = "Gleis 1", station_name = "Hbf Gleis 1", length = opts.lengths and opts.lengths[1] or 8, known = known },
+      { name = "Gleis 2", station_name = "Hbf Gleis 2", length = opts.lengths and opts.lengths[2] or 8, known = known },
+      { name = "Gleis 3", station_name = "Hbf Gleis 3", length = opts.lengths and opts.lengths[3] or 8, known = known },
     },
   })
   local lager = h.add_node({
     id = "lager", roles = { "gueterbahnhof" }, central = "hauptstelle",
-    tracks = { { name = "Gleis 1", station_name = "Zentrallager", release_side = "back", known = { ["Hbf Gleis 1"] = 100, ["Hbf Gleis 2"] = 100, ["Hbf Gleis 3"] = 100, Zentrallager = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Zentrallager", known = { ["Hbf Gleis 1"] = 100, ["Hbf Gleis 2"] = 100, ["Hbf Gleis 3"] = 100, Zentrallager = 0 } } },
   })
   local sim = h.sim({
     { node = "hbf", name = "Hbf Gleis 1", device = "Create_Station_1", side = "back" },

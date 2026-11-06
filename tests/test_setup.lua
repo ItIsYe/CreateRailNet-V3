@@ -61,10 +61,8 @@ local function station_config(w)
   wiz.toggle_track_device(g1, "station", ids.Create_Station_1)
   wiz.toggle_track_device(g1, "signals", ids.Create_Signal_5)
   wiz.toggle_track_device(g1, "observers", ids.Create_TrainObserver_1)
-  wiz.set_release(g1, { side = "back" })
   local g2 = wiz.add_track("Gleis 2")
   wiz.toggle_track_device(g2, "station", ids.Create_Station_2)
-  wiz.set_release(g2, { side = "front" })
   return wiz, ids, g1, g2
 end
 
@@ -123,7 +121,7 @@ return {
     w.devices["Create_Signal_5"].methods.cycleSignalType = nil
     t.ok(has_code(model.validate(c, detect.scan(w.peripheral)), "geraet_methoden"))
   end },
-  { "Geraet nur einem Gleis, Ausgang nur einem Gleis, Gleisname eindeutig", function()
+  { "Geraet nur einem Gleis, Gleisname eindeutig", function()
     local w = world()
     local scan = detect.scan(w.peripheral)
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
@@ -131,23 +129,9 @@ return {
     local g1, g2 = model.add_track(c, "Gleis 1"), model.add_track(c, "Gleis 1")
     model.assign(c, g1, "station", s1)
     model.assign(c, g2, "station", s1)
-    c.tracks[g1].release = { side = "back" }
-    c.tracks[g2].release = { side = "back" }
     local codes = problem_codes(model.validate(c, scan))
     t.contains(codes, "gleis_name_doppelt")
     t.contains(codes, "geraet_zwei_gleise")
-    t.contains(codes, "ausgang_doppelt")
-  end },
-  { "Relay-Ausgang und Computerseite derselben Seite sind verschiedene Ausgaenge", function()
-    local w = world()
-    local scan = detect.scan(w.peripheral)
-    local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
-    local s1, s2 = model.add_device(c, "station", "Create_Station_1"), model.add_device(c, "station", "Create_Station_2")
-    local g1, g2 = model.add_track(c, "A"), model.add_track(c, "B")
-    model.assign(c, g1, "station", s1); model.assign(c, g2, "station", s2)
-    c.tracks[g1].release = { side = "back" }
-    c.tracks[g2].release = { relay = "redstone_relay_0", side = "back" }
-    t.ok(not has_code(model.validate(c, scan), "ausgang_doppelt"))
   end },
   { "Bahnhofsgleis braucht einen Bahnhof, aber keinen Freigabeausgang (die Freigabe laeuft ueber die Station); Signalgleis ein Signal", function()
     local w = world()
@@ -159,10 +143,6 @@ return {
     local s = model.add_device(c, "station", "Create_Station_1")
     model.assign(c, g, "station", s)
     t.eq(#model.validate(c, scan), 0, "kein Ausgang noetig: " .. problem_codes(model.validate(c, scan)))
-    c.tracks[g].release = { side = "back" }
-    t.eq(#model.validate(c, scan), 0, "ein vorhandener Ausgang aus aelterer Einrichtung bleibt gueltig")
-    c.tracks[g].release = { side = "nirgends" }
-    t.contains(problem_codes(model.validate(c, scan)), "ausgang_seite")
     local d = model.new("Depot", { "depot" }, { name = "N", central_id = "z" })
     local dg = model.add_track(d, "Abstell 1")
     local ds = model.add_device(d, "station", "Create_Station_1")
@@ -241,12 +221,11 @@ return {
     local s = model.add_device(c, "station", "Create_Station_1")
     model.assign(c, g1, "station", s)
     model.assign(c, g1, "signals", model.add_device(c, "signal", "Create_Signal_5"))
-    c.tracks[g1].release = { side = "back" }
     c.tracks[g1].status = "aktiv"
     local g2 = model.copy_track(c, g1, "Gleis 2")
     local copy = c.tracks[g2]
     t.eq(copy.direction, "hin"); t.eq(copy.length, 12)
-    t.eq(copy.station, nil); t.eq(#copy.signals, 0); t.eq(copy.release, nil)
+    t.eq(copy.station, nil); t.eq(#copy.signals, 0)
     t.eq(copy.status, "offen")
     t.eq(copy.name, "Gleis 2")
     t.eq(model.copy_track(c, "nix", "x"), nil)
@@ -260,7 +239,7 @@ return {
     model.remove_device(c, st); model.remove_device(c, sg); model.remove_device(c, ob)
     t.eq(c.tracks[g].station, nil); t.eq(#c.tracks[g].signals, 0); t.eq(#c.tracks[g].observers, 0); t.eq(c.registration_station, nil)
   end },
-  { "freie Geraete: noch keinem Gleis zugeordnet; Ausgaenge: Computerseiten und Relay", function()
+  { "freie Geraete: noch keinem Gleis zugeordnet", function()
     local w = world()
     local scan = detect.scan(w.peripheral)
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
@@ -270,9 +249,6 @@ return {
     model.assign(c, g, "station", s1)
     local free = model.free_devices(c, scan, "station")
     t.eq(#free, 1); t.eq(free[1].name, "Create_Station_2")
-    local outputs = model.outputs(scan)
-    t.eq(#outputs, 12, "sechs Computerseiten und sechs Relayseiten")
-    t.eq(outputs[7].relay, "redstone_relay_0")
   end },
   { "Geraet nicht doppelt eintragen", function()
     local c = model.new("N", {}, {})
@@ -379,7 +355,7 @@ return {
     t.eq(wiz.step, 3)
     t.ok(detect.find(wiz.scan, "Create_Signal_9"), "neuer Scan beim Betreten von Schritt 3")
   end },
-  { "Gleis bearbeiten: Geraet nur einem Gleis, Ausgang nur einem Gleis, Richtung, Umbenennen", function()
+  { "Gleis bearbeiten: Geraet nur einem Gleis, Richtung, Umbenennen", function()
     local w = world()
     local wiz, ids, g1, g2 = station_config(w)
     local ok, why = wiz.toggle_track_device(g2, "station", ids.Create_Station_1)
@@ -389,10 +365,6 @@ return {
     t.eq(wiz.toggle_track_device(g1, "signals", ids.Create_Signal_5), true, "vom eigenen Gleis nehmen")
     t.eq(wiz.toggle_track_device(g2, "signals", ids.Create_Signal_5), true, "danach frei fuer ein anderes Gleis")
     t.eq(wiz.toggle_track_device(g2, "signals", ids.Create_Signal_5), true)
-    ok, why = wiz.set_release(g2, { side = "back" })
-    t.eq(ok, false); t.contains(why, "gehoert schon zu Gleis 1")
-    t.eq(wiz.set_release(g2, { relay = "redstone_relay_0", side = "back" }), true)
-    t.eq(wiz.set_release(g2, nil), true)
     t.eq(wiz.set_direction(g1, "hin"), true)
     t.eq(wiz.config.tracks[g1].direction, "hin")
     t.eq(wiz.rename_track(g1, "Gleis Eins"), true)
@@ -433,7 +405,7 @@ return {
     t.eq(#wiz.config.junction.conflicts, 0)
   end },
   -- Pruefungen ---------------------------------------------------------------------------------------------------------------------------------
-  { "Pruefungen werden aus der Konfiguration erzeugt: lesen, Sperre, Ausgang", function()
+  { "Pruefungen werden aus der Konfiguration erzeugt: lesen, Sperre (keine Ausgangspruefung)", function()
     local w = world()
     local wiz = station_config(w)
     local ids = {}
@@ -441,8 +413,7 @@ return {
     local joined = table.concat(ids, " ")
     t.contains(joined, "lesen:lesen:signal1")
     t.contains(joined, "schalten:sperre:signal1")
-    t.contains(joined, "schalten:ausgang:gleis1")
-    t.contains(joined, "schalten:ausgang:gleis2")
+    t.not_contains(joined, "ausgang")
     for _, test in ipairs(wiz.tests()) do
       if test.kind == "schalten" then t.ok(#test.explain > 20, "Erklaerung fehlt bei " .. test.id) end
     end
@@ -462,25 +433,6 @@ return {
     t.eq(wiz.test_state("sperre:signal1"), "ok")
     t.eq(w.devices["Create_Signal_5"].state.forced, false, "danach wieder frei")
     t.eq(wiz.run_test("unbekannt:x", true), false)
-  end },
-  { "Ausgangstest schaltet und stellt zurueck; schon eingeschalteter Ausgang wird nicht angefasst", function()
-    local w = world()
-    local wiz = station_config(w)
-    t.eq(wiz.run_test("ausgang:gleis1", true), true)
-    t.eq(w.sides.back, false)
-    w.sides.front = true
-    local ok, why = wiz.run_test("ausgang:gleis2", true)
-    t.eq(ok, false); t.contains(why, "schon eingeschaltet")
-    t.eq(w.sides.front, true, "unveraendert")
-    t.eq(wiz.test_state("ausgang:gleis2"), "fehler")
-  end },
-  { "Ausgang, der nicht ausgeht, wird als ACHTUNG gemeldet", function()
-    local w = world()
-    local wiz = station_config(w)
-    local real_set = w.redstone.setOutput
-    w.redstone.setOutput = function(side, on) if on then real_set(side, on) end end   -- Ausschalten wirkt nicht
-    local ok, why = wiz.run_test("ausgang:gleis1", true)
-    t.eq(ok, false); t.contains(why, "ACHTUNG")
   end },
   { "Sperre: schon gesperrtes Signal, Signal ohne Wirkung, Signal verschwunden", function()
     local w = world()
@@ -514,9 +466,6 @@ return {
     -- anderes Signal an dieselbe Kennung: das alte Ergebnis ist ungueltig
     wiz.config.devices.signal1.device = "Create_Signal_6"
     t.eq(wiz.test_state("lesen:signal1"), "offen")
-    wiz.set_release(g1, { side = "left" })
-    wiz.config.tests["ausgang:" .. g1] = { ok = true, spec = "Computer back" }
-    t.eq(wiz.test_state("ausgang:" .. g1), "offen", "anderer Ausgang")
   end },
   -- Fertig ------------------------------------------------------------------------------------------------------------------------------------
   { "Fertig: ohne Pruefungen wird nichts gespeichert (kein Entwurf); mit allen Pruefungen aktiv; Revision steigt; gespeichert und lesbar", function()

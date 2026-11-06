@@ -80,7 +80,7 @@ return {
     h.step(30)
     t.eq(netz.node("N0001").state, "aktiv")
   end },
-  { "Alle pruefen (vorhandene Ausgaenge): lesende laufen beim Oeffnen von selbst, die schaltenden werden zusammen bestaetigt und nacheinander ausgefuehrt", function()
+  { "Alle pruefen am Bahnhof: die lesenden laufen beim Oeffnen von selbst, es gibt nichts zu schalten (kein Ausgang)", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     d.tap_row(v, "geraete", "Create_Station_1"); d.tap_row(v, "geraete", "Create_Station_2")
@@ -89,31 +89,16 @@ return {
     d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
     d.tap(v, "sel:gleise:2"); d.tap(v, "act:bearbeiten")
     d.tap_row(v, "bahnhof", "Create_Station_2"); d.tap(v, "act:weiter")
-    -- Ausgaenge einer aelteren Einrichtung bleiben moeglich (hier ueber die Schnittstelle gesetzt) und werden weiter geprueft
     local wiz = d.node.setup.session().wiz
-    local tid = wiz.tracks()
-    t.eq(wiz.set_release(tid[1], { side = "back" }), true); t.eq(wiz.set_release(tid[2], { side = "top" }), true)
     d.tap(v, "act:weiter")
     t.eq(screen(d), "5.test", d.text(v))
     for _, test in ipairs(wiz.tests()) do
-      if test.kind == "lesen" then t.eq(wiz.test_state(test.id, nil, test), "ok", "lesende Pruefungen sind schon gelaufen: " .. test.title) end
-      if test.kind == "schalten" then t.eq(wiz.test_state(test.id, nil, test), "offen") end
+      t.eq(test.kind, "lesen", "ein Bahnhof braucht keine schaltende Pruefung (kein Ausgang): " .. test.title)
+      t.eq(wiz.test_state(test.id, nil, test), "ok", "lesende Pruefungen sind schon gelaufen: " .. test.title)
     end
     d.tap(v, "act:alle_pruefen")
-    t.eq(screen(d), "5.alle_bestaetigen", d.text(v))
-    t.contains(d.text(v), "Ausgang: Gleis 1"); t.contains(d.text(v), "Ausgang: Gleis 2")
-    t.contains(d.text(v), "vorbereitet")
-    d.tap(v, "act:alle_abbruch")
-    t.eq(screen(d), "5.test"); t.contains(v.hint, "nicht gestartet")
-    t.eq(d.world.sides.back, false)
-    d.tap(v, "act:alle_pruefen")
-    d.tap(v, "act:alle_starten")
-    t.eq(screen(d), "5.test", d.text(v))
-    t.contains(v.hint, "2 ok, 0 Fehler")
-    t.eq(d.world.sides.back, false); t.eq(d.world.sides.top, false)
-    d.tap(v, "act:alle_pruefen")
-    t.contains(v.hint, "0 ok, 0 Fehler", "nichts mehr offen: kein weiterer Bestaetigungsbildschirm")
-    t.eq(screen(d), "5.test")
+    t.eq(screen(d), "5.test", "nichts zu schalten: kein Bestaetigungsbildschirm")
+    t.contains(v.hint, "0 ok, 0 Fehler", "nichts mehr offen")
     d.tap(v, "act:weiter")
     t.eq(screen(d), "6.fertig")
     d.tap(v, "act:speichern")

@@ -1,4 +1,4 @@
-# Datenformat 2
+# Datenformat 3
 knoten:config.lua devices.observer#.device string
 knoten:config.lua devices.observer#.kind string
 knoten:config.lua devices.signal#.device string
@@ -50,7 +50,6 @@ passagierbahnhof:config.lua tests leer
 passagierbahnhof:config.lua tracks.gleis#.direction string
 passagierbahnhof:config.lua tracks.gleis#.name string
 passagierbahnhof:config.lua tracks.gleis#.observers leer
-passagierbahnhof:config.lua tracks.gleis#.release.side string
 passagierbahnhof:config.lua tracks.gleis#.signals leer
 passagierbahnhof:config.lua tracks.gleis#.station string
 passagierbahnhof:config.lua tracks.gleis#.status string

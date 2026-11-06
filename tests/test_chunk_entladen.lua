@@ -13,11 +13,11 @@ local function build()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
     id = "weizenhof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
-    tracks = { { name = "Gleis 1", station_name = "Weizenhof", release_side = "back", known = { Zentrallager = 100, Weizenhof = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = { Zentrallager = 100, Weizenhof = 0 } } },
   })
   local l = h.add_node({
     id = "lager", roles = { "gueterbahnhof" }, central = "hauptstelle",
-    tracks = { { name = "Gleis 1", station_name = "Zentrallager", release_side = "back", known = { Weizenhof = 100, Zentrallager = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Zentrallager", known = { Weizenhof = 100, Zentrallager = 0 } } },
   })
   local sim = h.sim({ { node = "weizenhof", name = "Weizenhof" }, { node = "lager", name = "Zentrallager" } }, 20)
   sim.add_train("Unnamed Train", "Weizenhof", nil, 0)
@@ -68,7 +68,7 @@ return {
       h.load("hauptstelle")
       t.ok(h.until_true(function() return order_of(z, id).state == "abgeschlossen" end, 300), "nach " .. down .. " s: Zustand " .. order_of(z, id).state .. " " .. tostring(order_of(z, id).reason))
       t.eq(#z.node.roles.zentrale.orders.list(), 1, "kein doppelter Auftrag")
-      t.eq(w.world.sides.back, false); t.eq(l.world.sides.back, false)
+      t.eq(w.node.roles.station.tracks[1].p.release_set, false); t.eq(l.node.roles.station.tracks[1].p.release_set, false)
     end
   end },
   { "Leitstelle neu geladen: sie kennt die Nodes nach wenigen Sekunden (die Anmeldung wird erbeten), nicht erst nach zwei Minuten", function()
@@ -129,25 +129,25 @@ return {
     from("x4", "zustand")
     t.eq(#asked, 4, "stillgelegte Nodes werden nicht gebeten")
   end },
-  { "Bahnhof entladen, waehrend der Zug mit Freigabe abfaehrt: nach dem Laden ist der Ausgang aus, die Leitstelle klaert statt zu haengen", function()
+  { "Bahnhof entladen, waehrend der Zug mit Freigabe abfaehrt: nach dem Laden ist die Freigabe verbraucht, die Leitstelle klaert statt zu haengen", function()
     for _, down in ipairs({ 20, 130 }) do
       local h, z, w, l, sim = build()
       local id = released(h, z, w)
-      t.eq(w.world.sides.back, true)
+      t.eq(w.node.roles.station.tracks[1].p.release_set, true)
       local from = #w.node.messages
       h.unload("weizenhof")
       sim.set_cargo("Unnamed Train", 800)
       h.step(down)
-      t.eq(w.world.sides.back, true, "ohne Betrieb bleibt der Ausgang, wie er war")
+      t.eq(w.node.roles.station.tracks[1].p.release_set, true, "ohne Betrieb bleibt die Freigabe, wie sie war")
       h.load("weizenhof")
       t.ok(h.until_true(function() return order_of(z, id).state == "klaerung" end, 20), "nach " .. down .. " s: Klaerung, Zustand " .. order_of(z, id).state)
       t.contains(order_of(z, id).reason, "nicht mehr am Bahnhof")
-      t.eq(w.world.sides.back, false, "Freigabeausgang zurueckgenommen")
+      t.eq(w.node.roles.station.tracks[1].p.release_set, false, "Freigabe verbraucht (der Zug gehoerte nicht mehr dazu)")
       t.contains(texts(w.node, from), "fiel in die Zeit ohne Betrieb")
       t.eq(#w.node.journal.pending(), 0)
     end
   end },
-  { "Beim Laden steht ein anderer Zug am Gleis: der Ausgang geht aus, der fremde Zug faehrt nicht ohne Freigabe ab", function()
+  { "Beim Laden steht ein anderer Zug am Gleis: die Freigabe ist verbraucht, der fremde Zug faehrt nicht ohne Freigabe ab", function()
     local h, z, w, l, sim = build()
     local id = released(h, z, w)
     local stay_before = w.node.roles.station.tracks[1].p.stay
@@ -158,7 +158,7 @@ return {
     h.step(5)
     h.load("weizenhof")
     h.step(3)
-    t.eq(w.world.sides.back, false, "Ausgang aus, bevor der fremde Zug abfahren kann")
+    t.eq(w.node.roles.station.tracks[1].p.release_set, false, "Freigabe verbraucht, bevor der fremde Zug etwas davon haben kann")
     t.eq(w.world.devices["Create_Station_1"].state.train.name, "Fremdzug", "der fremde Zug steht noch")
     t.eq(order_of(z, id).state, "klaerung")
     -- der fremde Zug ist ein neuer Aufenthalt und der Leitstelle als Ankunft gemeldet
@@ -173,7 +173,7 @@ return {
     h.step(40)
     h.load("weizenhof")
     h.step(5)
-    t.eq(w.world.sides.back, true, "Freigabe bleibt (Zug wartet auf Ladung)")
+    t.eq(w.node.roles.station.tracks[1].p.release_set, true, "Freigabe bleibt (Zug wartet auf Ladung)")
     t.eq(order_of(z, id).state, "abfahrt_freigegeben")
     sim.set_cargo("Unnamed Train", 800)
     t.ok(h.until_true(function() return order_of(z, id).state == "abgeschlossen" end, 300), "Zustand " .. order_of(z, id).state)

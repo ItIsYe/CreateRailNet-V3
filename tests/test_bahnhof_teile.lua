@@ -9,7 +9,7 @@ local ser = require("core.ser")
 local function tracks_spec(count)
   local list = {}
   for i = 1, count do
-    list[i] = { name = string.format("Gleis %02d %s", i, string.rep("N", 20)), station_name = string.format("Bahnhof %02d %s", i, string.rep("S", 20)), release_side = "back", known = {} }
+    list[i] = { name = string.format("Gleis %02d %s", i, string.rep("N", 20)), station_name = string.format("Bahnhof %02d %s", i, string.rep("S", 20)), known = {} }
   end
   return list
 end

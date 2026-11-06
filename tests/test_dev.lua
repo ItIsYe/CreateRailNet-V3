@@ -1,5 +1,5 @@
 --[[
-Purpose: Geraeteschicht (src/dev): Erkennung, Bahnhof, Signal, Beobachter, Ausgang, Ereigniszuordnung, Bindung. Die Fake-Welt verhaelt sich wie die Messung (docs/MESSWERTE.md).
+Purpose: Geraeteschicht (src/dev): Erkennung, Bahnhof, Signal, Beobachter, Ereigniszuordnung, Bindung. Die Fake-Welt verhaelt sich wie die Messung (docs/MESSWERTE.md).
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -8,7 +8,6 @@ local detect = require("dev.detect")
 local stationlib = require("dev.station")
 local signallib = require("dev.signal")
 local observerlib = require("dev.observer")
-local outlib = require("dev.out")
 local eventslib = require("dev.events")
 local bind = require("dev.bind")
 
@@ -263,39 +262,6 @@ return {
     t.eq(state.passing, true); t.eq(state.train, "Zug 5")
     w.detach("Create_TrainObserver_1")
     t.eq(o.read().available, false)
-  end },
-  -- Ausgang --------------------------------------------------------------------------------------------------------------------------
-  { "Ausgang an einer Computerseite", function()
-    local w = world()
-    local o = outlib.new(env(w), { side = "back" })
-    t.eq(o.get(), false)
-    local r = o.set(true)
-    t.eq(r.requested, true); t.eq(r.confirmed, true)
-    t.eq(w.sides.back, true)
-    t.eq(o.set(false).confirmed, true)
-  end },
-  { "Ausgang, der den Wert nicht uebernimmt, wird nicht bestaetigt", function()
-    local stuck = { getOutput = function() return false end, setOutput = function() end }
-    local r = outlib.new({ redstone = stuck }, { side = "back" }).set(true)
-    t.eq(r.requested, true)
-    t.eq(r.confirmed, false)
-  end },
-  { "Ausgang an einem Redstone Relay", function()
-    local w = world()
-    w.add_relay("redstone_relay_0")
-    local o = outlib.new(env(w), { relay = "redstone_relay_0", side = "front" })
-    t.eq(o.set(true).confirmed, true)
-    t.eq(o.get(), true)
-    t.eq(w.sides.front, false, "die Computerseite bleibt unberuehrt")
-  end },
-  { "Ausgang: ungueltige Seite und fehlendes Relay", function()
-    local w = world()
-    local r = outlib.new(env(w), { side = "oben" }).set(true)
-    t.eq(r.confirmed, false)
-    t.ok(r.error)
-    local r2 = outlib.new(env(w), { relay = "weg", side = "front" }).set(true)
-    t.eq(r2.confirmed, false)
-    t.eq(outlib.new(env(w), { relay = "weg", side = "front" }).get(), nil)
   end },
   -- Ereignisse ------------------------------------------------------------------------------------------------------------------------
   { "Ereignisse werden Gleis und Art zugeordnet", function()

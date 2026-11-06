@@ -15,11 +15,11 @@ local function build(opts)
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
     id = "weizenhof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
-    tracks = { { name = "Gleis 1", station_name = "Weizenhof", release_side = "back", known = { Zentrallager = 100, Weizenhof = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = { Zentrallager = 100, Weizenhof = 0 } } },
   })
   local l = h.add_node({
     id = "lager", roles = { "gueterbahnhof" }, central = "hauptstelle",
-    tracks = { { name = "Gleis 1", station_name = "Zentrallager", release_side = "back", known = { Weizenhof = 100, Zentrallager = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Zentrallager", known = { Weizenhof = 100, Zentrallager = 0 } } },
   })
   local sim = h.sim({ { node = "weizenhof", name = "Weizenhof" }, { node = "lager", name = "Zentrallager" } }, 12)
   return h, z, w, l, sim
@@ -98,7 +98,7 @@ return {
     local zentrale = ready(h, z, w, sim)
     zentrale.orders.add_template({ id = "lang", title = "Lang", train = "GZ-001", return_to_start = true, stops = { { station = "Weizenhof", wait = 400 }, { station = "Zentrallager", wait = 2 } } })
     local order = zentrale.demand("lang", nil)
-    t.ok(h.until_true(function() return order.state == "fahrplan_uebergeben" end, 60), order.state)
+    t.ok(h.until_true(function() return order.state == "abfahrt_freigegeben" end, 60), order.state)
     w.world.devices["Create_Station_1"].methods.isTrainPresent = function() error("Peripheral missing", 0) end
     w.world.devices["Create_Station_1"].methods.getStationName = function() error("Peripheral missing", 0) end
     t.ok(h.until_true(function() return order.state == "klaerung" end, 20), order.state)

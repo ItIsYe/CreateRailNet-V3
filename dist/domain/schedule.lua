@@ -107,23 +107,6 @@ return cond
 end
 
 
-function M.order(stops,samples)
-local entries={}
-for _,stop in ipairs(stops)do
-local conditions={}
-if stop.wait and stop.wait>0 then conditions[#conditions+1]=M.delay(stop.wait)end
-if stop.cargo then
-local cond,err=M.cargo_condition(samples and samples.item_threshold,stop.cargo.count)
-if not cond then return nil,err end
-conditions[#conditions+1]=cond
-end
-conditions[#conditions+1]=M.powered()
-entries[#entries+1]=entry(stop.station,conditions)
-end
-return{cyclic=false,entries=entries}
-end
-
-
 
 
 function M.first_repeat(names,cyclic)
@@ -135,34 +118,84 @@ return nil
 end
 
 
-function M.check(sched)
-local problems={}
-if type(sched)~="table"or type(sched.entries)~="table"or#sched.entries==0 then return{"Der Fahrplan hat keine Eintraege."}end
-for i,e in ipairs(sched.entries)do
+
+function M.section(own,halt,destination,samples)
+halt=halt or{}
+if own==destination then
+return nil,"Eigener und naechster Bahnhof heissen beide "..tostring(own)..": Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (erst zu einem anderen)."
+end
+local conditions={M.delay(math.max(1,math.floor(halt.wait or 0)))}
+if halt.cargo then
+local cond,err=M.cargo_condition(samples and samples.item_threshold,halt.cargo.count)
+if not cond then return nil,err end
+conditions[#conditions+1]=cond
+end
+return{cyclic=false,entries={entry(own,conditions),entry(destination,{M.powered()})}}
+end
+
+local function group_problems(e,i,problems)
 if not e.instruction or e.instruction.id~="create:destination"or not e.instruction.data or type(e.instruction.data.text)~="string"then
 problems[#problems+1]="Eintrag "..i.." hat kein Ziel."
 end
 if type(e.conditions)~="table"or#e.conditions~=1 then
-problems[#problems+1]="Eintrag "..i..": es muss genau eine Bedingungsgruppe geben (keine Alternative, die die Freigabe umgeht)."
-else
-local group=e.conditions[1]
-local last=group[#group]
-if not last or last.id~="create:powered"then
-problems[#problems+1]="Eintrag "..i..": die letzte Bedingung muss create:powered sein."
+problems[#problems+1]="Eintrag "..i..": es muss genau eine Bedingungsgruppe geben (keine Alternative, die die Pruefung umgeht)."
+return nil
 end
+return e.conditions[1]
 end
+
+
+
+function M.check_section(sched)
+local problems={}
+if type(sched)~="table"or type(sched.entries)~="table"or#sched.entries~=2 then
+return{"Der Abschnittsfahrplan braucht genau zwei Eintraege (eigener und naechster Bahnhof)."}
 end
-local names={}
-for _,e in ipairs(sched.entries)do
-if e.instruction and e.instruction.data and type(e.instruction.data.text)=="string"then names[#names+1]=e.instruction.data.text end
+if sched.cyclic==true then problems[#problems+1]="Der Abschnittsfahrplan ist nicht umlaufend."end
+local first=group_problems(sched.entries[1],1,problems)
+if first then
+local has_delay=false
+for _,c in ipairs(first)do
+if c.id=="create:delay"then has_delay=true end
+if c.id=="create:powered"then problems[#problems+1]="Eintrag 1: kein create:powered, sonst fuehre der Zug nie ab."end
 end
-if#names==#sched.entries then
-local i,j=M.first_repeat(names,sched.cyclic==true)
-if i then
-problems[#problems+1]="Eintrag "..i.." und "..j.." nennen beide "..names[i]..": Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (erst zu einem anderen)."
+if not has_delay then problems[#problems+1]="Eintrag 1 braucht eine Wartezeit (create:delay)."end
 end
+local second=group_problems(sched.entries[2],2,problems)
+if second then
+local last=second[#second]
+if not last or last.id~="create:powered"then problems[#problems+1]="Eintrag 2: die letzte Bedingung muss create:powered sein (der Zug haelt dort)."end
+end
+local names=M.stops(sched)
+if#names==2 and names[1]==names[2]then
+problems[#problems+1]="Eintrag 1 und 2 nennen beide "..names[1]..": Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (erst zu einem anderen)."
 end
 return problems
+end
+
+
+function M.with_rest_wait(sched,seconds)
+local copy=deepcopy(sched)
+local first=copy and copy.entries and copy.entries[1]
+local group=first and first.conditions and first.conditions[1]
+for _,c in ipairs(group or{})do
+if c.id=="create:delay"and c.data then
+local value=math.max(1,math.ceil(tonumber(seconds)or 0))
+if type(c.data.value)=="number"and value<c.data.value then c.data.value=value end
+break
+end
+end
+return copy
+end
+
+
+
+function M.route_hash(sched)
+if type(sched)~="table"or type(sched.entries)~="table"then return nil end
+local last=sched.entries[#sched.entries]
+local group=last and last.conditions and last.conditions[1]
+local holds=group~=nil and group[#group]~=nil and group[#group].id=="create:powered"
+return adler.hex(ser.encode({stops=M.stops(sched),cyclic=sched.cyclic==true,holds=holds}))
 end
 
 function M.same(a,b)

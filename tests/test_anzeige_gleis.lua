@@ -101,7 +101,7 @@ return {
 
   { "Titelzeile: Node ohne Namen zeigt ihre Kennung, ein langer Name bleibt ganz (die Rolle entfaellt zuerst)", function()
     local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Westbahnhof", release_side = "back" } } })
+    local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } } })
     local store = storelib.new(s.fs)
     local config = store.load("/crn_data/config.lua")
     config.node.name = ""

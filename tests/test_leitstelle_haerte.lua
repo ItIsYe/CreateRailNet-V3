@@ -10,10 +10,10 @@ local function build()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
     id = "weizenhof", roles = { "gueterbahnhof" }, central = "hauptstelle",
-    tracks = { { name = "Gleis 1", station_name = "Weizenhof", release_side = "back", known = {} } },
+    tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = {} } },
   })
   local f = h.add_node({ id = "fremd", roles = { "gueterbahnhof" }, central = "hauptstelle",
-    tracks = { { name = "Gleis 1", station_name = "Fremdhof", release_side = "back", known = {} } } })
+    tracks = { { name = "Gleis 1", station_name = "Fremdhof", known = {} } } })
   h.step(15)
   local replies = {}
   local real = z.node.reply
@@ -103,7 +103,7 @@ return {
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
     local w = h.add_node({ id = "weizenhof", roles = { "gueterbahnhof" }, central = "hauptstelle",
-      tracks = { { name = "Gleis 1", station_name = "Weizenhof", release_side = "back", known = {} } } })
+      tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = {} } } })
     z.utc_seconds = function() return 1700000000 + h.t end
     h.restart("hauptstelle")
     h.step(20)

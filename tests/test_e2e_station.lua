@@ -15,11 +15,11 @@ local function build(opts)
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
     id = "weizenhof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
-    tracks = { { name = "Gleis 1", station_name = "Weizenhof", release_side = "back", known = { Zentrallager = 100, Weizenhof = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = { Zentrallager = 100, Weizenhof = 0 } } },
   })
   local l = h.add_node({
     id = "lager", roles = { "gueterbahnhof" }, central = "hauptstelle",
-    tracks = { { name = "Gleis 1", station_name = "Zentrallager", release_side = "back", known = { Weizenhof = 100, Zentrallager = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Zentrallager", known = { Weizenhof = 100, Zentrallager = 0 } } },
   })
   local sim = h.sim({ { node = "weizenhof", name = "Weizenhof" }, { node = "lager", name = "Zentrallager" } }, 20)
   return h, z, w, l, sim
@@ -79,9 +79,8 @@ return {
     t.eq(train.length, 4)
     t.eq(train.position.kind, "am_bahnhof")
     local waiting = station.train.schedule
-    t.eq(#schedule.check(waiting), 0)
+    t.ok(schedule.same(waiting, schedule.waiting("Weizenhof", 0)), "der Zug steht im Warteauftrag")
     t.eq(waiting.entries[1].instruction.data.text, "Weizenhof")
-    t.eq(w.world.sides.back, false, "der Freigabeausgang bleibt aus")
     -- die Anmeldeseite zeigt das Ergebnis
     local v = open_page(w, "anmeldung")
     t.ok(w.has(v, "Angemeldet: GZ-001"), w.text(v))
@@ -107,26 +106,29 @@ return {
     add_template(z)
     local zentrale = z.node.roles.zentrale
     t.contains(w.node.roles.anmeldung.press("weizen"), "Angefordert")
-    -- Der Fahrplan ist uebergeben, die Freigabe gesetzt; der Zug wartet auf die Ladung (Create prueft sie vor create:powered)
+    -- Der Auftrag ist angenommen, der Abschnittsfahrplan gesetzt; der Zug wartet auf die Ladung (Create prueft sie im ersten Eintrag)
     t.ok(h.until_true(function() local o = zentrale.orders.active_for("weizen") return o and o.state == "abfahrt_freigegeben" end, 60))
     local order = zentrale.orders.active_for("weizen")
-    t.eq(w.world.sides.back, true, "Freigabe ist gesetzt (Sollzustand)")
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, true, "Freigabe ist gesetzt (Sollzustand)")
     h.step(30)
     t.eq(order.state, "abfahrt_freigegeben", "ohne Ladung faehrt der Zug nicht, und die Leitstelle meldet keine Abfahrt")
     t.ok(w.world.devices["Create_Station_1"].state.train, "der Zug steht noch")
     local sched = w.world.devices["Create_Station_1"].state.train.schedule
-    t.eq(#schedule.check(sched), 0)
+    t.eq(#schedule.check_section(sched), 0)
+    t.eq(sched.entries[1].instruction.data.text, "Weizenhof")
+    t.eq(sched.entries[2].instruction.data.text, "Zentrallager")
     t.eq(sched.entries[1].conditions[1][2].data.threshold, "640", "Mindestens 640 als groesser als 639... (Muster fuehrt den Wert als Text)")
     -- Ladung vorhanden: Abfahrt
     sim.set_cargo("Unnamed Train", 700)
     t.ok(h.until_true(function() return order.state == "unterwegs" end, 30))
-    t.eq(w.world.sides.back, false, "Freigabeausgang nach der bestaetigten Abfahrt zurueckgesetzt")
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, false, "Freigabe nach der bestaetigten Abfahrt verbraucht")
     -- Ankunft im Zentrallager, Freigabe dort, Rueckfahrt
     t.ok(h.until_true(function() return order.state == "am_ziel" or (order.leg or 0) >= 2 end, 60))
     t.ok(h.until_true(function() return order.state == "abfahrt_freigegeben" and order.leg == 2 end, 30), "Freigabe im Zentrallager")
-    t.eq(l.world.sides.back, true)
+    local back = l.world.devices["Create_Station_1"].state.train.schedule
+    t.eq(back.entries[1].instruction.data.text, "Zentrallager"); t.eq(back.entries[2].instruction.data.text, "Weizenhof")
     t.ok(h.until_true(function() return order.state == "unterwegs" and order.leg == 2 end, 40), "Abfahrt aus dem Zentrallager")
-    t.eq(l.world.sides.back, false)
+    t.eq(l.node.roles.station.tracks["gleis1"].p.release_set, false)
     t.ok(h.until_true(function() return order.state == "abgeschlossen" end, 100), "Rueckkehr und Abschluss; Zustand " .. order.state .. ": " .. tostring(order.reason))
     t.contains(states_of(order), "angefordert>in_pruefung>vorbereitet>fahrplan_uebergeben>abfahrt_freigegeben>unterwegs>am_ziel>abfahrt_freigegeben>unterwegs>am_ziel>abgeschlossen")
     -- nach dem Abschluss wartet der Zug am Weizenhof mit dem Warteauftrag
@@ -136,8 +138,8 @@ return {
     t.eq(final.schedule.cyclic, true)
     t.eq(final.schedule.entries[1].instruction.data.text, "Weizenhof")
     t.eq(zentrale.register.get("GZ-001").state, "gesteuert")
-    t.eq(w.world.sides.back, false)
-    t.eq(l.world.sides.back, false)
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, false)
+    t.eq(l.node.roles.station.tracks["gleis1"].p.release_set, false)
     -- die Taste ist wieder frei: neuer Auftrag
     local again = zentrale.orders.request("weizen", nil)
     t.ok(again.id ~= order.id)
@@ -231,9 +233,7 @@ return {
       sim.set_cargo("Unnamed Train", 800)
       t.ok(h.until_true(function() return order.state == "abgeschlossen" end, 600), "Abschluss (Seed " .. seed .. "), Zustand " .. order.state .. ": " .. tostring(order.reason))
       t.eq(#z.node.roles.zentrale.orders.list(), 1, "genau ein Auftrag (Seed " .. seed .. ")")
-      t.eq(w.world.devices["Create_Station_1"].state.sets, 3, "Warteauftrag, Fahrplan, Warteauftrag (Seed " .. seed .. ")")
-      t.eq(w.world.sides.back, false)
-      t.eq(l.world.sides.back, false)
+      t.eq(w.world.devices["Create_Station_1"].state.sets, 3, "Warteauftrag, Abschnittsfahrplan, Warteauftrag (Seed " .. seed .. ")")
     end
   end },
   { "Neustart der Leitstelle waehrend 'Abfahrt freigegeben': kein doppelter Auftrag, kein blindes Freigeben, die Fahrt geht weiter", function()
@@ -253,20 +253,22 @@ return {
     sim.set_cargo("Unnamed Train", 800)
     t.ok(h.until_true(function() return order.state == "abgeschlossen" end, 200), "die Fahrt wird nach dem Neustart zu Ende gefuehrt: " .. order.state .. " " .. tostring(order.reason))
   end },
-  { "Neustart eines Bahnhofs mit gesetzter Freigabe: Ausgang bleibt, Journal wird abgeglichen", function()
+  { "Neustart eines Bahnhofs mit gesetzter Freigabe: Freigabe bleibt, Journal wird abgeglichen", function()
     local h, z, w, l, sim = build()
     register_train(h, z, w, sim)
     add_template(z)
     w.node.roles.anmeldung.press("weizen")
     t.ok(h.until_true(function() local o = z.node.roles.zentrale.orders.active_for("weizen") return o and o.state == "abfahrt_freigegeben" end, 60))
-    t.eq(w.world.sides.back, true)
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, true)
+    local sets = w.world.devices["Create_Station_1"].state.sets
     h.restart("weizenhof")
-    t.eq(w.world.sides.back, true, "kein pauschales Ausschalten nach dem Neustart")
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, true, "die Freigabe bleibt nach dem Neustart")
+    t.eq(w.world.devices["Create_Station_1"].state.sets, sets, "nach dem Neustart wird nichts blind neu gesetzt")
     t.eq(#w.node.journal.pending(), 0, "offene Vorgaenge wurden abgeglichen")
     sim.set_cargo("Unnamed Train", 800)
     local order = z.node.roles.zentrale.orders.active_for("weizen")
     t.ok(h.until_true(function() return order.state == "unterwegs" end, 60), "Abfahrt wird nach dem Neustart gemeldet: " .. order.state)
-    t.eq(w.world.sides.back, false, "Ausgang nach der Abfahrt zurueckgesetzt")
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, false, "Freigabe nach der Abfahrt verbraucht")
   end },
   { "unbekannter Zug faehrt ein: Meldung, keine Zuordnung", function()
     local h, z, w, l, sim = build()
@@ -289,18 +291,26 @@ return {
     w.world.devices["Create_Station_1"].state.train = nil
     t.ok(h.until_true(function() return order.state == "klaerung" end, 30))
     t.contains(order.reason, "nicht mehr am Bahnhof")
-    t.eq(w.world.sides.back, false, "der Ausgang wird zurueckgenommen, damit er keinen spaeteren Zug startet")
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, false, "die Freigabe gehoerte dem verschwundenen Zug und ist verbraucht")
   end },
   { "Abfahrt ohne Freigabe (von Hand) waehrend 'Fahrplan uebergeben' fuehrt zur Klaerung", function()
     local h, z, w, l, sim = build()
     register_train(h, z, w, sim)
     add_template(z)
-    -- Mindestaufenthalt verzoegert die Freigabe: der Zug wird vorher von Hand gestartet
-    z.node.roles.zentrale.orders.add_template({ id = "lang", title = "Lang", train = "GZ-001", return_to_start = true,
-      stops = { { station = "Weizenhof", wait = 400 }, { station = "Zentrallager", wait = 3 } } })
-    w.node.roles.anmeldung.press("lang")
+    -- Betriebshaltung gleich nach der Annahme des Auftrags: er bleibt vor der Freigabe stehen, der Zug wird von Hand gestartet
+    local orders = z.node.roles.zentrale.orders
+    local real = orders.transition
+    orders.transition = function(id, state, reason)
+      local ok, e = real(id, state, reason)
+      if state == "fahrplan_uebergeben" then z.node.roles.zentrale.set_hold(true, "Test") end
+      return ok, e
+    end
+    w.node.roles.anmeldung.press("weizen")
     local order
-    t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.active_for("lang") return order and order.state == "fahrplan_uebergeben" end, 60))
+    t.ok(h.until_true(function() order = orders.active_for("weizen") return order and order.state == "fahrplan_uebergeben" end, 60))
+    h.step(5)
+    t.eq(order.state, "fahrplan_uebergeben", "ohne Freigabe geblieben")
+    t.eq(w.node.roles.station.tracks["gleis1"].p.release_set, false)
     w.world.depart("Create_Station_1")
     t.ok(h.until_true(function() return order.state == "klaerung" end, 20))
     t.contains(order.reason, "ohne Freigabe abgefahren")
@@ -316,7 +326,7 @@ return {
     local requester = z.node.factory.make("auftrag", "weizenhof", { kind = "freigabe", orderId = "A-9", track = "gleis1", train = "GZ-001", stay = stay - 1 })
     z.node.send_message(requester)
     h.step(5)
-    t.eq(w.world.sides.back, false, "alte Freigabe setzt nichts")
+    t.eq(track.p.release_set, false, "alte Freigabe setzt nichts")
   end },
   { "Zielankunft an der falschen Station fuehrt zur Klaerung, nicht zum Erfolg", function()
     local h, z, w, l, sim = build()
@@ -342,16 +352,18 @@ return {
     h.step(5)
     t.eq(order.state, "abfahrt_freigegeben")
   end },
-  { "eingeschalteter Freigabeausgang am Start haelt den Auftrag zurueck", function()
+  { "unbekannter Fahrplan am Start: der Auftrag geht zur Klaerung, der fremde Fahrplan bleibt", function()
     local h, z, w, l, sim = build()
     register_train(h, z, w, sim)
     add_template(z)
-    w.world.sides.back = true
+    local st = w.world.devices["Create_Station_1"].state
+    st.train.schedule = schedule.waiting("Weizenhof", 42)
+    sim.trains["Unnamed Train"].last = require("core.ser").encode(st.train.schedule)
     w.node.roles.anmeldung.press("weizen")
     local order
-    t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.list()[1] return order and order.state == "wartend" end, 30))
-    t.contains(order.reason, "Freigabeausgang")
-    t.eq(w.world.devices["Create_Station_1"].state.sets, 1, "kein Fahrplan wurde uebergeben")
+    t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.list()[1] return order and order.state == "klaerung" end, 30))
+    t.eq(st.train.schedule.entries[1].conditions[1][1].data.value, 42)
+    t.eq(st.sets, 1, "es wurde nichts gesetzt")
   end },
   { "unbeantwortete Anforderung wird selbst wiederholt, ohne zweiten Auftrag", function()
     local opts = { seed = 3, drop = 0, dup = 0 }

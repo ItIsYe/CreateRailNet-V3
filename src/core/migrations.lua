@@ -40,6 +40,34 @@ M.STEPS = {
       ctx.delete("config.lua")
     end,
   },
+  -- 2 -> 3: Die Abfahrt wird ueber den Fahrplan der Train Station freigegeben (docs/FREIGABE_PER_FAHRPLAN.md), nicht mehr ueber einen Redstone-Ausgang. Ein
+  -- gespeicherter Freigabeausgang am Gleis (tracks.*.release) wird nicht mehr gelesen und faellt weg; im Zustand des Bahnhofs (station.lua) bleiben die
+  -- Felder der Freigabe, sie bedeuten jetzt "Abschnittsfahrplan gesetzt". Eine Freigabe, die beim Update offen war, gehoert dem Zug von damals: sie gilt als verbraucht.
+  [2] = {
+    text = "Freigabeausgang der Gleise entfernen (Freigabe laeuft ueber den Fahrplan)",
+    scope = { "config.lua", "station.lua" },
+    run = function(ctx)
+      local c = ctx.load("config.lua")
+      if type(c) == "table" and type(c.tracks) == "table" then
+        local changed = false
+        for _, track in pairs(c.tracks) do
+          if type(track) == "table" and track.release ~= nil then track.release, changed = nil, true end
+        end
+        if changed then ctx.save("config.lua", c) end
+      end
+      local s = ctx.load("station.lua")
+      if type(s) == "table" and type(s.tracks) == "table" then
+        local changed = false
+        for _, tr in pairs(s.tracks) do
+          if type(tr) == "table" and tr.release_set == true then
+            tr.release_set, tr.release_train, tr.release_stay, tr.release_order = false, nil, nil, nil
+            changed = true
+          end
+        end
+        if changed then ctx.save("station.lua", s) end
+      end
+    end,
+  },
 }
 
 -- liefert nil, wenn die Schritte lueckenlos von 1 an numeriert sind und je Text und Funktion haben, sonst den Grund

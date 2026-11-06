@@ -12,7 +12,6 @@ local detect=require("dev.detect")
 local stationlib=require("dev.station")
 local signallib=require("dev.signal")
 local observerlib=require("dev.observer")
-local outlib=require("dev.out")
 
 local M={}
 
@@ -133,7 +132,6 @@ local p=model.profile(w.config)
 local remove={}
 for id,d in pairs(w.config.devices)do if not p.allowed[d.kind]then remove[#remove+1]=id end end
 for _,id in ipairs(remove)do model.remove_device(w.config,id)end
-if not p.release then for _,track in pairs(w.config.tracks)do track.release=nil end end
 if not model.has_role(w.config,"anmeldung")then w.config.registration_station=nil end
 if not model.has_role(w.config,"knoten")then
 w.config.junction={connections={},moves={},conflicts={}}
@@ -361,20 +359,6 @@ end
 end
 list[#list+1]=device_id
 if field=="signals"then track.order_ok=nil end
-return true
-end
-
-function w.set_release(track_id,spec)
-local track=w.config.tracks[track_id]
-if not track then return false,"unbekanntes Gleis"end
-if spec then
-for id,other in pairs(w.config.tracks)do
-if id~=track_id and other.release and other.release.side==spec.side and other.release.relay==spec.relay then
-return false,"Der Ausgang gehoert schon zu "..other.name.."."
-end
-end
-end
-track.release=spec
 return true
 end
 
@@ -793,17 +777,6 @@ explain="Das Signal "..d.device.." wird kurz zusaetzlich auf Rot gesperrt und wi
 }
 end
 end
-local track_ids=w.tracks()
-for _,tid in ipairs(track_ids)do
-local track=w.config.tracks[tid]
-if track.release then
-local key=(track.release.relay or"Computer").." "..track.release.side
-list[#list+1]={
-id="ausgang:"..tid,kind="schalten",title="Ausgang: "..track.name,spec=key,fp=test_fingerprint("ausgang",tid),
-explain="Der Freigabeausgang "..key.." von "..label.track(track.name).." wird kurz eingeschaltet und wieder ausgeschaltet. Die Leitung darf dabei keinen wartenden Zug freigeben (Bahnhofsblock ohne Zug oder Leitung getrennt).",
-}
-end
-end
 return list
 end
 
@@ -866,17 +839,6 @@ local released=g.release()
 if not held.confirmed then return record(test,false,"Sperre nicht bestaetigt"..(held.error and(": "..held.error)or""))end
 if not released.confirmed then return record(test,false,"ACHTUNG: Sperre blieb gesetzt. Bitte von Hand pruefen.")end
 return record(test,true,"Sperre gesetzt und aufgehoben (zurueckgelesen)")
-elseif kind=="ausgang"then
-local track=w.config.tracks[ref]
-local o=outlib.new(env,track.release)
-local before=o.get()
-if before==nil then return record(test,false,"Ausgang nicht lesbar")end
-if before==true then return record(test,false,"Der Ausgang ist schon eingeschaltet; bitte von Hand pruefen.")end
-local on=o.set(true)
-local off=o.set(false)
-if not off.confirmed then return record(test,false,"ACHTUNG: Ausgang blieb eingeschaltet. Bitte von Hand pruefen.")end
-if not on.confirmed then return record(test,false,"Ausgang liess sich nicht einschalten")end
-return record(test,true,"Ausgang geschaltet und zurueckgelesen (Sollzustand; ob ein Zug abfaehrt, zeigt erst der Betrieb)")
 end
 return false,"unbekannte Pruefung"
 end

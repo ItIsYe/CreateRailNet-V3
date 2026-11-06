@@ -418,7 +418,7 @@ return {
       local s = h.add_node({ id = "strecke", roles = { "signal" }, central = "hauptstelle",
         tracks = { { name = "Gleis 1", signals = { "Sig_1", "Sig_2" } }, { name = "Gleis 2", signals = { "Sig_3" } } } })
       local b = h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
-        tracks = { { name = "Gleis 1", station_name = "Westbahnhof", release_side = "back" } }, registration = "Gleis 1" })
+        tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })
       local old = fixtures[version]
       local expect = {}
       for _, d in ipairs({ z, s, b }) do
@@ -429,7 +429,10 @@ return {
           if dir and not d.fs.exists(dir) then d.fs.makeDir(dir) end
           d.fs._state.files[path] = text
         end
-        expect[d.id] = ser.encode(storelib.new(d.fs).load("/crn_data/config.lua"))
+        -- Schritt 2 -> 3 entfernt den Freigabeausgang der Gleise (die Freigabe laeuft ueber den Fahrplan); alles andere bleibt, wie es war
+        local before = storelib.new(d.fs).load("/crn_data/config.lua")
+        for _, track in pairs(type(before) == "table" and before.tracks or {}) do track.release = nil end
+        expect[d.id] = ser.encode(before)
         d.restart()
       end
       h.step(150)
@@ -504,7 +507,7 @@ return {
         { name = "Gleis 2", signals = { "Sig_3" }, observers = { "Obs_1" }, length = 40, dir = { id = "A0002", area = "B0001", direction = "Westbahnhof", rev = 1 } },
       } })
     h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
-      tracks = { { name = "Gleis 1", station_name = "Westbahnhof", release_side = "back" } }, registration = "Gleis 1" })
+      tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })
     h.add_node({ id = "tee", roles = { "knoten" }, central = "hauptstelle",
       junction = { connections = { West = true, Ost = true }, moves = { { from = "West", to = "Ost" } }, conflicts = {} },
       tracks = {

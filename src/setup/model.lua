@@ -1,5 +1,5 @@
 --[[
-Purpose: Konfiguration eines Nodes (Konzept 15): Netz, Node-Kennung und Rollen, Geraetebindung, Gleise (Bahnhof, Signale, Beobachter, Freigabeausgang), Knotenpunkte (Anschluesse, Verbindungen, Konfliktbereiche), Pruefergebnisse. Enthaelt nur Regeln und Rechnen, keine Oberflaeche: Pruefung auf Eindeutigkeit (kein Geraet und kein Ausgang zweimal), Vorlagen fuer weitere Gleise ohne Geraete, Entwurf oder aktiv.
+Purpose: Konfiguration eines Nodes (Konzept 15): Netz, Node-Kennung und Rollen, Geraetebindung, Gleise (Bahnhof, Signale, Beobachter), Knotenpunkte (Anschluesse, Verbindungen, Konfliktbereiche), Pruefergebnisse. Enthaelt nur Regeln und Rechnen, keine Oberflaeche: Pruefung auf Eindeutigkeit (kein Geraet und kein Ausgang zweimal), Vorlagen fuer weitere Gleise ohne Geraete, Entwurf oder aktiv.
 API: model.new(name, roles, network) -> config; model.validate(config, scan) -> Liste Probleme { code, text }; model.add_device(config, kind, device) -> id; model.add_track(config, name) -> id; model.copy_track(config, id, name) -> neue id; model.remove_track(config, id); model.assign(config, track_id, field, device_id); model.free_devices(config, scan, kind) -> Liste; model.outputs(scan) -> moegliche Ausgaenge; model.slug(text); model.ROLES
 Notes: Eine Node darf mehrere Rollen tragen (15.1). Ein neues oder kopiertes Gleis bleibt "offen", bis es einem Geraet zugeordnet und geprueft ist; es nimmt nicht an der Disposition teil (29.2). Technische Anschlussnamen stehen nur in devices; Gleise verweisen auf Geraete-Kennungen (fachlicher Bezug statt Modemadresse).
 ]]
@@ -173,8 +173,6 @@ function M.assign(config, track_id, field, device_id)
     for _, existing in ipairs(track[field]) do if existing == device_id then return true end end
     track[field][#track[field] + 1] = device_id
     if field == "signals" then track.order_ok = nil end
-  elseif field == "release" then
-    track.release = device_id
   else
     return nil, "unbekanntes Feld"
   end
@@ -197,23 +195,6 @@ function M.free_devices(config, scan, kind)
   return out
 end
 
--- moegliche Freigabeausgaenge: Computerseiten und Seiten jedes Redstone Relays im Scan
-function M.outputs(scan)
-  local out = {}
-  for _, side in ipairs(SIDES) do out[#out + 1] = { side = side, label = "Computer " .. side } end
-  for _, d in ipairs(scan) do
-    if d.kind == "relay" then
-      for _, side in ipairs(SIDES) do out[#out + 1] = { relay = d.name, side = side, label = d.name .. " " .. side } end
-    end
-  end
-  return out
-end
-
-local function output_key(spec)
-  if not spec then return nil end
-  return (spec.relay or "computer") .. ":" .. tostring(spec.side)
-end
-
 local function has_role(config, role)
   for _, r in ipairs(config.node.roles) do if r == role then return true end end
   return false
@@ -224,13 +205,11 @@ M.has_role = has_role
 function M.profile(config)
   local station = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof") or has_role(config, "depot")
   local signal = has_role(config, "signal") or has_role(config, "knoten")
-  local release = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof")
   local allowed = { monitor = true }
   if station or has_role(config, "anmeldung") then allowed.station = true end
   if station or signal then allowed.signal = true; allowed.observer = true end
-  if release then allowed.relay = true end
   if has_role(config, "passagierbahnhof") then allowed.displaylink = true end
-  return { station = station, signal = signal, release = release, tracks = station or signal, allowed = allowed }
+  return { station = station, signal = signal, tracks = station or signal, allowed = allowed }
 end
 
 -- Einfahrtsgleis eines Knotens mit mehreren Signalen: genau eines muss als Einfahrt markiert und das letzte vor dem Knoten sein (Reihenfolge zum Knoten
@@ -282,7 +261,7 @@ function M.validate(config, scan)
   end
 
   -- Gleise: Namen eindeutig, Geraete vorhanden und nur einem Gleis zugeordnet, Ausgang eindeutig
-  local names, owner, outputs = {}, {}, {}
+  local names, owner = {}, {}
   local ids = {}
   for id in pairs(config.tracks) do ids[#ids + 1] = id end
   table.sort(ids)
@@ -338,22 +317,7 @@ function M.validate(config, scan)
         add("knoten_gleis", label.track(track.name) .. " braucht einen Beobachter als Meldepunkt.")
       end
     end
-    if track.release then
-      local valid_side = false
-      for _, side in ipairs(SIDES) do if track.release.side == side then valid_side = true end end
-      if not valid_side then add("ausgang_seite", label.track(track.name) .. ": ungueltige Ausgangsseite.") end
-      if track.release.relay then
-        local relay = detect.find(scan, track.release.relay)
-        if not relay or relay.kind ~= "relay" or #detect.missing("relay", relay) > 0 then add("ausgang_relay", label.track(track.name) .. ": Relay fehlt oder ist nicht verwendbar.") end
-      end
-      local key = output_key(track.release)
-      if outputs[key] then
-        add("ausgang_doppelt", "Der Ausgang " .. key .. " dient zwei Gleisen: " .. outputs[key] .. " und " .. track.name .. ". Gemeinsame Leitungen duerfen keine fremde Freigabe ausloesen.")
-      end
-      outputs[key] = track.name
-    end
-    -- Ein Gleis braucht keinen Freigabeausgang: die Freigabe der Abfahrt laeuft ueber die Train Station selbst (Fahrplan), nicht ueber Redstone am Computer.
-    -- Ausgaenge aelterer Einrichtungen bleiben gueltig und werden weiter geprueft.
+    -- Die Freigabe der Abfahrt laeuft ueber die Train Station selbst (Fahrplan), nicht ueber Redstone am Computer: ein Gleis braucht keinen Ausgang.
   end
 
   -- Knotenpunkt

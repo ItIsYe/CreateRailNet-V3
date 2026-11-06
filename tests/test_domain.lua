@@ -1,5 +1,5 @@
 --[[
-Purpose: Fachlogik ohne Geraete (src/domain): Fahrplaene bauen und pruefen (letzte Bedingung create:powered, keine Alternative), Zugregister (Eindeutigkeit, Standardname, Betriebsart nur am Haltepunkt), Fahrtauftraege (Lebenszyklus, doppelte Anforderung, Stornieren).
+Purpose: Fachlogik ohne Geraete (src/domain): Fahrplaene bauen und pruefen (Warteauftrag, Abschnittsfahrplan), Zugregister (Eindeutigkeit, Standardname, Betriebsart nur am Haltepunkt), Fahrtauftraege (Lebenszyklus, doppelte Anforderung, Stornieren).
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -32,31 +32,11 @@ return {
     t.eq(e.conditions[1][1].data.value, 5)
     t.eq(e.conditions[1][1].data.time_unit, 1, "Sekunden wie gemessen")
     t.eq(e.conditions[1][#e.conditions[1]].id, "create:powered")
-    t.eq(#schedule.check(s), 0)
     local no_wait = schedule.waiting("Weizenhof", 0)
     t.eq(#no_wait.entries[1].conditions[1], 1)
   end },
-  { "Auftrag: jeder Aufenthalt endet mit create:powered, Reihenfolge Halt, Ladung, Freigabe", function()
-    local s = schedule.order({
-      { station = "Weizenhof", wait = 5, cargo = { count = 640 } },
-      { station = "Zentrallager", wait = 3 },
-      { station = "Weizenhof" },
-    }, { item_threshold = { condition = SAMPLE_COND, path = { "data", "threshold" } } })
-    t.eq(s.cyclic, false)
-    t.eq(#s.entries, 3)
-    local first = s.entries[1].conditions[1]
-    t.eq(first[1].id, "create:delay")
-    t.eq(first[2].id, "create:item_threshold")
-    t.eq(first[3].id, "create:powered")
-    t.eq(first[2].data.threshold, "640", "Text bleibt Text")
-    t.eq(first[2].data.item.id, "minecraft:wheat", "Filter aus dem Muster")
-    t.eq(SAMPLE_COND.data.threshold, "7", "das Muster bleibt unveraendert")
-    t.eq(#s.entries[3].conditions[1], 1)
-    t.eq(#schedule.check(s), 0)
-    t.eq(table.concat(schedule.stops(s), ","), "Weizenhof,Zentrallager,Weizenhof")
-  end },
   { "Mengenbedingung ohne Muster ist nicht moeglich", function()
-    local s, err = schedule.order({ { station = "A", cargo = { count = 10 } } }, {})
+    local s, err = schedule.section("A", { cargo = { count = 10 } }, "B", {})
     t.eq(s, nil)
     t.contains(err, "Musterfahrplan")
   end },
@@ -70,23 +50,6 @@ return {
     t.eq(table.concat(path, "."), "data.threshold")
     t.eq(schedule.locate(cond, "minecraft:wheat") ~= nil, true)
     t.eq(schedule.locate(cond, 12345), nil)
-  end },
-  { "Pruefung findet Alternative und fehlendes powered", function()
-    local good = schedule.order({ { station = "A" } })
-    t.eq(#schedule.check(good), 0)
-    local alt = schedule.order({ { station = "A" } })
-    alt.entries[1].conditions[2] = { schedule.delay(5) }
-    local problems = schedule.check(alt)
-    t.eq(#problems, 1)
-    t.contains(problems[1], "genau eine Bedingungsgruppe")
-    local no_powered = schedule.order({ { station = "A", wait = 5 } })
-    table.remove(no_powered.entries[1].conditions[1])
-    problems = schedule.check(no_powered)
-    t.contains(problems[1], "create:powered")
-    t.eq(#schedule.check({}), 1)
-    t.eq(#schedule.check({ entries = {} }), 1)
-    local nodest = { entries = { { instruction = { id = "create:rename", data = { text = "x" } }, conditions = { { schedule.powered() } } } } }
-    t.contains(schedule.check(nodest)[1], "kein Ziel")
   end },
   { "Fahrplan-Kennung ist stabil und unterscheidet Fahrplaene", function()
     local a, b = schedule.waiting("A", 5), schedule.waiting("A", 5)

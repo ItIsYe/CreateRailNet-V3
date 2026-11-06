@@ -23,6 +23,7 @@ local M = {}
 local REPLY_WAIT = 8          -- Sekunden bis zur Wiederholung einer unbeantworteten Anfrage
 local MAX_TRIES = 12         -- bei Verlusten bleibt der Auftrag lange offen ("Rueckmeldung fehlt"), statt vorschnell zur Klaerung zu werden
 local RETRY_WAITING = 10      -- Sekunden bis ein wartender Auftrag neu geprueft wird
+local DEPART_GRACE = 30       -- Sekunden nach Ende der Haltezeit, bis ein freigegebener Zug als nicht abgefahren gilt (Abfahrt kommt rund 1,2 s nach dem Setzen)
 local EVENT_KINDS = { ankunft = true, abfahrt = true, zug_weg = true, zug_umbenannt = true }
 local NODE_SILENT = 60        -- Sekunden ohne Meldung: Node gilt als nicht erreichbar
 
@@ -161,9 +162,29 @@ function M.new(node)
     return list
   end
 
+  -- Abschnitt der Etappe `leg` (von plan[leg] nach plan[leg + 1]): Haltebedingungen des Aufenthalts am Start der Etappe, am Ziel haelt der Zug mit create:powered
+  local function section_of(order, template, leg)
+    local entries = entries_of(template)
+    local from, to = order.plan and order.plan[leg], order.plan and order.plan[leg + 1]
+    if not from or not to then return nil, "Der Auftrag kennt diese Etappe nicht." end
+    local entry = entries[leg] or {}
+    return schedulelib.section(from.station, { wait = entry.wait, cargo = entry.cargo }, to.station, samples)
+  end
+
+  -- Streckenkennung des Abschnitts, mit dem der Zug an `leg` ankam (nil am Start: dort steht er im Warteauftrag)
+  local function carried_route(order, template, leg)
+    if leg < 2 then return nil end
+    local previous = section_of(order, template, leg - 1)
+    return previous and schedulelib.route_hash(previous) or nil
+  end
+
   local function release_message(order, entry, stay)
     local train = role.register.get(order.train)
-    return { kind = "freigabe", orderId = order.id, track = entry.track, train = train and train.create_name, stay = stay, min_stay = order.min_stay or 0 }
+    local template = role.orders.template(order.template)
+    local section, err = section_of(order, template, order.leg)
+    if not section then return nil, err end
+    return { kind = "freigabe", orderId = order.id, track = entry.track, train = train and train.create_name, stay = stay, wait = order.min_stay or 0,
+      schedule = section, expect = carried_route(order, template, order.leg) }
   end
 
   -- Antworten auf eine Anfrage gelten nur, solange der Auftrag noch im Zustand und auf dem Abschnitt ist, fuer den sie gestellt wurde
@@ -224,7 +245,6 @@ function M.new(node)
     if payload.has_schedule and not payload.waiting_ok then
       return to_clarification(order, "Der Zug hat einen unbekannten Fahrplan: Uebergabe noetig.")
     end
-    if payload.output then return waiting_for("Der Freigabeausgang am Start ist eingeschaltet.") end
     local entries = entries_of(template)
     -- Zielgleise festlegen; das Startgleis ist das, auf dem der Zug steht
     local plan = { { station = payload.station_name, node = order.start.node, track = order.start.track } }
@@ -241,13 +261,14 @@ function M.new(node)
       end
       plan[i] = { station = chosen, node = dir[chosen].node, track = dir[chosen].track }
     end
-    local stops = {}
-    for i, e in ipairs(entries) do stops[i] = { station = plan[i].station, wait = e.wait, cargo = e.cargo } end
-    local schedule, err = schedulelib.order(stops, samples)
-    if not schedule then return role.orders.transition(order.id, "abgelehnt", err) end
-    local problems = schedulelib.check(schedule)
-    if #problems > 0 then return role.orders.transition(order.id, "abgelehnt", problems[1]) end
-    order.schedule = schedule
+    -- jede Etappe muss sich als Abschnittsfahrplan bauen und pruefen lassen (Mengenmuster, Bahnhoefe verschieden), bevor der Zug etwas bekommt
+    for i = 1, #entries - 1 do
+      local section, err = schedulelib.section(plan[i].station, { wait = entries[i].wait, cargo = entries[i].cargo }, plan[i + 1].station, samples)
+      if not section then return role.orders.transition(order.id, "abgelehnt", err) end
+      local problems = schedulelib.check_section(section)
+      if #problems > 0 then return role.orders.transition(order.id, "abgelehnt", problems[1]) end
+    end
+    order.schedule = nil
     order.plan = plan
     order.stay = payload.stay
     order.arrivals = { [order.start.node .. ":" .. order.start.track] = payload.stay }
@@ -342,18 +363,31 @@ function M.new(node)
       ask(start.node, "abfrage", { kind = "pruefen", track = start.track, targets = targets }, order, guarded(order, function(payload) handle_check_reply(order, payload) end))
     elseif state == "vorbereitet" then
       local train = role.register.get(order.train)
-      ask(order.start.node, "auftrag", { kind = "fahrplan", orderId = order.id, track = order.start.track, train = train.create_name, schedule = order.schedule }, order,
+      ask(order.start.node, "auftrag", { kind = "fahrplan", orderId = order.id, track = order.start.track, train = train.create_name }, order,
         guarded(order, function(payload) handle_schedule_reply(order, payload) end))
     elseif state == "fahrplan_uebergeben" or (state == "am_ziel" and order.leg < #entries) then
       if order.retry_at and now() < order.retry_at then return end
       order.retry_at = nil
       local at = order.at or order.start
       local entry = { track = at.track }
-      ask(at.node, "auftrag", release_message(order, entry, order.stay), order, guarded(order, function(payload) handle_release_reply(order, payload) end))
+      local message, err = release_message(order, entry, order.stay)
+      if not message then return to_clarification(order, "Der Abschnittsfahrplan fehlt: " .. tostring(err)) end
+      ask(at.node, "auftrag", message, order, guarded(order, function(payload) handle_release_reply(order, payload) end))
+    elseif state == "abfahrt_freigegeben" then
+      -- Der Zug faehrt rund 1,2 s nach dem Setzen los, sobald die Haltebedingungen erfuellt sind. Mengenbedingungen koennen beliebig lange dauern
+      -- (kein Zeitlimit); sonst gilt: steht der Zug lange nach Ende der Haltezeit noch da, wurde der Fahrplan nicht ausgefuehrt.
+      local entry = entries[order.leg] or {}
+      local at = order.at or order.start
+      local st = at and track_state[at.node .. ":" .. at.track]
+      local train = role.register.get(order.train)
+      if not entry.cargo and now() - order.since >= (order.min_stay or 0) + DEPART_GRACE and st and st.present and train and st.train == train.create_name then
+        to_clarification(order, "Der Zug ist nach der Freigabe nicht abgefahren: Fahrplan und Strecke pruefen.")
+      end
     elseif state == "am_ziel" and order.leg >= #entries then
       local at = order.at
       local train = role.register.get(order.train)
-      ask(at.node, "auftrag", { kind = "warteauftrag", track = at.track, train = train.create_name, wait = 0, expect = order.schedule and schedulelib.hash(order.schedule) or nil }, order, guarded(order, function(payload) handle_wait_reply(order, payload) end))
+      local expect = carried_route(order, template, order.leg)
+      ask(at.node, "auftrag", { kind = "warteauftrag", track = at.track, train = train.create_name, wait = 0, expect = expect }, order, guarded(order, function(payload) handle_wait_reply(order, payload) end))
     end
   end
 

@@ -48,7 +48,6 @@ return {
       local tid=model.add_track(config,'Gleis 1')
       local did=model.add_device(config,'station','Create_Station_1')
       model.assign(config,tid,'station',did)
-      config.tracks[tid].release={side='back'}
       config.status='aktiv'
       d.fs.makeDir('/crn_data')
       local store=storelib.new(d.fs)

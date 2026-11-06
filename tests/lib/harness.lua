@@ -1,7 +1,7 @@
 --[[
 Purpose: Testnetz mit mehreren Nodes (jede mit eigenem Computer, Dateisystem und Fake-Welt) an einem Funkbus plus Schienensimulation. Der Takt laeuft in ganzen Sekunden Betriebszeit; Create-Ereignisse und Funknachrichten werden den Nodes zugestellt.
 API: H.new(opts) -> h; h.add_node(spec) -> node-Eintrag; h.sim(stations, travel); h.step(n); h.until_true(fn, max) -> Sekunden oder nil; h.restart(node_id); h.unload(node_id) / h.load(node_id) (Chunk entladen / wieder geladen)
-Notes: spec = { id, roles, tracks = { { name, station_name, release_side } }, central, registration (Gleisname), world_setup(w) }. Die Konfiguration wird wie vom Assistenten erzeugt und aktiv gespeichert.
+Notes: spec = { id, roles, tracks = { { name, station_name } }, central, registration (Gleisname), world_setup(w) }. Die Konfiguration wird wie vom Assistenten erzeugt und aktiv gespeichert.
 ]]
 
 local cc = dofile("tests/fakes/cc.lua")
@@ -64,7 +64,6 @@ function H.new(opts)
       for _, name in ipairs(track.observers or {}) do model.assign(config, tid, "observers", model.add_device(config, "observer", name)) end
       if track.dir then config.tracks[tid].dir = track.dir end
       if track.junction then config.tracks[tid].junction = track.junction end
-      if track.release_side then config.tracks[tid].release = { side = track.release_side } end
       if track.length then config.tracks[tid].length = track.length end
       track.tid = tid
     end

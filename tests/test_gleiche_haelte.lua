@@ -6,12 +6,11 @@ local t = dofile("tests/lib/t.lua")
 local H = dofile("tests/lib/harness.lua")
 local schedule = require("domain.schedule")
 
+-- Meldungen wie die Fahrplanpruefung der Vorlagen: "Eintrag i und j" fuer das erste Paar gleicher Bahnhoefe hintereinander
 local function problems_of(names, cyclic)
-  local stops = {}
-  for _, name in ipairs(names) do stops[#stops + 1] = { station = name, wait = 0 } end
-  local sched = schedule.order(stops)
-  sched.cyclic = cyclic or false
-  return schedule.check(sched)
+  local i, j = schedule.first_repeat(names, cyclic)
+  if not i then return {} end
+  return { "Eintrag " .. i .. " und " .. j .. " nennen beide " .. names[i] }
 end
 
 local function has_text(list, part)
@@ -24,11 +23,11 @@ local function build()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
     id = "weizenhof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
-    tracks = { { name = "Gleis 1", station_name = "Weizenhof", release_side = "back", known = { ["Depot Gleis 1"] = 100, Weizenhof = 0 } } },
+    tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = { ["Depot Gleis 1"] = 100, Weizenhof = 0 } } },
   })
   local d = h.add_node({
     id = "depot1", roles = { "depot" }, central = "hauptstelle",
-    tracks = { { name = "Abstell 1", station_name = "Depot Gleis 1", release_side = "back", known = { Weizenhof = 100, ["Depot Gleis 1"] = 0 } } },
+    tracks = { { name = "Abstell 1", station_name = "Depot Gleis 1", known = { Weizenhof = 100, ["Depot Gleis 1"] = 0 } } },
   })
   local sim = h.sim({ { node = "weizenhof", name = "Weizenhof" }, { node = "depot1", name = "Depot Gleis 1" } }, 12)
   sim.add_train("Unnamed Train", "Weizenhof", nil, 0)
@@ -95,6 +94,8 @@ return {
     t.ok(h.until_true(function() return order.plan ~= nil end, 60), "Plan entstanden: " .. tostring(order.state) .. " " .. tostring(order.reason))
     t.eq(order.plan[1].station, "Weizenhof")
     t.eq(order.plan[2].station, "Depot Gleis 1", "nicht wieder Weizenhof, sondern das andere Gleis der Gruppe")
-    t.eq(#schedule.check(order.schedule), 0)
+    local section = schedule.section(order.plan[1].station, { wait = 0 }, order.plan[2].station)
+    t.ok(section, "Abschnitt der ersten Etappe laesst sich bauen")
+    t.eq(#schedule.check_section(section), 0)
   end },
 }
