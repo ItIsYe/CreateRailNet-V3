@@ -25,6 +25,7 @@ Freigabe **ohne Redstone**, allein ueber die Station: die Leitstelle gibt die Ab
 ## Vorgesehenes Verfahren (wenn H1, H2 und H4 stimmen)
 
 - Warteauftrag am Bahnhof: Haltefahrplan (ein Eintrag am eigenen Bahnhof, nicht zyklisch). Der Zug haelt, ohne dass Strom noetig ist.
+- Regel M20 (`docs/MESSWERTE.md`): ein Zug wird nicht direkt vom selben Bahnhof wieder dorthin geschickt. Ein Abschnittsfahrplan nennt als ersten Eintrag den eigenen Bahnhof (Aufenthalt), als zweiten einen anderen; zwei gleiche Eintraege hintereinander gibt es nie (`schedule.check`). Ob ein Haltefahrplan mit dem eigenen Bahnhof als einzigem Eintrag davon betroffen ist, zeigt Probe B.
 - Auftrag: die Leitstelle uebergibt nicht mehr den ganzen Fahrplan mit `create:powered`, sondern fuehrt den Zug **abschnittsweise**: je Abschnitt ein Fahrplan aus dem Eintrag des aktuellen Bahnhofs (Aufenthaltsbedingungen wie Wartezeit und Fracht ohne `create:powered`) und einem Eintrag fuer den naechsten Bahnhof ohne weitere Bedingungen. Am Ziel haelt der Zug, weil der Fahrplan endet.
 - Freigabe = das Setzen dieses Abschnittsfahrplans durch die Station-Rolle (Mindestaufenthalt, Zuordnung des Zuges und Aufenthalts, Rueckmeldung `freigabe_gesetzt` und bestaetigte Abfahrt durch `train_departure` bleiben wie heute).
 - Gleise mit dieser Freigabe brauchen im Assistenten keinen Ausgang; die Pruefung "Ausgang kurz schalten" entfaellt, stattdessen zeigt der Assistent, dass der Fahrplan der Station gelesen und geschrieben werden kann.

@@ -124,6 +124,17 @@ return{cyclic=false,entries=entries}
 end
 
 
+
+
+function M.first_repeat(names,cyclic)
+for i=1,#names-1 do
+if names[i]==names[i+1]then return i,i+1 end
+end
+if cyclic and#names>=2 and names[#names]==names[1]then return#names,1 end
+return nil
+end
+
+
 function M.check(sched)
 local problems={}
 if type(sched)~="table"or type(sched.entries)~="table"or#sched.entries==0 then return{"Der Fahrplan hat keine Eintraege."}end
@@ -139,6 +150,16 @@ local last=group[#group]
 if not last or last.id~="create:powered"then
 problems[#problems+1]="Eintrag "..i..": die letzte Bedingung muss create:powered sein."
 end
+end
+end
+local names={}
+for _,e in ipairs(sched.entries)do
+if e.instruction and e.instruction.data and type(e.instruction.data.text)=="string"then names[#names+1]=e.instruction.data.text end
+end
+if#names==#sched.entries then
+local i,j=M.first_repeat(names,sched.cyclic==true)
+if i then
+problems[#problems+1]="Eintrag "..i.." und "..j.." nennen beide "..names[i]..": Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (erst zu einem anderen)."
 end
 end
 return problems

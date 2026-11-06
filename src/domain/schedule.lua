@@ -123,7 +123,18 @@ function M.order(stops, samples)
   return { cyclic = false, entries = entries }
 end
 
--- Pruefung: genau eine Gruppe je Aufenthalt, letzte Bedingung create:powered, Ziel vorhanden
+-- Create schickt einen Zug, der an Bahnhof 10 steht, nicht direkt wieder zu Bahnhof 10; er muss erst zu einem anderen Bahnhof und kann von dort
+-- wieder nach 10 (Betreiberbeobachtung, docs/MESSWERTE.md M20): aufeinanderfolgende Namen muessen verschieden sein. Gibt die Stellen des ersten
+-- Paares zurueck (bei einem umlaufenden Fahrplan zaehlt auch letzter gegen ersten Namen).
+function M.first_repeat(names, cyclic)
+  for i = 1, #names - 1 do
+    if names[i] == names[i + 1] then return i, i + 1 end
+  end
+  if cyclic and #names >= 2 and names[#names] == names[1] then return #names, 1 end
+  return nil
+end
+
+-- Pruefung: genau eine Gruppe je Aufenthalt, letzte Bedingung create:powered, Ziel vorhanden, nie derselbe Bahnhof zweimal hintereinander
 function M.check(sched)
   local problems = {}
   if type(sched) ~= "table" or type(sched.entries) ~= "table" or #sched.entries == 0 then return { "Der Fahrplan hat keine Eintraege." } end
@@ -139,6 +150,16 @@ function M.check(sched)
       if not last or last.id ~= "create:powered" then
         problems[#problems + 1] = "Eintrag " .. i .. ": die letzte Bedingung muss create:powered sein."
       end
+    end
+  end
+  local names = {}
+  for _, e in ipairs(sched.entries) do
+    if e.instruction and e.instruction.data and type(e.instruction.data.text) == "string" then names[#names + 1] = e.instruction.data.text end
+  end
+  if #names == #sched.entries then
+    local i, j = M.first_repeat(names, sched.cyclic == true)
+    if i then
+      problems[#problems + 1] = "Eintrag " .. i .. " und " .. j .. " nennen beide " .. names[i] .. ": Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (erst zu einem anderen)."
     end
   end
   return problems

@@ -4,6 +4,8 @@
 
 
 
+local schedulelib=require("domain.schedule")
+
 local M={}
 
 M.STATES={
@@ -77,13 +79,23 @@ local max_finished=opts.max_finished or 50
 
 function o.save()return opts.store.save(opts.path,data)end
 
-function o.add_template(t)
+
+function o.add_template(t,is_group)
 if type(t.id)~="string"or not t.id:match("^[%w%-_]+$")then return nil,"Die Vorlagenkennung ist ungueltig."end
 if type(t.title)~="string"or t.title==""then return nil,"Die Vorlage braucht einen Titel."end
 if type(t.train)~="string"then return nil,"Die Vorlage braucht einen Zug."end
 if type(t.stops)~="table"or#t.stops<1 then return nil,"Die Vorlage braucht mindestens ein Ziel."end
 for i,stop in ipairs(t.stops)do
 if type(stop.station)~="string"or stop.station==""then return nil,"Ziel "..i.." hat keinen Bahnhof."end
+end
+
+local names={}
+for _,stop in ipairs(t.stops)do names[#names+1]=stop.station end
+local returns=t.return_to_start~=false
+if returns then names[#names+1]=t.stops[1].station end
+local i,j=schedulelib.first_repeat(names,false)
+if i and not(is_group and is_group(names[i]))then
+return nil,names[i].." zweimal hintereinander (Halt "..i..", "..((returns and j==#names)and"Rueckfahrt"or tostring(j))..")."
 end
 local previous=data.templates[t.id]
 data.templates[t.id]=copy(t)

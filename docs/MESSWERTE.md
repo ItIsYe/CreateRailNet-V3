@@ -57,6 +57,12 @@ Aufbau: `Create_Signal_34` liegt vor einem Bahnhof (`Create_Station_1`), `Create
 - **Verzoegerung des Namens nach dem ROT-Ereignis:** 0 bis 0,15 s, bei Zuegen, die nicht durch den Bahnhof fuhren, 0,60 bis 0,75 s (4 von 12 ROT-Ereignissen). Wer die Liste sofort beim Ereignis liest, kann sie leer finden; einmal nachfragen genuegt.
 - **Nicht gemessen:** ein Zug, der vor einem erzwungen roten Signal wartet (steht er in der Liste, oder nur der Zug im Block?), ein echter Knoten mit mehreren Einfahrtssignalen vor demselben Block (zeigen alle den Zug im gemeinsamen Block?), zwei Zuege mit gleichem Namen (M14). Bis dahin bleibt der Beobachter am Knoten Pflicht.
 
+## M20 Kein direkter Rueckweg zum selben Bahnhof (vom Betreiber beobachtet)
+
+- Ein Zug, der an Bahnhof 10 steht, kann in Create nicht direkt wieder zu Bahnhof 10 geschickt werden: er muss erst zu einem anderen Bahnhof (11) und kann von dort wieder nach 10. In einem Fahrplan darf deshalb kein Bahnhof zweimal unmittelbar hintereinander stehen.
+- Folge im Programm: `schedule.check` weist einen Fahrplan mit zwei gleichen aufeinanderfolgenden Eintraegen ab (bei einem umlaufenden Fahrplan auch letzter gegen ersten Eintrag); eine Vorlage mit gleichen Halten hintereinander wird nicht angelegt, auch wenn die Rueckfahrt zum Start (`return_to_start`) dasselbe Ziel ergibt (ein einziger Halt mit Rueckfahrt waere A, A); die Zielwahl nimmt nie das Gleis, von dem der Zug kommt (bei einer Bahnhofsgruppe das naechste Mitglied); Abstellen am Bahnhof, an dem der Zug steht, wird abgelehnt. Der erste Eintrag eines Auftragsfahrplans ist der eigene Bahnhof (Aufenthalt bis zur Freigabe), der zweite muss ein anderer sein.
+- Nicht gemessen: was Create genau tut (Zug bleibt stehen, ueberspringt den Eintrag oder meldet nichts), und ob ein Haltefahrplan mit dem eigenen Bahnhof als einzigem Eintrag (H2, `docs/FREIGABE_PER_FAHRPLAN.md`) darunter faellt. Probe B von `crn_probe3` misst den Haltefahrplan.
+
 ## Aus dem Quelltext von CC:Tweaked (nicht im Spiel gemessen)
 
 Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository cc-tweaked/cc-tweaked). Am echten Monitor mit `probe/crn_probe.lua` gegenpruefen.

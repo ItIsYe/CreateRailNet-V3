@@ -230,7 +230,12 @@ function M.new(node)
     local plan = { { station = payload.station_name, node = order.start.node, track = order.start.track } }
     for i = 2, #entries do
       local candidates = role.stations.candidates(entries[i].station)
-      local chosen, reasons = stationslib.choose(candidates, function(name) return track_info(name, order, train, payload) end)
+      local previous = plan[i - 1].station
+      local chosen, reasons = stationslib.choose(candidates, function(name)
+        -- Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (M20): nie das Gleis, von dem er kommt
+        if name == previous then return { problem = "Zug steht dort schon" } end
+        return track_info(name, order, train, payload)
+      end)
       if not chosen then
         return waiting_for("Kein geeignetes Gleis fuer " .. entries[i].station .. " (" .. table.concat(reasons, "; ") .. ").")
       end
@@ -1052,7 +1057,8 @@ function M.new(node)
     for _, stop in ipairs(stops) do
       if stop.cargo and not samples.item_threshold then return nil, "Fuer Mengenangaben fehlt das Muster (Seite Vorlagen, Muster erfassen)." end
     end
-    local ok, e = role.orders.add_template({ id = fields.id, title = fields.title, train = fields.train, return_to_start = true, stops = stops })
+    local ok, e = role.orders.add_template({ id = fields.id, title = fields.title, train = fields.train, return_to_start = true, stops = stops },
+      function(name) return role.stations.get(name) ~= nil end)
     if not ok then return nil, e end
     return true
   end
@@ -1105,6 +1111,7 @@ function M.new(node)
     if not node_id then return nil, depot_say("halt", "Der Zug steht nicht nachweislich an einem Bahnhof.") end
     local from = station_of(node_id, track_id)
     if not from then return nil, depot_say("halt", "Der Startbahnhof ist unbekannt.") end
+    if target == from then return nil, depot_say("halt", "Der Zug steht schon an " .. from .. ".") end
     if role.stations.candidates(target)[1] == nil or (not role.stations.get(target) and not dir[target]) then
       return nil, depot_say("halt", "Die Abstellstation " .. tostring(target) .. " ist unbekannt.")
     end

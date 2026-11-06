@@ -195,7 +195,7 @@ return {
     local fs, store = fresh()
     local clock = { v = 0 }
     local o = orderslib.new({ store = store, path = "/crn_data/orders.lua", now = function() return clock.v end })
-    t.eq(o.add_template({ id = "weizen", title = "Weizen liefern", train = "GZ-001", stops = { { station = "Weizenhof" } } }), true)
+    t.eq(o.add_template({ id = "weizen", title = "Weizen liefern", train = "GZ-001", stops = { { station = "Weizenhof" }, { station = "Lager" } } }), true)
     t.eq(#o.templates(), 1)
     t.eq(o.add_template({ id = "x y", title = "t", train = "a", stops = { { station = "A" } } }), nil)
     t.eq(o.add_template({ id = "x", title = "", train = "a", stops = { { station = "A" } } }), nil)
@@ -207,7 +207,7 @@ return {
     local fs, store = fresh()
     local clock = { v = 5 }
     local o = orderslib.new({ store = store, path = "/crn_data/orders.lua", now = function() return clock.v end })
-    o.add_template({ id = "weizen", title = "Weizen liefern", train = "GZ-001", stops = { { station = "Weizenhof" } } })
+    o.add_template({ id = "weizen", title = "Weizen liefern", train = "GZ-001", stops = { { station = "Weizenhof" }, { station = "Lager" } } })
     local first, fresh1 = o.request("weizen", "R1")
     t.eq(fresh1, true)
     t.eq(first.state, "angefordert")
@@ -230,7 +230,7 @@ return {
     local fs, store = fresh()
     local clock = { v = 0 }
     local o = orderslib.new({ store = store, path = "/crn_data/orders.lua", now = function() return clock.v end })
-    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" } } })
+    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" }, { station = "B" } } })
     local order = o.request("w", "R")
     local path = { "in_pruefung", "vorbereitet", "fahrplan_uebergeben", "abfahrt_freigegeben", "unterwegs", "am_ziel", "abfahrt_freigegeben", "unterwegs", "am_ziel", "abgeschlossen" }
     for i, state in ipairs(path) do
@@ -245,7 +245,7 @@ return {
   { "nicht vorgesehene Uebergaenge werden abgewiesen, gleicher Zustand ist kein Fehler", function()
     local fs, store = fresh()
     local o = orderslib.new({ store = store, path = "/crn_data/orders.lua", now = function() return 0 end })
-    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" } } })
+    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" }, { station = "B" } } })
     local order = o.request("w", "R")
     local ok, why = o.transition(order.id, "unterwegs")
     t.eq(ok, nil); t.contains(why, "nicht vorgesehen")
@@ -259,7 +259,7 @@ return {
   { "Stornieren nur vor der Fahrplanuebergabe, danach Aenderungswunsch", function()
     local fs, store = fresh()
     local o = orderslib.new({ store = store, path = "/crn_data/orders.lua", now = function() return 0 end })
-    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" } } })
+    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" }, { station = "B" } } })
     local order = o.request("w", "R1")
     local ok, text = o.cancel(order.id)
     t.eq(ok, true); t.eq(text, "storniert")
@@ -279,7 +279,7 @@ return {
     local clock = { v = 0 }
     local function open() return orderslib.new({ store = store, path = "/crn_data/orders.lua", now = function() return clock.v end, max_finished = 3 }) end
     local o = open()
-    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" } } })
+    o.add_template({ id = "w", title = "W", train = "GZ-001", stops = { { station = "A" }, { station = "B" } } })
     for i = 1, 8 do
       local order = o.request("w", "R" .. i)
       o.cancel(order.id)
@@ -298,7 +298,7 @@ return {
     local failing = { load = function() return nil end, save = function() return nil, "voll" end }
     local o = orderslib.new({ store = failing, path = "/x", now = function() return 0 end })
     o.templates()
-    local ok = pcall(o.add_template, { id = "w", title = "W", train = "G", stops = { { station = "A" } } })
+    local ok = pcall(o.add_template, { id = "w", title = "W", train = "G", stops = { { station = "A" }, { station = "B" } } })
     local order, why = o.request("w", "R")
     t.eq(order, nil)
   end },
