@@ -114,6 +114,25 @@ function W.list(v, id, rect, items, state, opts)
       v.canvas.text(rect.x + room - dw + 2, title_y, detail, KIND_FG[item.kind or "dim"] or S.gedaempft, bg, dw)
       room = room - dw - 1
       v.canvas.text(rect.x, title_y, mark .. item.text, selected and S.hell or S.text, bg, room + 2)
+    elseif row_h >= 3 and (#item.text > room or (detail and #detail > room)) then
+      -- grosses Layout: zu langer Titel oder zu lange Einzelheit werden umgebrochen und nutzen alle Zeilen der Eintragshoehe; erst der Rest dahinter wird gekuerzt
+      local tl = W.wrap(item.text, room)
+      local dl = detail and W.wrap(detail, room) or {}
+      local dn = #dl > 0 and math.min(#dl, math.max(1, row_h - #tl)) or 0
+      local tn = math.min(#tl, row_h - dn)
+      local function take(lines, n)
+        local out = {}
+        for k = 1, n do out[k] = lines[k] end
+        if #lines > n then out[n] = W.fit(table.concat(lines, " ", n), room) end
+        return out
+      end
+      local y0 = y + (row_h - tn - dn)                       -- unten buendig wie die einzeilige Darstellung
+      for k, line in ipairs(take(tl, tn)) do
+        v.canvas.text(rect.x, y0 + k - 1, (k == 1 and mark or "  ") .. line, selected and S.hell or S.text, bg, rect.w)
+      end
+      for k, line in ipairs(take(dl, dn)) do
+        v.canvas.text(rect.x + 2, y0 + tn + k - 1, line, KIND_FG[item.kind or "dim"] or S.gedaempft, bg, rect.w - 2)
+      end
     else
       v.canvas.text(rect.x, title_y, mark .. item.text, selected and S.hell or S.text, bg, rect.w)
       if detail and row_h >= 2 then v.canvas.text(rect.x + 2, title_y + 1, detail, KIND_FG[item.kind or "dim"] or S.gedaempft, bg, rect.w - 2) end

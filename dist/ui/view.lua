@@ -77,7 +77,7 @@ local function draw_status_only()
 local c=v.canvas
 c.clear(S.hintergrund)
 local status=v.ctx.status()
-local lines={"CRN",v.ctx.title(),status.text,"Zu klein fuer die Bedienung:","Bediencomputer verwenden."}
+local lines={"CRN",v.ctx.title(v.layout.w),status.text,"Zu klein fuer die Bedienung:","Bediencomputer verwenden."}
 for i,line in ipairs(lines)do
 if i<=v.layout.h then c.text(1,i,line,i==3 and S.hell or S.text,S.hintergrund,v.layout.w)end
 end
@@ -89,7 +89,8 @@ c.fill(r.x,r.y,r.w,r.h,S.kopf)
 local row=r.y+math.floor((r.h-1)/2)
 local status=v.ctx.status()
 local badge_w=#status.text+2
-c.text(r.x+1,row,v.ctx.title(),S.hell,S.kopf,r.w-badge_w-3)
+local room=r.w-badge_w-3
+c.text(r.x+1,row,v.ctx.title(room),S.hell,S.kopf,room)
 W.badge(v,r.x+r.w-badge_w-1,row,status.text,status.kind)
 end
 

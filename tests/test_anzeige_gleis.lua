@@ -99,7 +99,7 @@ return {
     t.eq(#bad, 0, "label.track fehlt: " .. table.concat(bad, ", "))
   end },
 
-  { "Titelzeile: Node ohne Namen zeigt ihre Kennung, ein langer Name laesst die Rolle sichtbar", function()
+  { "Titelzeile: Node ohne Namen zeigt ihre Kennung, ein langer Name bleibt ganz (die Rolle entfaellt zuerst)", function()
     local h = H.new()
     local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Westbahnhof", release_side = "back" } } })
     local store = storelib.new(s.fs)
@@ -117,7 +117,7 @@ return {
     store.save("/crn_data/config.lua", config)
     s.restart()
     first = s.text(s.view()):match("^[^\n]*")
-    t.contains(first, "Personenbahnhof~")
-    t.contains(first, "passagierbahnhof")
+    t.contains(first, "Personenbahnhof Hauptbahnhof N0001")
+    t.not_contains(first, "~")
   end },
 }

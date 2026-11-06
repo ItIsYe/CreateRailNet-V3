@@ -106,11 +106,14 @@ return table.concat(names,"+")
 end
 
 local ctx={
-title=function()
+
+title=function(width)
 if not n.config then return"CRN - noch nicht eingerichtet"end
 local who=n.config.node.name~=""and n.config.node.name or n.config.node.id
-local role=role_text()
-return W.fit(who,math.max(14,38-#role)).." - "..role
+local full=who.." - "..role_text()
+width=width or 40
+if#full<=width then return full end
+return W.fit(who,width)
 end,
 status=function()return n.status()end,
 on_action=function(v,id)

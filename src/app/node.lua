@@ -106,11 +106,14 @@ function M.new(env)
   end
 
   local ctx = {
-    title = function()
+    -- width: Platz in der Kopfzeile; fehlt er, entfaellt zuerst die Rolle, damit Name und Kennung lesbar bleiben
+    title = function(width)
       if not n.config then return "CRN - noch nicht eingerichtet" end
       local who = n.config.node.name ~= "" and n.config.node.name or n.config.node.id
-      local role = role_text()
-      return W.fit(who, math.max(14, 38 - #role)) .. " - " .. role
+      local full = who .. " - " .. role_text()
+      width = width or 40
+      if #full <= width then return full end
+      return W.fit(who, width)
     end,
     status = function() return n.status() end,
     on_action = function(v, id)

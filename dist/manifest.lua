@@ -1,9 +1,9 @@
 return {
-  id = "dcc5932d",
+  id = "b5cb92a4",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4870, sum = "9d5ba795" },
-    ["app/node.lua"] = { size = 40231, sum = "8558df7a" },
+    ["app/node.lua"] = { size = 40274, sum = "190af001" },
     ["app/selftest.lua"] = { size = 7342, sum = "aa1bf61e" },
     ["core/adler.lua"] = { size = 363, sum = "e6127123" },
     ["core/chunks.lua"] = { size = 4354, sum = "bbf4fdb7" },
@@ -49,8 +49,8 @@ return {
     ["ui/layout.lua"] = { size = 576, sum = "9773b333" },
     ["ui/palette.lua"] = { size = 990, sum = "c7ea27db" },
     ["ui/touch.lua"] = { size = 399, sum = "5d668780" },
-    ["ui/view.lua"] = { size = 12962, sum = "48bba67c" },
-    ["ui/widgets.lua"] = { size = 4778, sum = "e049684d" },
+    ["ui/view.lua"] = { size = 12992, sum = "07cfb20c" },
+    ["ui/widgets.lua"] = { size = 5462, sum = "37e95140" },
   },
   roles = {
     anmeldung = { "app/main.lua", "app/node.lua", "app/selftest.lua", "core/adler.lua", "core/chunks.lua", "core/clock.lua", "core/dataformat.lua", "core/envcheck.lua", "core/journal.lua", "core/label.lua", "core/migrations.lua", "core/msg.lua", "core/net.lua", "core/ser.lua", "core/store.lua", "core/ticker.lua", "core/updater.lua", "core/version.lua", "dev/bind.lua", "dev/detect.lua", "dev/events.lua", "dev/observer.lua", "dev/out.lua", "dev/signal.lua", "dev/station.lua", "domain/register.lua", "domain/schedule.lua", "roles/anmeldung.lua", "roles/station.lua", "setup/model.lua", "setup/page.lua", "setup/pruefung.lua", "setup/wizard.lua", "ui/canvas.lua", "ui/forms.lua", "ui/keymap.lua", "ui/layout.lua", "ui/palette.lua", "ui/touch.lua", "ui/view.lua", "ui/widgets.lua" },
