@@ -50,5 +50,6 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
+- Signal bei Zugdurchfahrt: was `listBlockingTrainNames` und `getState` melden, solange ein Zug im Block steht, und wann der Name wieder verschwindet (gemessen wurde nur der Ruhezustand, M03/M08). Davon haengt ab, ob ein Knoten die Raeumung auch ohne Beobachter nachweisen koennte; bis dahin bleibt der Beobachter Pflicht (Knoten: Einfahrt = Signal + Beobachter, Ausfahrt = Beobachter). Wird mit `probe/crn_probe4.lua` gemessen (Spieltest 3.96).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).
