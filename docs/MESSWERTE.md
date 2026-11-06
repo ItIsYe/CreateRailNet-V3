@@ -72,6 +72,7 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
+- Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97): Signal beobachten, Signal sperren, Abfahrt ueber die Station.
 - Signal statt Beobachter am Knoten (Spieltest 3.96, `probe/crn_probe4.lua`, Teilergebnisse M18 und M19): offen sind der wartende Zug vor einem erzwungen roten Signal (`--sperre`: steht er in `listBlockingTrainNames`, damit der Knoten wuesste, wer Einfahrt verlangt?), ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block?) und gleiche Zugnamen (M14).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

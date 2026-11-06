@@ -98,7 +98,7 @@ local function run(w, args, answer)
   local env = setmetatable({
     peripheral = w.peripheral, os = w.os, fs = w.fs, textutils = w.textutils, _HOST = "Test",
     print = function(text) w.output[#w.output + 1] = tostring(text) end,
-    read = function() return answer or "j" end,
+    read = function() w.reads = (w.reads or 0) + 1; return answer or "j" end,
   }, { __index = _G })
   local chunk
   if setfenv then
@@ -154,6 +154,16 @@ return {
     t.ok(ok, tostring(err))
     t.contains(out, "D Abfahrt per Fahrplan: nicht gemessen (abgebrochen)")
     for _, call in ipairs(w.calls) do t.ok(select(2, call:gsub("create:destination", "")) ~= 3, "kein Rundlauf gesetzt") end
+    t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
+  end },
+
+  { "--ja: Probe D laeuft ohne Rueckfrage (read wird nie gerufen), auch wenn die Antwort sonst Nein waere", function()
+    local w = world()
+    local ok, err, out = run(w, { "--ziel", "Hof B", "--ja" }, "n")
+    t.ok(ok, tostring(err))
+    t.eq(w.reads or 0, 0, "keine Rueckfrage")
+    t.contains(out, "(--ja: ohne Rueckfrage)")
+    t.contains(out, "D Rundlauf beendet: JA")
     t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
   end },
 

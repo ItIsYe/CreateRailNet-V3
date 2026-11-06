@@ -84,7 +84,7 @@ local function run(w, args, answer)
   local env = setmetatable({
     peripheral = w.peripheral, os = w.os, fs = w.fs, _HOST = "Test",
     print = function(text) w.output[#w.output + 1] = tostring(text) end,
-    read = function() return answer or "j" end,
+    read = function() w.reads = (w.reads or 0) + 1; return answer or "j" end,
   }, { __index = _G })
   local chunk
   if setfenv then
@@ -133,6 +133,15 @@ return {
     t.ok(ok2, tostring(err2))
     t.eq(#w2.writes, 0, "nach n keine Schreibung")
     t.contains(out2, "abgebrochen: keine Sperre")
+  end },
+  { "--sperre --ja: gesperrt und zurueckgestellt ohne Rueckfrage", function()
+    local w = world()
+    local ok, err, out = run(w, { "--wait", "20", "--sperre", "--ja" }, "n")
+    t.ok(ok, tostring(err))
+    t.eq(w.reads or 0, 0, "keine Rueckfrage")
+    t.eq(table.concat(w.writes, ","), "true,false")
+    t.contains(out, "(--ja: ohne Rueckfrage)")
+    t.eq(w.forced(), false)
   end },
   { "Auch bei einem Fehler waehrend der Beobachtung wird die Sperre zurueckgestellt", function()
     local w = world()

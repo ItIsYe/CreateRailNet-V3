@@ -4,6 +4,7 @@ Usage: crn_probe3                     Zug an einem Bahnhof (Computer mit Kabelmo
        crn_probe3 --ziel NAME         zusaetzlich Probe D: der Zug FAEHRT zum Bahnhof NAME und zurueck (Rundlauf, wird vorher bestaetigt)
        crn_probe3 --station GERAET    bestimmtes Geraet (zum Beispiel Create_Station_1); Standard: der erste Bahnhof mit Zug
        crn_probe3 --no-write          nur lesen, nichts wird veraendert
+       crn_probe3 --ja                Rueckfragen gelten als mit j beantwortet (fuer den automatischen Ablauf, crn_alles)
        crn_probe3 --wait N            so lange (Sekunden) auf einen Zug warten (Standard 150); bei Probe D so lange auf die Rueckkehr (Standard 240)
        crn_probe3 --out datei.txt     anderer Dateiname (Standard crn_probe3.txt)
 Notes: Voraussetzung: ein Zug mit Fahrplan steht am Bahnhof (er wird nach jeder Probe auf seinen Fahrplan zurueckgestellt, auch bei Fehlern). Schreibt nur Fahrplaene ueber setSchedule: A geaenderter Inhalt (eine Sekunde Wartezeit mehr), B Haltefahrplan (ein Eintrag am eigenen Bahnhof, eine Sekunde, nicht zyklisch), C create:powered ohne Strom, D Abfahrt per Fahrplan (nur mit --ziel). Kein Redstone, kein rednet, kein Signal, kein Zusammenbauen. Probe D bewegt den Zug wirklich; nur starten, wenn der Weg zum Ziel frei ist.
@@ -11,17 +12,18 @@ Notes: Voraussetzung: ein Zug mit Fahrplan steht am Bahnhof (er wird nach jeder 
 ]]
 
 local args = { ... }
-local opts = { out = "crn_probe3.txt", write = true, wait = nil, station = nil, goal = nil }
+local opts = { out = "crn_probe3.txt", write = true, wait = nil, station = nil, goal = nil, yes = false }
 do
   local i = 1
   while i <= #args do
     local a = args[i]
     if a == "--no-write" then opts.write = false; i = i + 1
+    elseif a == "--ja" then opts.yes = true; i = i + 1
     elseif a == "--wait" then opts.wait = tonumber(args[i + 1]); i = i + 2
     elseif a == "--out" then opts.out = args[i + 1] or opts.out; i = i + 2
     elseif a == "--station" then opts.station = args[i + 1]; i = i + 2
     elseif a == "--ziel" then opts.goal = args[i + 1]; i = i + 2
-    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --ziel NAME, --station GERAET, --no-write, --wait N, --out DATEI)", 0) end
+    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --ziel NAME, --station GERAET, --no-write, --ja, --wait N, --out DATEI)", 0) end
   end
 end
 
@@ -220,7 +222,8 @@ else
         end
         add("ACHTUNG: der Zug " .. tostring(train) .. " faehrt jetzt von " .. tostring(name) .. " nach " .. opts.goal .. " und zurueck.")
         add("Weg frei? Weiter mit j, Abbruch mit Enter.")
-        local answer = read()
+        local answer = "j"
+        if opts.yes then add("(--ja: ohne Rueckfrage)") else answer = read() end
         if answer ~= "j" then
           add("abgebrochen")
           result("D Abfahrt per Fahrplan", "nicht gemessen (abgebrochen)")

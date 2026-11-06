@@ -4,6 +4,7 @@ Usage: crn_probe4                          alle Signale und Beobachter am Netz b
        crn_probe4 --signal NAME[,NAME]     nur diese Signale (zum Beispiel Create_Signal_0)
        crn_probe4 --beobachter NAME[,NAME] nur diese Beobachter
        crn_probe4 --sperre                 zusaetzlich: das erste Signal rot sperren (setForcedRed), damit ein Zug davor warten muss; wird vorher mit j bestaetigt und am Ende immer zurueckgestellt
+       crn_probe4 --ja                     Rueckfragen gelten als mit j beantwortet (fuer den automatischen Ablauf, crn_alles)
        crn_probe4 --wait N                 Dauer der Beobachtung in Sekunden (Standard 180)
        crn_probe4 --poll S                 Abfrageabstand in Sekunden (Standard 0.2)
        crn_probe4 --out datei.txt          anderer Dateiname (Standard crn_probe4.txt)
@@ -12,7 +13,7 @@ Notes: Aufbau wie am Knoten: der Computer haengt ueber Kabelmodem am Einfahrtssi
 ]]
 
 local args = { ... }
-local opts = { out = "crn_probe4.txt", wait = 180, poll = 0.2, signals = nil, observers = nil, hold = false }
+local opts = { out = "crn_probe4.txt", wait = 180, poll = 0.2, signals = nil, observers = nil, hold = false, yes = false }
 
 local function split(text)
   local out = {}
@@ -25,12 +26,13 @@ do
   while i <= #args do
     local a = args[i]
     if a == "--sperre" then opts.hold = true; i = i + 1
+    elseif a == "--ja" then opts.yes = true; i = i + 1
     elseif a == "--wait" then opts.wait = tonumber(args[i + 1]) or opts.wait; i = i + 2
     elseif a == "--poll" then opts.poll = math.max(0.05, tonumber(args[i + 1]) or opts.poll); i = i + 2
     elseif a == "--out" then opts.out = args[i + 1] or opts.out; i = i + 2
     elseif a == "--signal" then opts.signals = split(args[i + 1] or ""); i = i + 2
     elseif a == "--beobachter" then opts.observers = split(args[i + 1] or ""); i = i + 2
-    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --signal NAMEN, --beobachter NAMEN, --sperre, --wait N, --poll S, --out DATEI)", 0) end
+    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --signal NAMEN, --beobachter NAMEN, --sperre, --ja, --wait N, --poll S, --out DATEI)", 0) end
   end
 end
 
@@ -291,7 +293,8 @@ local function take_hold()
   if not ok_f then add("--sperre: isForcedRed nicht lesbar (" .. plain(before) .. "), uebersprungen"); return end
   if before == true then add("--sperre: " .. s .. " ist schon rot gesperrt, uebersprungen"); return end
   add("Das Signal " .. s .. " wird rot gesperrt (setForcedRed) und am Ende wieder freigegeben. Ein Zug davor bleibt stehen. Fortfahren? (j/n)")
-  local answer = read()
+  local answer = "j"
+  if opts.yes then add("(--ja: ohne Rueckfrage)") else answer = read() end
   if answer ~= "j" then add("abgebrochen: keine Sperre"); return end
   local ok, err = call(s, "setForcedRed", true)
   add("setForcedRed(true) an " .. s .. ": " .. (ok and "ok" or ("FEHLER: " .. plain(err))))
