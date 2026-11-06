@@ -69,7 +69,7 @@ local function wait_events(seconds, label, device, stop)
     local ev = pack(os.pullEvent())
     if ev[1] == "timer" and ev[2] == timer then return seen end
     if WATCH[ev[1]] and (ev[2] == device or ev[2] == nil) then
-      local rec = { name = ev[1], at = os.clock() - t0 }
+      local rec = { name = ev[1], at = os.clock() - t0, train = ev[3] ~= nil and tostring(ev[3]) or nil }
       seen[#seen + 1] = rec
       add(string.format("  [%s +%.2fs] %s  %s", label, rec.at, ev[1], tostring(ev[3] or "")))
       if stop and stop(rec) then return seen end
@@ -77,8 +77,11 @@ local function wait_events(seconds, label, device, stop)
   end
 end
 
-local function found(events, name)
-  for _, e in ipairs(events or {}) do if e.name == name then return e end end
+-- erstes Ereignis dieser Art; mit train nur eines dieses Zuges (am Bahnhof kommen auch andere Zuege an und fahren ab)
+local function found(events, name, train)
+  for _, e in ipairs(events or {}) do
+    if e.name == name and (train == nil or e.train == train) then return e end
+  end
 end
 
 local function delay_group(seconds) return { { id = "create:delay", data = { value = seconds, time_unit = 1 } } } end
@@ -254,9 +257,19 @@ else
         add("setSchedule(Rundlauf): " .. (ok and "ok" or ("FEHLER: " .. plain(err))))
         if ok then
           local wait = opts.wait or 240
-          local events = wait_events(wait, "D", device, function(e) return e.name == "train_arrival" and e.at > 5 end)
-          local departure = found(events, "train_departure")
-          local back = found(events, "train_arrival")
+          -- nur Ereignisse des Pruefzuges zaehlen: im ersten Spiellauf kam die Ankunft eines anderen Zuges, waehrend der Pruefzug noch unterwegs war
+          local events = wait_events(wait, "D", device, function(e) return e.name == "train_arrival" and e.at > 5 and (train == nil or e.train == train) end)
+          local departure = found(events, "train_departure", train)
+          local back = found(events, "train_arrival", train)
+          local others = {}
+          for _, e in ipairs(events) do
+            if train ~= nil and e.train ~= nil and e.train ~= train and (e.name == "train_arrival" or e.name == "train_departure") then others[#others + 1] = e.train end
+          end
+          if #others > 0 then
+            local seen_names, list = {}, {}
+            for _, nm in ipairs(others) do if not seen_names[nm] then seen_names[nm] = true; list[#list + 1] = nm end end
+            add("Andere Zuege am Bahnhof waehrend der Probe: " .. table.concat(list, ", ") .. " (zaehlen nicht)")
+          end
           add("Abfahrt nach setSchedule: " .. (departure and string.format("%.1f s", departure.at) or "KEINE innerhalb von " .. wait .. " s"))
           add("Rueckkehr: " .. (back and string.format("nach %.1f s", back.at) or "nicht innerhalb von " .. wait .. " s"))
           result("D Zug faehrt nach setSchedule los, obwohl er schon am Bahnhof steht", departure and "JA" or "NEIN")

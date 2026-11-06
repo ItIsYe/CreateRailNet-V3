@@ -83,6 +83,28 @@ Aufbau: ein Bahnhof "Abstell 11" (`Create_Station_1`) mit Zug "Unnamed Train" (F
 - `Create_Signal_34` (Block des Beobachters): der Name verschwindet 0,6 s ("Zug 5") und 0,8 s ("Unnamed Train") nach `train_passed`; mit M19 sind es sechs von sechs Durchfahrten zwischen 0,45 und 0,8 s. Der Name erscheint 7,25 bis 7,5 s vor `train_passing` am Beobachter.
 - `Create_Signal_5` (naechster Block hinter dem Bahnhof): ROT 2,0 s nach `train_departure`, der Name verschwindet 4,1 bis 4,8 s nach `train_passed`. Die Zeilen "38 s VOR train_passed" im Rohbericht sind ein Auswertungsfehler des Messprogramms (erster Namenszeitraum gegen erstes `train_passed`); die Paarung je Durchfahrt ist behoben.
 
+## M22 Zweiter Lauf von `crn_alles` (vom Betreiber gemessen, 2026-11-06, 21:13 UTC)
+
+Gleicher Aufbau wie M21. Rohbericht: `tests/fixtures/crn_alles_lauf2.txt`.
+
+**Abfahrt per Fahrplan (Probe D, Annahmen H4 und H5):**
+- Fahrplan mit drei Eintraegen (eigener Bahnhof "Abstell 11" mit 1 s Wartezeit, Ziel "Abstell 10", wieder "Abstell 11") per `setSchedule` an einen Zug, der schon am Bahnhof steht: der Zug faehrt los, `train_departure` kommt **1,2 s** nach `setSchedule`. **H4 bestaetigt, H5 = 1,2 s.** Der erste Eintrag am eigenen Bahnhof ist unproblematisch, solange der zweite ein anderer Bahnhof ist (M20).
+- `canTrainReach("Abstell 10")` war `true`, `distanceTo` 661,4.
+- Die gemeldete "Rueckkehr nach 21,0 s" ist **nicht belastbar**: es war die Ankunft eines anderen Zuges ("Zug 5"), der Pruefzug war noch unterwegs. Das Messprogramm zaehlte jede Ankunft am Bahnhof; seit dem Fix zaehlen nur Ereignisse des Pruefzuges, andere Zuege werden gemeldet und ignoriert.
+
+**Signal bei erzwungenem Rot, jetzt mit beiden Signalen beobachtet (S2, 150 s, `Create_Signal_5` gesperrt):**
+- **Das Signal davor (`Create_Signal_34`, Block mit Bahnhof und Beobachter) nennt den wartenden Zug durchgehend:** "Zug 5" stand von +0,0 s bis zum Ende der Messung in der Liste und das Signal blieb ROT. Der Zug fuhr bei +11,45 s vom Bahnhof ab, blieb vor dem gesperrten Signal stehen und wartete rund 138 s; kein weiteres Ereignis, kein `train_passed`.
+- Das gesperrte Signal selbst nannte ihn nicht (Liste leer, ausser +33,4 s bis +39,4 s "Unnamed Train": ein Zug, der den Block hinter dem Signal ohne Bahnhof durchfuhr, vermutlich aus der anderen Richtung).
+- Folge: Die Liste eines Signals nennt die Zuege im Block **hinter** ihm, ein wartender Zug steht in der Liste des Signals davor (also des Signals, das den Block bewacht, in dem er wartet).
+
+**Signal gegen Beobachter (S1, 150 s ohne Sperre, dritter Beleg zu M19 und M21):**
+- `Create_Signal_34` (Block des Beobachters): der Name verschwindet 0,8 / 0,8 s ("Unnamed Train") und 0,6 s ("Zug 5") nach `train_passed`; mit M19 und M21 sind es neun von neun Durchfahrten zwischen 0,45 und 0,8 s. Er erscheint 7,2 bis 7,5 s vor `train_passing`.
+- `Create_Signal_5` (Block hinter dem Bahnhof): 4,8 / 4,8 / 4,1 s nach `train_passed`.
+
+**Folgen:**
+- Freigabe ueber den Fahrplan (`docs/FREIGABE_PER_FAHRPLAN.md`): H1 bis H5 sind im Spiel bestaetigt. Die Abfahrt kommt rund 1,2 s nach dem Setzen, wenn der erste Eintrag am eigenen Bahnhof nur eine kurze Wartezeit hat.
+- Knoten: Fuer die **Raeumung** reicht das Verschwinden des Namens im Einfahrtssignal (neun von neun, 0,45 bis 0,8 s nach `train_passed`), sofern der Bereich hinter dem Signal der Kreuzungsblock ist; das ist an einem echten Knoten noch zu pruefen. Fuer die **Ankuendigung** nennt das Einfahrtssignal wartende Zuege nicht; sie kommt vom Beobachter an der Einfahrt oder vom Signal davor.
+
 ## Aus dem Quelltext von CC:Tweaked (nicht im Spiel gemessen)
 
 Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository cc-tweaked/cc-tweaked). Am echten Monitor mit `probe/crn_probe.lua` gegenpruefen.
@@ -98,7 +120,7 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
-- Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Stand nach M21: offen sind Probe D (Abfahrt per Fahrplan, H4 und H5: `crn_alles --nur abfahrt`) und ein Lauf an einem echten Knoten.
-- Signal statt Beobachter am Knoten (Spieltest 3.96, Teilergebnisse M18, M19 und M21): offen sind ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block?), ob das Signal vor einem gesperrten Signal den wartenden Zug nennt (S2 beobachtet jetzt alle Signale) und gleiche Zugnamen (M14). Gemessen: der wartende Zug steht nicht in der Liste des gesperrten Signals selbst (M21), die Ankuendigung braucht also weiter den Beobachter an der Einfahrt.
+- Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Stand nach M22: offen ist nur noch ein Lauf an einem echten Knoten; die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
+- Signal statt Beobachter am Knoten (Spieltest 3.96, Teilergebnisse M18, M19, M21 und M22): offen sind ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block, und deckt der Block den ganzen Kreuzungsbereich?) und gleiche Zugnamen (M14). Gemessen: ein wartender Zug steht in der Liste des Signals davor, nicht in der des gesperrten Signals selbst (M22).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

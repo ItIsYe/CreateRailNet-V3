@@ -44,8 +44,9 @@ local function world(opts)
       st.schedule = deepcopy(s)
       -- Reise: drei Eintraege, der Zug faehrt los und kommt zurueck
       if #s.entries == 3 and not opts.no_departure then
+        if opts.foreign then event_at(w.now + 10, "train_arrival", "Create_Station_1", "Zug 9") end   -- ein anderer Zug kommt waehrenddessen an
         event_at(w.now + 2.5, "train_departure", "Create_Station_1", "Zug 1")
-        event_at(w.now + 30, "train_arrival", "Create_Station_1", "Zug 1")
+        if not opts.no_return then event_at(w.now + 30, "train_arrival", "Create_Station_1", "Zug 1") end
       end
     end,
   }
@@ -198,6 +199,23 @@ return {
     t.contains(out, "D Abfahrt per Fahrplan: nicht gemessen: kein Zielbahnhof")
     for _, call in ipairs(w.calls) do t.ok(select(2, call:gsub("create:destination", "")) ~= 3, "kein Rundlauf gesetzt") end
     t.eq(ser.encode(w.station.schedule), ser.encode(only_own))
+  end },
+
+  { "Probe D: die Ankunft eines anderen Zuges zaehlt nicht als Rueckkehr (Fehler im ersten Spiellauf: Zug 5 kam, der Pruefzug war noch unterwegs)", function()
+    local w = world({ foreign = true })
+    local ok, err, out = run(w, { "--ziel", "Hof B", "--ja" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "train_arrival  Zug 9")
+    t.contains(out, "Rueckkehr: nach 30.0 s", "erst die Ankunft des eigenen Zuges")
+    t.contains(out, "Andere Zuege am Bahnhof waehrend der Probe: Zug 9")
+    t.contains(out, "D Rundlauf beendet: JA")
+  end },
+
+  { "Probe D: kommt nur ein fremder Zug, gilt der Rundlauf nicht als beendet", function()
+    local w = world({ foreign = true, no_return = true })
+    local ok, err, out = run(w, { "--ziel", "Hof B", "--ja", "--wait", "60" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "D Rundlauf beendet: NEIN")
   end },
 
   { "Probe mit unerreichbarem Ziel: keine Fahrt, Hinweis", function()

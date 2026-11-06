@@ -1,0 +1,352 @@
+
+== Umgebung
+_HOST: ComputerCraft 1.120.2 (Minecraft 1.21.1)
+Zeit (UTC): 2026-11-06 21:13
+Optionen: zeit=150 sperre=true fahrt=true nur=nil ziel=nil
+Bahnhoefe: 1  (Create_Station_1)
+Signale: 2  (Create_Signal_34, Create_Signal_5)
+Beobachter: 1  (Create_TrainObserver_1)
+
+== Plan
+S1  Signale und Beobachter beobachten (150 s, nur lesen); in der Zeit Zuege fahren lassen
+S2  das am staerksten befahrene Signal rot sperren (150 s), ein Zug soll davor warten; wird danach freigegeben
+B   Fahrplan-Proben am Bahnhof (Fahrplan wird geaendert und zurueckgestellt), Rundlauf des Zuges zu einem anderen Bahnhof aus seinem Fahrplan und zurueck
+    Am Ende wird der Bericht crn_alles.txt mit pastebin hochgeladen
+Alles ausfuehren? Weg und Zuege frei, Signalsperre und Zugfahrt sind in Ordnung. (j/n)
+
+== S1: Signale und Beobachter beobachten
+  geladen: crn_probe4.lua (17550 Byte)
+  [ok] Signale beobachten: Bericht crn_alles_s1.txt
+
+== S2: Signal rot sperren, Zug davor warten lassen
+Gesperrt wird Create_Signal_5 (8 Wechsel auf ROT in S1); Zuege halten dort bis zu 150 s.
+  [ok] Signal sperren: Bericht crn_alles_s2.txt, Create_Signal_5
+
+== B: Abfahrt ueber die Train Station (crn_probe3)
+  geladen: crn_probe3.lua (16508 Byte)
+Kein Zug an einem Bahnhof: crn_probe3 wartet bis zu 150 s auf eine Ankunft.
+  [ok] Abfahrt ueber die Station: Bericht crn_alles_b.txt, Rundlauf zu einem Bahnhof aus dem Fahrplan des Zuges
+
+== Ergebnis je Teil
+S1  Signale beobachten: ok (Bericht crn_alles_s1.txt)
+S2  Signal sperren: ok (Bericht crn_alles_s2.txt, Create_Signal_5)
+B  Abfahrt ueber die Station: ok (Bericht crn_alles_b.txt, Rundlauf zu einem Bahnhof aus dem Fahrplan des Zuges)
+
+== Kurzfassungen
+--- S1 (crn_alles_s1.txt) ---
+== Ergebnis (Kurzfassung)
+Signal Create_Signal_34 getState: GREEN (+0.0 s) -> RED (+41.4 s) -> GREEN (+58.8 s) -> RED (+63.2 s) -> GREEN (+82.4 s) -> RED (+126.0 s) -> GREEN (+143.4 s) -> RED (+148.2 s)
+Signal Create_Signal_34 isForcedRed: false (+0.0 s)
+Signal Create_Signal_34 Ereignisse: 7 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_34 nennt Zug Unnamed Train: JA, +41.4 s bis +58.8 s; +126.0 s bis +143.4 s
+Signal Create_Signal_34 nennt Zug Zug 5: JA, +63.2 s bis +82.4 s; +148.2 s bis Ende der Messung
+Signal Create_Signal_5 getState: RED (+0.0 s) -> GREEN (+1.2 s) -> RED (+13.8 s) -> GREEN (+20.2 s) -> RED (+35.6 s) -> GREEN (+43.2 s) -> RED (+56.6 s) -> GREEN (+62.8 s) -> RED (+78.8 s) -> GREEN (+86.0 s) -> RED (+98.4 s) -> GREEN (+104.8 s) -> RED (+120.6 s) -> GREEN (+128.2 s) -> RED (+141.2 s) -> GREEN (+147.4 s)
+Signal Create_Signal_5 isForcedRed: false (+0.0 s)
+Signal Create_Signal_5 Ereignisse: 15 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_5 nennt Zug Unnamed Train: JA, +14.2 s bis +20.2 s; +56.6 s bis +62.8 s; +98.8 s bis +104.8 s; +141.2 s bis +147.4 s
+Signal Create_Signal_5 nennt Zug Zug 5: JA, +0.0 s bis +1.0 s; +36.2 s bis +43.2 s; +78.6 s bis +86.0 s; +121.0 s bis +128.2 s
+Beobachter Create_TrainObserver_1 Zug Unnamed Train: passing +48.6 s, +133.2 s; passed +58.0 s, +142.6 s
+Beobachter Create_TrainObserver_1 Zug Zug 5: passing +70.7 s; passed +81.9 s
+Abstand Signal Create_Signal_34 zu Beobachter Create_TrainObserver_1, Zug Unnamed Train: Name verschwindet im Signal +0.8 / +0.8 s nach train_passed (+ = danach; 2 Durchfahrten; Abfrageabstand 0.20 s)
+Abstand Signal Create_Signal_34 zu Beobachter Create_TrainObserver_1, Zug Zug 5: Name verschwindet im Signal +0.6 s nach train_passed (+ = danach; 1 Durchfahrten; Abfrageabstand 0.20 s)
+Abstand Signal Create_Signal_5 zu Beobachter Create_TrainObserver_1, Zug Unnamed Train: Name verschwindet im Signal +4.8 / +4.8 s nach train_passed (+ = danach; 2 Durchfahrten; Abfrageabstand 0.20 s)
+Abstand Signal Create_Signal_5 zu Beobachter Create_TrainObserver_1, Zug Zug 5: Name verschwindet im Signal +4.1 s nach train_passed (+ = danach; 1 Durchfahrten; Abfrageabstand 0.20 s)
+
+--- S2 (crn_alles_s2.txt) ---
+== Ergebnis (Kurzfassung)
+Signal Create_Signal_34 getState: blieb RED (+0.0 s)
+Signal Create_Signal_34 isForcedRed: false (+0.0 s)
+Signal Create_Signal_34 Ereignisse: 0 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_34 nennt Zug Zug 5: JA, +0.0 s bis Ende der Messung
+Signal Create_Signal_5 getState: GREEN (+0.0 s) -> RED (+0.2 s)
+Signal Create_Signal_5 isForcedRed: true (+0.0 s)
+Signal Create_Signal_5 Ereignisse: 1 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_5 nennt Zug Unnamed Train: JA, +33.4 s bis +39.4 s
+Beobachter Create_TrainObserver_1 Zug Zug 5: passing +5.5 s; passed -
+
+--- B (crn_alles_b.txt) ---
+== Ergebnis (Kurzfassung)
+A geaenderter Inhalt wird geschrieben und gelesen: JA
+B Zug haelt nach dem Ende eines nicht zyklischen Fahrplans: JA
+B hasSchedule danach: true
+C create:powered wird angenommen: JA
+C Zug haelt ohne Strom: JA
+D Zug faehrt nach setSchedule los, obwohl er schon am Bahnhof steht: JA
+D Zeit von setSchedule bis train_departure: 1.2 s
+D Rundlauf beendet: JA
+
+
+== Vollstaendige Berichte
+--- S1 (crn_alles_s1.txt) ---
+
+== Umgebung
+_HOST: ComputerCraft 1.120.2 (Minecraft 1.21.1)
+Optionen: wait=150 poll=0.2 sperre=false
+Signale: 2  (Create_Signal_34, Create_Signal_5)
+Beobachter: 1  (Create_TrainObserver_1)
+
+== Ruhezustand (vor der Beobachtung)
+Create_Signal_34 Methoden: getState, cycleSignalType, isForcedRed, setForcedRed, listBlockingTrainNames, getSignalType
+Create_Signal_34 getState: GREEN
+Create_Signal_34 isForcedRed: false
+Create_Signal_34 getSignalType: ENTRY_SIGNAL
+Create_Signal_34 listBlockingTrainNames: {}
+Create_Signal_5 Methoden: getState, cycleSignalType, isForcedRed, setForcedRed, listBlockingTrainNames, getSignalType
+Create_Signal_5 getState: RED
+Create_Signal_5 isForcedRed: false
+Create_Signal_5 getSignalType: ENTRY_SIGNAL
+Create_Signal_5 listBlockingTrainNames: ["Zug 5"]
+Create_TrainObserver_1 Methoden: getPassingTrainName, isTrainPassing
+Create_TrainObserver_1 isTrainPassing: false
+Create_TrainObserver_1 getPassingTrainName: nil
+
+== Beobachtung (150 s): jetzt Zuege durchfahren lassen
+  [+0.00s] Create_Signal_34 getState = GREEN
+  [+0.00s] Create_Signal_34 isForcedRed = false
+  [+0.00s] Create_Signal_34 blockiert = (leer)
+  [+0.00s] Create_Signal_5 getState = RED
+  [+0.00s] Create_Signal_5 isForcedRed = false
+  [+0.00s] Create_Signal_5 blockiert = Zug 5
+  [+0.00s] Create_TrainObserver_1 isTrainPassing = false
+  [+0.00s] Create_TrainObserver_1 Zug = (leer)
+  [+1.00s] Create_Signal_5 blockiert = (leer)
+  [+1.00s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+1.20s] Create_Signal_5 getState = GREEN
+  [+13.60s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+13.80s] Create_Signal_5 getState = RED
+  [+14.20s] Create_Signal_5 blockiert = Unnamed Train
+  [+20.15s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+20.20s] Create_Signal_5 getState = GREEN
+  [+20.20s] Create_Signal_5 blockiert = (leer)
+  [+35.50s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+35.60s] Create_Signal_5 getState = RED
+  [+36.20s] Create_Signal_5 blockiert = Zug 5
+  [+41.25s] Ereignis train_signal_state_change  Create_Signal_34, RED
+  [+41.40s] Create_Signal_34 getState = RED
+  [+41.40s] Create_Signal_34 blockiert = Unnamed Train
+  [+43.15s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+43.20s] Create_Signal_5 getState = GREEN
+  [+43.20s] Create_Signal_5 blockiert = (leer)
+  [+45.75s] Ereignis train_imminent  Create_Station_1, Unnamed Train
+  [+48.60s] Ereignis train_passing  Create_TrainObserver_1, Unnamed Train
+  [+48.80s] Create_TrainObserver_1 isTrainPassing = true
+  [+48.80s] Create_TrainObserver_1 Zug = Unnamed Train
+  [+49.30s] Ereignis train_arrival  Create_Station_1, Unnamed Train
+  [+54.45s] Ereignis train_departure  Create_Station_1, Unnamed Train
+  [+56.45s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+56.60s] Create_Signal_5 getState = RED
+  [+56.60s] Create_Signal_5 blockiert = Unnamed Train
+  [+57.95s] Ereignis train_passed  Create_TrainObserver_1, Unnamed Train
+  [+58.00s] Create_TrainObserver_1 isTrainPassing = false
+  [+58.00s] Create_TrainObserver_1 Zug = (leer)
+  [+58.65s] Ereignis train_signal_state_change  Create_Signal_34, GREEN
+  [+58.80s] Create_Signal_34 getState = GREEN
+  [+58.80s] Create_Signal_34 blockiert = (leer)
+  [+62.65s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+62.80s] Create_Signal_5 getState = GREEN
+  [+62.80s] Create_Signal_5 blockiert = (leer)
+  [+63.15s] Ereignis train_signal_state_change  Create_Signal_34, RED
+  [+63.20s] Create_Signal_34 getState = RED
+  [+63.20s] Create_Signal_34 blockiert = Zug 5
+  [+67.65s] Ereignis train_imminent  Create_Station_1, Zug 5
+  [+70.65s] Ereignis train_passing  Create_TrainObserver_1, Zug 5
+  [+70.80s] Create_TrainObserver_1 isTrainPassing = true
+  [+70.80s] Create_TrainObserver_1 Zug = Zug 5
+  [+71.45s] Ereignis train_arrival  Create_Station_1, Zug 5
+  [+76.60s] Ereignis train_departure  Create_Station_1, Zug 5
+  [+78.60s] Create_Signal_5 blockiert = Zug 5
+  [+78.60s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+78.80s] Create_Signal_5 getState = RED
+  [+81.85s] Ereignis train_passed  Create_TrainObserver_1, Zug 5
+  [+82.00s] Create_TrainObserver_1 isTrainPassing = false
+  [+82.00s] Create_TrainObserver_1 Zug = (leer)
+  [+82.30s] Ereignis train_signal_state_change  Create_Signal_34, GREEN
+  [+82.40s] Create_Signal_34 getState = GREEN
+  [+82.40s] Create_Signal_34 blockiert = (leer)
+  [+85.90s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+86.00s] Create_Signal_5 getState = GREEN
+  [+86.00s] Create_Signal_5 blockiert = (leer)
+  [+98.20s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+98.40s] Create_Signal_5 getState = RED
+  [+98.80s] Create_Signal_5 blockiert = Unnamed Train
+  [+104.75s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+104.80s] Create_Signal_5 getState = GREEN
+  [+104.80s] Create_Signal_5 blockiert = (leer)
+  [+120.40s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+120.60s] Create_Signal_5 getState = RED
+  [+121.00s] Create_Signal_5 blockiert = Zug 5
+  [+125.85s] Ereignis train_signal_state_change  Create_Signal_34, RED
+  [+126.00s] Create_Signal_34 getState = RED
+  [+126.00s] Create_Signal_34 blockiert = Unnamed Train
+  [+128.05s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+128.20s] Create_Signal_5 getState = GREEN
+  [+128.20s] Create_Signal_5 blockiert = (leer)
+  [+130.35s] Ereignis train_imminent  Create_Station_1, Unnamed Train
+  [+133.20s] Ereignis train_passing  Create_TrainObserver_1, Unnamed Train
+  [+133.40s] Create_TrainObserver_1 isTrainPassing = true
+  [+133.40s] Create_TrainObserver_1 Zug = Unnamed Train
+  [+133.90s] Ereignis train_arrival  Create_Station_1, Unnamed Train
+  [+139.05s] Ereignis train_departure  Create_Station_1, Unnamed Train
+  [+141.05s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+141.20s] Create_Signal_5 getState = RED
+  [+141.20s] Create_Signal_5 blockiert = Unnamed Train
+  [+142.60s] Ereignis train_passed  Create_TrainObserver_1, Unnamed Train
+  [+142.60s] Create_TrainObserver_1 isTrainPassing = false
+  [+142.60s] Create_TrainObserver_1 Zug = (leer)
+  [+143.25s] Ereignis train_signal_state_change  Create_Signal_34, GREEN
+  [+143.40s] Create_Signal_34 getState = GREEN
+  [+143.40s] Create_Signal_34 blockiert = (leer)
+  [+147.25s] Ereignis train_signal_state_change  Create_Signal_5, GREEN
+  [+147.40s] Create_Signal_5 getState = GREEN
+  [+147.40s] Create_Signal_5 blockiert = (leer)
+  [+148.05s] Ereignis train_signal_state_change  Create_Signal_34, RED
+  [+148.20s] Create_Signal_34 getState = RED
+  [+148.20s] Create_Signal_34 blockiert = Zug 5
+
+== Rueckstellung
+(es wurde nichts veraendert)
+
+== Ergebnis (Kurzfassung)
+Signal Create_Signal_34 getState: GREEN (+0.0 s) -> RED (+41.4 s) -> GREEN (+58.8 s) -> RED (+63.2 s) -> GREEN (+82.4 s) -> RED (+126.0 s) -> GREEN (+143.4 s) -> RED (+148.2 s)
+Signal Create_Signal_34 isForcedRed: false (+0.0 s)
+Signal Create_Signal_34 Ereignisse: 7 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_34 nennt Zug Unnamed Train: JA, +41.4 s bis +58.8 s; +126.0 s bis +143.4 s
+Signal Create_Signal_34 nennt Zug Zug 5: JA, +63.2 s bis +82.4 s; +148.2 s bis Ende der Messung
+Signal Create_Signal_5 getState: RED (+0.0 s) -> GREEN (+1.2 s) -> RED (+13.8 s) -> GREEN (+20.2 s) -> RED (+35.6 s) -> GREEN (+43.2 s) -> RED (+56.6 s) -> GREEN (+62.8 s) -> RED (+78.8 s) -> GREEN (+86.0 s) -> RED (+98.4 s) -> GREEN (+104.8 s) -> RED (+120.6 s) -> GREEN (+128.2 s) -> RED (+141.2 s) -> GREEN (+147.4 s)
+Signal Create_Signal_5 isForcedRed: false (+0.0 s)
+Signal Create_Signal_5 Ereignisse: 15 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_5 nennt Zug Unnamed Train: JA, +14.2 s bis +20.2 s; +56.6 s bis +62.8 s; +98.8 s bis +104.8 s; +141.2 s bis +147.4 s
+Signal Create_Signal_5 nennt Zug Zug 5: JA, +0.0 s bis +1.0 s; +36.2 s bis +43.2 s; +78.6 s bis +86.0 s; +121.0 s bis +128.2 s
+Beobachter Create_TrainObserver_1 Zug Unnamed Train: passing +48.6 s, +133.2 s; passed +58.0 s, +142.6 s
+Beobachter Create_TrainObserver_1 Zug Zug 5: passing +70.7 s; passed +81.9 s
+Abstand Signal Create_Signal_34 zu Beobachter Create_TrainObserver_1, Zug Unnamed Train: Name verschwindet im Signal +0.8 / +0.8 s nach train_passed (+ = danach; 2 Durchfahrten; Abfrageabstand 0.20 s)
+Abstand Signal Create_Signal_34 zu Beobachter Create_TrainObserver_1, Zug Zug 5: Name verschwindet im Signal +0.6 s nach train_passed (+ = danach; 1 Durchfahrten; Abfrageabstand 0.20 s)
+Abstand Signal Create_Signal_5 zu Beobachter Create_TrainObserver_1, Zug Unnamed Train: Name verschwindet im Signal +4.8 / +4.8 s nach train_passed (+ = danach; 2 Durchfahrten; Abfrageabstand 0.20 s)
+Abstand Signal Create_Signal_5 zu Beobachter Create_TrainObserver_1, Zug Zug 5: Name verschwindet im Signal +4.1 s nach train_passed (+ = danach; 1 Durchfahrten; Abfrageabstand 0.20 s)
+
+== Lesehilfe
+Ein Knoten koennte die Raeumung ohne Beobachter nachweisen, wenn (1) der Zugname bei JEDER Durchfahrt in listBlockingTrainNames des Einfahrtssignals steht, (2) er beim Verlassen des Knotens verschwindet und (3) der Abstand zum train_passed am Ausfahrtsbeobachter klein und gleichbleibend ist. Fehlt eines davon, bleibt der Beobachter noetig.
+
+--- S2 (crn_alles_s2.txt) ---
+
+== Umgebung
+_HOST: ComputerCraft 1.120.2 (Minecraft 1.21.1)
+Optionen: wait=150 poll=0.2 sperre=true
+Signale: 2  (Create_Signal_34, Create_Signal_5)
+Beobachter: 1  (Create_TrainObserver_1)
+
+== Ruhezustand (vor der Beobachtung)
+Create_Signal_34 Methoden: getState, cycleSignalType, isForcedRed, setForcedRed, listBlockingTrainNames, getSignalType
+Create_Signal_34 getState: RED
+Create_Signal_34 isForcedRed: false
+Create_Signal_34 getSignalType: ENTRY_SIGNAL
+Create_Signal_34 listBlockingTrainNames: ["Zug 5"]
+Create_Signal_5 Methoden: getState, cycleSignalType, isForcedRed, setForcedRed, listBlockingTrainNames, getSignalType
+Create_Signal_5 getState: GREEN
+Create_Signal_5 isForcedRed: false
+Create_Signal_5 getSignalType: ENTRY_SIGNAL
+Create_Signal_5 listBlockingTrainNames: {}
+Create_TrainObserver_1 Methoden: getPassingTrainName, isTrainPassing
+Create_TrainObserver_1 isTrainPassing: false
+Create_TrainObserver_1 getPassingTrainName: nil
+
+== Beobachtung (150 s): jetzt Zuege durchfahren lassen
+Das Signal Create_Signal_5 wird rot gesperrt (setForcedRed) und am Ende wieder freigegeben. Ein Zug davor bleibt stehen. Fortfahren? (j/n)
+(--ja: ohne Rueckfrage)
+setForcedRed(true) an Create_Signal_5: ok
+  [+0.00s] Create_Signal_34 getState = RED
+  [+0.00s] Create_Signal_34 isForcedRed = false
+  [+0.00s] Create_Signal_34 blockiert = Zug 5
+  [+0.00s] Create_Signal_5 getState = GREEN
+  [+0.00s] Create_Signal_5 isForcedRed = true
+  [+0.00s] Create_Signal_5 blockiert = (leer)
+  [+0.00s] Create_TrainObserver_1 isTrainPassing = false
+  [+0.00s] Create_TrainObserver_1 Zug = (leer)
+  [+0.05s] Ereignis train_signal_state_change  Create_Signal_5, RED
+  [+0.20s] Create_Signal_5 getState = RED
+  [+2.50s] Ereignis train_imminent  Create_Station_1, Zug 5
+  [+5.50s] Ereignis train_passing  Create_TrainObserver_1, Zug 5
+  [+5.60s] Create_TrainObserver_1 isTrainPassing = true
+  [+5.60s] Create_TrainObserver_1 Zug = Zug 5
+  [+6.30s] Ereignis train_arrival  Create_Station_1, Zug 5
+  [+11.45s] Ereignis train_departure  Create_Station_1, Zug 5
+  [+33.40s] Create_Signal_5 blockiert = Unnamed Train
+  [+39.40s] Create_Signal_5 blockiert = (leer)
+
+== Rueckstellung
+Rueckstellung Create_Signal_5: setForcedRed(false) ok, isForcedRed danach false
+
+== Ergebnis (Kurzfassung)
+Signal Create_Signal_34 getState: blieb RED (+0.0 s)
+Signal Create_Signal_34 isForcedRed: false (+0.0 s)
+Signal Create_Signal_34 Ereignisse: 0 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_34 nennt Zug Zug 5: JA, +0.0 s bis Ende der Messung
+Signal Create_Signal_5 getState: GREEN (+0.0 s) -> RED (+0.2 s)
+Signal Create_Signal_5 isForcedRed: true (+0.0 s)
+Signal Create_Signal_5 Ereignisse: 1 (train_signal_state_change und weitere train_*)
+Signal Create_Signal_5 nennt Zug Unnamed Train: JA, +33.4 s bis +39.4 s
+Beobachter Create_TrainObserver_1 Zug Zug 5: passing +5.5 s; passed -
+
+== Lesehilfe
+Ein Knoten koennte die Raeumung ohne Beobachter nachweisen, wenn (1) der Zugname bei JEDER Durchfahrt in listBlockingTrainNames des Einfahrtssignals steht, (2) er beim Verlassen des Knotens verschwindet und (3) der Abstand zum train_passed am Ausfahrtsbeobachter klein und gleichbleibend ist. Fehlt eines davon, bleibt der Beobachter noetig.
+
+--- B (crn_alles_b.txt) ---
+
+== Umgebung
+_HOST: ComputerCraft 1.120.2 (Minecraft 1.21.1)
+Optionen: write=true ziel=auto station=nil
+Bahnhoefe am Netz: 1  (Create_Station_1)
+Kein Zug an einem Bahnhof. Warte bis zu 150 s auf eine Ankunft ...
+
+== Lesen am Bahnhof Create_Station_1
+getStationName: Abstell 11
+isTrainPresent: true
+getTrainName: Unnamed Train
+hasSchedule: true
+getSchedule: {"cyclic":true,"entries":[{"instruction":{"data":{"text":"Abstell 11"},"id":"create:destination"},"conditions":[[{"data":{"value":5,"time_unit":1},"id":"create:delay"}]]},{"instruction":{"data":{"text":"Abstell 10"},"id":"create:destination"},"conditions":[[{"data":{"value":5,"time_unit":1},"id":"create:delay"}]]}]}
+canTrainReach(eigener Name): true, nil
+Ziel (aus dem Fahrplan des Zuges): Abstell 10
+canTrainReach(Abstell 10): true, nil
+distanceTo(Abstell 10): 661.372706620026
+
+== Probe A: setSchedule mit geaendertem Inhalt
+setSchedule(Fahrplan + 1 s Wartezeit): ok
+gelesen: ENTSPRICHT dem Geschriebenen
+  Rueckstellung (nach Probe A): setSchedule ok; gelesen: IDENTISCH mit vorher
+
+== Probe B: Haltefahrplan (ein Eintrag am eigenen Bahnhof, 1 s, nicht zyklisch)
+setSchedule(Haltefahrplan): ok
+nach 20 s: isTrainPresent=true  hasSchedule=true  getSchedule={"cyclic":false,"entries":[{"instruction":{"data":{"text":"Abstell 11"},"id":"create:destination"},"conditions":[[{"data":{"value":1,"time_unit":1},"id":"create:delay"}]]}]}
+  Rueckstellung (nach Probe B): setSchedule ok; gelesen: IDENTISCH mit vorher
+
+== Probe C: create:powered ohne Strom
+setSchedule(create:powered): ok
+nach 15 s: isTrainPresent=true
+  Rueckstellung (nach Probe C): setSchedule ok; gelesen: IDENTISCH mit vorher
+
+== Probe D: Abfahrt per Fahrplan (Rundlauf zu Abstell 10)
+ACHTUNG: der Zug Unnamed Train faehrt jetzt von Abstell 11 nach Abstell 10 und zurueck.
+Weg frei? Weiter mit j, Abbruch mit Enter.
+(--ja: ohne Rueckfrage)
+setSchedule(Rundlauf): ok
+  [D +1.20s] train_departure  Unnamed Train
+  [D +17.20s] train_imminent  Zug 5
+  [D +21.00s] train_arrival  Zug 5
+Abfahrt nach setSchedule: 1.2 s
+Rueckkehr: nach 21.0 s
+zurueck am Bahnhof: isTrainPresent=true
+  Rueckstellung (nach Probe D): setSchedule ok; gelesen: IDENTISCH mit vorher
+
+== Rueckstellung am Ende
+  Rueckstellung (Ende): setSchedule ok; gelesen: IDENTISCH mit vorher
+
+== Ergebnis (Kurzfassung)
+A geaenderter Inhalt wird geschrieben und gelesen: JA
+B Zug haelt nach dem Ende eines nicht zyklischen Fahrplans: JA
+B hasSchedule danach: true
+C create:powered wird angenommen: JA
+C Zug haelt ohne Strom: JA
+D Zug faehrt nach setSchedule los, obwohl er schon am Bahnhof steht: JA
+D Zeit von setSchedule bis train_departure: 1.2 s
+D Rundlauf beendet: JA
+
