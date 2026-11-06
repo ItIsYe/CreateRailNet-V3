@@ -315,6 +315,31 @@ return {
     t.ok(h.until_true(function() return order.state == "klaerung" end, 20))
     t.contains(order.reason, "ohne Freigabe abgefahren")
   end },
+  { "Zug faehrt nach der Freigabe nicht ab (ohne Mengenbedingung): nach Haltezeit plus 30 s Klaerung; mit Mengenbedingung wartet der Auftrag weiter", function()
+    local h, z, w, l, sim = build()
+    register_train(h, z, w, sim)
+    add_template(z)
+    z.node.roles.zentrale.orders.add_template({ id = "kurz", title = "Kurz", train = "GZ-001", return_to_start = true,
+      stops = { { station = "Weizenhof", wait = 3 }, { station = "Zentrallager", wait = 2 } } })
+    sim.trains["Unnamed Train"].status = "klemmt"          -- die Simulation fuehrt den Fahrplan nicht aus: der Zug bleibt stehen
+    w.node.roles.anmeldung.press("kurz")
+    local order
+    t.ok(h.until_true(function() order = z.node.roles.zentrale.orders.active_for("kurz") return order and order.state == "abfahrt_freigegeben" end, 60))
+    h.step(20)
+    t.eq(order.state, "abfahrt_freigegeben", "innerhalb von Haltezeit plus 30 s noch Geduld")
+    t.ok(h.until_true(function() return order.state == "klaerung" end, 40), "Zustand " .. order.state)
+    t.contains(order.reason, "nicht abgefahren")
+    -- mit Mengenbedingung gibt es kein Zeitlimit: Create wartet auf die Ladung
+    local h2, z2, w2, l2, sim2 = build()
+    register_train(h2, z2, w2, sim2)
+    add_template(z2)
+    sim2.trains["Unnamed Train"].status = "klemmt"
+    w2.node.roles.anmeldung.press("weizen")
+    local order2
+    t.ok(h2.until_true(function() order2 = z2.node.roles.zentrale.orders.active_for("weizen") return order2 and order2.state == "abfahrt_freigegeben" end, 60))
+    h2.step(120)
+    t.eq(order2.state, "abfahrt_freigegeben", "wartet auf die Ladung, keine Klaerung")
+  end },
   { "Freigabe eines frueheren Aufenthalts wirkt nicht auf einen spaeteren (Aufenthaltsbindung)", function()
     local h, z, w, l, sim = build()
     register_train(h, z, w, sim)

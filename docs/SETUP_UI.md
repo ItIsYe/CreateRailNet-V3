@@ -20,7 +20,7 @@ einen Kontextbereich. Die kompakte Ansicht (51x19) arbeitet mit denselben Pruefu
 
 **Name.** Der Name der Node ist nur Anzeige und blockiert nie: im Verzeichnis vergibt die Leitstelle Name und Kennung, von Hand schlaegt der Assistent einen Namen vor (Feld leeren geht), ohne Namen gilt die Kennung (Titelzeile, Uebersicht).
 
-**Freigabe der Abfahrt.** Der Assistent fragt keinen Freigabeausgang (Redstone am Computer) mehr: die Freigabe soll allein ueber die Train Station laufen (Fahrplan, siehe `docs/FREIGABE_PER_FAHRPLAN.md`). Ausgaenge aelterer Einrichtungen bleiben gueltig und laufen unveraendert weiter.
+**Freigabe der Abfahrt.** Es gibt keinen Freigabeausgang (Redstone am Computer) mehr: die Freigabe laeuft allein ueber die Train Station (Fahrplan, siehe `docs/FREIGABE_PER_FAHRPLAN.md`). Ein Ausgang aus einer Einrichtung vor Datenformat 3 wird beim ersten Start entfernt (`docs/DATENFORMAT.md`).
 
 ## Gefuehrte Einrichtung einer Signal-Node (Netzverzeichnis)
 
@@ -66,7 +66,7 @@ Beim Beitreten mit den Rollen Passagierbahnhof, Gueterbahnhof, Depot (einzeln od
 
 **Anmeldung allein** gehoert zu einer Betriebsstelle des Netzes (Seite Betriebsstellen in der Leitstelle): Betriebsstelle waehlen, Kennung (`N0005 | ANM | BF0001`), Geraete, Anmeldestation, Test, Aktivieren. Die Betriebsstelle laesst sich in der Leitstelle nicht loeschen, solange die Anmeldung sie nutzt.
 
-**Pruefungen im bisherigen Ablauf (Konzept 13.1, 13.2, 13.4, 13.5).** Beim Oeffnen des Schritts Test laufen die lesenden Pruefungen von selbst. **"Alle pruefen"** zeigt die Wirkung aller offenen schaltenden Pruefungen zusammen, verlangt eine gemeinsame Bestaetigung ("Vorbereitung erledigt: alle starten") und fuehrt sie nacheinander aus; bleibt ein Ausgang danach eingeschaltet, stoppt die Serie und meldet es. "Einzeln" fuehrt die markierte Pruefung aus, "Lesende" wiederholt die lesenden. Ein Ergebnis bleibt gueltig, solange das geprueftes Geraet beziehungsweise der Ausgang dasselbe ist und die Zuordnung seines Gleises (Richtung, Geraete, Knotenanschluss) unveraendert ist: eine Namensaenderung, ein weiteres Gleis oder ein anderes Geraet entwertet die uebrigen Ergebnisse nicht. Das gilt auch beim "Einrichtung aendern" einer laufenden Knoten-Node (die Uebernahme des Knotens aus dem Verzeichnis loescht keine Ergebnisse mehr). Muss eine Sperrpruefung trotzdem wiederholt werden und ist das Signal im laufenden Betrieb gesperrt (die Einfahrt eines Knotens ist es dauernd), gilt es als geprueft: die Sperre bleibt, das Aufheben wird nicht erneut geprueft. Ein Signal, das in einer neuen Einrichtung schon gesperrt ist, lehnt die Pruefung weiter ab. Ist eine Pruefung fehlgeschlagen oder offen, nennt der Hinweis unter dem Bildschirm sie mit ihrem Namen.
+**Pruefungen im bisherigen Ablauf (Konzept 13.1, 13.2, 13.4, 13.5).** Beim Oeffnen des Schritts Test laufen die lesenden Pruefungen von selbst. **"Alle pruefen"** zeigt die Wirkung aller offenen schaltenden Pruefungen zusammen, verlangt eine gemeinsame Bestaetigung ("Vorbereitung erledigt: alle starten") und fuehrt sie nacheinander aus (das sind die Sperrpruefungen der Signale); bleibt eine Sperre danach gesetzt, stoppt die Serie und meldet es. Ein Bahnhof ohne Signal hat nur lesende Pruefungen. "Einzeln" fuehrt die markierte Pruefung aus, "Lesende" wiederholt die lesenden. Ein Ergebnis bleibt gueltig, solange das geprueftes Geraet beziehungsweise der Ausgang dasselbe ist und die Zuordnung seines Gleises (Richtung, Geraete, Knotenanschluss) unveraendert ist: eine Namensaenderung, ein weiteres Gleis oder ein anderes Geraet entwertet die uebrigen Ergebnisse nicht. Das gilt auch beim "Einrichtung aendern" einer laufenden Knoten-Node (die Uebernahme des Knotens aus dem Verzeichnis loescht keine Ergebnisse mehr). Muss eine Sperrpruefung trotzdem wiederholt werden und ist das Signal im laufenden Betrieb gesperrt (die Einfahrt eines Knotens ist es dauernd), gilt es als geprueft: die Sperre bleibt, das Aufheben wird nicht erneut geprueft. Ein Signal, das in einer neuen Einrichtung schon gesperrt ist, lehnt die Pruefung weiter ab. Ist eine Pruefung fehlgeschlagen oder offen, nennt der Hinweis unter dem Bildschirm sie mit ihrem Namen.
 
 ## Knoten ueber das Netzverzeichnis
 
@@ -83,8 +83,8 @@ Beim Beitreten mit genau der Rolle **Knotenpunkt** waehlt man den Knoten aus der
 | Rolle | Pflichtangaben vor dem Aktivieren | Pruefungen |
 |---|---|---|
 | Signal (gefuehrt) | Funkmodem, Kennung der Leitstelle, mindestens ein Gleis, je Gleis mindestens ein Signal, je Signal die Wirkrichtung | je Signal lesen und eigene Testsperre setzen, zuruecklesen, aufheben, zuruecklesen (Abschlusspruefung, ohne Einzelabfragen) |
-| Passagier-/Gueterbahnhof | je Gleis eine Train Station und ein Freigabeausgang (keine doppelten Ausgaenge) | Train Station lesen; Ausgang kurz schalten und zuruecklesen (gemeinsame Bestaetigung) |
-| Depot | je Gleis eine Train Station | Train Station lesen; Ausgang, falls eingerichtet |
+| Passagier-/Gueterbahnhof | je Gleis eine Train Station | Train Station lesen |
+| Depot | je Gleis eine Train Station | Train Station lesen |
 | Anmeldung | eine Station fuer die Anmeldung | Station lesen |
 | Knoten | mindestens zwei Anschluesse und eine Verbindung; je Einfahrt ein Gleis mit Signal, je Ausfahrt ein Gleis mit Beobachter | Signale und Beobachter lesen; Signal-Testsperre (gemeinsame Bestaetigung) |
 | Leitstelle | Netzname, keine zweite Leitstelle | keine Geraetepruefung |
@@ -98,8 +98,7 @@ Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vor
 ## Rollen
 
 - Leitstelle: keine lokalen Gleise erforderlich, Monitor freiwillig.
-- Passagier- und Gueterbahnhof: Station und eigener Freigabeausgang je Gleis.
-- Depot: Station je Gleis, kein verpflichtender Freigabeausgang.
+- Passagier-, Gueterbahnhof und Depot: eine Station je Gleis; kein Freigabeausgang.
 - Signal: mindestens ein Gleis und ein zugeordnetes Signal je Gleis.
 - Knoten: Signale, Beobachter, Anschluesse, Verbindungen und Ein-/Ausfahrtszuordnung.
 - Anmeldung: ausgewaehlte, gueltige Station.

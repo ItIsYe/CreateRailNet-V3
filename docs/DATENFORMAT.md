@@ -20,11 +20,12 @@ Bei der Selbstaktualisierung (`docs/AKTUALISIERUNG.md`) gehoert die Sicherung zu
 
 ## Stand heute
 
-Das Datenformat ist **2**. Bis Format 1 haben alle Aenderungen (zum Beispiel Reihenfolge der Signale, Wirkrichtung, Netzverzeichnis Version 2) nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt. Belegt ist das durch `tests/fixtures/alte_staende.lua`: Datenstaende (Leitstelle, Signal-Node, Bahnhof), die zwei aelteren Programmfassungen aus Git geschrieben haben, starten im aktuellen Programm ohne Fehler, mit unveraenderter Einrichtung und mit angemeldeten Nodes (sie werden dabei einmal von Format 1 auf 2 angehoben).
+Das Datenformat ist **3**. Bis Format 1 haben alle Aenderungen (zum Beispiel Reihenfolge der Signale, Wirkrichtung, Netzverzeichnis Version 2) nur Felder ergaenzt, die das Programm beim Laden mit einer Vorgabe fuellt. Belegt ist das durch `tests/fixtures/alte_staende.lua`: Datenstaende (Leitstelle, Signal-Node, Bahnhof), die zwei aelteren Programmfassungen aus Git geschrieben haben, starten im aktuellen Programm ohne Fehler, mit unveraenderter Einrichtung und mit angemeldeten Nodes (sie werden dabei einmal von Format 1 auf 2 angehoben).
 
 | Schritt | Text | Was er tut |
 |---|---|---|
 | 1 -> 2 | Entwurf der Einrichtung verwerfen | Es gibt keinen Entwurf mehr (nur eine geprueft aktivierte Einrichtung wird gespeichert). Eine `config.lua` ohne Status "aktiv" wird geloescht (die Sicherung `sicherung_f1` behaelt sie); ihre Anforderungskennung (`node.claim`) wandert nach `anforderung.lua`, damit die Leitstelle keine zweite Node-Kennung vergibt, und eine stehengebliebene Testsperre (`pruefung.lauf`) nach `pruefmarke.lua`. Eine aktive Einrichtung bleibt unveraendert; steht in ihr eine Testsperre-Marke, zieht nur diese um. |
+| 2 -> 3 | Freigabeausgang der Gleise entfernen (Freigabe laeuft ueber den Fahrplan) | Die Abfahrt wird ueber den Abschnittsfahrplan der Train Station freigegeben (`docs/FREIGABE_PER_FAHRPLAN.md`), nicht mehr ueber Redstone. `tracks.*.release` in `config.lua` wird geloescht. In `station.lua` wird eine beim Update offene Freigabe (`release_set`) als verbraucht gesetzt (sie gehoerte dem Zug von damals; das Programm laeuft bei offener Freigabe nicht neu an). Betroffene Dateien: `config.lua`, `station.lua`. |
 
 Neue Dateien seit Format 2: `/crn_data/anforderung.lua` (`{ claim = "c..." }`, die Anforderungskennung dieses Computers im Netzverzeichnis; bei einer eingerichteten Node gilt `config.node.claim`) und `/crn_data/pruefmarke.lua` (`{ device, name, t }`, nur waehrend einer Testsperre der Abschlusspruefung; der naechste Start hebt die Sperre auf und loescht die Datei).
 

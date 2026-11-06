@@ -118,7 +118,8 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 ## Offen
 
-- `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
+- `setSchedule` bei einem Zug ohne Namen. (Mit geaendertem Inhalt ist es bestaetigt, H1 bis H5; die Freigabe per Abschnittsfahrplan ist umgesetzt, `docs/FREIGABE_PER_FAHRPLAN.md`.)
+- Mengenbedingung (`create:item_threshold`) im ersten Eintrag eines Abschnittsfahrplans bei einem stehenden Zug, und die Restwartezeit: Spieltest 4.9 bis 4.11 in `docs/GROSSER_TEST.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
 - Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Stand nach M22: offen ist nur noch ein Lauf an einem echten Knoten; die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
 - Signal statt Beobachter am Knoten (Spieltest 3.96, Teilergebnisse M18, M19, M21 und M22): offen sind ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block, und deckt der Block den ganzen Kreuzungsbereich?) und gleiche Zugnamen (M14). Gemessen: ein wartender Zug steht in der Liste des Signals davor, nicht in der des gesperrten Signals selbst (M22).
