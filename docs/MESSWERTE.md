@@ -35,9 +35,20 @@ Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: Compute
 - Folge: Eine Software-Sperre (`setForcedRed`) ist nur so haltbar wie diese eine Modemverbindung. Sie ist kein Notstopp. Der Signal-Node meldet ein verschwundenes Geraet als "nicht verfuegbar" (Leitstelle: Stoerung), und kommt das Signal zurueck, wird eine eigene Sperre durch den Abgleich schuetzend neu gesetzt.
 - Folge fuer den Knoten: Faellt ein Einfahrtssignal aus (Modem weg), ist die Einfahrt nicht mehr zusaetzlich gesperrt. Das ist eine Stoerung des Bereichs und wird angezeigt, nicht still hingenommen.
 
+## Aus dem Quelltext von CC:Tweaked (nicht im Spiel gemessen)
+
+Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository cc-tweaked/cc-tweaked). Am echten Monitor mit `probe/crn_probe.lua` gegenpruefen.
+
+| Nr | Wert | Folge fuer die Oberflaeche |
+|---|---|---|
+| Q01 | Terminal von Computer und Advanced Computer: 51x19 (Vorgabe der Spielkonfiguration, einstellbar von 1 bis 255). Pocket Computer 26x20, Turtle 39x13. | Der PC selbst zeigt immer die kompakte Ansicht (51x19). Pocket und Turtle sind kleiner und zeigen nur die Statusansicht. |
+| Q02 | Monitor: Breite = Runden((Bloecke - 0,3125) / (Textgroesse x 6 / 64)), Hoehe = Runden((Bloecke - 0,3125) / (Textgroesse x 9 / 64)). Vorgabe der Textgroesse ist 1,0; das Programm stellt sie nie um. | Textgroesse 0,5: 1x1 = 15x10, 3x3 = 57x38, 5x4 = 100x52, 7x5 = 143x67. Textgroesse 1,0: 1x1 = 7x5, 3x3 = 29x19, 6x3 = 61x19, 7x5 = 71x33, 10x6 = 103x40. |
+| Q03 | Das grosse Layout (ab 100x40) braucht bei Textgroesse 0,5 mindestens 5 Bloecke Breite und 4 Hoehe, bei der Vorgabe 1,0 mindestens 10x6. Die kompakte Ansicht (ab 51x19) braucht bei 1,0 mindestens 6x3 (5x3 ergibt 50x19 und damit nur die Statusansicht). | Die bisherige Angabe "mindestens 7x5 Bloecke" war kein Mindestwert; 7x5 bei Textgroesse 1,0 ergibt nur 71x33 (kompakt). |
+| Q04 | Eingaben: der PC-Bildschirm liefert Mausklick und Tastatur, ein Monitor nur Beruehrung (`monitor_touch`), keine Tastatur, kein Scrollen. | Text eingeben geht nur am PC; Listen am Monitor brauchen die Blaetter-Tasten auf dem Bildschirm. |
+
 ## Offen
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
-- Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen.
+- Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

@@ -31,7 +31,7 @@ Ein Computer mit Create-Geraeten am Kabelmodem (mindestens ein Bahnhof, ein Sign
 
 ## Stufe 3: Oberflaeche und Assistent
 
-Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen), Advanced Computer, Funkmodem; moeglichst ein Monitor am Kabelmodem (Advanced Monitor, mindestens 7x5 Bloecke fuer das grosse Layout bei Textgroesse 0,5; kleinere zeigen die kompakte Ansicht). Start mit `crn/app/main` (oder Neustart).
+Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen), Advanced Computer, Funkmodem; moeglichst ein Monitor am Kabelmodem (Advanced Monitor, fuer das grosse Layout mindestens 5x4 Bloecke bei Textgroesse 0,5 oder 10x6 bei der Vorgabe 1,0; kleinere zeigen die kompakte Ansicht ab 6x3 Bloecken bei 1,0; Rechnung in `docs/MESSWERTE.md`, Q02/Q03). Start mit `crn/app/main` (oder Neustart).
 
 | Nr | Schritt | Erwartung | Ergebnis |
 |---|---|---|---|
