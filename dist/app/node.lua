@@ -144,6 +144,47 @@ return true,"Pruefung bestanden."
 end
 
 
+local function scale_text(scale)return(string.format("%.1f",scale):gsub("%.",","))end
+
+
+local function monitor_info(id)
+local spec=n.config and n.config.devices[id]
+if not spec or spec.kind~="monitor"then return nil end
+local info={id=id,name=spec.device,scale=spec.text_scale or 1}
+for _,v in ipairs(n.views)do
+if v.name==spec.device then info.target=v.target end
+end
+local target=info.target
+if target then
+info.can=type(target.setTextScale)=="function"
+if type(target.getTextScale)=="function"then
+local ok,current=pcall(target.getTextScale)
+if ok and type(current)=="number"then info.scale=current end
+end
+local ok,w,h=pcall(target.getSize)
+if ok then info.w,info.h=w,h end
+end
+return info
+end
+
+
+function n.toggle_monitor_scale(id)
+local info=monitor_info(id)
+if not info then return false,"Das ist kein Monitor."end
+if not info.target then return false,"Der Monitor "..info.name.." ist nicht erreichbar."end
+if not info.can then return false,"Textgroesse geht an diesem Monitor nicht."end
+local new=(info.scale==0.5)and 1 or 0.5
+if not pcall(info.target.setTextScale,new)then return false,info.name.." lehnt Textgroesse "..scale_text(new).." ab."end
+n.config.devices[id].text_scale=new
+local saved=n.save_config()
+n.dirty=true
+local ok,w,h=pcall(info.target.getSize)
+local text=info.name..": Textgroesse "..scale_text(new)..(ok and string.format(", %dx%d Zeichen.",w,h)or".")
+if not saved then text=text.." Nicht gespeichert."end
+return true,text
+end
+
+
 local pages={}
 
 pages[#pages+1]={
@@ -203,17 +244,14 @@ end
 end,
 }
 
-pages[#pages+1]={
-id="geraete",title="Geraete",
-render=function(v,rect)
-local state=v.page_state("geraete")
-state.list=state.list or{index=1}
+
+local function device_items(wide)
 local checks=n.config and bind.check(n.config.devices,n.scan)or{}
 local by_device={}
 if n.config then
 for id,spec in pairs(n.config.devices)do by_device[spec.device]={id=id,check=checks[id]}end
 end
-local items={}
+local items,meta={},{}
 for _,d in ipairs(n.scan)do
 local bound=by_device[d.name]
 local detail=table.concat(d.types,",")
@@ -221,16 +259,49 @@ local kind="dim"
 if bound then
 detail=detail.." -> "..bound.id.." ("..bound.check.status..")"
 if bound.check.status~="ok"then kind="attention"end
+local info=monitor_info(bound.id)
+if wide and info and info.w then detail=detail..string.format(", %dx%d Zeichen, Textgroesse %s",info.w,info.h,scale_text(info.scale))end
 end
 items[#items+1]={text=d.name,detail=detail,kind=kind}
+meta[#items]=bound and bound.id or nil
 end
 
 if n.config then
 for id,check in pairs(checks)do
-if check.status=="fehlt"then items[#items+1]={text=n.config.devices[id].device,detail="FEHLT ("..id..")",kind="halt"}end
+if check.status=="fehlt"then
+items[#items+1]={text=n.config.devices[id].device,detail="FEHLT ("..id..")",kind="halt"}
+meta[#items]=id
 end
 end
-W.list(v,"geraete",rect,items,state.list,{empty="Keine Geraete angeschlossen."})
+end
+return items,meta
+end
+
+pages[#pages+1]={
+id="geraete",title="Geraete",
+render=function(v,rect)
+local state=v.page_state("geraete")
+state.list=state.list or{index=1}
+W.list(v,"geraete",rect,(device_items(v.layout.mode=="gross")),state.list,{empty="Keine Geraete angeschlossen."})
+end,
+
+actions=function(v)
+local state=v.page_state("geraete")
+local _,meta=device_items()
+local info=monitor_info(meta[state.list and state.list.index or 1])
+if not info then return{{id="textgroesse",label="Textgroesse",kind="secondary",enabled=false,reason="Erst einen Monitor in der Liste waehlen."}}end
+local label="Textgroesse "..scale_text(info.scale==0.5 and 1 or 0.5)
+if not info.target then return{{id="textgroesse",label=label,kind="secondary",enabled=false,reason="Der Monitor "..info.name.." ist nicht erreichbar."}}end
+if not info.can then return{{id="textgroesse",label=label,kind="secondary",enabled=false,reason="Textgroesse geht an diesem Monitor nicht."}}end
+return{{id="textgroesse",label=label,kind="secondary"}}
+end,
+on_action=function(v,id)
+if id~="act:textgroesse"then return false end
+local state=v.page_state("geraete")
+local _,meta=device_items()
+local ok,text=n.toggle_monitor_scale(meta[state.list and state.list.index or 1])
+v.hint=text
+return true
 end,
 }
 
@@ -411,7 +482,12 @@ table.sort(ids)
 for _,id in ipairs(ids)do
 local name=n.config.devices[id].device
 local target=env.wrap and env.wrap(name)
-if target then add(name,target)end
+if target then
+
+local scale=n.config.devices[id].text_scale
+if scale and target.setTextScale then pcall(target.setTextScale,scale)end
+add(name,target)
+end
 end
 end
 end

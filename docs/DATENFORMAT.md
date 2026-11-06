@@ -28,6 +28,8 @@ Das Datenformat ist **2**. Bis Format 1 haben alle Aenderungen (zum Beispiel Rei
 
 Neue Dateien seit Format 2: `/crn_data/anforderung.lua` (`{ claim = "c..." }`, die Anforderungskennung dieses Computers im Netzverzeichnis; bei einer eingerichteten Node gilt `config.node.claim`) und `/crn_data/pruefmarke.lua` (`{ device, name, t }`, nur waehrend einer Testsperre der Abschlusspruefung; der naechste Start hebt die Sperre auf und loescht die Datei).
 
+Neues Feld ohne Format-Aenderung: `devices[id].text_scale` (`config.lua`, nur bei Monitoren, 1 oder 0,5; Taste auf der Seite Geraete). Fehlt es, bleibt der Monitor, wie er ist; ein neues Programm liest alte Dateien ohne Anpassungsschritt, ein altes Programm ignoriert das Feld.
+
 ## Regel fuer Aenderungen
 
 1. **Nur ergaenzt** (neues Feld, das beim Laden eine Vorgabe bekommt): kein Schritt. `tests/test_integrator.lua` meldet die neue Form trotzdem; die Festlegung `tests/golden/datenform.txt` wird bewusst erneuert: `CRN_UPDATE_GOLDEN=1 lua tools/run_tests.lua integrator`, den Unterschied im Commit ansehen.

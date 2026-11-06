@@ -1,9 +1,9 @@
 return {
-  id = "b5cb92a4",
+  id = "724992ac",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4870, sum = "9d5ba795" },
-    ["app/node.lua"] = { size = 40274, sum = "190af001" },
+    ["app/node.lua"] = { size = 43155, sum = "1070f24e" },
     ["app/selftest.lua"] = { size = 7342, sum = "aa1bf61e" },
     ["core/adler.lua"] = { size = 363, sum = "e6127123" },
     ["core/chunks.lua"] = { size = 4354, sum = "bbf4fdb7" },

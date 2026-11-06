@@ -1,6 +1,7 @@
 --[[
 Purpose: Fake fuer Terminal und Monitor (term-aehnlich): feste Groesse, Zeichen und Farben je Zelle, blit, Palette, isColour. Tests lesen den Bildschirm als Text.
 API: screen.new(w, h, opts) -> s (opts.colour = false fuer Schwarz/Weiss, opts.blit = false ohne blit); s.rows(), s.text(), s.cell(x, y), s.writes
+Monitor mit Bloecken: opts.blocks = { breite, hoehe } (Bloecke, Textgroesse 1,0 gibt w und h vor) liefert setTextScale/getTextScale wie das Spiel (Vielfaches von 0,5 zwischen 0,5 und 5; Raster nach der Rechnung aus ServerMonitor.rebuild, docs/MESSWERTE.md Q02); aendert sich die Groesse, wird der Inhalt geleert und opts.on_resize(s) gerufen (im Spiel kommt dann das Ereignis monitor_resize).
 ]]
 
 local M = {}
@@ -10,11 +11,33 @@ function M.new(w, h, opts)
   local s = { w = w, h = h, writes = 0, palette = {}, cx = 1, cy = 1 }
   local ch, fg, bg = {}, {}, {}
   local cur_fg, cur_bg = 1, 32768
-  for y = 1, h do
-    ch[y], fg[y], bg[y] = {}, {}, {}
-    for x = 1, w do ch[y][x], fg[y][x], bg[y][x] = " ", 1, 32768 end
+  local function fresh()
+    ch, fg, bg = {}, {}, {}
+    for y = 1, h do
+      ch[y], fg[y], bg[y] = {}, {}, {}
+      for x = 1, w do ch[y][x], fg[y][x], bg[y][x] = " ", 1, 32768 end
+    end
   end
+  fresh()
   function s.getSize() return w, h end
+  if opts.blocks then
+    local scale = 1
+    -- Raster aus Bloecken und Textgroesse wie im Spiel: Runden((Bloecke - 0,3125) / (Textgroesse x Zeichen in Punkten / 64)), 6x9 Punkte je Zeichen
+    local function grid(blocks, points) return math.max(1, math.floor((blocks - 0.3125) * 64 / (scale * points) + 0.5)) end
+    function s.getTextScale() return scale end
+    function s.setTextScale(value)
+      if type(value) ~= "number" then error("bad argument #1 (number expected, got " .. type(value) .. ")", 2) end
+      if value < 0.5 or value > 5 or value * 2 ~= math.floor(value * 2) then error("Expected number in range 0.5-5 in steps of 0.5", 2) end
+      scale = value
+      local nw, nh = grid(opts.blocks[1], 6), grid(opts.blocks[2], 9)
+      if nw ~= w or nh ~= h then
+        w, h = nw, nh
+        s.w, s.h = w, h
+        fresh()
+        if opts.on_resize then opts.on_resize(s) end
+      end
+    end
+  end
   function s.setCursorPos(x, y) s.cx, s.cy = x, y end
   function s.getCursorPos() return s.cx, s.cy end
   function s.setTextColour(c) cur_fg = c end
