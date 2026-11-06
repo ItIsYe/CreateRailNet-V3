@@ -35,6 +35,16 @@ Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: Compute
 - Folge: Eine Software-Sperre (`setForcedRed`) ist nur so haltbar wie diese eine Modemverbindung. Sie ist kein Notstopp. Der Signal-Node meldet ein verschwundenes Geraet als "nicht verfuegbar" (Leitstelle: Stoerung), und kommt das Signal zurueck, wird eine eigene Sperre durch den Abgleich schuetzend neu gesetzt.
 - Folge fuer den Knoten: Faellt ein Einfahrtssignal aus (Modem weg), ist die Einfahrt nicht mehr zusaetzlich gesperrt. Das ist eine Stoerung des Bereichs und wird angezeigt, nicht still hingenommen.
 
+## M18 Signal bei Zugdurchfahrt (vom Betreiber gemessen, ohne Beobachter)
+
+Messung mit `probe/crn_probe4.lua`: 180 s, zwei Signale (`Create_Signal_5`, `Create_Signal_34`), ein Zug "Zug 5" auf einem Rundkurs, **kein Beobachter angeschlossen**, Abfrage alle 0,2 s (die drei Aufrufe je Signal laufen nacheinander).
+
+- Bei jeder Durchfahrt wechselt das Signal auf `RED` und `listBlockingTrainNames()` nennt den Zugnamen; beim Verlassen des Blocks wird es wieder `GREEN` und die Liste ist leer. **6 von 6 Durchfahrten** (4 an `Create_Signal_5`, 2 an `Create_Signal_34`).
+- Der Name erscheint 0 bis 0,75 s nach dem Ereignis `train_signal_state_change` (RED) in der Liste und verschwindet gleichzeitig mit dem Ereignis GREEN (0 bis 0,2 s); feiner als der Abfrageabstand ist das nicht aufgeloest. Das Ereignis kommt 0,05 bis 0,15 s vor dem gelesenen `getState`.
+- Die rote Zeit ist die Belegungszeit des Blocks hinter dem Signal: `Create_Signal_5` 7,0 / 7,4 / 7,2 / 7,2 s, `Create_Signal_34` 19,2 / 19,0 s. `Create_Signal_34` sah den Zug nur in jeder zweiten Runde (Abstand 85 s statt 42,5 s).
+- Die Methodenliste des Signals hat sechs Eintraege (`getState`, `cycleSignalType`, `isForcedRed`, `setForcedRed`, `listBlockingTrainNames`, `getSignalType`), der Signaltyp ist `ENTRY_SIGNAL`.
+- Folge: Der Zugname im Signal ist belegt, und das Verschwinden des Namens zeigt, dass der Block hinter dem Signal geraeumt ist. **Nicht gemessen:** Abstand zu `train_passed` an einem Beobachter (keiner angeschlossen), Verhalten bei einem Zug, der vor einem erzwungen roten Signal wartet (`--sperre`), mehrere Zuege gleichzeitig, Zuege mit gleichem Namen (M14: Namen sind nicht eindeutig). Bis dahin bleibt der Beobachter am Knoten Pflicht.
+
 ## Aus dem Quelltext von CC:Tweaked (nicht im Spiel gemessen)
 
 Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository cc-tweaked/cc-tweaked). Am echten Monitor mit `probe/crn_probe.lua` gegenpruefen.
@@ -50,6 +60,6 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
-- Signal bei Zugdurchfahrt: was `listBlockingTrainNames` und `getState` melden, solange ein Zug im Block steht, und wann der Name wieder verschwindet (gemessen wurde nur der Ruhezustand, M03/M08). Davon haengt ab, ob ein Knoten die Raeumung auch ohne Beobachter nachweisen koennte; bis dahin bleibt der Beobachter Pflicht (Knoten: Einfahrt = Signal + Beobachter, Ausfahrt = Beobachter). Wird mit `probe/crn_probe4.lua` gemessen (Spieltest 3.96).
+- Signal und Beobachter im Vergleich (Spieltest 3.96, `probe/crn_probe4.lua`): Abstand zwischen dem Verschwinden des Zugnamens im Signal und `train_passed` am Ausfahrtsbeobachter, Verhalten bei wartendem Zug vor erzwungen rotem Signal (`--sperre`), mehrere Zuege und gleiche Zugnamen. Davon haengt ab, ob ein Knoten die Raeumung auch ohne Beobachter nachweisen koennte (Teilergebnis: M18).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).
