@@ -43,7 +43,19 @@ Messung mit `probe/crn_probe4.lua`: 180 s, zwei Signale (`Create_Signal_5`, `Cre
 - Der Name erscheint 0 bis 0,75 s nach dem Ereignis `train_signal_state_change` (RED) in der Liste und verschwindet gleichzeitig mit dem Ereignis GREEN (0 bis 0,2 s); feiner als der Abfrageabstand ist das nicht aufgeloest. Das Ereignis kommt 0,05 bis 0,15 s vor dem gelesenen `getState`.
 - Die rote Zeit ist die Belegungszeit des Blocks hinter dem Signal: `Create_Signal_5` 7,0 / 7,4 / 7,2 / 7,2 s, `Create_Signal_34` 19,2 / 19,0 s. `Create_Signal_34` sah den Zug nur in jeder zweiten Runde (Abstand 85 s statt 42,5 s).
 - Die Methodenliste des Signals hat sechs Eintraege (`getState`, `cycleSignalType`, `isForcedRed`, `setForcedRed`, `listBlockingTrainNames`, `getSignalType`), der Signaltyp ist `ENTRY_SIGNAL`.
-- Folge: Der Zugname im Signal ist belegt, und das Verschwinden des Namens zeigt, dass der Block hinter dem Signal geraeumt ist. **Nicht gemessen:** Abstand zu `train_passed` an einem Beobachter (keiner angeschlossen), Verhalten bei einem Zug, der vor einem erzwungen roten Signal wartet (`--sperre`), mehrere Zuege gleichzeitig, Zuege mit gleichem Namen (M14: Namen sind nicht eindeutig). Bis dahin bleibt der Beobachter am Knoten Pflicht.
+- Folge: Der Zugname im Signal ist belegt, und das Verschwinden des Namens zeigt, dass der Block hinter dem Signal geraeumt ist. Der Vergleich mit einem Beobachter steht in M19.
+
+## M19 Signal gegen Beobachter (vom Betreiber gemessen, zweiter Lauf von `crn_probe4`)
+
+Aufbau: `Create_Signal_34` liegt vor einem Bahnhof (`Create_Station_1`), `Create_TrainObserver_1` am Bahnhofseingang, `Create_Signal_5` hinter dem Bahnhof; zwei Zuege im Wechsel ("Zug 5" und "Unnamed Train"), 180 s, Abfrage alle 0,2 s, keine Sperre. Die Ereignisse des Bahnhofs (`train_imminent`, `train_arrival`, `train_departure`) wurden mitgeschrieben.
+
+- **Name und Raeumung am Signal des Beobachterblocks (`Create_Signal_34`):** Der Zugname steht in `listBlockingTrainNames()`, sobald der Zug in den Block einfaehrt, und verschwindet gleichzeitig mit dem Ereignis GREEN. 5 von 5 Durchfahrten am Beobachter sind durch einen Namenszeitraum des Signals abgedeckt, die Namen werden richtig unterschieden ("Zug 5" und "Unnamed Train" an verschiedenen Bloecken zur gleichen Zeit ebenfalls).
+- **Abstand zu `train_passed` am Beobachter (Condition 3):** Der Name verschwindet im Signal **0,45 bis 0,70 s nach** `train_passed` (vier Durchfahrten: 0,45 / 0,70 / 0,55 / 0,70 s; Abfrageabstand 0,2 s). Klein und gleichbleibend, solange der Beobachter am Ende des Blocks liegt.
+- **Fruehere Ankuendigung:** Der Name erscheint im Signal 7,35 bis 7,45 s **vor** `train_passing` am Beobachter und 4,4 s vor `train_imminent` des Bahnhofs (drei Durchfahrten voll gemessen). Das Signal kuendigt den Zug also frueher an als der Beobachter.
+- **Beobachter selbst:** `train_passing` kommt 0,8 s vor `train_arrival`; `train_passed` kommt erst rund 5,2 s **nach** `train_departure`, weil der ganze Zug am Beobachter vorbei muss.
+- **Naechstes Signal (`Create_Signal_5`, anderer Block hinter dem Bahnhof):** ROT genau 2,0 s nach `train_departure`, Name 7,0 bis 7,4 s lang; GRUEN 4,1 bis 4,7 s nach `train_passed`. Das ist ein anderer Block und kein Vergleich zum Beobachter.
+- **Verzoegerung des Namens nach dem ROT-Ereignis:** 0 bis 0,15 s, bei Zuegen, die nicht durch den Bahnhof fuhren, 0,60 bis 0,75 s (4 von 12 ROT-Ereignissen). Wer die Liste sofort beim Ereignis liest, kann sie leer finden; einmal nachfragen genuegt.
+- **Nicht gemessen:** ein Zug, der vor einem erzwungen roten Signal wartet (steht er in der Liste, oder nur der Zug im Block?), ein echter Knoten mit mehreren Einfahrtssignalen vor demselben Block (zeigen alle den Zug im gemeinsamen Block?), zwei Zuege mit gleichem Namen (M14). Bis dahin bleibt der Beobachter am Knoten Pflicht.
 
 ## Aus dem Quelltext von CC:Tweaked (nicht im Spiel gemessen)
 
@@ -60,6 +72,6 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 
 - `setSchedule` mit geaendertem Inhalt (andere Ziele) und bei einem Zug ohne Namen. Wird mit `probe/crn_probe3.lua` gemessen (Haltefahrplan, `create:powered`, Abfahrt per Fahrplan); Hintergrund und Annahmen H1 bis H5 in `docs/FREIGABE_PER_FAHRPLAN.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
-- Signal und Beobachter im Vergleich (Spieltest 3.96, `probe/crn_probe4.lua`): Abstand zwischen dem Verschwinden des Zugnamens im Signal und `train_passed` am Ausfahrtsbeobachter, Verhalten bei wartendem Zug vor erzwungen rotem Signal (`--sperre`), mehrere Zuege und gleiche Zugnamen. Davon haengt ab, ob ein Knoten die Raeumung auch ohne Beobachter nachweisen koennte (Teilergebnis: M18).
+- Signal statt Beobachter am Knoten (Spieltest 3.96, `probe/crn_probe4.lua`, Teilergebnisse M18 und M19): offen sind der wartende Zug vor einem erzwungen roten Signal (`--sperre`: steht er in `listBlockingTrainNames`, damit der Knoten wuesste, wer Einfahrt verlangt?), ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block?) und gleiche Zugnamen (M14).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).
