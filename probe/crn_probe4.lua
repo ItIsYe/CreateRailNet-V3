@@ -126,9 +126,16 @@ local function poll_all()
 end
 
 local function observe(seconds)
-  local deadline = os.clock() + seconds
+  local started = os.clock()
+  local deadline = started + seconds
+  local next_note = started + 30
   local timer = os.startTimer(opts.poll)
   while os.clock() < deadline do
+    -- Fortschritt nur auf dem Bildschirm (nicht im Bericht): sonst sieht eine ruhige Strecke wie ein Haenger aus
+    if os.clock() >= next_note then
+      print(string.format("  ... noch %d s", math.max(0, math.floor(deadline - os.clock() + 0.5))))
+      next_note = next_note + 30
+    end
     local ev = pack(os.pullEvent())
     if ev[1] == "timer" and ev[2] == timer then
       poll_all()

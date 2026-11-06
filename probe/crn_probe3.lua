@@ -214,6 +214,12 @@ else
       add("(nicht gelaufen: mit --ziel BAHNHOFSNAME starten; der Zug faehrt dann dorthin und zurueck)")
     else
       run("Probe D: Abfahrt per Fahrplan (Rundlauf zu " .. opts.goal .. ")", function()
+        -- Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (docs/MESSWERTE.md M20): erst ein anderer Bahnhof
+        if opts.goal == name then
+          add("Ziel ist der eigene Bahnhof (" .. tostring(name) .. "): Create schickt einen Zug nicht direkt wieder dorthin, Probe D entfaellt. Anderen Bahnhof als Ziel nehmen.")
+          result("D Abfahrt per Fahrplan", "nicht gemessen: Ziel ist der eigene Bahnhof")
+          return
+        end
         local ok_r, reachable, rwhy = call("canTrainReach", opts.goal)
         if not (ok_r and reachable == true) then
           add("Ziel nicht erreichbar (" .. tostring(ok_r and rwhy or reachable) .. "): Probe D entfaellt.")

@@ -167,6 +167,16 @@ return {
     t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
   end },
 
+  { "Ziel ist der eigene Bahnhof: Probe D entfaellt (Create schickt einen Zug nicht direkt wieder dorthin, M20), kein Rundlauf", function()
+    local w = world()
+    local ok, err, out = run(w, { "--ziel", "Hof A", "--ja" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "Ziel ist der eigene Bahnhof")
+    t.contains(out, "D Abfahrt per Fahrplan: nicht gemessen: Ziel ist der eigene Bahnhof")
+    for _, call in ipairs(w.calls) do t.ok(select(2, call:gsub("create:destination", "")) ~= 3, "kein Rundlauf gesetzt") end
+    t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
+  end },
+
   { "Probe mit unerreichbarem Ziel: keine Fahrt, Hinweis", function()
     local w = world()
     local ok, err, out = run(w, { "--ziel", "Nirgendwo" })

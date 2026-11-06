@@ -157,6 +157,15 @@ return {
     t.eq(w.forced(), false, "Sperre zurueckgestellt")
     t.contains(out, "Abbruch der Beobachtung")
   end },
+  { "Waehrend der Beobachtung kommt alle 30 s eine Fortschrittszeile auf den Bildschirm (nicht in den Bericht)", function()
+    local w = world({ no_train = true })
+    local ok, err, out = run(w, { "--wait", "100" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "... noch 70 s")
+    t.contains(out, "... noch 40 s")
+    t.contains(out, "... noch 10 s")
+    t.not_contains(w.files["crn_probe4.txt"], "... noch")
+  end },
   { "Keine Geraete: Hinweis statt Absturz", function()
     local w = world({ empty = true })
     local ok, err, out = run(w, {})

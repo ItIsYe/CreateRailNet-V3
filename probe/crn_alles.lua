@@ -1,6 +1,7 @@
 --[[
 Purpose: Alle offenen Messungen in einem Lauf: laedt crn_probe4 (Signal gegen Beobachter) und crn_probe3 (Abfahrt ueber die Train Station) bei Bedarf selbst, fuehrt alles aus, was an diesem Computer moeglich ist, schreibt einen gemeinsamen Bericht (crn_alles.txt) und laedt ihn mit pastebin hoch. Es gibt nur eine Rueckfrage am Anfang.
 Usage: crn_alles                    alles Anwendbare nacheinander; vorher einmal j bestaetigen
+       crn_alles --hilfe            diese Anleitung (es wird nichts gestartet)
        crn_alles --ja               ohne die Rueckfrage (alles gilt als bestaetigt)
        crn_alles --zeit N           Beobachtungszeit je Signal-Lauf in Sekunden (Standard 150)
        crn_alles --ziel NAME        Zielbahnhof fuer den Rundlauf des Zuges (Probe D); ohne Angabe wird ein zweiter Bahnhof am Netz benutzt, sonst entfaellt Probe D
@@ -22,6 +23,7 @@ do
   while i <= #args do
     local a = args[i]
     if a == "--ja" then opts.yes = true; i = i + 1
+    elseif a == "--hilfe" or a == "-h" then opts.help = true; i = i + 1
     elseif a == "--zeit" then opts.wait = tonumber(args[i + 1]) or opts.wait; i = i + 2
     elseif a == "--ziel" then opts.goal = args[i + 1]; i = i + 2
     elseif a == "--ohne-sperre" then opts.hold = false; i = i + 1
@@ -30,11 +32,27 @@ do
     elseif a == "--lokal" then opts.refresh = false; i = i + 1
     elseif a == "--nicht-hochladen" then opts.upload = false; i = i + 1
     elseif a == "--out" then opts.out = args[i + 1] or opts.out; i = i + 2
-    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --ja, --zeit N, --ziel NAME, --ohne-sperre, --ohne-fahrt, --nur signal|abfahrt, --lokal, --nicht-hochladen, --out DATEI)", 0) end
+    else error("Unbekannte Option: " .. tostring(a) .. " (erlaubt: --hilfe, --ja, --zeit N, --ziel NAME, --ohne-sperre, --ohne-fahrt, --nur signal|abfahrt, --lokal, --nicht-hochladen, --out DATEI)", 0) end
   end
   if opts.only and opts.only ~= "signal" and opts.only ~= "abfahrt" then
     error("--nur versteht signal oder abfahrt, nicht " .. tostring(opts.only), 0)
   end
+end
+
+if opts.help then
+  print("crn_alles - alle offenen Messungen in einem Lauf")
+  print("  crn_alles --ja               ohne die Rueckfrage")
+  print("  crn_alles --zeit N           Sekunden je Signalteil (Standard 150)")
+  print("  crn_alles --ziel NAME        Zielbahnhof fuer den Rundlauf (nicht der eigene)")
+  print("  crn_alles --ohne-sperre      kein Signal sperren")
+  print("  crn_alles --ohne-fahrt       kein Rundlauf des Zuges")
+  print("  crn_alles --nur signal       nur Signale (oder --nur abfahrt)")
+  print("  crn_alles --lokal            nichts neu laden")
+  print("  crn_alles --nicht-hochladen  kein pastebin")
+  print("  crn_alles --out datei.txt    anderer Dateiname")
+  print("Teile: S1 Signale beobachten, S2 Signal sperren, B Abfahrt (crn_probe3).")
+  print("Am Ende: Bericht " .. opts.out .. " und Upload mit pastebin.")
+  return
 end
 
 local BASE = "https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/probe/"
@@ -138,8 +156,13 @@ local function station_name(device)
   return ok and type(name) == "string" and name ~= "" and name or nil
 end
 local goal = opts.goal
-if not goal and opts.trip then
-  local own = train_station and station_name(train_station)
+local own = train_station and station_name(train_station)
+local goal_note
+if goal and own and goal == own then
+  -- Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthin (docs/MESSWERTE.md M20)
+  goal_note = "Ziel " .. goal .. " ist der eigene Bahnhof: Create schickt einen Zug nicht direkt wieder dorthin, es gibt keinen Rundlauf (anderen Bahnhof als Ziel nehmen)."
+  goal = nil
+elseif not goal and opts.trip then
   for _, st in ipairs(stations) do
     local nm = station_name(st)
     if nm and nm ~= own and st ~= train_station then goal = nm break end
@@ -161,6 +184,7 @@ add("Optionen: zeit=" .. opts.wait .. " sperre=" .. tostring(opts.hold) .. " fah
 add("Bahnhoefe: " .. #stations .. (#stations > 0 and ("  (" .. table.concat(stations, ", ") .. ")") or "") .. (train_station and ("  Zug steht an " .. train_station) or ""))
 add("Signale: " .. #signals .. (#signals > 0 and ("  (" .. table.concat(signals, ", ") .. ")") or ""))
 add("Beobachter: " .. #observers .. (#observers > 0 and ("  (" .. table.concat(observers, ", ") .. ")") or ""))
+if goal_note then add(goal_note) end
 
 -- Plan und eine Rueckfrage -------------------------------------------------------------------------------------------------
 section("Plan")
@@ -227,9 +251,17 @@ local function phase_signals()
     set_phase("S2", "Signal sperren", "uebersprungen", "in S1 wurde kein Zug an einem Signal gesehen; eine Sperre wuerde ins Leere laufen")
     return
   end
-  add("Gesperrt wird " .. busiest .. " (" .. count .. " Wechsel auf ROT in S1).")
+  add("Gesperrt wird " .. busiest .. " (" .. count .. " Wechsel auf ROT in S1); Zuege halten dort bis zu " .. opts.wait .. " s.")
+  local ok_b, forced_before = call(busiest, "isForcedRed")
   local ok2, err2 = run_program("crn_probe4", "--sperre", "--ja", "--signal", busiest, "--wait", tostring(opts.wait), "--out", FILES.s2)
   reports.s2 = read_file(FILES.s2)
+  -- Sicherheitsnetz: das Einzelprogramm gibt die Sperre selbst zurueck; ist das Signal trotzdem noch gesperrt, wird es hier freigegeben
+  local ok_a, forced_after = call(busiest, "isForcedRed")
+  if ok_b and forced_before == false and ok_a and forced_after == true then
+    call(busiest, "setForcedRed", false)
+    local ok_c, forced_check = call(busiest, "isForcedRed")
+    add("WARNUNG: " .. busiest .. " war nach S2 noch gesperrt; freigegeben, isForcedRed danach " .. (ok_c and tostring(forced_check) or "unbekannt") .. ". Bitte am Signal pruefen.")
+  end
   if not ok2 or not reports.s2 then
     set_phase("S2", "Signal sperren", "FEHLER", err2 or "kein Bericht")
   else

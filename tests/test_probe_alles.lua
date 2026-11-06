@@ -239,6 +239,18 @@ local function sources()
   return { ["crn_probe3.lua"] = read_source("probe/crn_probe3.lua"), ["crn_probe4.lua"] = read_source("probe/crn_probe4.lua") }
 end
 
+
+local function fixture(name) return read_source("tests/fixtures/" .. name) end
+
+-- Ersatzprogramm fuer crn_probe4: schreibt einen fertigen Bericht in die --out-Datei; mit force sperrt es bei --sperre ein Signal und gibt es nicht frei
+local function stub_probe4(report, force_device)
+  return "local args = { ... }\n" ..
+    "local out, hold\n" ..
+    "for i, a in ipairs(args) do if a == '--out' then out = args[i + 1] end if a == '--sperre' then hold = true end end\n" ..
+    (force_device and ("if hold then peripheral.call('" .. force_device .. "', 'setForcedRed', true) end\n") or "") ..
+    "local fh = fs.open(out, 'w')\nfh.write([==[" .. report .. "]==])\nfh.close()\n"
+end
+
 return {
   { "Alles in einem Lauf: S1 beobachten, S2 das befahrene Signal sperren, B Fahrplan-Proben samt Rundlauf; keine Rueckfrage mit --ja, alles zurueckgestellt, ein Bericht, ein Upload", function()
     local w = world({ second_station = true })
@@ -389,6 +401,43 @@ return {
     local ok2, err2, out2 = run(w2, { "--ja", "--zeit", "40" })
     t.ok(ok2, tostring(err2))
     t.contains(out2, "Hochladen fehlgeschlagen")
+  end },
+  { "Das staerkste Signal wird aus dem echten Bericht gelesen (Lauf 1 und Lauf 2 vom Spiel): Create_Signal_5 mit den meisten Wechseln auf ROT", function()
+    for _, name in ipairs({ "crn_probe4_lauf1.txt", "crn_probe4_lauf2.txt" }) do
+      local w = world({ no_station = true, files = { ["crn_probe4.lua"] = stub_probe4(fixture(name)) } })
+      local ok, err, out = run(w, { "--ja", "--zeit", "30", "--lokal" })
+      t.ok(ok, tostring(err))
+      t.contains(table.concat(w.runs, "\n"), "--sperre --ja --signal Create_Signal_5", name)
+      t.contains(out, "Gesperrt wird Create_Signal_5")
+    end
+  end },
+  { "Bleibt ein Signal nach S2 gesperrt, gibt das Hauptprogramm es frei und warnt", function()
+    local s1 = "\n== Ergebnis (Kurzfassung)\nSignal Create_Signal_0 getState: GREEN (+0.0 s) -> RED (+20.2 s) -> GREEN (+27.2 s)\n"
+    local w = world({ no_station = true, files = { ["crn_probe4.lua"] = stub_probe4(s1, "Create_Signal_0") } })
+    local ok, err, out = run(w, { "--ja", "--zeit", "30", "--lokal" })
+    t.ok(ok, tostring(err))
+    t.eq(w.forced(), false, "Sperre vom Hauptprogramm aufgehoben")
+    t.contains(out, "WARNUNG: Create_Signal_0 war nach S2 noch gesperrt")
+    t.eq(table.concat(w.writes, ","), "true,false")
+  end },
+  { "Ziel ist der eigene Bahnhof: kein Rundlauf, Hinweis auf die Regel", function()
+    local w = world({ no_signals = true })
+    local ok, err, out = run(w, { "--ja", "--ziel", "Hof A" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "Ziel Hof A ist der eigene Bahnhof")
+    t.ok(not table.concat(w.runs, "\n"):find("--ziel", 1, true), "kein --ziel weitergegeben")
+    t.contains(out, ", ohne Rundlauf")
+  end },
+  { "--hilfe: nur die Anleitung, nichts wird gefragt, geladen, gestartet oder geschrieben", function()
+    local w = world({ second_station = true })
+    local ok, err, out = run(w, { "--hilfe" })
+    t.ok(ok, tostring(err))
+    t.contains(out, "crn_alles --ja")
+    t.contains(out, "--nur signal")
+    t.eq(w.reads, 0)
+    t.eq(#w.runs, 0)
+    t.eq(#w.downloads, 0)
+    t.ok(w.files["crn_alles.txt"] == nil, "keine Datei geschrieben")
   end },
   { "Unbekannte Optionen: klarer Fehler", function()
     local w = world()
