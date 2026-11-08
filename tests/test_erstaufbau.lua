@@ -72,7 +72,7 @@ return {
     d.tap(v, "act:weiter")
     t.eq(#truncated(d, v), 0, d.text(v))
   end },
-  { "Frische Leitstelle: die Uebersicht nennt den naechsten Schritt, bis Strecke und Nodes da sind", function()
+  { "Frische Leitstelle: die Uebersicht nennt den naechsten Schritt, bis ein Node sich gemeldet hat", function()
     local d, v = fresh()
     d.tap(v, "nav:einrichtung"); d.tap(v, "act:start")
     d.tap(v, "sel:modus:1"); d.tap(v, "act:weiter")
@@ -82,15 +82,11 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap(v, "act:speichern")
     v.set_page("uebersicht"); d.node.render()
-    t.contains(d.text(v), "Naechster Schritt: Strecke anlegen")
-    t.contains(d.text(v), "Bereiche")
+    t.contains(d.text(v), "Naechster Schritt: andere Computer einrichten")
+    t.not_contains(d.text(v), "Strecke anlegen", "die Strecke regelt Create, die Leitstelle legt keine an")
     t.eq(#truncated(d, v), 0, d.text(v))
     local zentrale = d.node.roles.zentrale
-    t.contains(zentrale.next_step(), "Strecke anlegen")
-    zentrale.netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2 })
-    d.node.render()
     t.contains(zentrale.next_step(), "andere Computer einrichten")
-    t.contains(d.text(v), "andere Computer einrichten")
     -- eine Node hat sich gemeldet: keine Anweisung mehr
     zentrale.info().nodes.strecke = { name = "Strecke", last_seen = 0 }
     t.eq(zentrale.next_step(), nil)
@@ -107,8 +103,7 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap(v, "act:speichern")
     local expect = {
-      bereiche = "mit ihren Gleisen", gleise = "oder ergaenzen", knoten = "zusammen", beziehungen = "oder dazu gehoert",
-      betriebsstellen = "einmal", linien = "im Takt aus", tafel = "getrennt", bahnhoefe = "Einzelne",
+      betriebsstellen = "oder Depot)", linien = "im Takt aus", tafel = "getrennt", bahnhoefe = "Einzelne",
     }
     for page, tail in pairs(expect) do
       v.set_page(page); d.node.render()
@@ -136,7 +131,6 @@ return {
     local H = dofile("tests/lib/harness.lua")
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    z.node.roles.zentrale.netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2 })
     local d = h.add_blank({ id = "neu" })
     d.world.add_station("Create_Station_1", { station_name = "Hof" })
     h.step(1)
@@ -148,8 +142,9 @@ return {
     d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
     d.tap(v, "sel:rollen:2"); d.tap(v, "act:weiter")
     h.unload("hauptstelle")                         -- Chunk der Leitstelle nicht geladen
+    d.tap(v, "act:weiter")                          -- Kennung anfordern
     h.step(12); d.node.render()
-    t.eq(d.node.setup.session().screen, "2.bereich", d.text(v))
+    t.eq(d.node.setup.session().screen, "2.kennung", d.text(v))
     t.contains(d.text(v), "antwortet nicht")
     t.contains(d.text(v), "(Chunk")                   -- umgebrochen: "Laeuft sie (Chunk" / "geladen), ist ein Ender-Modem in Reichweite?"
     t.contains(d.text(v), "geladen), ist ein Ender-Modem in Reichweite?")
@@ -190,15 +185,15 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap(v, "act:speichern")
     local zentrale = d.node.roles.zentrale
-    zentrale.netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ost" }, count = 2 })
-    v.set_page("bereiche"); d.node.render()
-    t.contains(d.text(v), "West-Ost")
-    t.contains(d.text(v), "Westbahnhof - Ost, 2 Gleis(e)")        -- 29 Zeichen: frueher bei 24 abgeschnitten
+    assert(zentrale.netz.add_station({ name = "West", kind = "personenbahnhof", site = "Mitte" }))
+    v.set_page("betriebsstellen"); d.node.render()
+    t.contains(d.text(v), "West")
+    t.contains(d.text(v), "Personenbahnhof, Standort Mitte")      -- 31 Zeichen: nicht bei der halben Zeile abgeschnitten
     -- langer Titel: die Einzelheit bekommt mindestens die halbe Zeile, der Titel den Rest
-    zentrale.netz.add_area({ name = "Hauptbahnhof-Nordwest-Ausfahrt", ends = { "Nordwestbahnhof", "Suedostbahnhof" }, count = 4 })
+    assert(zentrale.netz.add_station({ name = "Hauptbahnhof-Nordwest-Ausfahrt", kind = "gueterbahnhof", site = "Nordwestbahnhof Sued" }))
     d.node.render()
     local text = d.text(v)
     t.contains(text, "Hauptbahnhof-Nordwest-A")
-    t.contains(text, "Nordwestbahnhof - Sued")
+    t.contains(text, "Gueterbahnhof, Standort")
   end },
 }

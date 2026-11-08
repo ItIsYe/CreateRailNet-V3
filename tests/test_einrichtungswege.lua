@@ -1,5 +1,5 @@
 --[[
-Purpose: Keine Sackgassen im Einrichtungsassistenten: jede Rolle (Bahnhof, Gueterbahnhof, Depot, Signal, Bahnhof mit Signalen und Beobachter, Bahnhof plus Signal, Bahnhof plus Anmeldung, Anmeldung allein, Knoten, Leitstelle) wird frisch eingerichtet und danach ueber "Einrichtung aendern" noch einmal bis zum Aktivieren durchlaufen. Der Lauf tut an jedem Bildschirm das Naheliegende (auswaehlen, Weiter) und beseitigt eine Sperre nur so, wie der Hinweis es nennt; bleibt er stehen, ist das ein Fehler des Assistenten.
+Purpose: Keine Sackgassen im Einrichtungsassistenten: jede Rolle (Bahnhof, Gueterbahnhof, Depot, Bahnhof mit Beobachter, Bahnhof plus Anmeldung, Anmeldung allein, Leitstelle) wird frisch eingerichtet und danach mit "Einrichtung aendern" noch einmal durchlaufen, bis zum Aktivieren; ein Stillstand (Weiter ohne Wirkung und ohne behebbaren Hinweis) ist ein Fehler.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -112,19 +112,20 @@ local function prep(c, sc)
   elseif sc == "2.rollen" then
     for _, role in ipairs(o.roles or {}) do ensure_row(d, v, "rollen", model.ROLE_TEXT[role]) end
   elseif sc == "2.name" then d.type(v, "name", o.name or "Testhof")
-  elseif sc == "2.bereich" then
-    local any = false
-    for _, r in ipairs(rows(d, v)) do if r:find("(o)", 1, true) then any = true end end
-    if not any and has_area(d, v, "sel:bereich:1") then d.tap(v, "sel:bereich:1") end
-    step_wait(c, 3)
-  elseif sc == "2.knoten" then
-    if has_area(d, v, "sel:knoten_wahl:1") then d.tap(v, "sel:knoten_wahl:1") end
-    step_wait(c, 5)
+  elseif sc == "2.kennung" then
+    step_wait(c, 1)
   elseif sc == "2.station" then
     if has_area(d, v, "sel:station_wahl:1") then d.tap(v, "sel:station_wahl:1") end
     step_wait(c, 4)
   elseif sc == "3.geraete" then
     for _, name in ipairs(o.devices or {}) do ensure_row(d, v, "geraete", name) end
+  elseif sc == "4.gleise" then
+    -- Gleise legt der Assistent nicht vor: eines nach dem anderen anlegen (Name, Richtung, Bahnhof, Beobachter fuehren die folgenden Schritte)
+    local made = #d.node.setup.session().wiz.tracks()
+    if made < (o.track_count or 2) then
+      c.sub = made + 1
+      d.tap(v, "act:neues_gleis")
+    end
   elseif sc == "4.g.bahnhof" then
     local n = c.sub or 1
     local name = (o.station_prefix or "Create_Station_") .. n
@@ -225,7 +226,7 @@ end
 local SC = {}
 local function sc(name, build) SC[#SC + 1] = { name = name, build = build } end
 
-local function area_station(netz) netz.add_area({ name = "Hauptbahnhof", ends = { "Einfahrt", "Ausfahrt" }, count = 3, pattern = "gegenlaeufig" }) end
+local function area_station(netz) end
 
 sc("Passagierbahnhof", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
@@ -239,10 +240,10 @@ sc("Depot", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
   return h, node(h, { stations = 3 }), { roles = { "depot" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
-sc("Passagierbahnhof mit 2 Signalen und Beobachter an Gleis 1", function()
+sc("Passagierbahnhof mit Beobachter an Gleis 1", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3, signals = 2, observers = 1 }), { roles = { "passagierbahnhof" }, signal_roles = true, observers_on_tracks = true,
-    devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3", "Create_Signal_1", "Create_Signal_2", "Create_Observer_1" } }
+  return h, node(h, { stations = 3, observers = 1 }), { roles = { "passagierbahnhof" }, observers_on_tracks = true,
+    devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3", "Create_Observer_1" } }
 end)
 sc("Passagierbahnhof + Anmeldung", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)

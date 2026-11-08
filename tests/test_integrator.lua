@@ -562,10 +562,13 @@ return {
   { "Form der gespeicherten Dateien ist festgehalten: aendert sie sich, muss ein Anpassungsschritt her oder die Festlegung bewusst erneuert werden", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    z.node.roles.zentrale.netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2 })
-    h.add_node({ id = "depot", roles = { "depot" }, central = "hauptstelle", area = "B0001", area_ends = { "Westbahnhof", "Ostbahnhof" }, label = "Depot 1", claim = "abc",
+    local netz = z.node.roles.zentrale.netz
+    assert(netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof", site = "Mitte" }))
+    assert(netz.claim_node({ claim = "claim-golden-0001", role = "depot" }))
+    assert(netz.claim_node({ claim = "claim-golden-0002", role = "anmeldung", station = "BF0001" }))
+    h.add_node({ id = "depot", roles = { "depot" }, central = "hauptstelle", label = "N0001 | DEP", claim = "claim-golden-0001",
       tracks = {
-        { name = "Abstell 1", station_name = "Depot Gleis 1", observers = { "Obs_1" }, length = 40, dir = { id = "A0001", area = "B0001", direction = "Ostbahnhof", rev = 1 } },
+        { name = "Abstell 1", station_name = "Depot Gleis 1", observers = { "Obs_1" }, length = 40 },
       } })
     h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
       tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })

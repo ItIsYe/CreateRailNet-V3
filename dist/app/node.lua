@@ -345,13 +345,9 @@ fetch_status=function()return n.fetch_state end,
 search_networks=function()return n.search_networks()end,
 search_status=function()return n.search_status()end,
 mark_dirty=function()n.dirty=true end,
-directory_areas=function(central_id)return n.directory_areas(central_id)end,
-directory_tracks=function(central_id,area_id)return n.directory_tracks(central_id,area_id)end,
-directory_claim=function(central_id,claim,role,area_id,track_ids,junction_id,legacy_id,extra)return n.directory_claim(central_id,claim,role,area_id,track_ids,junction_id,legacy_id,extra)end,
+directory_claim=function(central_id,claim,role,legacy_id,extra)return n.directory_claim(central_id,claim,role,legacy_id,extra)end,
 directory_stations=function(central_id)return n.directory_stations(central_id)end,
 directory_backups=function(central_id)return n.directory_backups(central_id)end,
-directory_area_create=function(central_id,token,spec)return n.directory_area_create(central_id,token,spec)end,
-directory_track_change=function(central_id,claim,track_id,fields,if_rev)return n.directory_track_change(central_id,claim,track_id,fields,if_rev)end,
 directory_status=function()return n.directory_status()end,
 directory_reset=function()return n.directory_reset()end,
 claim=function()return n.claim()end,
@@ -769,7 +765,6 @@ end
 
 
 local DIR_TIMEOUT=8
-local DIR_MAX_AREAS=400
 n.dir_state=nil
 
 local function dir_id(v,prefix)return type(v)=="string"and v:match("^"..prefix.."%d%d%d%d+$")~=nil and#v<=12 end
@@ -795,43 +790,6 @@ end
 
 local function dir_bad(text)
 n.dir_state={kind="halt",text=text or"Unerwartete Antwort der Leitstelle."}
-end
-
-function n.directory_areas(central_id)
-local acc={}
-local function page(after)
-dir_send(central_id,{kind="verzeichnis",after=after},function(p)
-if type(p.areas)~="table"then return dir_bad()end
-for _,a in ipairs(p.areas)do
-if type(a)~="table"or not dir_id(a.id,"B")or not dir_name(a.name)or type(a.ends)~="table"or not dir_name(a.ends[1])or not dir_name(a.ends[2])
-or type(a.tracks)~="number"or a.tracks<0 or a.tracks>40 then
-return dir_bad()
-end
-acc[#acc+1]={id=a.id,name=a.name,ends={a.ends[1],a.ends[2]},tracks=a.tracks,state=(a.state=="im bau")and"im bau"or nil}
-end
-if p.more and#acc<DIR_MAX_AREAS and#acc>0 then return page(acc[#acc].id)end
-n.dir_state={kind="ok",text=#acc.." Bereich(e) im Netz.",areas=acc}
-end)
-end
-page(nil)
-end
-
-function n.directory_tracks(central_id,area_id)
-dir_send(central_id,{kind="verzeichnis_gleise",area=area_id},function(p)
-local a=p.area
-if type(a)~="table"or not dir_id(a.id,"B")or not dir_name(a.name)or type(a.ends)~="table"or not dir_name(a.ends[1])or not dir_name(a.ends[2])
-or type(a.tracks)~="table"or#a.tracks>40 then
-return dir_bad()
-end
-local tracks={}
-for _,t in ipairs(a.tracks)do
-if type(t)~="table"or not dir_id(t.id,"A")or not dir_name(t.name)or not(t.direction=="beide"or t.direction==a.ends[1]or t.direction==a.ends[2])then
-return dir_bad()
-end
-tracks[#tracks+1]={id=t.id,name=t.name,direction=t.direction,rev=(type(t.rev)=="number"and t.rev>=0 and t.rev<1e9)and math.floor(t.rev)or 0}
-end
-n.dir_state={kind="ok",text=#tracks.." Gleis(e).",area={id=a.id,name=a.name,ends={a.ends[1],a.ends[2]},tracks=tracks}}
-end)
 end
 
 
@@ -876,33 +834,15 @@ page(nil)
 end
 
 
-function n.directory_claim(central_id,claim,role,area_id,track_ids,junction_id,legacy_id,extra)
+function n.directory_claim(central_id,claim,role,legacy_id,extra)
 extra=extra or{}
-dir_send(central_id,{kind="node_anfordern",claim=claim,role=role,roles=extra.roles,area=area_id,tracks=track_ids,junction=junction_id,station=extra.station,legacy=legacy_id},function(p)
+dir_send(central_id,{kind="node_anfordern",claim=claim,role=role,roles=extra.roles,station=extra.station,legacy=legacy_id},function(p)
 local node=p.node
 if type(node)~="table"or not dir_id(node.id,"N")or type(node.name)~="string"or#node.name>60 or not node.name:match("^[%w _%-]+$")
 or type(node.label)~="string"or#node.label>60 or not node.label:match("^[%w _%-|]+$")then
 return dir_bad()
 end
 n.dir_state={kind="ok",text="Kennung "..node.id.." vergeben.",node={id=node.id,name=node.name,label=node.label}}
-end)
-end
-
-
-function n.directory_track_change(central_id,claim,track_id,fields,if_rev)
-dir_send(central_id,{kind="gleis_aendern",claim=claim,track=track_id,name=fields.name,direction=fields.direction,if_rev=if_rev},function(p)
-local t=p.track
-if type(t)~="table"or not dir_id(t.id,"A")or t.id~=track_id or not dir_name(t.name)or not dir_name(t.direction)then return dir_bad()end
-n.dir_state={kind="ok",text="Gleis geaendert.",track={id=t.id,name=t.name,direction=t.direction,rev=(type(t.rev)=="number"and t.rev>=0 and t.rev<1e9)and math.floor(t.rev)or 0}}
-end)
-end
-
-
-function n.directory_area_create(central_id,token,spec)
-dir_send(central_id,{kind="bereich_anlegen",token=token,name=spec.name,ends=spec.ends,count=spec.count,pattern=spec.pattern},function(p)
-local a=p.area
-if type(a)~="table"or not dir_id(a.id,"B")or not dir_name(a.name)then return dir_bad()end
-n.dir_state={kind="ok",text=(p.created==false)and"Bereich war schon angelegt."or"Bereich angelegt.",created={id=a.id,name=a.name}}
 end)
 end
 

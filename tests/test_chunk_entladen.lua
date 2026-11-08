@@ -92,7 +92,7 @@ return {
     h.step(120)
     t.eq(asked, before, "keine weiteren Bitten")
   end },
-  { "Die Bitte um Anmeldung gilt nur unbekannten Nodes (bei Zustand, Status und Knotenmeldung), hoechstens alle 30 Sekunden, und nicht stillgelegten", function()
+  { "Die Bitte um Anmeldung gilt nur unbekannten Nodes (bei einer Zustandsmeldung), hoechstens alle 30 Sekunden, und nicht stillgelegten", function()
     local h, z, w, l, sim = build()
     h.step(30)
     local zentrale = z.node.roles.zentrale
@@ -103,17 +103,17 @@ return {
       return real(target, kind, payload, extra)
     end
     local function from(sender, kind)
-      local m = w.node.factory.make("meldung", "hauptstelle", { kind = kind, node = sender, tracks = {}, signals = {}, uses = {}, t = 1 })
+      local m = w.node.factory.make("meldung", "hauptstelle", { kind = kind, node = sender, tracks = {}, t = 1 })
       m.senderNodeId = sender
       zentrale.on_message(m, "ok")
     end
     -- jede dieser Meldungen einer unbekannten Node loest die Bitte aus, nicht aber die Meldung einer bekannten
-    from("x1", "zustand"); from("x2", "signale"); from("x3", "knoten")
+    from("x1", "zustand"); from("x2", "zustand"); from("x3", "zustand")
     t.eq(#asked, 3, "drei unbekannte Nodes, drei Bitten")
     from("weizenhof", "zustand")
     t.eq(#asked, 3, "bekannte Nodes werden nicht gebeten")
     -- hoechstens alle 30 Sekunden je Node
-    from("x1", "zustand"); from("x1", "signale")
+    from("x1", "zustand"); from("x1", "zustand")
     t.eq(#asked, 3, "innerhalb von 30 Sekunden nicht noch einmal")
     h.step(10)
     from("x1", "zustand")

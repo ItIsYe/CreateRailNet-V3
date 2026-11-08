@@ -54,8 +54,6 @@ local closed=node.store.load(DATA.."/gesperrt.lua")or{}
 local nodes={}
 local dir={}
 local track_state={}
-local signal_state={}
-local knoten_state={}
 local pending={}
 local waiting={}
 local flags={}
@@ -576,70 +574,11 @@ return node.reply(m,"abgelehnt",{grund=why})
 end
 tracks=assembled
 end
-local old=nodes[p.node]
-nodes[p.node]={name=p.name,roles=p.roles,tracks=tracks,last_seen=now(),active=p.active,revision=p.revision,signals=old and old.signals}
+nodes[p.node]={name=p.name,roles=p.roles,tracks=tracks,last_seen=now(),active=p.active,revision=p.revision}
 silent_notified[p.node]=nil
 role.netz.mark_active(p.node)
 rebuild_dir()
 node.reply(m,"ok",{fertig=true})
-end
-
-
-
-local signal_set={}
-local signal_parts=chunks.new({max_parts=60,max_items=400,max_keys=80,ttl=60,now=now})
-
-local function on_hello_signals(m)
-local p=m.payload
-local list=p.signals
-if p.parts~=nil then
-local assembled,why=signal_parts.add("hs:"..tostring(p.node),p.set,p.part,p.parts,p.signals)
-if not assembled then
-if why=="offen"then return node.reply(m,"ok",{fertig=false})end
-return node.reply(m,"abgelehnt",{grund=why})
-end
-list=assembled
-end
-local old=nodes[p.node]
-if old then
-old.signals,old.last_seen=list,now()
-old.roles=old.roles or p.roles
-else
-nodes[p.node]={name=p.name,roles=p.roles,tracks={},last_seen=now(),active=p.active,revision=p.revision,signals=list}
-end
-silent_notified[p.node]=nil
-role.netz.mark_active(p.node)
-node.reply(m,"ok",{fertig=true})
-end
-
-local function on_signals(m)
-local p=m.payload
-local list=p.signals
-if p.parts~=nil then
-local assembled=signal_parts.add("st:"..tostring(p.node),p.set,p.part,p.parts,p.signals)
-if not assembled then return end
-list=assembled
-end
-
-if p.parts~=nil then
-local boot,counter=tostring(p.set):match("^(%d+)%.(%d+)$")
-local last=signal_set[p.node]
-if boot and last and tonumber(boot)==last.boot and tonumber(counter)<last.counter then return end
-if boot then signal_set[p.node]={boot=tonumber(boot),counter=tonumber(counter)}end
-end
-signal_state[p.node]={t=now(),signals=list}
-for _,sg in ipairs(list or{})do
-if type(sg)=="table"and sg.invalid and not unknown_seen["inv:"..p.node..tostring(sg.id)]then
-unknown_seen["inv:"..p.node..tostring(sg.id)]=true
-notify("fehler","Signal "..tostring(sg.track_name).." ("..p.node..") meldet INVALID: Bereich gestoert.")
-elseif type(sg)=="table"and not sg.invalid then
-unknown_seen["inv:"..p.node..tostring(sg.id)]=nil
-end
-end
-end
-
-local function on_knoten(m)
-knoten_state[m.payload.node]={t=now(),uses=m.payload.uses}
 end
 
 
@@ -754,7 +693,7 @@ elseif kind=="bedarf"then handle_demand(m)
 elseif kind=="stornieren"then handle_cancel(m)
 else node.reply(m,"abgelehnt",{grund="Unbekannter Auftrag."})end
 elseif kind=="vorlagen"then handle_templates_query(m)
-elseif kind=="verzeichnis"or kind=="verzeichnis_gleise"or kind=="node_anfordern"or kind=="knoten_liste"or kind=="knoten_teil"or kind=="gleis_aendern"or kind=="bereich_anlegen"or kind=="betriebsstellen_liste"then role.handle_directory(m)
+elseif kind=="node_anfordern"or kind=="betriebsstellen_liste"then role.handle_directory(m)
 elseif kind=="konfig_holen"then role.handle_fetch_config(m)
 elseif kind=="ersatz_liste"then role.handle_replace_list(m)
 elseif kind=="netze"then
@@ -771,7 +710,7 @@ node.reply(m,"abgelehnt",{grund="Unbekannte Abfrage."})
 end
 end
 
-local PART_KINDS={konfig=true,hallo_signale=true,signale=true,hallo=true}
+local PART_KINDS={konfig=true,hallo=true}
 
 function role.on_message(m,status)
 
@@ -786,7 +725,7 @@ if status=="old_sequence"and m.messageType=="meldung"and PART_KINDS[m.payload.ki
 if status~="ok"then return end
 if retired[m.senderNodeId]then
 
-if m.messageType=="meldung"and(m.payload.kind=="hallo"or m.payload.kind=="hallo_signale")then node.reply(m,"ok",{stillgelegt=true})end
+if m.messageType=="meldung"and m.payload.kind=="hallo"then node.reply(m,"ok",{stillgelegt=true})end
 return
 end
 
@@ -818,11 +757,8 @@ end
 if nodes[m.senderNodeId]then nodes[m.senderNodeId].last_seen=now()end
 if m.messageType=="meldung"then
 local kind=m.payload.kind
-if kind=="zustand"or kind=="signale"or kind=="knoten"then ask_hello(m.senderNodeId)end
+if kind=="zustand"then ask_hello(m.senderNodeId)end
 if kind=="hallo"then on_hello(m)
-elseif kind=="hallo_signale"then on_hello_signals(m)
-elseif kind=="signale"then on_signals(m)
-elseif kind=="knoten"then on_knoten(m)
 elseif kind=="konfig"then role.on_config(m)
 elseif kind=="zustand"then on_state(m)
 elseif kind=="ankunft"then on_arrival(m)
@@ -933,83 +869,8 @@ end
 return rows
 end
 
-
-
-
-function role.responsibility_warnings()
-local out={}
-local by_track={}
-for _,entry in ipairs(role.netz.nodes())do
-if entry.state~="verworfen"then
-local owns_station=false
-for _,r in ipairs(entry.roles or{entry.role})do
-if r=="passagierbahnhof"or r=="gueterbahnhof"or r=="depot"then owns_station=true end
-end
-if owns_station then
-for _,tid in ipairs(entry.tracks)do
-by_track[tid]=by_track[tid]or{}
-by_track[tid][#by_track[tid]+1]=entry.id
-end
-end
-end
-end
-local tids={}
-for tid in pairs(by_track)do tids[#tids+1]=tid end
-table.sort(tids)
-for _,tid in ipairs(tids)do
-if#by_track[tid]>1 then
-local tr=role.netz.track(tid)
-out[#out+1]={key="bahnhof:"..tid,nodes=by_track[tid],text=label.track(tr and tr.name or tid).." ("..tid..") gehoert "..table.concat(by_track[tid]," und ").." als Bahnhofsgleis: wer steuert die Freigabe?"}
-end
-end
-local seen={}
-local node_ids={}
-for id in pairs(nodes)do node_ids[#node_ids+1]=id end
-table.sort(node_ids)
-for _,id in ipairs(node_ids)do
-for _,sg in ipairs(nodes[id].signals or{})do
-if sg.dir and sg.effect and sg.place then
-local key=table.concat({sg.dir,tostring(sg.use or"strecke"),sg.effect,sg.place},"|")
-seen[key]=seen[key]or{dir=sg.dir,effect=sg.effect,place=sg.place,nodes={}}
-local already=false
-for _,n2 in ipairs(seen[key].nodes)do if n2==id then already=true end end
-if not already then seen[key].nodes[#seen[key].nodes+1]=id end
-end
-end
-end
-local keys={}
-for key in pairs(seen)do keys[#keys+1]=key end
-table.sort(keys)
-for _,key in ipairs(keys)do
-local g=seen[key]
-if#g.nodes>1 then
-local tr=role.netz.track(g.dir)
-out[#out+1]={key="signal:"..key,nodes=g.nodes,text="Signal an "..label.track(tr and tr.name or g.dir).." (Wirkrichtung "..g.effect..", Standort "..g.place..") wird von "..table.concat(g.nodes," und ").." gemeldet: doppelte Steuerung?"}
-end
-end
-return out
-end
-
-local warned={}
-local function check_responsibility()
-local seen_now={}
-for _,w in ipairs(role.responsibility_warnings())do
-seen_now[w.key]=true
-if not warned[w.key]then
-warned[w.key]=true
-notify("warnung","Geraeteverantwortung: "..w.text)
-end
-end
-for key in pairs(warned)do if not seen_now[key]then warned[key]=nil end end
-end
-
-local responsibility_next=0
 function role.tick()
 check_pending()
-if now()>=responsibility_next then
-responsibility_next=now()+60
-check_responsibility()
-end
 local t=now()
 for i=#later,1,-1 do
 if t>=later[i].at then
@@ -1030,11 +891,8 @@ end
 
 
 function role.next_step()
-if#role.netz.areas()==0 then
-return"Naechster Schritt: Strecke anlegen. Seite 'Bereiche' (Kopfzeile mit > blaettern), dort 'Neu'."
-end
 if next(nodes)==nil then
-return"Naechster Schritt: andere Computer einrichten (Einrichtung, Beitreten, Netz, Rolle, Bereich)."
+return"Naechster Schritt: andere Computer einrichten (Einrichtung, Beitreten, Netz, Rolle)."
 end
 return nil
 end
@@ -1051,7 +909,7 @@ end
 
 
 function role.info()
-return{nodes=nodes,dir=dir,track_state=track_state,pending=pending,flags=flags,samples=samples,signal_state=signal_state,knoten_state=knoten_state}
+return{nodes=nodes,dir=dir,track_state=track_state,pending=pending,flags=flags,samples=samples}
 end
 
 
@@ -1287,19 +1145,6 @@ local st=track_state[id..":"..tr.id]
 if st and st.available==false then add("halt",id.."/"..tr.name,"Bahnhof-Geraet nicht verfuegbar: Gleis ungeklaert, keine Fahrplanaenderung")end
 end
 end
-for _,row in ipairs(role.signal_overview())do
-local sg=row.signal
-if sg.invalid then add("halt",row.node.."/"..tostring(sg.track_name),"Signal INVALID: Bereich gestoert")end
-if sg.foreign then add("attention",row.node.."/"..tostring(sg.track_name),"fremde Sperre (wird nicht aufgehoben)")end
-if sg.missing then add("attention",row.node.."/"..tostring(sg.track_name),"eigene Sperre fehlt am Signal")end
-if not sg.available then add("halt",row.node.."/"..tostring(sg.track_name),"Signal nicht verfuegbar")end
-end
-for _,w in ipairs(role.responsibility_warnings())do add("attention",table.concat(w.nodes,","),w.text)end
-for id,entry in pairs(knoten_state)do
-for _,u in ipairs(entry.uses or{})do
-if u.long then add("halt",id,"Knoten: "..tostring(u.train).." an "..tostring(u.entry).." bleibt lange belegt (kein Nachweis)")end
-end
-end
 for _,order in ipairs(role.orders.active())do
 if order.state=="klaerung"then add("halt",order.id,"Klaerung: "..tostring(order.reason))
 elseif order.state=="wartend"then add("wait",order.id,"wartet: "..tostring(order.reason))end
@@ -1328,23 +1173,6 @@ local DIRECTORY_PAGE=20
 function role.handle_directory(m)
 local p=m.payload
 local revision=role.netz.revision()
-if p.kind=="verzeichnis"then
-local after=type(p.after)=="string"and p.after or nil
-local list,more=role.netz.areas_page(after,DIRECTORY_PAGE)
-return reply_page(m,"areas",list,more,{revision=revision})
-elseif p.kind=="verzeichnis_gleise"then
-
-local label
-local area_id=p.area
-if type(p.claim)=="string"then
-for _,nd in ipairs(role.netz.nodes())do
-if nd.claim==p.claim and nd.state~="verworfen"and nd.area then area_id,label=nd.area,nd.label end
-end
-end
-local area=type(area_id)=="string"and role.netz.area(area_id)or nil
-if not area then return node.reply(m,"abgelehnt",{grund="Den Bereich gibt es nicht."})end
-return node.reply(m,"ok",{area=area,label=label,revision=revision})
-end
 if p.kind=="betriebsstellen_liste"then
 
 local after=type(p.after)=="string"and p.after or nil
@@ -1357,46 +1185,10 @@ end
 end
 return reply_page(m,"stations",list,more,{revision=revision})
 end
-if p.kind=="bereich_anlegen"then
-
-if type(p.ends)~="table"then return node.reply(m,"abgelehnt",{grund="Die beiden Anschluesse fehlen."})end
-local id,created=role.netz.add_area_once(p.token,{name=p.name,ends={p.ends[1],p.ends[2]},count=p.count,pattern=p.pattern})
-if not id then return node.reply(m,"abgelehnt",{grund=created})end
-local area=role.netz.area(id)
-return node.reply(m,"ok",{area={id=id,name=area.name},created=created,revision=role.netz.revision()})
-end
-if p.kind=="gleis_aendern"then
-
-local owner
-if type(p.claim)=="string"then
-for _,nd in ipairs(role.netz.nodes())do if nd.claim==p.claim and nd.state~="verworfen"then owner=nd end end
-end
-if not owner then return node.reply(m,"abgelehnt",{grund="Diese Anforderung kennt die Leitstelle nicht."})end
-local mine=false
-if type(p.track)=="string"then for _,tid in ipairs(owner.tracks)do if tid==p.track then mine=true end end end
-if not mine then return node.reply(m,"abgelehnt",{grund="Dieses Gleis gehoert nicht zur Anforderung dieser Node."})end
-if type(p.if_rev)~="number"then return node.reply(m,"abgelehnt",{grund="Der Stand des Gleises fehlt."})end
-if(p.name~=nil and type(p.name)~="string")or(p.direction~=nil and type(p.direction)~="string")or(p.name==nil and p.direction==nil)then
-return node.reply(m,"abgelehnt",{grund="Name oder Richtung fehlen."})
-end
-local ok,err=role.netz.set_track(p.track,{name=p.name,direction=p.direction,if_rev=p.if_rev})
-if not ok then return node.reply(m,"abgelehnt",{grund=err})end
-return node.reply(m,"ok",{track=role.netz.track(p.track),revision=revision})
-end
-if p.kind=="knoten_liste"then
-local list={}
-for _,j in ipairs(role.netz.junctions())do list[#list+1]={id=j.id,name=j.name,connections=j.connections,open=j.unconfirmed}end
-return node.reply(m,"ok",{junctions=list,revision=revision})
-elseif p.kind=="knoten_teil"then
-local part,why=role.netz.junction_part(type(p.junction)=="string"and p.junction or"",p.part)
-if not part then return node.reply(m,"abgelehnt",{grund=why})end
-return node.reply(m,"ok",{part=part,revision=revision})
-end
-if p.junction~=nil and type(p.junction)~="string"then return node.reply(m,"abgelehnt",{grund="Die Knotenkennung ist ungueltig."})end
 if p.legacy~=nil and type(p.legacy)~="string"then return node.reply(m,"abgelehnt",{grund="Die bisherige Node-Kennung ist ungueltig."})end
 if p.station~=nil and type(p.station)~="string"then return node.reply(m,"abgelehnt",{grund="Die Betriebsstelle ist ungueltig."})end
 if p.roles~=nil and type(p.roles)~="table"then return node.reply(m,"abgelehnt",{grund="Die Rollen sind ungueltig."})end
-local entry,err=role.netz.claim_node({claim=p.claim,role=p.role,roles=p.roles,area=p.area,tracks=p.tracks,junction=p.junction,station=p.station,legacy=p.legacy})
+local entry,err=role.netz.claim_node({claim=p.claim,role=p.role,roles=p.roles,station=p.station,legacy=p.legacy})
 if not entry then return node.reply(m,"abgelehnt",{grund=err})end
 node.reply(m,"ok",{node={id=entry.id,name=entry.name,label=entry.label},revision=role.netz.revision()})
 end
@@ -1506,43 +1298,6 @@ role.unretire(id)
 notify("warnung","Die Konfiguration von "..id.." wurde an einen Ersatzcomputer uebergeben. Die alte Node darf nicht mehr laufen.")
 end
 node.reply(m,"ok",parts[part_no])
-end
-
-
-role.signal_status=nil
-function role.signal_lock(node_id,signal_id,action)
-if not reachable(node_id)then
-role.signal_status={kind="halt",text="Der Node "..node_id.." meldet sich nicht."}
-return nil,role.signal_status.text
-end
-role.signal_status={kind="wait",text="Wird ausgefuehrt ..."}
-ask(node_id,"auftrag",{kind="sperre",signal=signal_id,action=action,owner="bediener",reason="von der Leitstelle"},nil,function(payload)
-if payload.status=="ok"then
-role.signal_status={kind="ok",text=(action=="setzen"and"Sperre gesetzt."or"Sperre des Bedieners aufgehoben.")}
-else
-role.signal_status={kind="halt",text="Nicht bestaetigt: "..tostring(payload.grund)}
-end
-end)
-return true
-end
-
-function role.signal_overview()
-local out={}
-local ids={}
-for id in pairs(signal_state)do ids[#ids+1]=id end
-table.sort(ids)
-for _,id in ipairs(ids)do
-local entry=signal_state[id]
-
-local hello={}
-for _,h in ipairs(nodes[id]and nodes[id].signals or{})do hello[h.id]=h end
-for _,sg in ipairs(entry.signals or{})do
-local h=hello[sg.id]
-out[#out+1]={node=id,signal=sg,fresh=reachable(id)and now()-entry.t<NODE_SILENT,use=h and h.use,effect=h and h.effect,place=h and h.place,
-pos=h and h.pos,count=h and h.count,prev=h and h.prev,next=h and h.next}
-end
-end
-return out
 end
 
 
@@ -1701,7 +1456,7 @@ end
 state.reserved={}
 for _,entry in ipairs(role.netz.nodes())do
 if entry.state=="reserviert"and not nodes[entry.id]then
-items[#items+1]={text=entry.id.." "..entry.name,detail="RESERVIERT, hat sich noch nicht gemeldet ("..#entry.tracks.." Gleis(e))",kind="wait"}
+items[#items+1]={text=entry.id.." "..entry.name,detail="RESERVIERT, hat sich noch nicht gemeldet",kind="wait"}
 state.ids[#items]=entry.id
 state.reserved[entry.id]=true
 end
@@ -1760,93 +1515,6 @@ local ok,err=fn()
 return ok and"Geloescht."or err
 end
 
-local function find_area_by_name(name)
-local wanted=tostring(name or""):match("^%s*(.-)%s*$"):lower()
-for _,a in ipairs(role.netz.areas())do
-if a.name:lower()==wanted then return a end
-end
-end
-
-
-local function canonical_direction(area,text)
-local want=tostring(text or""):match("^%s*(.-)%s*$"):lower()
-if want==""or want=="beide"then return"beide"end
-for _,e in ipairs(area.ends)do if e:lower()==want then return e end end
-return tostring(text)
-end
-
-pages[#pages+1]=forms.page({
-id="bereiche",title="Bereiche",new_label="Neu",
-empty="Noch kein Bereich. Ein Bereich ist eine Strecke zwischen zwei Anschluessen mit ihren Gleisen.",
-items=function()
-local items,records={},{}
-for i,a in ipairs(role.netz.areas())do
-local full=role.netz.area(a.id)
-local toward={}
-for _,t in ipairs(full.tracks)do toward[t.direction]=(toward[t.direction]or 0)+1 end
-local parts={}
-for _,e in ipairs({a.ends[1],a.ends[2],"beide"})do if toward[e]then parts[#parts+1]=toward[e].."x "..e end end
-items[i]={text=a.name.."  ("..a.id..")",detail=a.ends[1].." - "..a.ends[2]..", "..a.tracks.." Gleis(e): "..table.concat(parts,", ")}
-records[i]=a
-end
-return items,records
-end,
-fields={
-{id="name",label="Name des Bereichs (z.B. West-Ost)",max=30,width=34},
-{id="ende1",label="Anschluss 1 (z.B. Westbahnhof)",max=30,width=34},
-{id="ende2",label="Anschluss 2 (z.B. Ostbahnhof)",max=30,width=34},
-{id="anzahl",label="Anzahl Gleise (nur beim Anlegen)",max=2,width=8,default="2"},
-{id="vorlage",label="Vorlage: gegenlaeufig, gleich, beide",max=12,width=20,default="gegenlaeufig"},
-},
-edit=function(a)return{name=a.name,ende1=a.ends[1],ende2=a.ends[2]}end,
-on_save=function(values,record)
-if record then return role.netz.set_area(record.id,{name=values.name,ends={values.ende1,values.ende2}})end
-local id,err=role.netz.add_area({name=values.name,ends={values.ende1,values.ende2},count=tonumber(values.anzahl),pattern=values.vorlage~=""and values.vorlage or nil})
-if not id then return nil,err end
-return true
-end,
-extra={
-{id="loeschen",label=function(a)return a and netz_arm.area==a.id and"Wirklich?"or"Loeschen"end,kind="danger",
-run=function(v,a)return two_step("area",a.id,"der Bereich "..a.name.." mit allen Gleisen wird geloescht.",function()return role.netz.remove_area(a.id)end)end},
-},
-})
-
-pages[#pages+1]=forms.page({
-id="gleise",title="Gleise",new_label="Neu",
-empty="Noch kein Gleis. Gleise entstehen mit dem Bereich (Seite Bereiche) und lassen sich hier aendern oder ergaenzen.",
-items=function()
-local items,records={},{}
-for _,a in ipairs(role.netz.areas())do
-for _,t in ipairs(role.netz.area(a.id).tracks)do
-items[#items+1]={text=a.name.." / "..t.name,detail=(t.direction=="beide"and"beide Richtungen"or("Richtung "..t.direction)).."  ("..t.id..")"}
-records[#items]={id=t.id,area=a.id,area_name=a.name,name=t.name,direction=t.direction}
-end
-end
-return items,records
-end,
-fields={
-{id="bereich",label="Bereich (Name; beim Aendern nicht verschiebbar)",max=30,width=34},
-{id="name",label="Gleisname (z.B. Gleis 3)",max=30,width=34},
-{id="richtung",label="Richtung: Anschlussname oder beide",max=30,width=34,default="beide"},
-},
-edit=function(t)return{bereich=t.area_name,name=t.name,richtung=t.direction}end,
-on_save=function(values,record)
-if record then
-local area=role.netz.area(record.area)
-return role.netz.set_track(record.id,{name=values.name,direction=canonical_direction(area,values.richtung)})
-end
-local found=find_area_by_name(values.bereich)
-if not found then return nil,"Den Bereich '"..tostring(values.bereich).."' gibt es nicht."end
-local id,err=role.netz.add_track(found.id,values.name,canonical_direction(found,values.richtung))
-if not id then return nil,err end
-return true
-end,
-extra={
-{id="loeschen",label=function(t)return t and netz_arm.track==t.id and"Wirklich?"or"Loeschen"end,kind="danger",
-run=function(v,t)return two_step("track",t.id,label.track(t.name).." wird geloescht.",function()return role.netz.remove_track(t.id)end)end},
-},
-})
-
 local function find_station_by_name(name)
 local wanted=tostring(name or""):match("^%s*(.-)%s*$"):lower()
 for _,st in ipairs(role.netz.stations())do
@@ -1864,71 +1532,13 @@ return want
 end
 
 
-local END_TEXT={name="Name",betriebsstelle="Betriebsstelle",bereich="Nachbarbereich",offen="offen (im Bau)"}
-pages[#pages+1]=forms.page({
-id="anschluesse",title="Anschluesse",new_label="Neu",
-empty="Noch kein Bereich. Anschluesse gehoeren zu einem Bereich (Seite Bereiche).",
-items=function()
-local items,records={},{}
-for _,a in ipairs(role.netz.areas())do
-local full=role.netz.area(a.id)
-for nr=1,2 do
-items[#items+1]={
-text=a.name.." / Anschluss "..nr..": "..a.ends[nr],
-detail=END_TEXT[full.end_kinds[nr]]..(full.state=="im bau"and", Bereich IM BAU"or""),
-kind=(full.end_kinds[nr]=="offen")and"wait"or"text",
-}
-records[#items]={area=a.id,area_name=a.name,nr=nr,kind=full.end_kinds[nr],name=a.ends[nr],suffix=full.end_suffixes[nr]or"",state=full.state,rev=full.rev}
-end
-end
-return items,records
-end,
-fields={
-{id="bereich",label="Bereich (Name)",max=30,width=34},
-{id="nr",label="Anschluss 1 oder 2",max=1,width=6,default="1"},
-{id="art",label="Art: name, betriebsstelle, bereich, offen",max=14,width=24,default="name"},
-{id="ziel",label="Ziel (Name der Betriebsstelle/des Bereichs/des Endes)",max=30,width=34},
-{id="zusatz",label="Zusatz (nur Betriebsstelle: zweiter Anschluss, z.B. Nord)",max=20,width=34,default=""},
-},
-edit=function(r)
-local target=r.name
-if r.kind=="betriebsstelle"and r.suffix~=""then target=r.name:sub(1,#r.name-#r.suffix-1)end
-return{bereich=r.area_name,nr=tostring(r.nr),art=r.kind,ziel=target,zusatz=r.suffix or""}
-end,
-on_save=function(values,record)
-local found=find_area_by_name(values.bereich)
-if not found then return nil,"Den Bereich '"..tostring(values.bereich).."' gibt es nicht."end
-local kind=tostring(values.art or""):match("^%s*(.-)%s*$"):lower()
-local spec={kind=kind,name=values.ziel,if_rev=record and record.area==found.id and record.rev or nil}
-if kind=="betriebsstelle"then
-local st=find_station_by_name(values.ziel)
-if not st then return nil,"Die Betriebsstelle '"..tostring(values.ziel).."' gibt es nicht."end
-spec.ref=st.id
-spec.suffix=values.zusatz
-elseif kind=="bereich"then
-local other=find_area_by_name(values.ziel)
-if not other then return nil,"Den Nachbarbereich '"..tostring(values.ziel).."' gibt es nicht."end
-spec.ref=other.id
-end
-return role.netz.set_end(found.id,tonumber(values.nr),spec)
-end,
-extra={
-{id="bau",label=function(r)return r and r.state=="im bau"and"Freigeben"or"Im Bau"end,kind="secondary",
-run=function(v,r)
-local ok,err=role.netz.set_area_state(r.area,r.state=="im bau"and"betriebsbereit"or"im bau")
-return ok and"Zustand geaendert."or err
-end},
-},
-})
-
-
 pages[#pages+1]=forms.page({
 id="betriebsstellen",title="Betriebsstellen",new_label="Neu",
-empty="Noch keine Betriebsstelle. Ein Personenbahnhof, Gueterbahnhof oder Depot wird hier einmal angelegt.",
+empty="Noch keine Betriebsstelle. Eine Anmeldung gehoert zu einer Betriebsstelle (Personenbahnhof, Gueterbahnhof oder Depot), die hier angelegt wird.",
 items=function()
 local items,records={},{}
 for i,st in ipairs(role.netz.stations())do
-items[i]={text=st.name.."  ("..st.id..")",detail=KIND_TEXT[st.kind]..(st.site_name and(", Standort "..st.site_name)or"")..", "..st.links.." Gleis(e)"}
+items[i]={text=st.name.."  ("..st.id..")",detail=KIND_TEXT[st.kind]..(st.site_name and(", Standort "..st.site_name)or"")}
 records[i]=st
 end
 return items,records
@@ -1952,285 +1562,6 @@ extra={
 {id="loeschen",label=function(st)return st and netz_arm.station==st.id and"Wirklich?"or"Loeschen"end,kind="danger",
 run=function(v,st)return two_step("station",st.id,"die Betriebsstelle "..st.name.." wird geloescht.",function()return role.netz.remove_station(st.id)end)end},
 },
-})
-
-
-pages[#pages+1]=forms.page({
-id="beziehungen",title="Beziehungen",new_label="Neu",
-empty="Noch keine Beziehung. Sie legt fest, ob ein Gleis an einer Betriebsstelle vorbeifuehrt, eine Verbindung dorthin hat oder dazu gehoert.",
-items=function()
-local items,records={},{}
-for _,st in ipairs(role.netz.stations())do
-for _,link in ipairs(role.netz.station(st.id).links)do
-local area=link.area and role.netz.area(link.area)
-items[#items+1]={
-text=st.name.." / "..(area and area.name or"?").." / "..link.name,
-detail=link.relation..(link.directions and(", nur Richtung "..table.concat(link.directions,", "))or""),
-}
-records[#items]={station=st.id,station_name=st.name,track=link.track,area_name=area and area.name or"",track_name=link.name,relation=link.relation,directions=link.directions}
-end
-end
-return items,records
-end,
-fields={
-{id="betriebsstelle",label="Betriebsstelle (Name)",max=30,width=34},
-{id="bereich",label="Bereich (Name)",max=30,width=34},
-{id="gleis",label="Gleis (Name)",max=30,width=34},
-{id="beziehung",label="Beziehung: vorbei, verbindung, bahnhofsgleis",max=14,width=24,default="vorbei"},
-{id="richtungen",label="Fahrtrichtungen bei verbindung (Anschlussnamen mit ; trennen)",max=70,width=48},
-},
-edit=function(r)return{betriebsstelle=r.station_name,bereich=r.area_name,gleis=r.track_name,beziehung=r.relation,richtungen=r.directions and table.concat(r.directions,"; ")or""}end,
-on_save=function(values)
-local st=find_station_by_name(values.betriebsstelle)
-if not st then return nil,"Die Betriebsstelle '"..tostring(values.betriebsstelle).."' gibt es nicht."end
-local area=find_area_by_name(values.bereich)
-if not area then return nil,"Den Bereich '"..tostring(values.bereich).."' gibt es nicht."end
-local track
-for _,t in ipairs(role.netz.area(area.id).tracks)do
-if t.name:lower()==tostring(values.gleis or""):match("^%s*(.-)%s*$"):lower()then track=t end
-end
-if not track then return nil,"Das Gleis '"..tostring(values.gleis).."' gibt es in diesem Bereich nicht."end
-local relation=tostring(values.beziehung or""):match("^%s*(.-)%s*$"):lower()
-local directions
-if relation=="verbindung"and tostring(values.richtungen or""):match("%S")then
-directions={}
-for part in tostring(values.richtungen):gmatch("[^;]+")do
-local want=part:match("^%s*(.-)%s*$")
-directions[#directions+1]=canonical_direction(area,want)
-end
-end
-return role.netz.link_station(st.id,track.id,relation,directions)
-end,
-extra={
-{id="loesen",label=function(r)return r and netz_arm.link==r.station..r.track and"Wirklich?"or"Loesen"end,kind="danger",
-run=function(v,r)return two_step("link",r.station..r.track,"die Beziehung wird gelost.",function()return role.netz.unlink_station(r.station,r.track)end)end},
-},
-})
-
-
-local function resolve_track(text)
-text=tostring(text or""):match("^%s*(.-)%s*$")
-if text:match("^A%d+$")then return role.netz.track(text)and text or nil end
-local area_text,track_text=text:match("^(.-)%s*/%s*(.-)$")
-local area=area_text and find_area_by_name(area_text)
-if not area then return nil end
-for _,t in ipairs(role.netz.area(area.id).tracks)do
-if t.name:lower()==track_text:lower()then return t.id end
-end
-end
-
-local function track_label(tid)
-local t=role.netz.track(tid)
-local a=t and role.netz.area(t.area)
-return t and(a.name.."/"..t.name)or tid
-end
-
-
-pages[#pages+1]=forms.page({
-id="knoten",title="Knoten",new_label="Neu",edit_label="Name",
-empty="Noch kein Knoten. Ein Knoten fasst Anschluesse (Gleisenden), Fahrwege und Konflikte zusammen.",
-items=function()
-local items,records={},{}
-for _,summary in ipairs(role.netz.junctions())do
-local j=role.netz.junction(summary.id)
-items[#items+1]={
-text=j.name.."  ("..j.id..")",
-detail=#j.connections.." Anschl., "..#j.routes.." Fahrw., "..#j.conflicts.." Konfl."..(j.unconfirmed>0 and(", "..j.unconfirmed.." UNBESTAETIGT")or"")..(#j.hints>0 and(", "..#j.hints.." Luecken")or""),
-kind=(j.unconfirmed>0 or#j.hints>0)and"wait"or"ok",
-}
-records[#items]={kind="knoten",knoten=j.id,name=j.name,rev=j.rev}
-for _,c in ipairs(j.connections)do
-local names={}
-for _,tid in ipairs(c.tracks)do names[#names+1]=track_label(tid)end
-items[#items+1]={text="   Anschluss "..c.name,detail=table.concat(names,", ")}
-records[#items]={kind="anschluss",knoten=j.id,name=c.name}
-end
-for _,r in ipairs(j.routes)do
-items[#items+1]={text="   "..r.id.." "..track_label(r.from).." > "..track_label(r.to),detail=(r.loop and"Schleife, "or"")..(r.confirmed and"bestaetigt"or"unbestaetigt"),kind=r.confirmed and"text"or"wait"}
-records[#items]={kind="fahrweg",knoten=j.id,id=r.id}
-end
-for _,cf in ipairs(j.conflicts)do
-items[#items+1]={text="   Konflikt "..cf.a.." x "..cf.b,detail=cf.confirmed and"bestaetigt"or"unbestaetigt",kind=cf.confirmed and"text"or"wait"}
-records[#items]={kind="konflikt",knoten=j.id,a=cf.a,b=cf.b}
-end
-end
-return items,records
-end,
-fields={
-{id="knoten",label="Knoten (Name; neu anlegen oder zum Ergaenzen)",max=30,width=34},
-{id="typ",label="Was: knoten, anschluss, fahrweg, konflikt",max=10,width=20,default="knoten"},
-{id="a",label="Anschlussname / Start (Bereich / Gleis) / Fahrweg F0001",max=40,width=44},
-{id="b",label="Gleisenden (Bereich / Gleis; ...) / Ziel / Fahrweg",max=90,width=48},
-},
-edit=function(r)return{knoten=r.name or"",typ="knoten"}end,
-on_save=function(values,record)
-local kind=tostring(values.typ or""):match("^%s*(.-)%s*$"):lower()
-if record then
-if record.kind~="knoten"then return nil,"Zum Aendern den Eintrag loeschen und neu anlegen."end
-return role.netz.set_junction(record.knoten,{name=values.knoten,if_rev=record.rev})
-end
-local name=tostring(values.knoten or""):match("^%s*(.-)%s*$"):lower()
-local found
-for _,j in ipairs(role.netz.junctions())do if j.name:lower()==name then found=j end end
-if kind=="knoten"then
-local id,err=role.netz.add_junction({name=values.knoten})
-if not id then return nil,err end
-return true
-end
-if not found then return nil,"Den Knoten '"..tostring(values.knoten).."' gibt es nicht: erst mit Was = knoten anlegen."end
-if kind=="anschluss"then
-local ends={}
-for part in tostring(values.b or""):gmatch("[^;]+")do
-local tid=resolve_track(part)
-if not tid then return nil,"Das Gleis '"..part:match("^%s*(.-)%s*$").."' gibt es nicht (Bereich / Gleis)."end
-ends[#ends+1]=tid
-end
-return role.netz.add_connection(found.id,values.a,ends)
-elseif kind=="fahrweg"then
-local from,to=resolve_track(values.a),resolve_track(values.b)
-if not from then return nil,"Das Startgleis '"..tostring(values.a).."' gibt es nicht (Bereich / Gleis)."end
-if not to then return nil,"Das Zielgleis '"..tostring(values.b).."' gibt es nicht (Bereich / Gleis)."end
-local id,err=role.netz.add_route(found.id,from,to)
-if not id then return nil,err end
-return true
-elseif kind=="konflikt"then
-return role.netz.add_conflict(found.id,tostring(values.a or""):match("^%s*(.-)%s*$"),tostring(values.b or""):match("^%s*(.-)%s*$"))
-end
-return nil,"Was: knoten, anschluss, fahrweg oder konflikt."
-end,
-extra={
-{id="vorschlag",label="Auto",kind="secondary",enabled=function(r)return r.kind=="knoten"end,reason="Erst einen Knoten waehlen.",
-run=function(v,r)
-local j=role.netz.junction(r.knoten)
-local kind=#j.connections==2 and"durchgehend"or"alle"
-local routes,why=role.netz.propose_routes(r.knoten,kind)
-if not routes then return why end
-local conflicts=role.netz.propose_conflicts(r.knoten)
-return routes.." Fahrweg(e) und "..tostring(conflicts).." Konflikt(e) vorgeschlagen ("..kind.."): pruefen, dann Bestaetigen."
-end},
-{id="bestaetigen",label="Bestaet.",kind="secondary",enabled=function(r)return r.kind=="knoten"end,reason="Erst einen Knoten waehlen.",
-run=function(v,r)
-local n=role.netz.confirm_junction(r.knoten)
-return n and(n.." Eintrag/Eintraege bestaetigt.")or"Nichts bestaetigt."
-end},
-{id="loeschen",label=function(r)return r and netz_arm.knoten==(r.id or r.name or r.knoten)..r.kind and"Wirklich?"or"Loeschen"end,kind="danger",
-run=function(v,r)
-local key=(r.id or r.name or r.knoten)..r.kind
-return two_step("knoten",key,"der Eintrag wird geloescht.",function()
-if r.kind=="knoten"then return role.netz.remove_junction(r.knoten)
-elseif r.kind=="anschluss"then return role.netz.remove_connection(r.knoten,r.name)
-elseif r.kind=="fahrweg"then return role.netz.remove_route(r.knoten,r.id)
-else return role.netz.remove_conflict(r.knoten,r.a,r.b)end
-end)
-end},
-},
-})
-
-
-local function split_list(text,sep)
-local out={}
-for part in tostring(text or""):gmatch("[^"..sep.."]+")do
-local trimmed=part:match("^%s*(.-)%s*$")
-if trimmed~=""then out[#out+1]=trimmed end
-end
-return out
-end
-
-local TEMPLATES={
-{id="nebenanschluss",text="Nebenanschluss",detail="Strecke mit einem Bahnhof am Nebengleis eines Hauptgleises"},
-{id="verzweigung",text="Verzweigung",detail="mehrere Anschluesse mit Gleisgruppen und vorgeschlagenen Fahrwegen"},
-{id="frei",text="Freie Einrichtung",detail="Bereich mit einzeln benannten Gleisen und Richtungen"},
-{id="teilen",text="Bereich teilen",detail="Gleise eines Bereichs wechseln mit gleicher Kennung in einen neuen Bereich"},
-}
-
-local TEMPLATE_RUN={
-nebenanschluss=function(values)
-local ends=split_list(values.anschluesse,";")
-if#ends~=2 then return nil,"Anschluesse: zwei Namen mit ; getrennt (zum Beispiel Westbahnhof; Ostbahnhof)."end
-local parts=split_list(values.neben,";")
-if#parts<3 then return nil,"Nebenanschluss: Name; Art; Hauptgleis; Richtungen (zum Beispiel Hafen; gueter; Gleis 1; Ostbahnhof)."end
-local dirs={}
-for _,d in ipairs(split_list(parts[4]or"beide",","))do dirs[#dirs+1]=d end
-local made,err=role.netz.template_siding({
-name=values.name,ends=ends,count=tonumber(values.gleise),pattern="gegenlaeufig",
-siding={name=parts[1],kind=station_kind(parts[2]),track=parts[3],directions=dirs},
-})
-if not made then return nil,err end
-return"Bereich und Nebenanschluss angelegt ("..made.area..", "..made.station..")."
-end,
-verzweigung=function(values)
-local conns={}
-for _,part in ipairs(split_list(values.anschluesse,";"))do
-local name,count=part:match("^(.-)%s*:%s*(%d+)$")
-if not name then return nil,"Anschluesse: Name:Gleisanzahl, mit ; getrennt (zum Beispiel West:2; Ost:2; Sued:1)."end
-conns[#conns+1]={name=name,count=tonumber(count)}
-end
-local made,err=role.netz.template_branch({name=values.name,connections=conns})
-if not made then return nil,err end
-return"Knoten "..made.junction.." mit "..#made.areas.." Bereichen angelegt, "..made.routes.." Fahrwege vorgeschlagen: auf der Seite Knoten pruefen und bestaetigen."
-end,
-teilen=function(values)
-local ends=split_list(values.anschluesse,";")
-if#ends~=2 then return nil,"Anschluesse des neuen Bereichs: zwei Namen mit ; getrennt."end
-local source,rest=tostring(values.gleise or""):match("^%s*(.-)%s*:%s*(.-)%s*$")
-if not source or source==""or rest==""then return nil,"Gleise: Bereich: Gleis 3; Gleis 4 (Name des alten Bereichs, dann die Gleise, die wechseln)."end
-local area=find_area_by_name(source)
-if not area then return nil,"Den Bereich '"..source.."' gibt es nicht."end
-local ids={}
-local full=role.netz.area(area.id)
-for _,ref in ipairs(split_list(rest,";"))do
-local found
-for _,tr in ipairs(full.tracks)do
-if tr.name:lower()==ref:lower()or tr.name:lower()==("gleis "..ref):lower()then found=tr.id end
-end
-if not found then return nil,"Das Gleis '"..ref.."' gibt es im Bereich "..area.name.." nicht."end
-ids[#ids+1]=found
-end
-local new_area,err=role.netz.split_area(area.id,{name=values.name,ends=ends,tracks=ids})
-if not new_area then return nil,err end
-return"Bereich "..new_area.." abgeteilt."
-end,
-frei=function(values)
-local ends=split_list(values.anschluesse,";")
-if#ends~=2 then return nil,"Anschluesse: zwei Namen mit ; getrennt (zum Beispiel Westbahnhof; Ostbahnhof)."end
-local tracks={}
-for _,part in ipairs(split_list(values.gleise,";"))do
-local name,direction=part:match("^(.-)%s*:%s*(.-)$")
-tracks[#tracks+1]={name=name or part,direction=(direction and direction~="")and direction or"beide"}
-end
-local made,err=role.netz.template_free({name=values.name,ends=ends,tracks=tracks})
-if not made then return nil,err end
-return"Bereich "..made.area.." mit "..#tracks.." Gleisen angelegt."
-end,
-}
-
-pages[#pages+1]=forms.page({
-id="assistent",title="Assistent",new_label="Neu",edit_label="Waehlen",
-empty="",
-items=function()
-local items,records={},{}
-for i,tpl in ipairs(TEMPLATES)do
-items[i]={text=tpl.text,detail=tpl.detail}
-records[i]=tpl
-end
-return items,records
-end,
-fields={
-{id="vorlage",label="Vorlage: nebenanschluss, verzweigung, frei, teilen",max=16,width=24,default="nebenanschluss"},
-{id="name",label="Name (Bereich; bei Verzweigung der Knoten)",max=30,width=34},
-{id="anschluesse",label="Anschluesse: A; B  oder  West:2; Ost:2; Sued:1",max=80,width=48},
-{id="gleise",label="Gleise: Anzahl  oder  Gleis 1:Ostbahnhof; Gleis 2:beide",max=120,width=48},
-{id="neben",label="Nebenanschluss: Name; Art; Hauptgleis; Richtungen",max=100,width=48},
-},
-edit=function(r)return{vorlage=r.id}end,
-on_save=function(values)
-local kind=tostring(values.vorlage or""):match("^%s*(.-)%s*$"):lower()
-local run=TEMPLATE_RUN[kind]
-if not run then return nil,"Vorlage: nebenanschluss, verzweigung, frei oder teilen. Die gerade Strecke legt die Seite Bereiche an."end
-local text,err=run(values)
-if not text then return nil,err end
-return true
-end,
 })
 
 pages[#pages+1]={
@@ -2450,58 +1781,6 @@ end,
 }
 
 
-pages[#pages+1]={
-id="signale",title="Signale",
-render=function(v,rect)
-local state=v.page_state("signale")
-state.list=state.list or{index=1}
-state.rows={}
-local items={}
-for i,row in ipairs(role.signal_overview())do
-local sg=row.signal
-local detail={}
-if not row.fresh then detail[#detail+1]="VERALTET"end
-if sg.forced then detail[#detail+1]="gesperrt"end
-if sg.owners and#sg.owners>0 then detail[#detail+1]="von "..table.concat(sg.owners,",")end
-if sg.foreign then detail[#detail+1]="FREMDE SPERRE"end
-if sg.missing then detail[#detail+1]="Sperre fehlt"end
-if sg.invalid then detail[#detail+1]="GESTOERT"end
-if row.effect then detail[#detail+1]=(row.use=="einfahrt"and"Knoteneinfahrt"or row.use=="ausfahrt"and"Knotenausfahrt"or"Streckensignal").." Richtung "..tostring(row.effect)end
-local kind=(sg.invalid or not sg.available or not row.fresh)and"halt"or(sg.foreign or sg.missing)and"attention"or(sg.forced and"wait"or"ok")
-items[i]={text=row.node.." / "..tostring(sg.track_name).."  "..(sg.available and tostring(sg.state)or"nicht verfuegbar"),detail=#detail>0 and table.concat(detail,", ")or"keine zusaetzliche Sperre",kind=kind}
-state.rows[i]=row
-end
-local picked=state.rows[state.list.index]
-local place_line=(picked and picked.count and picked.count>1)and(tostring(picked.signal.track_name)..": "..tostring(picked.pos).."/"..tostring(picked.count).." zwischen "..tostring(picked.prev or"?").." und "..tostring(picked.next or"?"))or nil
-W.list(v,"signale",{x=rect.x,y=rect.y,w=rect.w,h=rect.h-1-(place_line and 1 or 0)},items,state.list,{empty="Noch kein Signal-Node hat sich gemeldet."})
-if place_line then W.label(v,rect.x+1,rect.y+rect.h-2,place_line,"text",rect.w-2)end
-if role.signal_status then W.label(v,rect.x+1,rect.y+rect.h-1,role.signal_status.text,role.signal_status.kind,rect.w-2)end
-end,
-actions=function(v)
-local state=v.page_state("signale")
-local row=state.rows and state.rows[(state.list or{index=1}).index]
-return{
-{id="sig_sperre",label="Sperre",enabled=row~=nil,reason="Erst ein Signal waehlen."},
-{id="sig_aufheben",label="Aufheben",kind="secondary",enabled=row~=nil and row.signal.owners~=nil and#row.signal.owners>0,reason="Das Signal hat keine Sperre eines Besitzers."},
-}
-end,
-on_action=function(v,id)
-local state=v.page_state("signale")
-local row=state.rows and state.rows[state.list.index]
-if not row then return true end
-if id=="act:sig_sperre"then
-local ok,why=role.signal_lock(row.node,row.signal.id,"setzen")
-if not ok then v.hint=why end
-return true
-elseif id=="act:sig_aufheben"then
-local ok,why=role.signal_lock(row.node,row.signal.id,"loesen")
-if not ok then v.hint=why end
-return true
-end
-end,
-}
-
-
 local ZSTATE={registriert="registriert",gesteuert="gesteuert",uebergabe="Uebergabe offen",abgestellt="abgestellt",ausgeschleust="ausgeschleust"}
 local depot_arm={}
 pages[#pages+1]={
@@ -2674,7 +1953,7 @@ end,
 }
 
 
-local directory_pages={bereiche=true,gleise=true,anschluesse=true,betriebsstellen=true,beziehungen=true,knoten=true,assistent=true}
+local directory_pages={betriebsstellen=true}
 local ordered={}
 for _,pg in ipairs(pages)do if not directory_pages[pg.id]then ordered[#ordered+1]=pg end end
 for _,pg in ipairs(pages)do if directory_pages[pg.id]then ordered[#ordered+1]=pg end end

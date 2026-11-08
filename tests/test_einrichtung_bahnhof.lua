@@ -1,5 +1,5 @@
 --[[
-Purpose: Einrichtung eines Bahnhofs ueber das Netzverzeichnis (Konzept 6, 12.1): Kennung, Name, Label und Gleise kommen aus der Leitstelle, Geraete und Ausgaenge werden wie bisher zugeordnet, die Pruefungen laufen wie bisher; Gleise aus dem Verzeichnis lassen sich lokal nicht anlegen, kopieren oder loeschen.
+Purpose: Einrichtung eines Bahnhofs ueber das Node-Verzeichnis (Konzept 6, 12.1): Kennung, Name und Label kommen aus der Leitstelle, Gleise und Geraete richtet der Assistent ein (die Strecke selbst regelt Create), Pruefungen lesen nur, Von Hand geht der bisherige Weg weiter, Neustart und Zurueck vergeben keine zweite Kennung.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -11,7 +11,6 @@ local function setup(opts)
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local netz = z.node.roles.zentrale.netz
-  netz.add_area({ name = "Hauptbahnhof", ends = { "Einfahrt", "Ausfahrt" }, count = opts.tracks or 2, pattern = "gleich" })
   local d = h.add_blank({ id = "neu", stations = { "Hof A", "Hof B", "Hof C" } })
   h.step(1)
   local v = d.view()
@@ -28,35 +27,36 @@ local function to_devices(h, d, v, role_text)
   d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
   d.tap_row(v, "rollen", role_text or "Passagierbahnhof"); d.tap(v, "act:weiter")
   h.step(3); d.node.render()
-  d.tap(v, "sel:bereich:1")
-  h.step(3); d.node.render()
-  d.tap(v, "act:weiter")
-  d.tap(v, "act:weiter")
+  d.tap(v, "act:weiter")                                  -- Kennung von der Leitstelle anfordern
   h.step(3); d.node.render()
 end
 
+-- legt ein Gleis an und ordnet ihm eine Train Station zu; danach steht der Assistent wieder auf der Gleisliste
+local function add_track(d, v, station_device)
+  d.tap(v, "act:neues_gleis")
+  d.tap(v, "act:weiter")                                  -- Name
+  d.tap(v, "act:weiter")                                  -- Richtung
+  d.tap_row(v, "bahnhof", station_device); d.tap(v, "act:weiter")
+end
+
 return {
-  { "Bahnhof: Kennung, Name und Gleise kommen aus dem Verzeichnis; Geraete wie bisher, keine Ausgangswahl; aktiv mit dem Label der Leitstelle", function()
+  { "Bahnhof: Kennung und Name kommen aus dem Verzeichnis; Gleise und Geraete richtet der Assistent ein, keine Ausgangswahl; aktiv mit dem Label der Leitstelle", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     t.eq(screen(d), "3.geraete", d.text(v))
     t.eq(netz.node("N0001").role, "passagierbahnhof")
-    t.eq(netz.node("N0001").name, "Personenbahnhof Hauptbahnhof N0001")
+    t.eq(netz.node("N0001").name, "Personenbahnhof N0001")
     d.tap_row(v, "geraete", "Create_Station_1"); d.tap_row(v, "geraete", "Create_Station_2")
     d.tap(v, "act:weiter")
     t.eq(screen(d), "4.gleise", d.text(v))
-    t.contains(d.text(v), "Gleis 1"); t.contains(d.text(v), "Gleis 2")
-    t.ok(not d.has(v, "Kopieren"), "Gleise aus dem Verzeichnis lassen sich nicht kopieren: " .. d.text(v))
-    t.ok(not d.has(v, "Entfernen"), d.text(v))
-    -- Gleis 1 und 2: nur der Bahnhof (Name und Richtung stehen schon fest); einen Freigabeausgang gibt es im Assistenten nicht mehr
-    d.tap(v, "sel:gleise:1"); d.tap(v, "act:bearbeiten")
-    t.eq(screen(d), "4.g.bahnhof", d.text(v))
-    d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
+    t.contains(d.text(v), "Noch kein Gleis")
+    t.ok(d.has(v, "Kopieren") and d.has(v, "Entfernen"), "die Gleise lassen sich wie bei jeder Node anlegen und aendern: " .. d.text(v))
+    add_track(d, v, "Create_Station_1")
     t.eq(screen(d), "4.gleise", d.text(v), "nach dem Bahnhof geht es zurueck zur Gleisliste, kein Ausgang-Menue")
     t.ok(not d.has(v, "Welcher Ausgang"), d.text(v))
-    d.tap(v, "sel:gleise:2"); d.tap(v, "act:bearbeiten")
-    d.tap_row(v, "bahnhof", "Create_Station_2"); d.tap(v, "act:weiter")
+    add_track(d, v, "Create_Station_2")
     t.eq(screen(d), "4.gleise", d.text(v))
+    t.contains(d.text(v), "Gleis 1"); t.contains(d.text(v), "Gleis 2")
     d.tap(v, "act:weiter")
     t.eq(screen(d), "5.test", d.text(v))
     d.tap(v, "act:alle_lesen")
@@ -66,14 +66,14 @@ return {
     d.tap(v, "act:speichern")
     local config = d.node.config
     t.eq(config.status, "aktiv", d.text(v))
-    t.eq(config.node.id, "N0001"); t.eq(config.node.label, "N0001 | PBF | B0001")
+    t.eq(config.node.id, "N0001"); t.eq(config.node.label, "N0001 | PBF")
     t.eq(config.node.roles[1], "passagierbahnhof")
     local tracks = {}
     for _, tr in pairs(config.tracks) do tracks[tr.name] = tr end
-    t.eq(tracks["Gleis 1"].dir.id, "A0001"); t.eq(tracks["Gleis 1"].dir.direction, "Ausfahrt")
+    t.eq(tracks["Gleis 1"].dir, nil, "keine Gleise aus einem Verzeichnis")
     t.ok(tracks["Gleis 1"].station, "Bahnhof zugeordnet")
     t.eq(tracks["Gleis 1"].release, nil, "kein Redstone-Ausgang: die Freigabe laeuft ueber die Station")
-    t.eq(d.label, "N0001 | PBF | B0001", "Computerlabel gesetzt")
+    t.eq(d.label, "N0001 | PBF", "Computerlabel gesetzt")
     local saved = storelib.new(d.fs).load("/crn_data/config.lua")
     t.eq(saved.status, "aktiv"); t.eq(saved.node.claimed, true)
     -- im Betrieb meldet sich die Node; das Verzeichnis fuehrt sie danach als aktiv
@@ -85,10 +85,8 @@ return {
     to_devices(h, d, v)
     d.tap_row(v, "geraete", "Create_Station_1"); d.tap_row(v, "geraete", "Create_Station_2")
     d.tap(v, "act:weiter")
-    d.tap(v, "sel:gleise:1"); d.tap(v, "act:bearbeiten")
-    d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
-    d.tap(v, "sel:gleise:2"); d.tap(v, "act:bearbeiten")
-    d.tap_row(v, "bahnhof", "Create_Station_2"); d.tap(v, "act:weiter")
+    add_track(d, v, "Create_Station_1")
+    add_track(d, v, "Create_Station_2")
     local wiz = d.node.setup.session().wiz
     d.tap(v, "act:weiter")
     t.eq(screen(d), "5.test", d.text(v))
@@ -105,28 +103,25 @@ return {
     t.eq(d.node.config.status, "aktiv")
   end },
   { "Depot geht denselben Weg; die Rolle bestimmt Kuerzel und Namen", function()
-    local h, z, d, v, netz = setup({ tracks = 1 })
+    local h, z, d, v, netz = setup()
     to_devices(h, d, v, "Depot")
     t.eq(screen(d), "3.geraete", d.text(v))
     t.eq(netz.node("N0001").role, "depot")
-    t.eq(netz.node("N0001").label, "N0001 | DEP | B0001")
-    t.eq(d.node.setup.session().wiz.config.node.label, "N0001 | DEP | B0001")
+    t.eq(netz.node("N0001").label, "N0001 | DEP")
+    t.eq(netz.node("N0001").name, "Depot N0001")
+    t.eq(d.node.setup.session().wiz.config.node.label, "N0001 | DEP")
   end },
-  { "Zurueck von den Geraeten zu den Gleisen: erneutes Weiter vergibt dieselbe Kennung und uebernimmt die neue Auswahl", function()
+  { "Zurueck von den Geraeten zur Kennung: erneutes Weiter vergibt dieselbe Kennung", function()
     local h, z, d, v, netz = setup()
     to_devices(h, d, v)
     d.tap(v, "act:zurueck")
-    t.eq(screen(d), "2.gleise", d.text(v))
-    d.tap(v, "sel:gleise_auswahl:2")                 -- Gleis 2 abwaehlen
+    t.eq(screen(d), "2.kennung", d.text(v))
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()
     t.eq(screen(d), "3.geraete", d.text(v))
     t.eq(#netz.nodes(), 1, "keine zweite Kennung")
-    t.eq(#netz.node("N0001").tracks, 1)
-    local wiz = d.node.setup.session().wiz
-    local count = 0
-    for _ in pairs(wiz.config.tracks) do count = count + 1 end
-    t.eq(count, 1)
+    t.eq(netz.node("N0001").id, "N0001")
+    t.eq(d.node.setup.session().wiz.config.node.id, "N0001")
   end },
   { "Von Hand geht der bisherige Weg weiter (Name statt Kennung aus dem Verzeichnis)", function()
     local h, z, d, v, netz = setup()

@@ -23,8 +23,8 @@ function M.new(services)
   -- Titel der Bildschirme der Einrichtung
   local GUIDED_TITLE = {
     ["1.modus"] = "Netz erstellen oder beitreten", ["1.netzwahl"] = "Netz waehlen", ["1.netz"] = "Name des Netzes", ["1.zentrale"] = "Kennung der Leitstelle",
-    ["2.rollen"] = "Rolle waehlen", ["2.name"] = "Name der Node", ["2.bereich"] = "Bereich waehlen", ["2.b.neu"] = "Neuer Bereich",
-    ["2.station"] = "Betriebsstelle waehlen", ["2.gleise"] = "Gleise uebernehmen",
+    ["2.rollen"] = "Rolle waehlen", ["2.name"] = "Name der Node", ["2.kennung"] = "Kennung anfordern",
+    ["2.station"] = "Betriebsstelle waehlen",
     ["3.geraete"] = "Geraete waehlen",
     ["4.gleise"] = "Gleise einrichten", ["4.g.name"] = "Name des Gleises", ["4.g.richtung"] = "Richtung",
     ["4.g.bahnhof"] = "Bahnhof zuordnen", ["4.g.beobachter"] = "Beobachter zuordnen",
@@ -50,10 +50,10 @@ function M.new(services)
     if role and #session.wiz.roles == 0 then session.wiz.toggle_role(role) end
   end
 
-  -- Bahnhof und Depot nutzen das Verzeichnis fuer Kennung, Name, Label und Gleise; Geraete, Ausgaenge und Pruefungen bleiben wie bisher
-  -- Rollen, die Gleise eines Bereichs betreuen und sich auf einem Computer kombinieren lassen (Bahnhof, Depot, Signal, dazu die Anmeldung)
+  -- Bahnhof und Depot holen Kennung, Name und Label von der Leitstelle; Geraete, Gleise und Pruefungen richtet der Assistent ein
+  -- Rollen, die sich auf einem Computer kombinieren lassen (Bahnhof, Depot, dazu die Anmeldung)
   local STATION_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true }
-  local AREA_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true, anmeldung = true }
+  local CLAIM_ROLES = { passagierbahnhof = true, gueterbahnhof = true, depot = true, anmeldung = true }
   local function roles_in(allowed, need_one_of)
     local w = session.wiz
     if not w or #w.roles == 0 then return false end
@@ -66,8 +66,8 @@ function M.new(services)
   end
   local function station_mode()
     local w = session.wiz
-    return w ~= nil and w.mode == "join" and not session.manual and services.directory_areas ~= nil
-      and roles_in(AREA_ROLES, { passagierbahnhof = true, gueterbahnhof = true, depot = true })
+    return w ~= nil and w.mode == "join" and not session.manual and services.directory_claim ~= nil
+      and roles_in(CLAIM_ROLES, { passagierbahnhof = true, gueterbahnhof = true, depot = true })
   end
   -- Anmeldung allein: gehoert zu einer Betriebsstelle des Netzes
   local function anmeldung_mode()
@@ -88,7 +88,7 @@ function M.new(services)
     end
     if not preset_role() then seq[#seq + 1] = "2.rollen" end
     if station_mode() then
-      for _, id in ipairs({ "2.bereich", "2.gleise", "3.geraete", "4.gleise" }) do seq[#seq + 1] = id end
+      for _, id in ipairs({ "2.kennung", "3.geraete", "4.gleise" }) do seq[#seq + 1] = id end
       for _, r in ipairs(session.wiz.roles) do if r == "anmeldung" then seq[#seq + 1] = "4.anmeldung" break end end
       seq[#seq + 1] = "5.test"; seq[#seq + 1] = "6.fertig"
       return seq
@@ -132,12 +132,6 @@ function M.new(services)
         session.dir.want = "stations"
         services.directory_stations(session.wiz.central_id)
       end
-    elseif screen == "2.bereich" then
-      session.dir = session.dir or {}
-      if not session.dir.areas then
-        session.dir.want = "areas"
-        services.directory_areas(session.wiz.central_id)
-      end
     end
   end
 
@@ -174,8 +168,6 @@ function M.new(services)
     session.manual = nil
     session.checking = false
     session.dir = {}
-    -- der Bereich einer vorhandenen Einrichtung ist vorgewaehlt, wenn das Verzeichnis ihn liefert
-    if existing and existing.node and type(existing.node.area) == "string" and existing.node.area ~= "" then session.dir.preselect = existing.node.area end
     goto_screen("1.modus")
     -- Felder aus dem Zustand vorbelegen
     local st = v.page_state("einrichtung")
@@ -185,7 +177,6 @@ function M.new(services)
       zentrale = { value = session.wiz.central_id, max = 30 },
       name = { value = session.wiz.name, max = 30 },
       gleisname = { value = "", max = 30 },
-      bname = { value = "", max = 30 }, bende1 = { value = "", max = 30 }, bende2 = { value = "", max = 30 }, bzahl = { value = "2", max = 2 },
       anschluss = { value = "", max = 20 },
     }
   end
@@ -450,7 +441,7 @@ function M.new(services)
         session.pick.tracks[#items] = id
       end
       local area = body_rect(rect, 3)
-      W.list(v, "gleise", area, items, list_state(v, "gleise"), { row_h = row_h_for(v, items, area), empty = session.wiz.config.node.claimed and "Keine Gleise uebernommen." or "Noch kein Gleis. 'Neues Gleis' legt eines an." })
+      W.list(v, "gleise", area, items, list_state(v, "gleise"), { row_h = row_h_for(v, items, area), empty = "Noch kein Gleis. 'Neu' legt eines an." })
       local problems = session.wiz.warnings()
       if #problems > 0 and rect.h > 8 then v.hint = problems[1].text end
     end,
@@ -466,8 +457,7 @@ function M.new(services)
       elseif id == "act:bearbeiten" and selected then
         session.track = selected
         fields(v).gleisname.value = session.wiz.config.tracks[selected].name
-        -- Gleise aus dem Verzeichnis haben Name und Richtung schon; es geht gleich zu den Geraeten
-        push(session.wiz.config.node.claimed and first_device_screen() or "4.g.name")
+        push("4.g.name")
         return true
       elseif id == "act:kopieren" and selected then
         local src = session.wiz.config.tracks[selected]
@@ -485,10 +475,6 @@ function M.new(services)
     actions = function(v)
       local has_selection = session.pick.tracks and session.pick.tracks[list_state(v, "gleise").index] ~= nil
       local reason = "Erst ein Gleis in der Liste waehlen."
-      if session.wiz.config.node.claimed then
-        -- die Gleise stammen aus dem Netzverzeichnis: hier werden nur Geraete zugeordnet (Name und Richtung ueber die Leitstelle)
-        return { { id = "bearbeiten", label = "Zuordnen", enabled = has_selection, reason = reason } }
-      end
       return {
         { id = "neues_gleis", label = "Neu" },
         { id = "bearbeiten", label = "Bearbeiten", kind = "secondary", enabled = has_selection, reason = reason },
@@ -737,131 +723,6 @@ function M.new(services)
   local function dir_status() return services.directory_status and services.directory_status() or nil end
   -- Anforderung dieses Computers im Verzeichnis: immer dieselbe Kennung (Datei, kein Entwurf); eine einmalige Kennung fuer einzelne Vorgaenge
   local function node_claim() return services.claim and services.claim() or services.new_claim() end
-  local function new_token() return services.new_token and services.new_token() or services.new_claim() end
-
-  local function direction_text(direction)
-    if direction == "beide" then return "beide Richtungen" end
-    return "Richtung " .. tostring(direction)
-  end
-
-  local function choose_area(area)
-    local d = session.dir
-    d.chosen, d.area, d.selected, d.want = area, nil, nil, "area"
-    services.directory_tracks(session.wiz.central_id, area.id)
-  end
-
-  local PATTERNS = { "gegenlaeufig", "gleich", "beide" }
-  local PATTERN_TEXT = { gegenlaeufig = "gegenlaeufig (Haelfte je Richtung)", gleich = "alle in eine Richtung (zum 2. Anschluss)", beide = "Richtung offen (beide)" }
-
-  screens["2.bereich"] = {
-    render = function(v, rect)
-      header(v, rect, nil, "In welchem Bereich arbeitet diese Node?")
-      local d = session.dir
-      local st = dir_status()
-      if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
-      local items = {}
-      session.pick.areas = {}
-      for _, a in ipairs(d.areas or {}) do
-        local on = d.chosen and d.chosen.id == a.id
-        items[#items + 1] = { text = (on and "(o) " or "( ) ") .. a.name, detail = a.ends[1] .. " - " .. a.ends[2] .. ", " .. a.tracks .. " Gleis(e)" .. (a.state == "im bau" and ", IM BAU" or ""), kind = (a.state == "im bau") and "wait" or nil }
-        session.pick.areas[#items] = a
-      end
-      local empty = (st and st.kind == "ok" and d.areas) and "Das Netz hat noch keinen Bereich. In der Leitstelle auf der Seite Bereiche anlegen, dann 'Neu laden'." or ""
-      local area = body_rect(rect, 4)
-      W.list(v, "bereich", area, items, list_state(v, "bereich"), { row_h = row_h_for(v, items, area), empty = empty })
-    end,
-    action = function(v, id)
-      local n = id:match("^sel:bereich:(%d+)$")
-      local d = session.dir
-      if n then
-        local area = (session.pick.areas or {})[tonumber(n)]
-        if area then choose_area(area) end
-        return true
-      elseif id == "act:neuer_bereich" then
-        local f = fields(v)
-        f.bname.value, f.bende1.value, f.bende2.value, f.bzahl.value = "", "", "", "2"
-        d.neu = { pattern = "gegenlaeufig" }
-        push("2.b.neu")
-        return true
-      elseif id == "act:neu_laden" then
-        d.areas, d.chosen, d.area, d.want = nil, nil, nil, "areas"
-        services.directory_areas(session.wiz.central_id)
-        return true
-      elseif id == "act:von_hand" then
-        session.manual = true
-        session.stack = {}
-        goto_screen("2.name")
-        return true
-      end
-    end,
-    actions = function(v)
-      return {
-        { id = "neuer_bereich", label = "Neu" },
-        { id = "neu_laden", label = "Neu laden", kind = "secondary" },
-        { id = "von_hand", label = "Von Hand", kind = "secondary" },
-      }
-    end,
-    next = function(v)
-      local d = session.dir
-      if not d.selected then
-        d.selected = {}
-        for _, t in ipairs(d.area.tracks) do d.selected[t.id] = true end
-      end
-      push("2.gleise")
-      return true
-    end,
-  }
-
-  -- Bereich von der Node aus anlegen (Konzept 10.2): die Leitstelle speichert ihn; bei Wiederholung derselben Angaben entsteht er nicht doppelt
-  screens["2.b.neu"] = {
-    no_forward = true,
-    render = function(v, rect)
-      local d = session.dir
-      header(v, rect, nil, "Name und die beiden Enden, z.B. West-Ost")
-      local f = fields(v)
-      local half = math.floor((rect.w - 3) / 2)
-      W.field(v, "bname", rect.x + 1, rect.y + 2, math.min(rect.w - 2, 36), "Name des Bereichs", f.bname)
-      W.field(v, "bende1", rect.x + 1, rect.y + 4, half, "Anschluss 1 (z.B. West)", f.bende1)
-      W.field(v, "bende2", rect.x + 2 + half, rect.y + 4, half, "Anschluss 2 (z.B. Ost)", f.bende2)
-      W.field(v, "bzahl", rect.x + 1, rect.y + 6, 12, "Gleise", f.bzahl)
-      W.label(v, rect.x + 1, rect.y + 8, "Vorlage: " .. (PATTERN_TEXT[d.neu and d.neu.pattern or "gegenlaeufig"] or "?"), "text", rect.w - 2)
-      local st = dir_status()
-      if d.creating and st and st.kind ~= "ok" then put_status(v, rect, rect.y + 9, st, 2) end
-    end,
-    actions = function(v)
-      local busy = session.dir.creating ~= nil
-      return {
-        { id = "b_vorlage", label = "Vorlage", kind = "secondary", enabled = not busy, reason = "Die Leitstelle arbeitet noch." },
-        { id = "b_anlegen", label = "Anlegen", enabled = not busy, reason = "Die Leitstelle arbeitet noch.", nav = true },
-      }
-    end,
-    action = function(v, id)
-      local d = session.dir
-      if d.creating then return false end
-      if id == "act:b_vorlage" then
-        for i, p in ipairs(PATTERNS) do
-          if p == d.neu.pattern then d.neu.pattern = PATTERNS[i % #PATTERNS + 1] return true end
-        end
-        d.neu.pattern = PATTERNS[1]
-        return true
-      elseif id == "act:b_anlegen" then
-        local f = fields(v)
-        local function trim(x) return (x:match("^%s*(.-)%s*$")) end
-        local spec = { name = trim(f.bname.value), ends = { trim(f.bende1.value), trim(f.bende2.value) }, count = tonumber(trim(f.bzahl.value)), pattern = d.neu.pattern }
-        if spec.name == "" then v.hint = "Der Name des Bereichs fehlt." return true end
-        if spec.ends[1] == "" or spec.ends[2] == "" then v.hint = "Beide Anschlussnamen fehlen." return true end
-        if not spec.count then v.hint = "Die Gleisanzahl fehlt (Zahl)." return true end
-        -- gleiche Angaben, gleiche Kennung: ein erneuter Versuch legt nichts doppelt an; geaenderte Angaben bekommen eine neue
-        local key = table.concat({ spec.name, spec.ends[1], spec.ends[2], tostring(spec.count), spec.pattern }, "|")
-        if d.neu.key ~= key then d.neu.key, d.neu.token = key, new_token() end
-        services.directory_reset()
-        d.creating = { token = d.neu.token }
-        services.directory_area_create(session.wiz.central_id, d.neu.token, spec)
-        v.hint = "Frage die Leitstelle ..."
-        return true
-      end
-    end,
-  }
 
   -- Betriebsstelle fuer die Anmeldung waehlen (Konzept 9.1): die Anmeldung gehoert zu einer Betriebsstelle und hat keine Gleise
   screens["2.station"] = {
@@ -912,49 +773,45 @@ function M.new(services)
       d.claim = d.claim or node_claim()
       d.claiming = { station = d.station_choice }
       services.directory_reset()
-      services.directory_claim(session.wiz.central_id, d.claim, "anmeldung", nil, nil, nil, session.wiz.legacy_id(), { station = d.station_choice.id })
+      services.directory_claim(session.wiz.central_id, d.claim, "anmeldung", session.wiz.legacy_id(), { station = d.station_choice.id })
       v.hint = "Frage die Leitstelle nach der Kennung ..."
       return true
     end,
   }
 
-  screens["2.gleise"] = {
+  -- Kennung von der Leitstelle holen (Bahnhof, Depot): die Leitstelle vergibt Kennung, Namen und Label; die Strecke selbst regelt Create
+  screens["2.kennung"] = {
     render = function(v, rect)
+      header(v, rect, nil, "Die Leitstelle vergibt Kennung und Namen.")
       local d = session.dir
-      header(v, rect, nil, (d.area and d.area.name or "?") .. ": welche Gleise betreut diese Node?")
-      local st = dir_status()
-      if st and st.kind ~= "ok" then put_status(v, rect, rect.y + 2, st, 2) end
-      local items = {}
-      session.pick.gleise = {}
-      for _, t in ipairs(d.area and d.area.tracks or {}) do
-        items[#items + 1] = { text = (d.selected and d.selected[t.id] and "[x] " or "[ ] ") .. t.name, detail = direction_text(t.direction) }
-        session.pick.gleise[#items] = t
+      local y = rect.y + 2
+      local text = "Mit Weiter wird die Kennung angefordert (zum Beispiel N0003). Gleise und Geraete richtet der naechste Schritt ein; Signale und Weichen regelt Create."
+      for i, part in ipairs(W.wrap(text, rect.w - 2)) do
+        if i > 4 then break end
+        W.label(v, rect.x + 1, y + i - 1, part, "text", rect.w - 2)
       end
-      local area = body_rect(rect, 4)
-      W.list(v, "gleise_auswahl", area, items, list_state(v, "gleise_auswahl"), { row_h = row_h_for(v, items, area), empty = "Dieser Bereich hat keine Gleise." })
+      local st = dir_status()
+      if st and (d.claiming or st.kind ~= "ok") then put_status(v, rect, y + 5, st, 2) end
     end,
     action = function(v, id)
-      local n = id:match("^sel:gleise_auswahl:(%d+)$")
-      if n then
-        local t = (session.pick.gleise or {})[tonumber(n)]
-        local d = session.dir
-        if t and d.selected and not d.claiming then d.selected[t.id] = (not d.selected[t.id]) or nil end
+      if id == "act:von_hand" then
+        session.manual = true
+        session.stack = {}
+        goto_screen("2.name")
         return true
       end
+    end,
+    actions = function(v)
+      return { { id = "von_hand", label = "Von Hand", kind = "secondary" } }
     end,
     -- die Kennung kommt von der Leitstelle; erst mit ihrer Antwort geht es weiter (page.poll)
     next = function(v)
       local d = session.dir
-      local chosen, info = {}, {}
-      for _, t in ipairs(d.area.tracks) do
-        if d.selected[t.id] then chosen[#chosen + 1] = t.id; info[#info + 1] = t end
-      end
-      if #chosen == 0 then v.hint = "Mindestens ein Gleis uebernehmen." return true end
-      local pre, why = session.wiz.guided_precheck(info)
-      if not pre then v.hint = why return true end
+      if d.claiming then v.hint = "Frage die Leitstelle nach der Kennung ..." return true end
       d.claim = d.claim or node_claim()
-      d.claiming = { tracks = info }
-      services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "passagierbahnhof", d.area.id, chosen, nil, session.wiz.legacy_id(), { roles = session.wiz.roles })
+      d.claiming = { roles = session.wiz.roles }
+      services.directory_reset()
+      services.directory_claim(session.wiz.central_id, d.claim, session.wiz.roles[1] or "passagierbahnhof", session.wiz.legacy_id(), { roles = session.wiz.roles })
       v.hint = "Frage die Leitstelle nach der Kennung ..."
       return true
     end,
@@ -1109,18 +966,12 @@ function M.new(services)
       if w.mode == "create" and not model.has_role(w.config, "zentrale") then return false, "Die erste Node braucht die Rolle Leitstelle." end
       if w.mode == "join" and model.has_role(w.config, "zentrale") then return false, "Eine zweite Leitstelle ist nicht vorgesehen." end
     end
-    if screen == "2.bereich" and not session.dir.area then return false, "Bitte einen Bereich waehlen." end
     if screen == "2.station" then
       local d = session.dir
       if not d.station_choice then return false, "Bitte eine Betriebsstelle waehlen." end
       if d.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
     end
-    if screen == "2.gleise" then
-      if session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
-      local any = false
-      for _ in pairs(session.dir.selected or {}) do any = true end
-      if not any then return false, "Mindestens ein Gleis uebernehmen." end
-    end
+    if screen == "2.kennung" and session.dir.claiming then return false, "Frage die Leitstelle nach der Kennung ..." end
     if screen == "2.name" then return w.step_ok(2, true) end
     if screen == "3.geraete" then return w.step_ok(3, true) end
     if screen == "4.g.name" and not fields(v).gleisname.value:match("%S") then return false, "Der Gleisname fehlt." end
@@ -1325,14 +1176,6 @@ function M.new(services)
     if not st then return end
     if st.kind == "ok" then
       if st.stations and d.want == "stations" then d.stations, d.want = st.stations, nil end
-      if st.areas and d.want == "areas" then
-        d.areas, d.want = st.areas, nil
-        if d.preselect then
-          for _, a in ipairs(d.areas) do if a.id == d.preselect then choose_area(a) end end
-          d.preselect = nil
-        end
-      end
-      if st.area and d.want == "area" then d.area, d.want = st.area, nil end
       if st.node and d.claiming then
         local claiming = d.claiming
         d.claiming = nil
@@ -1343,7 +1186,7 @@ function M.new(services)
           push("3.geraete")
           return
         end
-        local began, why_begin = session.wiz.guided_begin({ area = { id = d.area.id, name = d.area.name, ends = d.area.ends }, claim = d.claim, node = st.node, tracks = claiming.tracks, roles = session.wiz.roles })
+        local began, why_begin = session.wiz.guided_begin({ claim = d.claim, node = st.node, roles = session.wiz.roles })
         if not began then v.hint = why_begin return end
         v.hint = "Kennung " .. st.node.id .. " von der Leitstelle."
         push("3.geraete")
@@ -1355,19 +1198,6 @@ function M.new(services)
       if tostring(st.text):find("verworfen", 1, true) and services.new_claim then
         d.claim = services.new_claim()
         v.hint = "Anforderung war verworfen, neue gestellt: bitte Weiter."
-      end
-    end
-    if d.creating then
-      if st.kind == "ok" and st.created then
-        local created = st.created
-        d.creating, d.areas, d.chosen, d.area, d.want, d.preselect = nil, nil, nil, nil, "areas", created.id
-        v.hint = "Bereich " .. created.name .. " angelegt."
-        if session.screen == "2.b.neu" then pop() end
-        services.directory_areas(session.wiz.central_id)
-        return
-      elseif st.kind == "halt" then
-        d.creating = nil
-        v.hint = st.text
       end
     end
   end

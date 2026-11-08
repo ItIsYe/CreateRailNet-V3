@@ -10,7 +10,6 @@ local function setup()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local netz = z.node.roles.zentrale.netz
-  netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2, pattern = "gegenlaeufig" })
   return h, z, netz
 end
 
@@ -28,9 +27,7 @@ local function join(h, id, opts)
   d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
   d.tap(v, "sel:rollen:2"); d.tap(v, "act:weiter")
   h.step(3); d.node.render()
-  d.tap(v, "sel:bereich:1")
-  h.step(3); d.node.render()
-  d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
+  d.tap(v, "act:weiter")                                  -- Kennung anfordern
   h.step(3); d.node.render()
   return d, v, d.node.setup.session()
 end
@@ -102,9 +99,7 @@ return {
     a.tap(v2, "sel:netzwahl:1"); a.tap(v2, "act:weiter")
     a.tap(v2, "sel:rollen:2"); a.tap(v2, "act:weiter")
     h.step(3); a.node.render()
-    a.tap(v2, "sel:bereich:1")
-    h.step(3); a.node.render()
-    a.tap(v2, "act:weiter"); a.tap(v2, "act:weiter")
+    a.tap(v2, "act:weiter")                                -- Kennung anfordern
     h.step(3); a.node.render()
     local s2 = a.node.setup.session()
     t.eq(s2.screen, "3.geraete", a.text(v2))
@@ -115,7 +110,7 @@ return {
     local h, z, netz = setup()
     local d = h.add_blank({ id = "a" })
     local v = d.view()
-    d.node.directory_areas("hauptstelle")
+    d.node.directory_stations("hauptstelle")
     -- die echte Antwort wird abgefangen und mit falschem Ziel erneut zugestellt
     local fake
     h.bus.filter = function(from, to, text, proto)
@@ -141,7 +136,7 @@ return {
     -- eine neue Frage loescht den Hinweis: antwortet die Leitstelle jetzt gar nicht, steht kein veralteter Grund da
     z.node.handle = function() end
     d.node.directory_reset()
-    d.node.directory_areas("hauptstelle")
+    d.node.directory_stations("hauptstelle")
     h.step(12)
     local again = d.node.directory_status()
     t.contains(again.text, "antwortet nicht")
@@ -152,7 +147,6 @@ return {
       local h = H.new({ seed = seed, drop = 0.25, dup = 0.3, reorder = true })
       local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
       local netz = z.node.roles.zentrale.netz
-      netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2, pattern = "gegenlaeufig" })
       local seen, claimed = {}, {}
       for k = 1, 3 do
         local d = h.add_blank({ id = "c" .. k })
@@ -166,9 +160,7 @@ return {
         d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
         d.tap(v, "sel:rollen:2"); d.tap(v, "act:weiter")
         h.step(10); d.node.render()
-        d.tap(v, "sel:bereich:1")
-        h.step(10); d.node.render()
-        d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
+        d.tap(v, "act:weiter")                              -- Kennung anfordern
         h.step(10); d.node.render()
         local s = d.node.setup.session()
         t.eq(s.screen, "3.geraete", "Zufallsmuster " .. seed .. ", Computer " .. k .. ": " .. d.text(v))

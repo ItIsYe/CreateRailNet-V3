@@ -1,5 +1,5 @@
 --[[
-Purpose: Netzverzeichnis, zweiter Teil (src/domain/netz.lua): Betriebsstellen (Personenbahnhof, Gueterbahnhof, Depot) mit Standorten und ihren Gleisbeziehungen (vorbei, verbindung, bahnhofsgleis), Anschlussarten (Name, Betriebsstelle, Nachbarbereich, offenes Ende), Zustand "im bau", Stand je Objekt mit abgelehnten veralteten Aenderungen, Dateiversion.
+Purpose: Node-Verzeichnis, zweiter Teil (src/domain/netz.lua): Betriebsstellen (Personenbahnhof, Gueterbahnhof, Depot) mit Standorten, Stand je Objekt (veraltete Aenderungen werden abgelehnt) und Schutz einer von einer Anmeldung genutzten Betriebsstelle.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -14,10 +14,6 @@ local function setup()
   fs.makeDir("/crn_data")
   local store = storelib.new(fs)
   return netz.new({ store = store, path = P }), store, fs
-end
-
-local function area(n, name, count)
-  return n.add_area({ name = name or "West-Ost", ends = { "West", "Ost" }, count = count or 2 })
 end
 
 return {
@@ -52,171 +48,44 @@ return {
     t.eq(n.set_station(a, { site = "Wieder" }), true)
     t.eq(n.sites()[1].id, "S0003")
   end },
-  { "Beziehungen Gleis und Betriebsstelle: vorbei, verbindung mit Fahrtrichtungen, bahnhofsgleis; keine folgt aus der anderen", function()
+  { "Umbenennen und Art aendern; doppelter Name und unbekannte Art werden abgelehnt", function()
     local n = setup()
-    local a = area(n, "West-Ost", 3)                         -- A0001..A0003
-    local bf = n.add_station({ name = "Hafen", kind = "gueterbahnhof" })
-    t.eq(n.link_station(bf, "A0001", "vorbei"), true)
-    t.eq(n.link_station(bf, "A0002", "verbindung", { "Ost" }), true)
-    t.eq(n.link_station(bf, "A0003", "bahnhofsgleis"), true)
-    local links = n.station(bf).links
-    t.eq(#links, 3)
-    t.eq(links[1].relation, "vorbei"); t.eq(links[1].directions, nil)
-    t.eq(links[2].relation, "verbindung"); t.eq(links[2].directions[1], "Ost")
-    t.eq(links[3].relation, "bahnhofsgleis")
-    t.eq(n.stations()[1].links, 3, "die Zusammenfassung nennt nur die Zahl")
-    -- das zweite Gleis einer Station: verbindung nur nach Ost, nicht automatisch auch nach West
-    t.eq(#links[2].directions, 1)
-    -- Fehler
-    local ok, why = n.link_station(bf, "A0002", "verbindung", { "Nord" })
-    t.eq(ok, nil); t.contains(why, "kein Anschluss")
-    ok, why = n.link_station(bf, "A9999", "vorbei")
-    t.eq(ok, nil); t.contains(why, "Gleis")
-    ok, why = n.link_station(bf, "A0001", "naehe")
-    t.eq(ok, nil); t.contains(why, "Beziehung")
-    ok, why = n.link_station("BF9999", "A0001", "vorbei")
-    t.eq(ok, nil); t.contains(why, "Betriebsstelle")
-    -- ein Bahnhofsgleis gehoert nur einer Betriebsstelle
-    local other = n.add_station({ name = "Nachbar", kind = "depot" })
-    ok, why = n.link_station(other, "A0003", "bahnhofsgleis")
-    t.eq(ok, nil); t.contains(why, "gehoert schon zur Betriebsstelle Hafen")
-    t.eq(n.link_station(other, "A0003", "vorbei"), true, "vorbeifuehren darf es")
-    -- loesen
-    t.eq(n.unlink_station(bf, "A0001"), true)
-    ok, why = n.unlink_station(bf, "A0001")
-    t.eq(ok, nil); t.contains(why, "nicht mit")
-  end },
-  { "Benutzte Gleise, Bereiche und Betriebsstellen lassen sich nicht loeschen", function()
-    local n = setup()
-    local a = area(n)
-    local bf = n.add_station({ name = "Hafen", kind = "depot" })
-    n.link_station(bf, "A0001", "bahnhofsgleis")
-    local ok, why = n.remove_track("A0001")
-    t.eq(ok, nil); t.contains(why, "Hafen")
-    ok, why = n.remove_area(a)
-    t.eq(ok, nil); t.contains(why, "Hafen")
-    t.eq(n.unlink_station(bf, "A0001"), true)
-    t.eq(n.remove_track("A0001"), true)
-    -- Betriebsstelle als Anschluss eines Bereichs
-    t.eq(n.set_end(a, 2, { kind = "betriebsstelle", ref = bf }), true)
-    ok, why = n.remove_station(bf)
-    t.eq(ok, nil); t.contains(why, "Anschluss 2")
-    t.eq(n.set_end(a, 2, { kind = "name", name = "Ost" }), true)
-    t.eq(n.remove_station(bf), true)
-    t.eq(n.station(bf), nil)
-    -- Nachbarbereich als Anschluss
-    local b = n.add_area({ name = "Nord", ends = { "N1", "N2" }, count = 1 })
-    n.set_end(a, 1, { kind = "bereich", ref = b })
-    ok, why = n.remove_area(b)
-    t.eq(ok, nil); t.contains(why, "Anschluss 1")
-  end },
-  { "Anschlussarten: Name folgt der Betriebsstelle oder dem Nachbarbereich, die Richtungen der Gleise ziehen mit", function()
-    local n = setup()
-    local a = area(n, "West-Ost", 2)                         -- Gleis 1 Richtung Ost, Gleis 2 Richtung West
-    local bf = n.add_station({ name = "Ostbahnhof", kind = "personenbahnhof" })
-    t.eq(n.set_end(a, 2, { kind = "betriebsstelle", ref = bf }), true)
-    t.eq(n.area(a).ends[2], "Ostbahnhof"); t.eq(n.area(a).end_kinds[2], "betriebsstelle"); t.eq(n.area(a).end_kinds[1], "name")
-    t.eq(n.track("A0001").direction, "Ostbahnhof", "das Gleis nach Osten faehrt jetzt Richtung Ostbahnhof")
-    -- Umbenennen der Betriebsstelle zieht den Anschluss und die Gleise nach
-    t.eq(n.set_station(bf, { name = "Ost Hauptbahnhof" }), true)
-    t.eq(n.area(a).ends[2], "Ost Hauptbahnhof"); t.eq(n.track("A0001").direction, "Ost Hauptbahnhof")
-    -- Nachbarbereich
-    local b = n.add_area({ name = "Nord", ends = { "N1", "N2" }, count = 1 })
-    t.eq(n.set_end(a, 1, { kind = "bereich", ref = b }), true)
-    t.eq(n.area(a).ends[1], "Nord"); t.eq(n.track("A0002").direction, "Nord")
-    t.eq(n.set_area(b, { name = "Nordwest" }), true)
-    t.eq(n.area(a).ends[1], "Nordwest", "der Anschluss folgt dem umbenannten Nachbarbereich")
-    t.eq(n.track("A0002").direction, "Nordwest")
-    local c = n.add_area({ name = "Sued", ends = { "S1", "S2" }, count = 1 })
-    n.set_end(c, 1, { kind = "bereich", ref = a })
-    n.set_end(c, 2, { kind = "name", name = "Nordwest Zwei" })
-    local ok2, why2 = n.set_area(a, { name = "Nordwest Zwei" })
-    t.eq(ok2, nil); t.contains(why2, "gleich benannte")
-    -- Fehler
-    local ok, why = n.set_end(a, 3, { kind = "name", name = "X" })
-    t.eq(ok, nil); t.contains(why, "1 oder 2")
-    ok, why = n.set_end(a, 1, { kind = "hafen", name = "X" })
-    t.eq(ok, nil); t.contains(why, "Anschlussart")
-    ok, why = n.set_end(a, 1, { kind = "bereich", ref = a })
-    t.eq(ok, nil); t.contains(why, "an sich selbst")
-    ok, why = n.set_end(a, 1, { kind = "betriebsstelle", ref = "BF9999" })
+    local a = n.add_station({ name = "A", kind = "depot" })
+    local b = n.add_station({ name = "B", kind = "depot" })
+    t.eq(n.set_station(a, { name = "Anders", kind = "gueterbahnhof" }), true)
+    t.eq(n.station(a).name, "Anders"); t.eq(n.station(a).kind, "gueterbahnhof")
+    local ok, why = n.set_station(a, { name = "b" })
+    t.eq(ok, nil); t.contains(why, "gibt es schon")
+    ok, why = n.set_station(a, { kind = "hafen" })
+    t.eq(ok, nil); t.contains(why, "personenbahnhof")
+    ok, why = n.set_station("BF0099", { name = "X" })
     t.eq(ok, nil); t.contains(why, "gibt es nicht")
-    ok, why = n.set_end(a, 1, { kind = "name", name = "Ost Hauptbahnhof" })
-    t.eq(ok, nil); t.contains(why, "verschiedene")
-    ok, why = n.set_end(a, 1, { kind = "name", name = "beide" })
-    t.eq(ok, nil); t.contains(why, "beide")
+    t.eq(n.station(b).name, "B")
   end },
-  { "Eine Betriebsstelle darf nicht so umbenannt werden, dass ein Bereich zwei gleiche Anschluesse bekommt", function()
+  { "Eine Betriebsstelle, die eine Anmeldung nutzt, laesst sich nicht loeschen; sonst schon", function()
     local n = setup()
-    local a = n.add_area({ name = "A", ends = { "Westen", "Ostbahnhof" }, count = 1 })
-    local bf = n.add_station({ name = "Hafen", kind = "depot" })
-    n.set_end(a, 2, { kind = "betriebsstelle", ref = bf })
-    local ok, why = n.set_station(bf, { name = "Westen" })
-    t.eq(ok, nil); t.contains(why, "gleich benannte")
-    t.eq(n.station(bf).name, "Hafen")
-  end },
-  { "Offenes Ende: der Bereich gilt als 'im bau' und nicht als betriebsbereit, bis der Anschluss feststeht", function()
-    local n = setup()
-    local a = area(n)
-    t.eq(n.area(a).state, "betriebsbereit")
-    t.eq(n.set_end(a, 2, { kind = "offen", name = "Verlaengerung Ost" }), true)
-    t.eq(n.area(a).state, "im bau"); t.eq(n.areas()[1].state, "im bau")
-    local ok, why = n.set_area_state(a, "betriebsbereit")
-    t.eq(ok, nil); t.contains(why, "offenes Ende")
-    t.eq(n.set_end(a, 2, { kind = "name", name = "Ost" }), true)
-    t.eq(n.area(a).state, "im bau", "bleibt im Bau, bis es ausdruecklich freigegeben wird")
-    t.eq(n.set_area_state(a, "betriebsbereit"), true)
-    t.eq(n.area(a).state, "betriebsbereit"); t.eq(n.areas()[1].state, nil, "in der Funkzusammenfassung nur die Abweichung")
-    ok, why = n.set_area_state(a, "kaputt")
-    t.eq(ok, nil)
+    local bf = n.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof", site = "Mitte" })
+    local free = n.add_station({ name = "Frei", kind = "depot" })
+    local node = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = bf })
+    local ok, why = n.remove_station(bf)
+    t.eq(ok, nil); t.contains(why, node.id)
+    t.eq(n.remove_station(free), true)
+    t.eq(n.station(free), nil)
+    t.eq(n.discard_node(node.id), true)
+    t.eq(n.remove_station(bf), true)
+    t.eq(#n.sites(), 0, "der leere Standort verschwindet")
   end },
   { "Stand je Objekt: veraltete Aenderungen werden abgelehnt, gleichzeitige Aenderungen gehen nicht verloren", function()
     local n = setup()
-    local a = area(n)
-    local read = n.area(a)
-    t.eq(read.rev, 1)
-    t.eq(n.set_area(a, { name = "Neu", if_rev = read.rev }), true)
-    t.eq(n.area(a).rev, 2)
-    local ok, why = n.set_area(a, { name = "Anders", if_rev = read.rev })          -- zweiter Bearbeiter mit altem Stand
-    t.eq(ok, nil); t.contains(why, "inzwischen geaendert"); t.contains(why, "Stand 2")
-    t.eq(n.area(a).name, "Neu")
-    local track = n.track("A0001")
-    t.eq(n.set_track("A0001", { name = "Haupt", if_rev = track.rev }), true)
-    ok, why = n.set_track("A0001", { name = "Nochmal", if_rev = track.rev })
-    t.eq(ok, nil); t.contains(why, "Gleis")
     local bf = n.add_station({ name = "S", kind = "depot" })
     local st = n.station(bf)
+    t.eq(st.rev, 1)
     t.eq(n.set_station(bf, { kind = "gueterbahnhof", if_rev = st.rev }), true)
-    ok, why = n.set_station(bf, { kind = "depot", if_rev = st.rev })
-    t.eq(ok, nil); t.contains(why, "Betriebsstelle")
+    t.eq(n.station(bf).rev, 2)
+    local ok, why = n.set_station(bf, { kind = "depot", if_rev = st.rev })       -- zweiter Bearbeiter mit altem Stand
+    t.eq(ok, nil); t.contains(why, "Betriebsstelle"); t.contains(why, "Stand 2")
+    t.eq(n.station(bf).kind, "gueterbahnhof")
     -- ohne if_rev gilt die Aenderung wie bisher
-    t.eq(n.set_track("A0001", { name = "Frei" }), true)
-  end },
-  { "Dateiversion: aeltere Dateien werden uebernommen, eine Datei von einem neueren Programm wird nur gelesen", function()
-    local n, store = setup()
-    local a = area(n)
-    -- Datei der Version 1 (ohne Betriebsstellen, Stand und Zustand)
-    local old = { version = 1, revision = 5, counters = { bereich = 1, gleis = 2, node = 0 },
-      areas = { B0001 = { name = "Alt", ends = { "X", "Y" }, order = 2 } },
-      tracks = { A0001 = { area = "B0001", name = "Gleis 1", direction = "Y", order = 1 }, A0002 = { area = "B0001", name = "Gleis 2", direction = "X", order = 2 } },
-      nodes = {} }
-    store.save(P, old)
-    local m = netz.new({ store = store, path = P })
-    t.eq(m.blocked, false)
-    t.eq(m.area("B0001").state, "betriebsbereit"); t.eq(m.area("B0001").end_kinds[1], "name")
-    t.eq(m.add_station({ name = "Neu", kind = "depot" }), "BF0001")
-    t.eq(store.load(P).version, 2)
-    -- neuere Datei
-    local future = store.load(P)
-    future.version = 99
-    store.save(P, future)
-    local f = netz.new({ store = store, path = P })
-    t.eq(f.blocked, true)
-    t.eq(f.area("B0001").name, "Alt", "lesen geht")
-    local ok, why = f.add_station({ name = "X", kind = "depot" })
-    t.eq(ok, nil); t.contains(why, "neueren Programm")
-    ok = f.set_track("A0001", { name = "Z" })
-    t.eq(ok, nil)
-    t.eq(store.load(P).version, 99, "die Datei bleibt unveraendert")
+    t.eq(n.set_station(bf, { kind = "depot" }), true)
   end },
 }

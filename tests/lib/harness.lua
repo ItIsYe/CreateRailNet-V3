@@ -55,12 +55,10 @@ function H.new(opts)
         model.assign(config, tid, "station", device_ids[track.name])
       end
       for _, name in ipairs(track.observers or {}) do model.assign(config, tid, "observers", model.add_device(config, "observer", name)) end
-      if track.dir then config.tracks[tid].dir = track.dir end
       if track.length then config.tracks[tid].length = track.length end
       track.tid = tid
     end
     if spec.registration then config.registration_station = device_ids[spec.registration] end
-    if spec.area then config.node.claimed, config.node.area, config.node.area_ends = true, spec.area, spec.area_ends end
     if spec.claim then config.node.claim = spec.claim end
     if spec.label then config.node.label = spec.label end
     config.status = "aktiv"

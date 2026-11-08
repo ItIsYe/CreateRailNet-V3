@@ -330,67 +330,23 @@ function M.new(opts)
   end
 
   -- Gefuehrte Einrichtung ---------------------------------------------------------------------------------------------------------------
-  -- info = { area = { id, name }, claim, node = { id, name, label }, tracks = { { id, name, direction }, ... } (nur die uebernommenen) }
-  -- Die Gleise kommen aus dem Netzverzeichnis (track.dir = { id, area, direction }); bereits zugeordnete Signale bleiben erhalten, wenn das Gleis uebernommen bleibt.
-  -- Bisherige Einrichtung (ohne Verzeichnis, eine bereits eingerichtete Node): ihre Gleise werden anhand des Namens den Gleisen des Bereichs zugeordnet und
-  -- behalten ihre Geraete; was sich nicht zuordnen laesst, wird genannt (es wird nie still entfernt oder doppelt angelegt).
+  -- info = { claim, node = { id, name, label }, roles }
+  -- Die Leitstelle vergibt Kennung, Namen und Label; Gleise und Geraete richtet der Assistent ein (die Strecke selbst regelt Create). Bereits eingerichtete
+  -- Gleise bleiben unberuehrt.
   function w.legacy_id()
     return (existing ~= nil and existing.node.claimed ~= true) and existing.node.id or nil
-  end
-
-  function w.guided_precheck(tracks)
-    local names, orphans = {}, {}
-    for _, t in ipairs(tracks) do names[t.name:lower()] = true end
-    for _, track in pairs(w.config.tracks) do
-      if not track.dir and not names[track.name:lower()] then orphans[#orphans + 1] = track.name end
-    end
-    if #orphans > 0 then
-      table.sort(orphans)
-      return nil, "Diese Gleise der bisherigen Einrichtung gibt es im Bereich nicht (nach Namen): " .. table.concat(orphans, ", ") .. "."
-    end
-    return true
   end
 
   function w.guided_begin(info)
     local roles = {}
     for _, r in ipairs(info.roles or { info.role or "passagierbahnhof" }) do roles[#roles + 1] = r end
-    local pre, why_pre = w.guided_precheck(info.tracks)
-    if not pre then return nil, why_pre end
     w.mode = "join"
     w.roles = roles
     w.claimed_id = info.node.id
     w.name = info.node.name
     sync_config()
     local c = w.config
-    c.node.claimed, c.node.label, c.node.area, c.node.claim = true, info.node.label, info.area.id, info.claim
-    c.node.area_ends = info.area.ends and { info.area.ends[1], info.area.ends[2] } or c.node.area_ends
-    local wanted, by_dir, taken = {}, {}, {}
-    for _, t in ipairs(info.tracks) do wanted[t.id] = t end
-    for _, track in pairs(c.tracks) do if track.dir then taken[track.dir.id] = true end end
-    -- bisherige Gleise ohne Verzeichnis: gleicher Name, gleiches Gleis
-    for _, track in pairs(c.tracks) do
-      if not track.dir then
-        for _, t in ipairs(info.tracks) do
-          if not taken[t.id] and t.name:lower() == track.name:lower() then
-            track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
-            taken[t.id] = true
-            break
-          end
-        end
-      end
-    end
-    for tid, track in pairs(c.tracks) do
-      if track.dir then
-        if wanted[track.dir.id] then by_dir[track.dir.id] = tid else w.guided_remove_track(tid) end
-      end
-    end
-    for _, t in ipairs(info.tracks) do
-      local tid = by_dir[t.id]
-      if not tid then tid = model.add_track(c, t.name) end
-      local track = c.tracks[tid]
-      track.name = t.name
-      track.dir = { id = t.id, area = info.area.id, direction = t.direction, rev = t.rev }
-    end
+    c.node.claimed, c.node.label, c.node.claim = true, info.node.label, info.claim
     return true
   end
 
@@ -404,12 +360,6 @@ function M.new(opts)
     local c = w.config
     c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.id
     return true
-  end
-
-  function w.guided_remove_track(tid)
-    local track = w.config.tracks[tid]
-    if not track then return end
-    model.remove_track(w.config, tid)
   end
 
   -- Schritt 5: Pruefungen ----------------------------------------------------------------------------------------------------------------

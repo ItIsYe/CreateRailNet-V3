@@ -1,5 +1,5 @@
 --[[
-Purpose: Antworten der Leitstelle bleiben unter der Funkgrenze, auch mit langen Namen und vielen Eintraegen: Verzeichnis, Betriebsstellen, Vorlagen (seitenweise, vollstaendig beim Empfaenger) und Tafel (gekuerzt).
+Purpose: Antworten der Leitstelle bleiben unter der Funkgrenze, auch mit langen Namen und vielen Eintraegen: Betriebsstellen, Vorlagen (seitenweise, vollstaendig beim Empfaenger) und Tafel (gekuerzt).
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -32,27 +32,6 @@ end
 local function long(prefix, i) return (prefix .. " " .. i .. " " .. string.rep("N", 40)):sub(1, 30) end
 
 return {
-  { "Verzeichnis mit langen Namen: jede Seite bleibt unter der Funkgrenze, zusammen kommen alle Bereiche in Reihenfolge an", function()
-    local h, z, a, ask = build()
-    local netz = z.node.roles.zentrale.netz
-    for i = 1, 60 do
-      local id = assert(netz.add_area({ name = long("Bereich", i), ends = { long("Westlich", i), long("Oestlich", i) }, count = 40, pattern = "gegenlaeufig" }))
-    end
-    local got, after, pages = {}, nil, 0
-    repeat
-      local r = ask({ kind = "verzeichnis", after = after })
-      t.eq(r.status, "ok")
-      t.ok(r.size <= LIMIT, "Seite " .. (pages + 1) .. " hat " .. r.size .. " Zeichen")
-      t.ok(#r.payload.areas >= 1)
-      for _, area in ipairs(r.payload.areas) do got[#got + 1] = area.id end
-      after = r.payload.areas[#r.payload.areas].id
-      pages = pages + 1
-      t.ok(pages < 40, "Seitenzahl begrenzt")
-    until not r.payload.more
-    t.eq(#got, 60, "alle Bereiche")
-    for i = 2, #got do t.ok(got[i] > got[i - 1], "in Reihenfolge und ohne Doppelte") end
-    t.ok(pages >= 3, "bei langen Namen mehrere Seiten: " .. pages)
-  end },
   { "Betriebsstellenliste mit langen Namen: seitenweise, vollstaendig, unter der Funkgrenze", function()
     local h, z, a, ask = build()
     local netz = z.node.roles.zentrale.netz
