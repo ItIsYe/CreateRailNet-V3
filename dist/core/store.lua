@@ -89,6 +89,14 @@ if prev_value~=nil then return prev_value,"prev"end
 return nil,why
 end
 
+
+function s.remove(path)
+for _,name in ipairs({path,path..".tmp",path..".prev"})do
+if fs.exists(name)and not fs.isDir(name)then fs.delete(name)end
+end
+return not fs.exists(path)
+end
+
 function s.heal(path)
 local value,source=s.load(path)
 if value==nil then

@@ -924,6 +924,9 @@ if not session.wiz then
 local config=services.config()
 local list={{id="start",label=config and"Einrichtung aendern"or"Einrichtung starten"}}
 if not config and services.fetch_config then list[#list+1]={id="ersatz",label="Ersatz",kind="secondary"}end
+if config and services.delete_config then
+list[#list+1]={id="loeschen",label=session.delete_armed and"Wirklich?"or"Einrichtung loeschen",kind="danger",side="rechts",far=true}
+end
 return list
 end
 if session.owner~=v then return{}end
@@ -1037,10 +1040,22 @@ return false
 end
 if not session.wiz then
 if id=="act:start"then
+session.delete_armed=false
 start(v,services.config())
 return true
 elseif id=="act:ersatz"then
+session.delete_armed=false
 session.replace=true
+return true
+elseif id=="act:loeschen"and services.delete_config then
+if not session.delete_armed then
+session.delete_armed=true
+v.hint="Nochmal druecken: Einrichtung loeschen."
+else
+session.delete_armed=false
+local ok,err=services.delete_config()
+v.hint=ok and"Einrichtung geloescht."or err
+end
 return true
 end
 return false

@@ -1,6 +1,6 @@
 --[[
 Purpose: Node-Verzeichnis der Leitstelle: dauerhafte Kennungen und Namen der Nodes (N0017), das Computerlabel (`N0017 | PBF`), die Anforderung einer Node-Kennung und die Betriebsstellen (BF0001, optional mit Standort S0001), zu denen eine Anmeldung gehoert. Die Strecke selbst (Gleise, Signale, Bloecke, Weichen) regelt Create; das Verzeichnis kennt sie nicht.
-API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.stations(); n.station(id); n.sites(); n.claim_node{ claim, role | roles, station, legacy } -> Eintrag { id, name, label, ... } oder nil, Fehler; n.mark_active(id); n.discard_node(id); n.nodes(); n.node(id); n.revision(); n.valid_name(text).
+API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.stations(); n.station(id); n.sites(); n.claim_node{ claim, role | roles, station, legacy } -> Eintrag { id, name, label, ... } oder nil, Fehler; n.mark_active(id); n.discard_node(id); n.remove_node(id); n.nodes(); n.node(id); n.revision(); n.valid_name(text).
 Notes: Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Bahnhof-, Depot- und kombinierte Rollen brauchen nur die Anforderungskennung; die Rolle anmeldung gehoert zu einer Betriebsstelle (station). Zaehler stehen in der Datei und gehen nie zurueck; eine verworfene Kennung wird nicht wieder vergeben. Betriebsstellen (BF0001: Personenbahnhof, Gueterbahnhof, Depot) hoeren optional zu einem Standort (S0001, nur ueber den Namen gefuehrt, leere Standorte verschwinden). Version 3 der Datei: Bereiche, Gleise, Knoten, Fahrwege, Konflikte und die Gleisbeziehungen der Betriebsstellen sind entfallen (Create regelt die Strecke) und werden beim Laden einer Datei der Version 2 entfernt; Node-Eintraege behalten Kennung, Zustand und Anforderungskennung, die Rollen signal und knoten fallen aus ihren Rollenlisten.
 ]]
 
@@ -212,7 +212,7 @@ function M.new(spec)
       local st = data.stations[id]
       if not st then return nil, "Die Betriebsstelle gibt es nicht." end
       for node_id, node in pairs(data.nodes) do
-        if node.station == id and node.state ~= "verworfen" then return nil, "Die Node " .. node_id .. " nutzt diese Betriebsstelle: erst dort aufloesen." end
+        if node.station == id and node.state ~= "verworfen" then return nil, "Die Node " .. node_id .. " nutzt diese Betriebsstelle: erst unter Netz entfernen." end
       end
       data.stations[id] = nil
       prune_sites()
@@ -340,6 +340,23 @@ function M.new(spec)
       local node = data.nodes[id]
       if not node then return nil, "Die Node gibt es nicht." end
       if node.state ~= "reserviert" then return nil, "Nur eine noch nicht aktivierte Anforderung laesst sich verwerfen." end
+      node.state = "verworfen"
+      return true
+    end)
+  end
+
+  -- Eine Node aus dem Verzeichnis nehmen (auch nach der Aktivierung): ihre Kennung bleibt vergeben, sie haelt keine Betriebsstelle mehr fest und
+  -- eine spaetere Anforderung mit derselben Anforderungskennung wird abgewiesen ("verworfen"). id ist die Kennung des Verzeichnisses oder die bisherige (legacy).
+  function n.remove_node(id)
+    return change(function()
+      local node = data.nodes[id]
+      if not node then
+        for _, other in pairs(data.nodes) do
+          if other.legacy == id and other.state ~= "verworfen" then node = other break end
+        end
+      end
+      if not node then return nil, "Die Node gibt es nicht." end
+      if node.state == "verworfen" then return nil, "Die Node ist schon entfernt." end
       node.state = "verworfen"
       return true
     end)

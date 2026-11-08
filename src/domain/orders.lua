@@ -1,6 +1,6 @@
 --[[
 Purpose: Fahrtauftraege (Konzept 8): Vorlage und Ausfuehrung sind getrennt; jede Ausfuehrung ist ein eigener Vorgang mit Lebenszyklus (angefordert, in Pruefung, wartend, vorbereitet, Fahrplan uebergeben, Abfahrt freigegeben, unterwegs, am Ziel, abgeschlossen, Klaerung erforderlich; dazu abgelehnt und storniert). Uebergaenge sind begrenzt, jeder Schritt bleibt mit Zeit und Grund erhalten. Eine zweite Anforderung derselben Vorlage zeigt den laufenden Auftrag, statt eine neue Fahrt zu erzeugen.
-API: orders.new{ store, path, now } -> o; o.add_template(t); o.templates(); o.request(template_id, request_id) -> auftrag, neu; o.get(id); o.active(); o.active_for(template_id); o.transition(id, to, grund); o.cancel(id) -> ok, hinweis; o.list(); o.save()
+API: orders.new{ store, path, now } -> o; o.add_template(t); o.remove_template(id); o.templates(); o.request(template_id, request_id) -> auftrag, neu; o.get(id); o.active(); o.active_for(template_id); o.transition(id, to, grund); o.cancel(id) -> ok, hinweis; o.list(); o.save()
 Notes: Eine Ablehnung betrifft eine nicht ausfuehrbare Anforderung; Stornieren geht nur, solange noch kein Fahrplan uebergeben wurde. Danach ist "Abbrechen" nur ein Aenderungswunsch (change_request), kein Zustandswechsel: das Loeschen eines Auftrags bremst keinen Zug (8.1). Wiederholte Anforderung mit derselben request_id liefert denselben Auftrag.
 ]]
 
@@ -115,6 +115,19 @@ function M.new(opts)
     template.priority = priority
     local ok, err = o.save()
     if not ok then template.priority = previous return nil, err end
+    return true
+  end
+
+  -- Eine Vorlage loeschen. Solange ein Auftrag aus ihr laeuft, bleibt sie (der Auftrag braucht sie); beendete Auftraege behalten ihre Kennung und
+  -- werden in der Liste ohne Vorlagentitel gezeigt.
+  function o.remove_template(id)
+    local template = data.templates[id]
+    if not template then return nil, "Unbekannte Vorlage." end
+    local running = o.active_for(id)
+    if running then return nil, "Aus der Vorlage laeuft der Auftrag " .. running.id .. ": erst beenden oder abbrechen." end
+    data.templates[id] = nil
+    local ok, err = o.save()
+    if not ok then data.templates[id] = template return nil, err end
     return true
   end
 

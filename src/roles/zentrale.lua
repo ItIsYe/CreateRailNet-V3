@@ -955,6 +955,14 @@ function M.new(node)
     return true
   end
 
+  -- Eine Vorlage loeschen: nicht, solange ein Auftrag aus ihr laeuft oder eine Linie sie fuehrt (die Linie wuerde ins Leere laufen)
+  function role.remove_template(id)
+    for _, line in ipairs(role.lines.list()) do
+      if line.template == id then return nil, "Die Linie " .. line.title .. " fuehrt diese Vorlage: erst die Linie loeschen." end
+    end
+    return role.orders.remove_template(id)
+  end
+
   -- Depot und manuelle Zuege (7.2 bis 7.5) -----------------------------------------------------------------------------------------------------
   role.depot_status = nil
   local function depot_say(kind, text) role.depot_status = { kind = kind, text = text } return text end
@@ -1249,6 +1257,28 @@ function M.new(node)
     return node.store.save(DATA .. "/stillgelegt.lua", retired)
   end
 
+  -- Eine Node ganz aus der Leitstelle nehmen (Gleise, Sicherung, Verzeichniseintrag; die Betriebsstelle ist wieder frei). Nur eine Node, die sich nicht
+  -- mehr meldet oder stillgelegt ist: eine laufende wuerde sich sofort wieder anmelden. Die Kennung bleibt als stillgelegt vermerkt, ein spaeter
+  -- doch noch laufender Computer mit dieser Kennung wird abgewiesen (er richtet sich neu ein und bekommt eine neue Kennung).
+  function role.forget_node(id)
+    local info = nodes[id]
+    if not info then return nil, "Den Node kenne ich nicht." end
+    if not retired[id] and reachable(id) then return nil, "Der Node " .. id .. " laeuft noch: erst stilllegen." end
+    local ok, err = role.netz.remove_node(id)
+    if not ok and err ~= "Die Node gibt es nicht." and err ~= "Die Node ist schon entfernt." then return nil, err end
+    retired[id] = true
+    local saved, save_err = node.store.save(DATA .. "/stillgelegt.lua", retired)
+    if not saved then return nil, save_err end
+    nodes[id] = nil
+    silent_notified[id] = nil
+    for key in pairs(track_state) do
+      if key:sub(1, #id + 1) == id .. ":" then track_state[key] = nil end
+    end
+    if node.env.fs.exists(backup_path(id)) then node.env.fs.delete(backup_path(id)) end
+    rebuild_dir()
+    return true
+  end
+
   -- Auswahl fuer den Ersatzcomputer (Konzept 11.4): Nodes mit Sicherung, seitenweise; "aktiv" heisst noch erreichbar (erst ausschalten oder stilllegen)
   local REPLACE_PAGE = 12
   function role.handle_replace_list(m)
@@ -1469,13 +1499,31 @@ function M.new(node)
       if id and state.reserved and state.reserved[id] then
         return { { id = "stilllegen", label = arm.discard == id and "Wirklich?" or "Verwerfen", kind = "danger" } }
       end
-      return { { id = "stilllegen", label = id and retired[id] and "Aktivieren" or (arm.retire and "Wirklich?" or "Stilllegen"), kind = "danger", enabled = id ~= nil, reason = "Erst einen Node waehlen." } }
+      local can_forget = id ~= nil and (retired[id] or not reachable(id))
+      return {
+        { id = "stilllegen", label = id and retired[id] and "Aktivieren" or (arm.retire and "Wirklich?" or "Stilllegen"), kind = "danger", enabled = id ~= nil, reason = "Erst einen Node waehlen." },
+        { id = "entfernen", label = arm.forget == id and "Wirklich?" or "Entfernen", kind = "danger", enabled = can_forget,
+          reason = id and "Der Node laeuft noch: erst stilllegen." or "Erst einen Node waehlen." },
+      }
     end,
     on_action = function(v, action)
-      if action ~= "act:stilllegen" then return end
+      if action ~= "act:stilllegen" and action ~= "act:entfernen" then return end
       local state = v.page_state("netz")
       local id = state.ids and state.ids[state.list.index]
       if not id then return true end
+      if action == "act:entfernen" then
+        arm.retire, arm.discard = false, nil
+        if arm.forget ~= id then
+          arm.forget = id
+          v.hint = "Nochmal druecken: " .. id .. " entfernen."
+        else
+          arm.forget = nil
+          local ok, err = role.forget_node(id)
+          v.hint = ok and ("Node " .. id .. " entfernt.") or err
+        end
+        return true
+      end
+      arm.forget = nil
       if state.reserved and state.reserved[id] then
         -- eine nie aktivierte Anforderung: verwerfen (die Kennung bleibt vergeben)
         if arm.discard ~= id then
@@ -1612,6 +1660,7 @@ function M.new(node)
           { id = "neu", label = "Neu", kind = "secondary" },
           { id = "prio", label = "Prio", kind = "secondary", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
           { id = "muster", label = "Muster", kind = "secondary" },
+          { id = "vl_loeschen", label = arm.template == (info and info.id) and info ~= nil and "Wirklich?" or "Loeschen", kind = "danger", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
         }
       elseif screen == "muster" then
         return { { id = "lesen", label = "Fahrplan lesen", side = "rechts" }, { id = "vl_zurueck", label = "Fertig", kind = "secondary", side = "rechts" } }
@@ -1640,6 +1689,18 @@ function M.new(node)
         if info then
           local ok, err = role.orders.set_priority(info.id, info.priority == "bevorzugt" and "normal" or "bevorzugt")
           v.hint = ok and ("Prioritaet: " .. (info.priority == "bevorzugt" and "normal" or "bevorzugt")) or err
+        end
+        return true
+      elseif id == "act:vl_loeschen" then
+        local info = state.templates and state.templates[state.list.index]
+        if not info then return true end
+        if arm.template ~= info.id then
+          arm.template = info.id
+          v.hint = "Nochmal druecken: Vorlage " .. info.title .. " loeschen."
+        else
+          arm.template = nil
+          local ok, err = role.remove_template(info.id)
+          v.hint = ok and ("Vorlage " .. info.title .. " geloescht.") or err
         end
         return true
       elseif id == "act:muster" then

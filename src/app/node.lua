@@ -350,6 +350,7 @@ function M.new(env)
     directory_backups = function(central_id) return n.directory_backups(central_id) end,
     directory_status = function() return n.directory_status() end,
     directory_reset = function() return n.directory_reset() end,
+    delete_config = function() return n.delete_config() end,
     claim = function() return n.claim() end,
     new_claim = function() return n.new_claim() end,
     new_token = function() return n.new_token() end,
@@ -879,6 +880,28 @@ function M.new(env)
     if n.config and n.config.node then n.config.node.claim = nil end
     store.save(CLAIM, { claim = claim })
     return claim
+  end
+
+  -- Die Einrichtung dieses Computers loeschen: danach ist er wieder "nicht eingerichtet" und kann neu eingerichtet werden. Die Anforderungskennung bleibt
+  -- (er behaelt seine Kennung im Netz), ebenso die Daten der Rollen; die Leitstelle erfaehrt davon nichts und fuehrt ihn unter Netz als ausgefallen.
+  function n.delete_config()
+    if not n.config then return nil, "Dieser Computer ist nicht eingerichtet." end
+    local claim = n.config.node and n.config.node.claim
+    if type(claim) == "string" and #claim >= 8 then
+      local ok, err = store.save(CLAIM, { claim = claim })
+      if not ok then return nil, err end
+    end
+    if not store.remove(CONFIG) then return nil, "Die Einrichtung laesst sich nicht loeschen." end
+    n.config = nil
+    n.env_status, n.env_hold = nil, false
+    -- wie nach einem Neustart ohne Einrichtung: kein Funk, keine Rollen (sonst meldet die Suche nach Netzen "schon eingerichtet")
+    n.net, n.net_info, n.inbox = nil, nil, nil
+    n.router = eventslib.router({ bindings = {}, now = n.clock.now })
+    n.attach_roles()
+    n.rebuild_views()
+    n.notify("info", "Die Einrichtung wurde geloescht.")
+    n.dirty = true
+    return true
   end
 
   -- Antwort auf eine Verzeichnisfrage (neuer Computer ueber die vorlaeufige Kennung, eingerichtete Node ueber ihren Funk)

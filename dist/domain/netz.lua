@@ -212,7 +212,7 @@ return change(function()
 local st=data.stations[id]
 if not st then return nil,"Die Betriebsstelle gibt es nicht."end
 for node_id,node in pairs(data.nodes)do
-if node.station==id and node.state~="verworfen"then return nil,"Die Node "..node_id.." nutzt diese Betriebsstelle: erst dort aufloesen."end
+if node.station==id and node.state~="verworfen"then return nil,"Die Node "..node_id.." nutzt diese Betriebsstelle: erst unter Netz entfernen."end
 end
 data.stations[id]=nil
 prune_sites()
@@ -340,6 +340,23 @@ return change(function()
 local node=data.nodes[id]
 if not node then return nil,"Die Node gibt es nicht."end
 if node.state~="reserviert"then return nil,"Nur eine noch nicht aktivierte Anforderung laesst sich verwerfen."end
+node.state="verworfen"
+return true
+end)
+end
+
+
+
+function n.remove_node(id)
+return change(function()
+local node=data.nodes[id]
+if not node then
+for _,other in pairs(data.nodes)do
+if other.legacy==id and other.state~="verworfen"then node=other break end
+end
+end
+if not node then return nil,"Die Node gibt es nicht."end
+if node.state=="verworfen"then return nil,"Die Node ist schon entfernt."end
 node.state="verworfen"
 return true
 end)

@@ -118,6 +118,19 @@ if not ok then template.priority=previous return nil,err end
 return true
 end
 
+
+
+function o.remove_template(id)
+local template=data.templates[id]
+if not template then return nil,"Unbekannte Vorlage."end
+local running=o.active_for(id)
+if running then return nil,"Aus der Vorlage laeuft der Auftrag "..running.id..": erst beenden oder abbrechen."end
+data.templates[id]=nil
+local ok,err=o.save()
+if not ok then data.templates[id]=template return nil,err end
+return true
+end
+
 function o.templates()
 local ids={}
 for id in pairs(data.templates)do ids[#ids+1]=id end

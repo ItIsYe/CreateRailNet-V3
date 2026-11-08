@@ -1,6 +1,6 @@
 --[[
 Purpose: Sicheres Speichern einer Tabelle in eine Datei: erst in eine .tmp Datei schreiben, zuruecklesen und pruefen, dann die alte Fassung als .prev behalten und austauschen. Bei jedem Abbruch bleibt eine pruefbare Fassung uebrig; heal() stellt nach einem Neustart den Hauptzustand her.
-API: store.new(fs) -> s; s.save(path, value) -> true | nil, fehler; s.load(path) -> wert, quelle ("main","tmp","prev") | nil, grund; s.heal(path) -> quelle oder nil
+API: store.new(fs) -> s; s.save(path, value) -> true | nil, fehler; s.load(path) -> wert, quelle ("main","tmp","prev") | nil, grund; s.heal(path) -> quelle oder nil; s.remove(path) loescht Datei samt .tmp und .prev
 Notes: Dateikopf "-- crn <summe> <laenge>"; die Summe (Adler-32) deckt den Text dahinter. Ist der Platz knapp, wird .prev nicht behalten (Ergaenzung E9, Erfahrung: Zustandsdateien duerfen die Update-Reserve nicht aufbrauchen).
 ]]
 
@@ -87,6 +87,14 @@ function M.new(fs)
     local prev_value = read(path .. ".prev")
     if prev_value ~= nil then return prev_value, "prev" end
     return nil, why
+  end
+
+  -- loescht die Datei und ihre Nebendateien (.tmp, .prev); fehlt sie, ist das kein Fehler
+  function s.remove(path)
+    for _, name in ipairs({ path, path .. ".tmp", path .. ".prev" }) do
+      if fs.exists(name) and not fs.isDir(name) then fs.delete(name) end
+    end
+    return not fs.exists(path)
   end
 
   function s.heal(path)
