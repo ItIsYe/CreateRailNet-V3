@@ -327,14 +327,12 @@ function M.rollback(env)
   return true
 end
 
-local ROLE_ORDER = { "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "signal", "knoten", "anmeldung" }
+local ROLE_ORDER = { "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung" }
 local ROLE_TEXT = {
   zentrale = "Leitstelle fuer das ganze Netz",
   passagierbahnhof = "Bahnhof fuer Fahrgaeste",
   gueterbahnhof = "Bahnhof fuer Fracht",
   depot = "Abstellen und Uebergabe von Zuegen",
-  signal = "Signale und Strecken",
-  knoten = "Abzweige und Kreuzungen",
   anmeldung = "Zuganmeldung und Bedarfstasten",
 }
 
@@ -700,7 +698,7 @@ local USAGE = {
   "  installer --status | --check | --rollback",
   "  Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist),",
   "          --replace (bisherige Version ersetzen, wenn alt und neu nicht zugleich passen; grosse Rollen)",
-  "  Rollen: zentrale, passagierbahnhof, gueterbahnhof, depot, signal, knoten, anmeldung",
+  "  Rollen: zentrale, passagierbahnhof, gueterbahnhof, depot, anmeldung",
 }
 
 function M.run(args, env)

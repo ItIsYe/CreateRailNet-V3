@@ -14,11 +14,11 @@ local function setup()
   return h, z, netz
 end
 
--- ein frischer Computer bis zum Bildschirm "Signale zuordnen" (Kennung wurde angefordert)
+-- ein frischer Computer bis zum Bildschirm "Geraete waehlen" (Kennung wurde angefordert)
 local function join(h, id, opts)
   opts = opts or {}
   local d = h.add_blank({ id = id })
-  d.world.add_signal("Create_Signal_1"); d.world.add_signal("Create_Signal_2")
+  d.world.add_station("Create_Station_1", { station_name = "Hof" })
   h.step(1)
   local v = d.view()
   v.set_page("einrichtung")
@@ -26,7 +26,7 @@ local function join(h, id, opts)
   d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
   h.step(5); d.node.render()
   d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-  d.tap(v, "sel:rollen:5"); d.tap(v, "act:weiter")
+  d.tap(v, "sel:rollen:2"); d.tap(v, "act:weiter")
   h.step(3); d.node.render()
   d.tap(v, "sel:bereich:1")
   h.step(3); d.node.render()
@@ -39,11 +39,11 @@ return {
   { "Zwei frische Computer nacheinander: jeder bekommt seine eigene Node-Kennung", function()
     local h, z, netz = setup()
     local a, va, sa = join(h, "a")
-    t.eq(sa.screen, "4.zuordnung", a.text(va))
+    t.eq(sa.screen, "3.geraete", a.text(va))
     t.eq(sa.wiz.claimed_id, "N0001")
     h.step(60)
     local b, vb, sb = join(h, "b")
-    t.eq(sb.screen, "4.zuordnung", b.text(vb))
+    t.eq(sb.screen, "3.geraete", b.text(vb))
     t.eq(sb.wiz.claimed_id, "N0002", "der zweite Computer bekommt nicht noch einmal N0001")
     t.ok(netz.node("N0001") and netz.node("N0002"), "beide stehen im Verzeichnis")
     t.ok(netz.node("N0001").claim ~= netz.node("N0002").claim)
@@ -58,7 +58,7 @@ return {
     local b, vb, sb = join(h, "b")                 -- sofort danach, ohne Pause
     t.eq(sa.wiz.claimed_id, "N0001")
     t.eq(sb.wiz.claimed_id, "N0002")
-    t.eq(sb.screen, "4.zuordnung", b.text(vb))
+    t.eq(sb.screen, "3.geraete", b.text(vb))
     for _, m in ipairs(z.node.messages) do t.ok(not m.text:find("Zwei Computer melden sich", 1, true), m.text) end
   end },
   { "Die vorlaeufige Kennung enthaelt die Computer-Kennung und aendert sich bei jedem Start", function()
@@ -100,14 +100,14 @@ return {
     a.tap(v2, "sel:modus:2"); a.tap(v2, "act:weiter")
     h.step(5); a.node.render()
     a.tap(v2, "sel:netzwahl:1"); a.tap(v2, "act:weiter")
-    a.tap(v2, "sel:rollen:5"); a.tap(v2, "act:weiter")
+    a.tap(v2, "sel:rollen:2"); a.tap(v2, "act:weiter")
     h.step(3); a.node.render()
     a.tap(v2, "sel:bereich:1")
     h.step(3); a.node.render()
     a.tap(v2, "act:weiter"); a.tap(v2, "act:weiter")
     h.step(3); a.node.render()
     local s2 = a.node.setup.session()
-    t.eq(s2.screen, "4.zuordnung", a.text(v2))
+    t.eq(s2.screen, "3.geraete", a.text(v2))
     t.eq(s2.wiz.claimed_id, "N0001", "die Anforderung dieses Computers bleibt, die Leitstelle fuehrt keine zweite Kennung")
     t.eq(#netz.nodes(), 1)
   end },
@@ -156,7 +156,7 @@ return {
       local seen, claimed = {}, {}
       for k = 1, 3 do
         local d = h.add_blank({ id = "c" .. k })
-        d.world.add_signal("Create_Signal_1"); d.world.add_signal("Create_Signal_2")
+        d.world.add_station("Create_Station_1", { station_name = "Hof" })
         h.step(1)
         local v = d.view()
         v.set_page("einrichtung")
@@ -164,14 +164,14 @@ return {
         d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
         h.step(8); d.node.render()
         d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-        d.tap(v, "sel:rollen:5"); d.tap(v, "act:weiter")
+        d.tap(v, "sel:rollen:2"); d.tap(v, "act:weiter")
         h.step(10); d.node.render()
         d.tap(v, "sel:bereich:1")
         h.step(10); d.node.render()
         d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
         h.step(10); d.node.render()
         local s = d.node.setup.session()
-        t.eq(s.screen, "4.zuordnung", "Zufallsmuster " .. seed .. ", Computer " .. k .. ": " .. d.text(v))
+        t.eq(s.screen, "3.geraete", "Zufallsmuster " .. seed .. ", Computer " .. k .. ": " .. d.text(v))
         local id = s.wiz.claimed_id
         t.ok(id and not seen[id], "Zufallsmuster " .. seed .. ": Kennung " .. tostring(id) .. " nicht doppelt vergeben")
         seen[id] = true

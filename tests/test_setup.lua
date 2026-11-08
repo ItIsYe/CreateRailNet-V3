@@ -54,12 +54,11 @@ local function station_config(w)
   wiz.toggle_role("passagierbahnhof")
   assert(wiz.next())
   assert(wiz.next())
-  for _, name in ipairs({ "Create_Station_1", "Create_Station_2", "Create_Signal_5", "Create_TrainObserver_1" }) do wiz.toggle_device(name) end
+  for _, name in ipairs({ "Create_Station_1", "Create_Station_2", "Create_TrainObserver_1" }) do wiz.toggle_device(name) end
   local ids = {}
   for id, d in pairs(wiz.config.devices) do ids[d.device] = id end
   local g1 = wiz.add_track("Gleis 1")
   wiz.toggle_track_device(g1, "station", ids.Create_Station_1)
-  wiz.toggle_track_device(g1, "signals", ids.Create_Signal_5)
   wiz.toggle_track_device(g1, "observers", ids.Create_TrainObserver_1)
   local g2 = wiz.add_track("Gleis 2")
   wiz.toggle_track_device(g2, "station", ids.Create_Station_2)
@@ -91,19 +90,10 @@ return {
   { "dasselbe Geraet unter zwei Kennungen wird gemeldet", function()
     local w = world()
     local scan = detect.scan(w.peripheral)
-    local c = model.new("X", { "signal" }, { name = "N", central_id = "z" })
-    c.devices.a = { kind = "signal", device = "Create_Signal_5" }
-    c.devices.b = { kind = "signal", device = "Create_Signal_5" }
+    local c = model.new("X", { "passagierbahnhof" }, { name = "N", central_id = "z" })
+    c.devices.a = { kind = "observer", device = "Create_TrainObserver_1" }
+    c.devices.b = { kind = "observer", device = "Create_TrainObserver_1" }
     t.ok(has_code(model.validate(c, scan), "geraet_doppelt"))
-  end },
-  { "Knotenpunkt: Verbindung vom Anschluss zu sich selbst", function()
-    local c = model.new("K", { "knoten" }, { name = "N", central_id = "z" })
-    c.junction.connections = { West = true, Ost = true }
-    c.junction.moves = { { from = "Ost", to = "Ost" } }
-    local list = {}
-    for _, p in ipairs(model.validate(c, {})) do if p.code == "knoten_verbindung" then list[#list + 1] = p end end
-    t.eq(#list, 1)
-    t.contains(list[1].text, "beginnt und endet am selben Anschluss")
   end },
   { "Leitstelle braucht keine Angabe der Leitstelle", function()
     local c = model.new("Zentrale", { "zentrale" }, { name = "Netz" })
@@ -112,13 +102,13 @@ return {
   { "Geraet fehlt, falsche Art, fehlende Methoden", function()
     local w = world()
     local scan = detect.scan(w.peripheral)
-    local c = model.new("Bf", { "signal" }, { name = "N", central_id = "z" })
-    c.devices.signal1 = { kind = "signal", device = "Create_Signal_9" }
+    local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
+    c.devices.station1 = { kind = "station", device = "Create_Station_9" }
     t.ok(has_code(model.validate(c, scan), "geraet_fehlt"))
-    c.devices.signal1 = { kind = "signal", device = "Create_Station_1" }
+    c.devices.station1 = { kind = "station", device = "Create_TrainObserver_1" }
     t.ok(has_code(model.validate(c, scan), "geraet_art"))
-    c.devices.signal1 = { kind = "signal", device = "Create_Signal_5" }
-    w.devices["Create_Signal_5"].methods.cycleSignalType = nil
+    c.devices.station1 = { kind = "station", device = "Create_Station_1" }
+    w.devices["Create_Station_1"].methods.getTrainName = nil
     t.ok(has_code(model.validate(c, detect.scan(w.peripheral)), "geraet_methoden"))
   end },
   { "Geraet nur einem Gleis, Gleisname eindeutig", function()
@@ -133,7 +123,7 @@ return {
     t.contains(codes, "gleis_name_doppelt")
     t.contains(codes, "geraet_zwei_gleise")
   end },
-  { "Bahnhofsgleis braucht einen Bahnhof, aber keinen Freigabeausgang (die Freigabe laeuft ueber die Station); Signalgleis ein Signal", function()
+  { "Bahnhofsgleis braucht einen Bahnhof, aber keinen Freigabeausgang (die Freigabe laeuft ueber die Station)", function()
     local w = world()
     local scan = detect.scan(w.peripheral)
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
@@ -148,61 +138,6 @@ return {
     local ds = model.add_device(d, "station", "Create_Station_1")
     model.assign(d, dg, "station", ds)
     t.eq(#model.validate(d, scan), 0, "Depot braucht keinen Freigabeausgang: " .. problem_codes(model.validate(d, scan)))
-    local sg = model.new("Str", { "signal" }, { name = "N", central_id = "z" })
-    model.add_track(sg, "Nord")
-    t.contains(problem_codes(model.validate(sg, scan)), "gleis_signal")
-  end },
-  { "Knotenpunkt: Anschluesse, Verbindungen, Konfliktbereiche", function()
-    local c = model.new("K", { "knoten" }, { name = "N", central_id = "z" })
-    t.contains(problem_codes(model.validate(c, {})), "knoten_anschluesse")
-    c.junction.connections = { West = true, Ost = true, Sued = true }
-    t.ok(has_code(model.validate(c, {}), "knoten_verbindung_fehlt"))
-    t.ok(has_code(model.validate(c, {}), "gleise_fehlen"))
-    local function structure_problems()
-      local out = {}
-      for _, p in ipairs(model.validate(c, {})) do if p.code ~= "knoten_einfahrt" and p.code ~= "knoten_ausfahrt" and p.code ~= "gleise_fehlen" then out[#out + 1] = p end end
-      return out
-    end
-    c.junction.moves = { { from = "West", to = "Nord" }, { from = "Ost", to = "Ost" } }
-    t.contains(problem_codes(model.validate(c, {})), "knoten_verbindung")
-    c.junction.moves = { { from = "West", to = "Ost" }, { from = "Sued", to = "Ost" } }
-    c.junction.conflicts = { { moves = { 1 } } }
-    t.contains(problem_codes(model.validate(c, {})), "knoten_konflikt")
-    c.junction.conflicts = { { moves = { 1, 7 } } }
-    t.contains(problem_codes(model.validate(c, {})), "knoten_konflikt")
-    c.junction.conflicts = { { moves = { 1, 2 } } }
-    t.eq(#structure_problems(), 0)
-    t.contains(problem_codes(model.validate(c, {})), "knoten_einfahrt", "ohne Einfahrtsgleis mit Signal ist der Knoten nicht betriebsfaehig")
-    t.contains(problem_codes(model.validate(c, {})), "knoten_ausfahrt")
-  end },
-  { "Knotenpunkt: Einfahrts- und Ausfahrtsgleise mit Signal und Beobachter machen ihn vollstaendig", function()
-    local w = world()
-    w.add_observer("Create_TrainObserver_2")
-    local wiz = start(w)
-    wiz.set_network("N", "z"); wiz.set_mode("join")
-    wiz.set_name("Abzweig"); wiz.toggle_role("knoten")
-    assert(wiz.next()); assert(wiz.next())
-    for _, name in ipairs({ "Create_Signal_5", "Create_TrainObserver_1", "Create_TrainObserver_2" }) do wiz.toggle_device(name) end
-    local ids = {}
-    for id, d in pairs(wiz.config.devices) do ids[d.device] = id end
-    wiz.add_connection("West"); wiz.add_connection("Ost")
-    wiz.add_move("West", "Ost")
-    local g_in = wiz.add_track("Westeinfahrt")
-    local g_out = wiz.add_track("Ostausfahrt")
-    t.eq(wiz.set_junction_link(g_in, { connection = "West", role = "ein" }), true)
-    t.eq(wiz.set_junction_link(g_out, { connection = "Ost", role = "aus" }), true)
-    local ok, why = wiz.set_junction_link(g_in, { connection = "Nord", role = "ein" })
-    t.eq(ok, false); t.contains(why, "Unbekannter Anschluss")
-    ok = wiz.set_junction_link(g_in, { connection = "West", role = "quer" })
-    t.eq(ok, false)
-    t.contains(problem_codes(wiz.warnings()), "knoten_gleis", "Einfahrt ohne Signal, Gleise ohne Beobachter")
-    wiz.toggle_track_device(g_in, "signals", ids.Create_Signal_5)
-    wiz.toggle_track_device(g_in, "observers", ids.Create_TrainObserver_1)
-    wiz.toggle_track_device(g_out, "observers", ids.Create_TrainObserver_2)
-    t.eq(problem_codes(wiz.warnings()), "", "vollstaendig")
-    wiz.set_junction_link(g_in, nil)
-    t.eq(wiz.config.tracks[g_in].junction, nil)
-    t.contains(problem_codes(wiz.warnings()), "knoten_einfahrt")
   end },
   { "Anmeldung braucht eine Station", function()
     local c = model.new("A", { "anmeldung" }, { name = "N", central_id = "z" })
@@ -220,12 +155,12 @@ return {
     c.tracks[g1].length = 12
     local s = model.add_device(c, "station", "Create_Station_1")
     model.assign(c, g1, "station", s)
-    model.assign(c, g1, "signals", model.add_device(c, "signal", "Create_Signal_5"))
+    model.assign(c, g1, "observers", model.add_device(c, "observer", "Create_TrainObserver_1"))
     c.tracks[g1].status = "aktiv"
     local g2 = model.copy_track(c, g1, "Gleis 2")
     local copy = c.tracks[g2]
     t.eq(copy.direction, "hin"); t.eq(copy.length, 12)
-    t.eq(copy.station, nil); t.eq(#copy.signals, 0)
+    t.eq(copy.station, nil); t.eq(#copy.observers, 0)
     t.eq(copy.status, "offen")
     t.eq(copy.name, "Gleis 2")
     t.eq(model.copy_track(c, "nix", "x"), nil)
@@ -233,11 +168,11 @@ return {
   { "Geraet entfernen raeumt alle Verweise auf", function()
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
     local g = model.add_track(c, "G")
-    local st, sg, ob = model.add_device(c, "station", "S"), model.add_device(c, "signal", "G1"), model.add_device(c, "observer", "O")
-    model.assign(c, g, "station", st); model.assign(c, g, "signals", sg); model.assign(c, g, "observers", ob)
+    local st, ob = model.add_device(c, "station", "S"), model.add_device(c, "observer", "O")
+    model.assign(c, g, "station", st); model.assign(c, g, "observers", ob)
     c.registration_station = st
-    model.remove_device(c, st); model.remove_device(c, sg); model.remove_device(c, ob)
-    t.eq(c.tracks[g].station, nil); t.eq(#c.tracks[g].signals, 0); t.eq(#c.tracks[g].observers, 0); t.eq(c.registration_station, nil)
+    model.remove_device(c, st); model.remove_device(c, ob)
+    t.eq(c.tracks[g].station, nil); t.eq(#c.tracks[g].observers, 0); t.eq(c.registration_station, nil)
   end },
   { "freie Geraete: noch keinem Gleis zugeordnet", function()
     local w = world()
@@ -252,10 +187,10 @@ return {
   end },
   { "Geraet nicht doppelt eintragen", function()
     local c = model.new("N", {}, {})
-    local a = model.add_device(c, "signal", "S")
-    local b = model.add_device(c, "signal", "S")
+    local a = model.add_device(c, "observer", "S")
+    local b = model.add_device(c, "observer", "S")
     t.eq(a, b)
-    t.eq(model.add_device(c, "signal", "T"), "signal2")
+    t.eq(model.add_device(c, "observer", "T"), "observer2")
   end },
   -- Assistent: Schritte ----------------------------------------------------------------------------------------------------------------------
   { "Schritt 1: Netzname, beim Beitritt die Leitstelle", function()
@@ -311,11 +246,11 @@ return {
     local wiz = start(world())
     wiz.set_network("N", "z"); wiz.set_mode("join"); wiz.next()
     wiz.set_name("Mehrfach")
-    wiz.toggle_role("signal")
+    wiz.toggle_role("anmeldung")
     wiz.toggle_role("passagierbahnhof")
     t.eq(wiz.config.node.roles[1], "passagierbahnhof")
-    t.eq(wiz.config.node.roles[2], "signal")
-    wiz.toggle_role("signal")
+    t.eq(wiz.config.node.roles[2], "anmeldung")
+    wiz.toggle_role("anmeldung")
     t.eq(#wiz.config.node.roles, 1)
   end },
   { "zurueck und vorwaerts behalten die Eingaben", function()
@@ -333,14 +268,14 @@ return {
     local wiz = start(w)
     wiz.set_network("N", "z"); wiz.set_mode("join"); wiz.next()
     wiz.set_name("Bf"); wiz.toggle_role("passagierbahnhof"); wiz.next()
-    w.add_signal("Create_Signal_9")      -- kommt nach dem ersten Scan dazu
+    w.add_observer("Create_TrainObserver_9")      -- kommt nach dem ersten Scan dazu
     wiz.next(); wiz.back()
     wiz.next()
-    t.ok(detect.find(wiz.scan, "Create_Signal_9"), "neuer Scan in Schritt 3")
-    t.eq(wiz.toggle_device("Create_Signal_9"), true)
-    t.eq(wiz.device_selected("Create_Signal_9"), true)
-    t.eq(wiz.toggle_device("Create_Signal_9"), true)
-    t.eq(wiz.device_selected("Create_Signal_9"), false)
+    t.ok(detect.find(wiz.scan, "Create_TrainObserver_9"), "neuer Scan in Schritt 3")
+    t.eq(wiz.toggle_device("Create_TrainObserver_9"), true)
+    t.eq(wiz.device_selected("Create_TrainObserver_9"), true)
+    t.eq(wiz.toggle_device("Create_TrainObserver_9"), true)
+    t.eq(wiz.device_selected("Create_TrainObserver_9"), false)
     t.eq(wiz.toggle_device("left"), false, "Modems gehoeren nicht zur Geraeteauswahl")
     t.eq(wiz.toggle_device("gibt-es-nicht"), false)
   end },
@@ -349,22 +284,22 @@ return {
     local wiz = start(w)
     wiz.set_network("N", "z"); wiz.set_mode("join"); wiz.next()
     wiz.set_name("Bf"); wiz.toggle_role("passagierbahnhof")
-    w.add_signal("Create_Signal_9")        -- nach dem Start des Assistenten angeschlossen
-    t.eq(detect.find(wiz.scan, "Create_Signal_9"), nil)
+    w.add_signal("Create_TrainObserver_9")        -- nach dem Start des Assistenten angeschlossen
+    t.eq(detect.find(wiz.scan, "Create_TrainObserver_9"), nil)
     t.eq(wiz.next(), true)
     t.eq(wiz.step, 3)
-    t.ok(detect.find(wiz.scan, "Create_Signal_9"), "neuer Scan beim Betreten von Schritt 3")
+    t.ok(detect.find(wiz.scan, "Create_TrainObserver_9"), "neuer Scan beim Betreten von Schritt 3")
   end },
   { "Gleis bearbeiten: Geraet nur einem Gleis, Richtung, Umbenennen", function()
     local w = world()
     local wiz, ids, g1, g2 = station_config(w)
     local ok, why = wiz.toggle_track_device(g2, "station", ids.Create_Station_1)
     t.eq(ok, false); t.contains(why, "gehoert schon zu Gleis 1")
-    ok, why = wiz.toggle_track_device(g2, "signals", ids.Create_Signal_5)
+    ok, why = wiz.toggle_track_device(g2, "observers", ids.Create_TrainObserver_1)
     t.eq(ok, false); t.contains(why, "gehoert schon zu Gleis 1")
-    t.eq(wiz.toggle_track_device(g1, "signals", ids.Create_Signal_5), true, "vom eigenen Gleis nehmen")
-    t.eq(wiz.toggle_track_device(g2, "signals", ids.Create_Signal_5), true, "danach frei fuer ein anderes Gleis")
-    t.eq(wiz.toggle_track_device(g2, "signals", ids.Create_Signal_5), true)
+    t.eq(wiz.toggle_track_device(g1, "observers", ids.Create_TrainObserver_1), true, "vom eigenen Gleis nehmen")
+    t.eq(wiz.toggle_track_device(g2, "observers", ids.Create_TrainObserver_1), true, "danach frei fuer ein anderes Gleis")
+    t.eq(wiz.toggle_track_device(g2, "observers", ids.Create_TrainObserver_1), true)
     t.eq(wiz.set_direction(g1, "hin"), true)
     t.eq(wiz.config.tracks[g1].direction, "hin")
     t.eq(wiz.rename_track(g1, "Gleis Eins"), true)
@@ -376,96 +311,40 @@ return {
     t.eq(wiz.config.tracks[g3].direction, "hin")
     t.eq(wiz.config.tracks[g3].station, nil)
   end },
-  { "Knotenpunkt im Assistenten", function()
-    local wiz = start(world())
-    wiz.set_network("N", "z"); wiz.set_mode("join"); wiz.next()
-    wiz.set_name("Abzweig"); wiz.toggle_role("knoten"); wiz.next(); wiz.next()
-    t.eq(wiz.add_connection("West"), true)
-    t.eq(wiz.add_connection("Ost"), true)
-    t.eq(wiz.add_connection("Sued"), true)
-    t.eq(wiz.add_connection(""), false)
-    t.eq(wiz.add_move("West", "Ost"), true)
-    t.eq(wiz.add_move("Sued", "Ost"), true)
-    local ok, why = wiz.add_move("West", "Ost")
-    t.eq(ok, false); t.contains(why, "gibt es schon")
-    ok, why = wiz.add_move("West", "West")
-    t.eq(ok, false)
-    ok, why = wiz.add_move("West", "Nord")
-    t.eq(ok, false); t.contains(why, "Unbekannter")
-    t.eq(wiz.add_conflict(1, 2), true)
-    ok, why = wiz.add_conflict(2, 1)
-    t.eq(ok, false); t.contains(why, "schon eingetragen")
-    ok = wiz.add_conflict(1, 1)
-    t.eq(ok, false)
-    for _, p in ipairs(wiz.warnings()) do
-      t.ok(p.code == "knoten_einfahrt" or p.code == "knoten_ausfahrt" or p.code == "gleise_fehlen", "unerwartetes Problem: " .. p.code)
-    end
-    wiz.remove_connection("Ost")
-    t.eq(#wiz.config.junction.moves, 0, "Verbindungen ueber den entfernten Anschluss fallen weg")
-    t.eq(#wiz.config.junction.conflicts, 0)
-  end },
   -- Pruefungen ---------------------------------------------------------------------------------------------------------------------------------
-  { "Pruefungen werden aus der Konfiguration erzeugt: lesen, Sperre (keine Ausgangspruefung)", function()
+  { "Pruefungen werden aus der Konfiguration erzeugt: nur lesende (keine Sperre, kein Ausgang)", function()
     local w = world()
     local wiz = station_config(w)
     local ids = {}
     for _, test in ipairs(wiz.tests()) do ids[#ids + 1] = test.kind .. ":" .. test.id end
     local joined = table.concat(ids, " ")
-    t.contains(joined, "lesen:lesen:signal1")
-    t.contains(joined, "schalten:sperre:signal1")
+    t.contains(joined, "lesen:lesen:observer1")
+    t.contains(joined, "lesen:lesen:station1")
+    t.not_contains(joined, "schalten")
     t.not_contains(joined, "ausgang")
     for _, test in ipairs(wiz.tests()) do
       if test.kind == "schalten" then t.ok(#test.explain > 20, "Erklaerung fehlt bei " .. test.id) end
     end
   end },
-  { "lesende Pruefung laeuft ohne Bestaetigung, schaltende nur mit", function()
+  { "lesende Pruefung laeuft ohne Bestaetigung", function()
     local w = world()
     local wiz = station_config(w)
     local ok = wiz.run_test("lesen:station1", false)
     t.eq(ok, true)
     t.eq(wiz.test_state("lesen:station1"), "ok")
-    local ok2, why = wiz.run_test("sperre:signal1", false)
-    t.eq(ok2, false); t.contains(why, "bestaetigen")
-    t.eq(wiz.test_state("sperre:signal1"), "offen")
-    t.eq(w.devices["Create_Signal_5"].state.forced, false)
-    ok2 = wiz.run_test("sperre:signal1", true)
-    t.eq(ok2, true)
-    t.eq(wiz.test_state("sperre:signal1"), "ok")
-    t.eq(w.devices["Create_Signal_5"].state.forced, false, "danach wieder frei")
     t.eq(wiz.run_test("unbekannt:x", true), false)
-  end },
-  { "Sperre: schon gesperrtes Signal, Signal ohne Wirkung, Signal verschwunden", function()
-    local w = world()
-    local wiz = station_config(w)
-    w.devices["Create_Signal_5"].methods.setForcedRed(true)
-    local ok, why = wiz.run_test("sperre:signal1", true)
-    t.eq(ok, false); t.contains(why, "schon gesperrt")
-    t.eq(w.devices["Create_Signal_5"].state.forced, true, "fremde Sperre bleibt")
-    w.devices["Create_Signal_5"].methods.setForcedRed(false)
-    w.devices["Create_Signal_5"].state.ignore_hold = true
-    ok, why = wiz.run_test("sperre:signal1", true)
-    t.eq(ok, false); t.contains(why, "nicht bestaetigt")
-    w.detach("Create_Signal_5")
-    ok, why = wiz.run_test("lesen:signal1", false)
-    t.eq(ok, false); t.contains(why, "nicht erreichbar")
-  end },
-  { "Sperre, die sich nicht aufheben laesst, wird als ACHTUNG gemeldet", function()
-    local w = world()
-    local wiz = station_config(w)
-    local state = w.devices["Create_Signal_5"].state
-    w.devices["Create_Signal_5"].methods.setForcedRed = function(v) if v then state.forced = true end end   -- Aufheben wirkt nicht
-    local ok, why = wiz.run_test("sperre:signal1", true)
-    t.eq(ok, false); t.contains(why, "ACHTUNG")
-    t.eq(wiz.test_state("sperre:signal1"), "fehler")
+    w.detach("Create_TrainObserver_1")
+    local ok2, why = wiz.run_test("lesen:observer1", false)
+    t.eq(ok2, false); t.contains(why, "nicht erreichbar")
   end },
   { "Pruefergebnis gilt nur, solange das Geraet dasselbe ist", function()
     local w = world()
     local wiz, ids, g1 = station_config(w)
-    wiz.run_test("lesen:signal1", false)
-    t.eq(wiz.test_state("lesen:signal1"), "ok")
-    -- anderes Signal an dieselbe Kennung: das alte Ergebnis ist ungueltig
-    wiz.config.devices.signal1.device = "Create_Signal_6"
-    t.eq(wiz.test_state("lesen:signal1"), "offen")
+    wiz.run_test("lesen:observer1", false)
+    t.eq(wiz.test_state("lesen:observer1"), "ok")
+    -- anderer Beobachter an dieselbe Kennung: das alte Ergebnis ist ungueltig
+    wiz.config.devices.observer1.device = "Create_TrainObserver_6"
+    t.eq(wiz.test_state("lesen:observer1"), "offen")
   end },
   -- Fertig ------------------------------------------------------------------------------------------------------------------------------------
   { "Fertig: ohne Pruefungen wird nichts gespeichert (kein Entwurf); mit allen Pruefungen aktiv; Revision steigt; gespeichert und lesbar", function()

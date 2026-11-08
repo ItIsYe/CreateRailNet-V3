@@ -81,7 +81,7 @@ return {
     t.contains(a.output(), "Ping 1: keine Antwort")
     t.contains(a.output(), "0 von 5 Antworten")
   end },
-  { "Geraetepruefung: lesend und mit Schreiben, verdreht sich nichts", function()
+  { "Geraetepruefung: liest Bahnhof und Beobachter, Create-Signale werden nur gezaehlt und nie gesperrt", function()
     local create = dofile("tests/fakes/create.lua")
     local w = create.world()
     w.add_station("Create_Station_1")
@@ -96,18 +96,11 @@ return {
     local env2 = computer(bus, 2)
     env2.peripheral = w.peripheral
     t.eq(selftest.run(env2, { "geraete", "schreiben" }), true, env2.output())
-    t.contains(env2.output(), "Sperre setzen und zuruecklesen: Create_Signal_5")
-    t.contains(env2.output(), "Sperre aufheben und zuruecklesen: Create_Signal_5")
-    t.eq(w.devices["Create_Signal_5"].state.forced, false, "Sperre ist danach wieder aufgehoben")
+    t.not_contains(env2.output(), "Sperre setzen", "es gibt kein Schreiben mehr: CC steuert keine Signale")
+    t.eq(w.devices["Create_Signal_5"].state.forced, false)
   end },
-  { "Geraetepruefung: Signal, das die Sperre nicht uebernimmt, wird gemeldet; keine Geraete ebenfalls", function()
+  { "Geraetepruefung: ohne Create-Geraete schlaegt sie fehl", function()
     local create = dofile("tests/fakes/create.lua")
-    local w = create.world()
-    w.add_signal("S", { ignore_hold = true })
-    local env = computer(busLib.new(), 1)
-    env.peripheral = w.peripheral
-    t.eq(selftest.run(env, { "geraete", "schreiben" }), false)
-    t.contains(env.output(), "FEHLER  Sperre setzen und zuruecklesen: S")
     local env2 = computer(busLib.new(), 2)
     env2.peripheral = create.world().peripheral
     t.eq(selftest.run(env2, { "geraete" }), false)

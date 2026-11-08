@@ -9,10 +9,10 @@ local label=require("core.label")
 
 local M={}
 
-M.ROLES={"zentrale","passagierbahnhof","gueterbahnhof","depot","signal","knoten","anmeldung"}
+M.ROLES={"zentrale","passagierbahnhof","gueterbahnhof","depot","anmeldung"}
 M.ROLE_TEXT={
 zentrale="Leitstelle",passagierbahnhof="Passagierbahnhof",gueterbahnhof="Gueterbahnhof",depot="Depot und Uebergabe",
-signal="Signal und Strecke",knoten="Knotenpunkt",anmeldung="Anmeldung und Auftraege",
+anmeldung="Anmeldung und Auftraege",
 }
 local ROLE_SET={}
 for _,r in ipairs(M.ROLES)do ROLE_SET[r]=true end
@@ -35,7 +35,6 @@ network={name=network and network.name or"",central_id=network and network.centr
 node={id=M.slug(name),name=name,roles=roles or{}},
 devices={},
 tracks={},
-junction={connections={},moves={},conflicts={}},
 tests={},
 status="offen",
 }
@@ -58,7 +57,7 @@ end
 
 function M.add_track(config,name)
 local id=next_id(config.tracks,"gleis")
-config.tracks[id]={name=name,direction="beide",signals={},observers={},status="offen"}
+config.tracks[id]={name=name,direction="beide",observers={},status="offen"}
 return id
 end
 
@@ -80,86 +79,13 @@ config.tracks[id]=nil
 end
 
 
-
-
-
-
-
-function M.junction_from_directory(j)
-local owner,order={},{}
-for _,c in ipairs(j.connections or{})do
-for _,t in ipairs(c.tracks or{})do
-if owner[t.id]then return nil,label.track(t.name).." steht in zwei Anschluessen."end
-owner[t.id]={connection=c.name,name=t.name,area=t.area}
-order[#order+1]=t.id
-end
-end
-local routes={}
-for _,r in ipairs(j.routes or{})do routes[#routes+1]=r end
-table.sort(routes,function(a,b)return a.id<b.id end)
-if#routes==0 then return nil,"Der Knoten hat keinen bestaetigten Fahrweg."end
-local from_ends,to_ends,move_keys={},{},{}
-for _,r in ipairs(routes)do
-local a,b=owner[r.from],owner[r.to]
-if not a or not b then return nil,"Der Fahrweg "..r.id.." nennt ein Gleis ausserhalb der Anschluesse."end
-if a.connection==b.connection then return nil,"Der Fahrweg "..r.id.." beginnt und endet am selben Anschluss."end
-from_ends[r.from],to_ends[r.to]=true,true
-move_keys[a.connection.."\0"..b.connection]={from=a.connection,to=b.connection}
-end
-for _,id in ipairs(order)do
-if from_ends[id]and to_ends[id]then
-return nil,label.track(owner[id].name).." ("..owner[id].connection..") ist Ein- und Ausfahrt: in der Leitstelle trennen."
-end
-end
-local moves={}
-for _,m in pairs(move_keys)do moves[#moves+1]=m end
-table.sort(moves,function(a,b)if a.from~=b.from then return a.from<b.from end return a.to<b.to end)
-local move_index={}
-for i,m in ipairs(moves)do move_index[m.from.."\0"..m.to]=i end
-local route_move={}
-for _,r in ipairs(routes)do route_move[r.id]=move_index[owner[r.from].connection.."\0"..owner[r.to].connection]end
-local conflicts,seen={},{}
-for _,c in ipairs(j.conflicts or{})do
-local x,y=route_move[c.a],route_move[c.b]
-if x and y and x~=y then
-local lo,hi=math.min(x,y),math.max(x,y)
-if not seen[lo..":"..hi]then seen[lo..":"..hi]=true;conflicts[#conflicts+1]={moves={lo,hi}}end
-end
-end
-table.sort(conflicts,function(a,b)if a.moves[1]~=b.moves[1]then return a.moves[1]<b.moves[1]end return a.moves[2]<b.moves[2]end)
-
-local counts={}
-for _,id in ipairs(order)do
-if from_ends[id]or to_ends[id]then
-local key=owner[id].connection.." "..owner[id].name
-counts[key]=(counts[key]or 0)+1
-end
-end
-local connections,tracks,unused={},{},0
-for _,id in ipairs(order)do
-local o=owner[id]
-if from_ends[id]or to_ends[id]then
-connections[o.connection]=true
-local base=o.connection.." "..o.name
-tracks[#tracks+1]={id=id,name=counts[base]>1 and(base.." "..tostring(o.area))or base,connection=o.connection,role=from_ends[id]and"ein"or"aus"}
-else
-unused=unused+1
-end
-end
-return{connections=connections,moves=moves,conflicts=conflicts,tracks=tracks,unused=unused}
-end
-
-
 function M.remove_device(config,id)
 config.devices[id]=nil
 for _,track in pairs(config.tracks)do
 if track.station==id then track.station=nil end
-for _,field in ipairs({"signals","observers"})do
 local kept={}
-for _,ref in ipairs(track[field])do if ref~=id then kept[#kept+1]=ref end end
-if field=="signals"and#kept~=#track.signals then track.order_ok=nil end
-track[field]=kept
-end
+for _,ref in ipairs(track.observers)do if ref~=id then kept[#kept+1]=ref end end
+track.observers=kept
 end
 if config.registration_station==id then config.registration_station=nil end
 end
@@ -169,10 +95,9 @@ local track=config.tracks[track_id]
 if not track then return nil,"unbekanntes Gleis"end
 if field=="station"then
 track.station=device_id
-elseif field=="signals"or field=="observers"then
-for _,existing in ipairs(track[field])do if existing==device_id then return true end end
-track[field][#track[field]+1]=device_id
-if field=="signals"then track.order_ok=nil end
+elseif field=="observers"then
+for _,existing in ipairs(track.observers)do if existing==device_id then return true end end
+track.observers[#track.observers+1]=device_id
 else
 return nil,"unbekanntes Feld"
 end
@@ -184,9 +109,7 @@ function M.free_devices(config,scan,kind)
 local used={}
 for _,track in pairs(config.tracks)do
 if track.station then used[config.devices[track.station]and config.devices[track.station].device or""]=true end
-for _,list in ipairs({track.signals,track.observers})do
-for _,id in ipairs(list)do if config.devices[id]then used[config.devices[id].device]=true end end
-end
+for _,id in ipairs(track.observers)do if config.devices[id]then used[config.devices[id].device]=true end end
 end
 local out={}
 for _,d in ipairs(scan)do
@@ -204,29 +127,11 @@ M.has_role=has_role
 
 function M.profile(config)
 local station=has_role(config,"passagierbahnhof")or has_role(config,"gueterbahnhof")or has_role(config,"depot")
-local signal=has_role(config,"signal")or has_role(config,"knoten")
 local allowed={monitor=true}
 if station or has_role(config,"anmeldung")then allowed.station=true end
-if station or signal then allowed.signal=true;allowed.observer=true end
+if station then allowed.observer=true end
 if has_role(config,"passagierbahnhof")then allowed.displaylink=true end
-return{station=station,signal=signal,tracks=station or signal,allowed=allowed}
-end
-
-
-
-function M.entry_signal_problem(config,track)
-if not(track.junction and track.junction.role=="ein"and#track.signals>=2)then return nil end
-local marked,last_marked=0,false
-for i,ref in ipairs(track.signals)do
-local info=config.devices[ref]and config.devices[ref].signal
-if info and info.use=="einfahrt"then marked=marked+1;last_marked=(i==#track.signals)end
-end
-if marked~=1 then
-return"knoten_einfahrtsignal","Einfahrtsgleis "..track.name.." hat "..#track.signals.." Signale: genau eines als Einfahrt markieren (das letzte vor dem Knoten)."
-elseif not last_marked then
-return"knoten_einfahrtlage","Einfahrtsgleis "..track.name..": das Einfahrtsignal muss das letzte Signal vor dem Knoten sein (Reihenfolge zum Knoten hin)."
-end
-return nil
+return{station=station,tracks=station,allowed=allowed}
 end
 
 function M.validate(config,scan)
@@ -253,7 +158,7 @@ if not found then
 add("geraet_fehlt","Geraet "..d.device.." ("..id..") ist nicht angeschlossen.")
 elseif found.kind~=d.kind then
 add("geraet_art","Geraet "..d.device.." ist keine/kein "..d.kind..".")
-elseif#detect.missing(d.kind,found)>0 and(d.kind=="station"or d.kind=="signal"or d.kind=="observer")then
+elseif#detect.missing(d.kind,found)>0 and(d.kind=="station"or d.kind=="observer")then
 add("geraet_methoden","Geraet "..d.device.." fehlen Methoden: "..table.concat(detect.missing(d.kind,found),","))
 end
 if used_devices[d.device]then add("geraet_doppelt","Geraet "..d.device.." ist doppelt eingetragen.")end
@@ -266,7 +171,6 @@ local ids={}
 for id in pairs(config.tracks)do ids[#ids+1]=id end
 table.sort(ids)
 local needs_station=has_role(config,"passagierbahnhof")or has_role(config,"gueterbahnhof")or has_role(config,"depot")
-local needs_signals=has_role(config,"signal")or has_role(config,"knoten")
 for _,id in ipairs(ids)do
 local track=config.tracks[id]
 if track.name==""then add("gleis_name","Ein Gleis hat keinen Namen.")end
@@ -284,70 +188,16 @@ end
 owner[device_id]=id
 end
 if track.direction~="hin"and track.direction~="rueck"and track.direction~="beide"then add("gleis_richtung",label.track(track.name)..": Richtung fehlt oder ist ungueltig.")end
-for field,kind in pairs({station="station",signals="signal",observers="observer"})do
+for field,kind in pairs({station="station",observers="observer"})do
 local refs=field=="station"and(track.station and{track.station}or{})or track[field]
 for _,ref in ipairs(refs)do
 if config.devices[ref]and config.devices[ref].kind~=kind then add("gleis_art",label.track(track.name)..": falsche Geraeteart fuer "..field..".")end
 end
 end
 claim(track.station,"Bahnhof")
-
-if track.dir and#track.signals>=2 and not track.order_ok then
-local ends=config.node.area_ends
-add("signal_reihenfolge",label.track(track.name)..": Reihenfolge der "..#track.signals.." Signale bestaetigen"..((ends and ends[1]and ends[2])and(" (von "..ends[1].." nach "..ends[2]..")")or"")..".")
-end
-for _,s in ipairs(track.signals)do
-claim(s,"Signal")
-
-local info=config.devices[s]and config.devices[s].signal
-if info and not info.effect and not track.junction then add("signal_wirkrichtung","Signal "..config.devices[s].device.." ("..label.track(track.name).."): Wirkrichtung fehlt.")end
-end
 for _,o in ipairs(track.observers)do claim(o,"Beobachter")end
 if needs_station and not track.station then add("gleis_bahnhof",label.track(track.name).." hat keinen Bahnhof.")end
-if has_role(config,"signal")and#track.signals==0 then add("gleis_signal",label.track(track.name).." hat kein Signal.")end
 
-local entry_code,entry_text=M.entry_signal_problem(config,track)
-if entry_code then add(entry_code,entry_text)end
-if track.junction then
-if not config.junction.connections[track.junction.connection]then
-add("knoten_gleis",label.track(track.name).." verweist auf den unbekannten Anschluss "..tostring(track.junction.connection)..".")
-elseif track.junction.role=="ein"and#track.signals==0 then
-add("knoten_gleis","Einfahrtsgleis "..track.name.." braucht ein Signal, das die Einfahrt zusaetzlich sperrt.")
-elseif#track.observers==0 then
-add("knoten_gleis",label.track(track.name).." braucht einen Beobachter als Meldepunkt.")
-end
-end
-
-end
-
-
-if has_role(config,"knoten")then
-local j=config.junction
-local count=0
-for _ in pairs(j.connections)do count=count+1 end
-if count<2 then add("knoten_anschluesse","Ein Knotenpunkt braucht mindestens zwei Anschluesse.")end
-if#j.moves==0 then add("knoten_verbindung_fehlt","Mindestens eine Verbindung muss eingerichtet werden.")end
-for i,move in ipairs(j.moves)do
-if not j.connections[move.from]or not j.connections[move.to]then add("knoten_verbindung","Verbindung "..i.." nennt einen unbekannten Anschluss.")end
-if move.from==move.to then add("knoten_verbindung","Verbindung "..i.." beginnt und endet am selben Anschluss.")end
-end
-
-local has_in,has_out={},{}
-for _,track in pairs(config.tracks)do
-if track.junction then
-if track.junction.role=="ein"then has_in[track.junction.connection]=true else has_out[track.junction.connection]=true end
-end
-end
-for i,move in ipairs(j.moves)do
-if j.connections[move.from]and not has_in[move.from]then add("knoten_einfahrt","Der Anschluss "..move.from.." hat kein Einfahrtsgleis mit Signal.")end
-if j.connections[move.to]and not has_out[move.to]then add("knoten_ausfahrt","Der Anschluss "..move.to.." hat kein Ausfahrtsgleis mit Beobachter.")end
-end
-for i,conflict in ipairs(j.conflicts)do
-if#conflict.moves<2 then add("knoten_konflikt","Konfliktbereich "..i.." braucht mindestens zwei Verbindungen.")end
-for _,m in ipairs(conflict.moves)do
-if not j.moves[m]then add("knoten_konflikt","Konfliktbereich "..i.." nennt eine unbekannte Verbindung.")end
-end
-end
 end
 
 if has_role(config,"anmeldung")and not config.registration_station then

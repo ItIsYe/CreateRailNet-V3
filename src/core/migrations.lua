@@ -68,6 +68,40 @@ M.STEPS = {
       end
     end,
   },
+  -- 3 -> 4: Create regelt die Strecke (Signale, Bloecke, Weichen, Kreuzungen) allein; CC:Tweaked orchestriert nur noch. Die Rollen "signal" und "knoten" gibt es nicht
+  -- mehr. Eine Node, die nur diese Rollen trug, hat keine Aufgabe mehr: ihre Einrichtung wird verworfen (die Sicherung des Integrators behaelt sie) und der Computer
+  -- kann neu eingerichtet werden. Traegt eine Node daneben eine Bahnhofs- oder Anmelde-Rolle, bleibt diese; Signale, Knotenanschluesse und das Knotenmodell der
+  -- Einrichtung fallen weg, ebenso die Marke einer Testsperre (pruefmarke.lua) und die Daten der Signal- und Knotenrolle.
+  [3] = {
+    text = "Rollen Signal und Knoten entfernen (Create regelt die Strecke)",
+    scope = { "config.lua", "signal.lua", "knoten.lua", "pruefmarke.lua" },
+    run = function(ctx)
+      for _, name in ipairs({ "signal.lua", "knoten.lua", "pruefmarke.lua" }) do
+        if ctx.exists(name) then ctx.delete(name) end
+      end
+      local c = ctx.load("config.lua")
+      if type(c) ~= "table" or type(c.node) ~= "table" or type(c.node.roles) ~= "table" then return end
+      local kept, removed = {}, false
+      for _, role in ipairs(c.node.roles) do
+        if role == "signal" or role == "knoten" then removed = true else kept[#kept + 1] = role end
+      end
+      if not removed then return end
+      if #kept == 0 then
+        ctx.delete("config.lua")
+        return
+      end
+      c.node.roles = kept
+      c.junction, c.node.junction, c.node.junction_rev = nil, nil, nil
+      for id, d in pairs(type(c.devices) == "table" and c.devices or {}) do
+        if type(d) == "table" and d.kind == "signal" then c.devices[id] = nil end
+      end
+      for _, track in pairs(type(c.tracks) == "table" and c.tracks or {}) do
+        if type(track) == "table" then track.signals, track.junction, track.order_ok = nil, nil, nil end
+      end
+      c.tests = {}
+      ctx.save("config.lua", c)
+    end,
+  },
 }
 
 -- liefert nil, wenn die Schritte lueckenlos von 1 an numeriert sind und je Text und Funktion haben, sonst den Grund

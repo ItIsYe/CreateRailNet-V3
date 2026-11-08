@@ -193,7 +193,7 @@ return {
   { "Installer: Rueckkehr von Hand beendet eine laufende Probe", function()
     local fs, http, env = w.world({ ref = "beta" })
     http.routes[BASE .. "beta/installer.lua"] = w.read("installer.lua")
-    t.eq(installer.run({ "signal", "beta", "--yes" }, env), true, env.output())
+    t.eq(installer.run({ "anmeldung", "beta", "--yes" }, env), true, env.output())
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -205,22 +205,22 @@ return {
   end },
 
   { "Installer: eigene alte Startdatei wird durch die neue ersetzt, eine fremde bleibt", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     put(fs, "/startup.lua", "-- CRN-STARTUP\nshell.run(\"/crn/app/main.lua\")\n")
     publish(http, "beta", "0.2.0")
     local env = cc.env(fs, http)
-    t.eq(installer.run({ "signal", "beta", "--yes" }, env), true, env.output())
+    t.eq(installer.run({ "anmeldung", "beta", "--yes" }, env), true, env.output())
     t.eq(get(fs, "/startup.lua"), installer.STARTUP)
     t.contains(env.output(), "startup.lua")
     put(fs, "/startup.lua", "print('anderes Programm')")
     publish(http, "beta", "0.3.0", "abcd1234")
     env = cc.env(fs, http)
-    installer.run({ "signal", "beta", "--yes" }, env)
+    installer.run({ "anmeldung", "beta", "--yes" }, env)
     t.eq(get(fs, "/startup.lua"), "print('anderes Programm')")
   end },
 
   { "Installer: install.lua nennt Kanal und Quelle", function()
-    local fs = installed("signal", "beta")
+    local fs = installed("anmeldung", "beta")
     local info = get(fs, "/crn/install.lua")
     t.contains(info, 'ref = "beta"')
     t.contains(info, 'base = "' .. BASE .. '"')
@@ -228,16 +228,16 @@ return {
 
   -- Pruefen ------------------------------------------------------------------------------------------------------------------------------
   { "Pruefen: gleicher Stand auf dem Kanal ist aktuell", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     local status = u.check()
     t.eq(status, "aktuell")
     t.eq(u.state().available, nil)
-    t.eq(u.state().ref, "beta"); t.eq(u.state().role, "signal")
+    t.eq(u.state().ref, "beta"); t.eq(u.state().role, "anmeldung")
   end },
 
   { "Pruefen: neuer Stand auf dem Kanal ist verfuegbar, mit Nummer", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     local status, text = u.check()
@@ -246,15 +246,15 @@ return {
   end },
 
   { "Pruefen: feste Version (Tag oder Commit) wird nicht verfolgt", function()
-    local fs, http = installed("signal", "v0.1.0")
+    local fs, http = installed("anmeldung", "v0.1.0")
     local u = make(fs, http)
     local status = u.check()
     t.eq(status, "fest")
-    t.eq(#http.requests, 1 + w.role_files("signal"), "kein weiterer Abruf")
+    t.eq(#http.requests, 1 + w.role_files("anmeldung"), "kein weiterer Abruf")
   end },
 
   { "Pruefen: ohne HTTP und bei unerreichbarem Server kein Absturz, Hinweis bleibt", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, nil)
     t.eq((u.check()), "kein_http")
     t.contains(u.state().note, "HTTP")
@@ -266,7 +266,7 @@ return {
   end },
 
   { "Pruefen: ein unbrauchbares Verzeichnis (Rolle fehlt) wird nicht als Update gemeldet", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     http.routes[BASE .. "beta/dist/manifest.lua"] = 'return { version = "0.2.0", id = "deadbeef", files = {}, roles = {} }'
     local status = u.check()
@@ -276,7 +276,7 @@ return {
 
   -- Installieren ---------------------------------------------------------------------------------------------------------------------------
   { "Installieren: neuer Stand, Vorversion bleibt, Probe wird angelegt, Neustart angefordert", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check()
@@ -292,7 +292,7 @@ return {
   end },
 
   { "Zyklus: scheitert die Installation (Kanal noch nicht vollstaendig), wird nicht jede Sekunde neu geladen, spaeter aber erneut versucht", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     local good = http.routes[BASE .. "beta/dist/core/adler.lua"]
@@ -310,7 +310,7 @@ return {
   end },
 
   { "Installieren: nach der Installation kein zweiter Versuch, auch wenn bis zum Neustart ein weiterer Stand erscheint", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -322,7 +322,7 @@ return {
   end },
 
   { "Installieren: Download bricht ab -> nichts veraendert, keine Probe, kein Neustart, Grund sichtbar", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check()
@@ -336,7 +336,7 @@ return {
   end },
 
   { "Installieren: Installer vom Kanal ist unbrauchbar -> nichts veraendert", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check()
@@ -358,7 +358,8 @@ return {
     -- Leitstelle: alt und neu passen nicht zugleich neben den Daten (siehe test_installer)
     local fs, http = installed("zentrale", "beta")
     put(fs, "/installer.lua", string.rep("x", 32061))
-    put(fs, "/crn_data/netz.lua", string.rep("d", 20000))
+    local DATA_SIZE = fs.getFreeSpace("/") - 25000          -- fast alles Freie belegt: alt und neu passen nicht zugleich
+    put(fs, "/crn_data/netz.lua", string.rep("d", DATA_SIZE))
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check()
@@ -368,7 +369,7 @@ return {
     t.contains(get(fs, "/crn/manifest.lua"), '"0.1.0"')
     t.ok(not fs.exists("/crn_new") and not fs.exists("/crn_prev"))
     t.eq(c.reboots, 0)
-    t.eq(get(fs, "/crn_data/netz.lua"), string.rep("d", 20000))
+    t.eq(get(fs, "/crn_data/netz.lua"), string.rep("d", DATA_SIZE))
     -- erlaubt der Betreiber das Ersetzen, geschieht es (keine Vorversion, Probe ohne Rueckweg)
     u.set_replace(true)
     ok, text = u.install({ force = true })
@@ -393,7 +394,7 @@ return {
 
   -- Zyklus ------------------------------------------------------------------------------------------------------------------------------
   { "Zyklus: automatisch prueft nach der Anlaufzeit, installiert aber erst nach der Ruhezeit seit dem Start", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c
     for i = 1, 40 do                                   -- ein Node, dessen erste Pruefung vor Ende der Ruhezeit liegt
       u, c = make(fs, http, { node_id = string.format("N%04d", i) })
@@ -416,7 +417,7 @@ return {
   end },
 
   { "Zyklus: eine Rolle, die gerade etwas hat (Fahrt laeuft), haelt die Installation zurueck; der Grund steht im Zustand", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     c.block = "Eine Fahrt laeuft"
@@ -430,7 +431,7 @@ return {
   end },
 
   { "Zyklus: melden meldet einmal, aus macht nichts, Betriebsart bleibt gespeichert", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     u.set_mode("melden")
     publish(http, "beta", "0.2.0")
@@ -448,13 +449,13 @@ return {
   end },
 
   { "Zyklus: Standardbetriebsart ist automatisch", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     t.eq(u.state().mode, "auto")
   end },
 
   { "Zyklus: die ersten Pruefungen der Nodes liegen verteilt, nicht alle zugleich", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local seen, count = {}, 0
     for i = 1, 40 do
       local u = make(fs, http, { node_id = string.format("N%04d", i) })
@@ -469,7 +470,7 @@ return {
   end },
 
   { "Zyklus: nach einer Pruefung ohne Ergebnis (Server nicht erreichbar) wird spaeter erneut versucht", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     local routes = http.routes
     http.routes = {}
@@ -485,7 +486,7 @@ return {
 
   -- Probezeit und Rueckfall -----------------------------------------------------------------------------------------------------------
   { "Probe: nach dem Neustart gilt die neue Version erst nach zwei Minuten Gesundheit als bestaetigt", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u, c = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -501,7 +502,7 @@ return {
   end },
 
   { "Probe: ist der Node kurz nach dem Start nicht gesund (Datenanpassung gescheitert), wird sofort zurueckgenommen", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -515,7 +516,7 @@ return {
   end },
 
   { "Probe: nach einer Datenanpassung merkt sich die Probe die Sicherung (damit der Rueckfall die Daten zurueckspielt)", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -525,7 +526,7 @@ return {
   end },
 
   { "Zurueckgenommener Stand wird nicht noch einmal installiert; ein neuerer schon", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     publish(http, "beta", "0.2.0")
     put(fs, "/crn_data/update_bad", "deadbeef")
     local u, c = make(fs, http)
@@ -540,7 +541,7 @@ return {
     t.eq(c.reboots, 1)
     t.contains(get(fs, "/crn/manifest.lua"), '"0.2.1"')
     -- der Merker uebersteht einen weiteren Start
-    local fs2, http2 = installed("signal", "beta")
+    local fs2, http2 = installed("anmeldung", "beta")
     publish(http2, "beta", "0.2.0")
     put(fs2, "/crn_data/update_bad", "deadbeef")
     make(fs2, http2)
@@ -551,7 +552,7 @@ return {
   end },
 
   { "Probe laeuft: kein weiteres Update, bis sie bestaetigt ist", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -567,8 +568,8 @@ return {
   -- Knoten -------------------------------------------------------------------------------------------------------------------------------
   { "Knoten: Seite Update zeigt Stand und Betriebsart, Knopf wechselt die Betriebsart, Pruefen und Installieren gehen von Hand", function()
     local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "signal" }, tracks = { { name = "Gleis 1", signals = { "Sig_1" } } } })
-    local fs, http = installed("signal", "beta", { fs = nil })
+    local s = h.add_node({ id = "strecke", roles = { "gueterbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Hof" } } })
+    local fs, http = installed("anmeldung", "beta", { fs = nil })
     for path, text in pairs(fs._state.files) do if path:match("^crn/") or path:match("^startup") then s.fs._state.files[path] = text end end
     for dir in pairs(fs._state.dirs) do s.fs._state.dirs[dir] = true end
     local reboots = 0
@@ -617,23 +618,6 @@ return {
     t.eq(reboots, 1)
   end },
 
-  { "Knoten: Signal-Node wartet, solange Knoten oder Leitstelle ein Signal sperren; Sperren des Bedieners halten nicht auf", function()
-    local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "signal" }, tracks = { { name = "Gleis 1", signals = { "Sig_1", "Sig_2" } } } })
-    local role = s.node.roles.signal
-    local id = role.signals[1].id
-    t.eq(role.update_blocker(), nil)
-    t.eq(role.lock(id, "bediener", "Test"), true)
-    t.eq(role.update_blocker(), nil, "ein Bediener-Sperre bleibt ueber den Neustart stehen")
-    t.eq(role.lock(id, "knoten", "Zug"), true)
-    t.contains(role.update_blocker(), "gesperrt")
-    t.eq(role.unlock(id, "knoten"), true)
-    t.eq(role.update_blocker(), nil)
-    t.eq(role.lock(id, "leitstelle", "Fahrweg"), true)
-    t.contains(role.update_blocker(), id)
-    t.eq(role.unlock(id, "leitstelle"), true)
-    t.eq(role.update_blocker(), nil)
-  end },
 
   { "Knoten: Leitstelle wartet, solange eine Fahrt unterwegs ist", function()
     local h = H.new()
@@ -652,8 +636,8 @@ return {
 
   { "Knoten: gescheiterte Datenanpassung in der Probe fordert den Rueckfall an", function()
     local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "signal" }, tracks = { { name = "Gleis 1", signals = { "Sig_1" } } } })
-    local fs, http = installed("signal", "beta")
+    local s = h.add_node({ id = "strecke", roles = { "gueterbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Hof" } } })
+    local fs, http = installed("anmeldung", "beta")
     for path, text in pairs(fs._state.files) do if path:match("^crn/") or path:match("^startup") then s.fs._state.files[path] = text end end
     for dir in pairs(fs._state.dirs) do s.fs._state.dirs[dir] = true end
     put(s.fs, "/crn_data/probe", "0\nbad=deadbeef\n")
@@ -670,7 +654,7 @@ return {
 
   -- Zusammenspiel -------------------------------------------------------------------------------------------------------------------------
   { "Gesamtablauf: Update installiert, der neue Stand stuerzt ab -> Startdatei nimmt ihn zurueck, derselbe Stand wird nicht noch einmal versucht", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check()
@@ -693,7 +677,7 @@ return {
   end },
 
   { "Gesamtablauf: Update installiert, der neue Stand laeuft gesund -> Probe bestaetigt, keine Rueckkehr", function()
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local u = make(fs, http)
     publish(http, "beta", "0.2.0")
     u.check(); u.install({ force = true })
@@ -713,7 +697,7 @@ return {
     local n = 1
     local finished = false
     while not finished do
-      local fs, http = installed("signal", "beta")
+      local fs, http = installed("anmeldung", "beta")
       local u = make(fs, http)
       publish(http, "beta", "0.2.0")
       u.check()
@@ -739,7 +723,7 @@ return {
   { "Befehl main update: Zustand, pruefen, Betriebsart, Ersetzen, jetzt installieren", function()
     package.path = "./src/?.lua;" .. package.path
     local main = require("app.main")
-    local fs, http = installed("signal", "beta")
+    local fs, http = installed("anmeldung", "beta")
     local reboots = 0
     local function call(...)
       local env = cc.env(fs, http)

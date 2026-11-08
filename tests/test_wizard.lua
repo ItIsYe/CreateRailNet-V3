@@ -88,14 +88,14 @@ return {
     t.contains(env2.output(), "Verzeichnis nicht erreichbar")
     t.contains(http2.requests[1], "/main/dist/")
   end },
-  { "Rollenliste zeigt Beschreibungen und alle sieben Rollen", function()
+  { "Rollenliste zeigt Beschreibungen und alle fuenf Rollen", function()
     local fs, http, env = w.world({ ref = "main" })
     dialog(env, {
       { MENU, { "1" } },
       { "Welche Rolle", { "q" } },
     })
     local out = env.output()
-    for _, text in ipairs({ "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "signal", "knoten", "anmeldung", "Leitstelle fuer das ganze Netz", "Bahnhof fuer Fracht" }) do
+    for _, text in ipairs({ "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung", "Leitstelle fuer das ganze Netz", "Bahnhof fuer Fracht" }) do
       t.contains(out, text)
     end
     t.ok(not fs.exists("/crn"), "Abbruch aendert nichts")
@@ -165,7 +165,7 @@ return {
       { "Jetzt starten?", { "n" } },
     })
     t.eq(ok, true, env.output())
-    t.contains(fs.open("/crn/install.lua", "r").readAll(), 'role = "signal"')
+    t.contains(fs.open("/crn/install.lua", "r").readAll(), 'role = "anmeldung"')
   end },
   { "fremde startup.lua und Rollenwechsel stehen vor dem Installieren in der Zusammenfassung", function()
     local fs, http, env = w.world({ ref = "main" })
@@ -180,7 +180,7 @@ return {
     })
     local out = env2.output()
     t.contains(out, "bleibt unveraendert (anderes Programm)")
-    t.contains(out, "die Rolle wechselt von depot zu signal")
+    t.contains(out, "die Rolle wechselt von depot zu anmeldung")
     t.contains(out, "wird zur Vorversion")
     t.contains(out, "(bisher)")
     t.eq(fs.open("/startup.lua", "r").readAll(), "print('fremd')")
@@ -339,7 +339,7 @@ return {
     local calls, finished = 0, false
     env.progress = function(done, total) calls = calls + 1 end
     env.progress_done = function() finished = true end
-    t.eq(installer.run({ "signal" }, env), true, env.output())
+    t.eq(installer.run({ "anmeldung" }, env), true, env.output())
     t.ok(calls > 10); t.ok(finished)
     t.ok(not env.output():find("10/", 1, true), "keine Zeilenflut, wenn ein Balken da ist")
   end },

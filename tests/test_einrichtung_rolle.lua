@@ -27,25 +27,6 @@ end
 local function screen(d) return d.node.setup.session().screen end
 
 return {
-  { "Nur Signal installiert: keine Rollenauswahl, der Ablauf geht gleich zum Bereich", function()
-    local h, z, d, v = build({ "signal" })
-    join_to_network(h, d, v)
-    h.step(3); d.node.render()
-    t.eq(screen(d), "2.bereich", d.text(v))
-    t.eq(#d.node.setup.session().wiz.roles, 1); t.eq(d.node.setup.session().wiz.roles[1], "signal")
-  end },
-  { "Zurueck vom Bereich geht ueber die Rollenseite hinweg zur Netzwahl", function()
-    local h, z, d, v = build({ "signal" })
-    join_to_network(h, d, v)
-    h.step(3); d.node.render()
-    d.tap(v, "act:zurueck")
-    t.eq(screen(d), "1.netzwahl", d.text(v))
-    h.step(5); d.node.render()
-    d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-    h.step(3); d.node.render()
-    t.eq(screen(d), "2.bereich")
-    t.eq(#d.node.setup.session().wiz.roles, 1, "die Rolle wird nicht doppelt gesetzt")
-  end },
   { "Station installiert (mehrere Rollen moeglich): die Auswahl bleibt", function()
     local h, z, d, v = build({ "station" })
     join_to_network(h, d, v)

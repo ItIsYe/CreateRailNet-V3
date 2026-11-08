@@ -38,9 +38,9 @@ return {
   end },
   { "nur die Dateien der Rolle werden geladen", function()
     local fs, http, env = world()
-    run(env, "signal", "v0.1.0")
+    run(env, "anmeldung", "v0.1.0")
     for _, url in ipairs(http.requests) do t.ok(url:find("/dist/", 1, true), url) end
-    t.eq(#http.requests, 1 + w.role_files("signal"), "Verzeichnis plus die Dateien der Rolle")
+    t.eq(#http.requests, 1 + w.role_files("anmeldung"), "Verzeichnis plus die Dateien der Rolle")
   end },
   { "Aktualisierung behaelt die Vorversion, Rueckkehr tauscht", function()
     local fs, http, env = world()
@@ -229,7 +229,8 @@ return {
     local fs, http, env = world()
     local fh = fs.open("/installer.lua", "w"); fh.write(string.rep("x", 32061)); fh.close()
     t.eq(run(env, "zentrale", "v0.1.0"), true, env.output())
-    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", 20000)); data.close()
+    local DATA_SIZE = fs.getFreeSpace("/") - 25000          -- fast alles Freie belegt: alt und neu passen nicht zugleich (die Groesse der Rolle spielt keine Rolle)
+    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", DATA_SIZE)); data.close()
     w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
     local env2 = cc.env(fs, http)
     t.eq(run(env2, "zentrale", "v0.2.0"), false)
@@ -238,13 +239,14 @@ return {
     t.contains(env2.output(), "kein Zurueck zur Vorversion")
     t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.1.0"')
     t.ok(not fs.exists("/crn_new") and not fs.exists("/crn_prev"), "nichts veraendert")
-    t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", 20000))
+    t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", DATA_SIZE))
   end },
   { "--replace ersetzt die bisherige Version, wenn nur so Platz ist: Daten und startup.lua bleiben, keine Vorversion", function()
     local fs, http, env = world()
     local fh = fs.open("/installer.lua", "w"); fh.write(string.rep("x", 32061)); fh.close()
     t.eq(run(env, "zentrale", "v0.1.0"), true, env.output())
-    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", 20000)); data.close()
+    local DATA_SIZE = fs.getFreeSpace("/") - 25000          -- fast alles Freie belegt: alt und neu passen nicht zugleich (die Groesse der Rolle spielt keine Rolle)
+    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", DATA_SIZE)); data.close()
     local startup = fs.open("/startup.lua", "r").readAll()
     w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
     local env2 = cc.env(fs, http)
@@ -253,7 +255,7 @@ return {
     t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.2.0"')
     t.ok(not fs.exists("/crn_prev"), "keine Vorversion (kein Platz dafuer)")
     t.ok(not fs.exists("/crn_new") and not fs.exists("/crn_tmp"))
-    t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", 20000), "Daten bleiben")
+    t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", DATA_SIZE), "Daten bleiben")
     t.eq(fs.open("/startup.lua", "r").readAll(), startup)
     t.eq(installer.check(cc.env(fs, http)), true)
   end },
@@ -273,7 +275,8 @@ return {
       local fs, http, env = world()
       local fh = fs.open("/installer.lua", "w"); fh.write(string.rep("x", 32061)); fh.close()
       t.eq(run(env, "zentrale", "v0.1.0"), true)
-      local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", 20000)); data.close()
+      local DATA_SIZE = fs.getFreeSpace("/") - 25000          -- fast alles Freie belegt: alt und neu passen nicht zugleich (die Groesse der Rolle spielt keine Rolle)
+    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", DATA_SIZE)); data.close()
       w.add_version(http, "v0.1.0", "v0.2.0", "0.2.0")
       fs._state.crash_at = fs._state.ops + n
       local ok = pcall(run, cc.env(fs, http), "zentrale", "v0.2.0", "--replace")
@@ -283,7 +286,7 @@ return {
       installer.recover(env2)
       if fs.exists("/crn") then t.eq(installer.check(env2), true, "halbe Installation bei n=" .. n) end
       t.ok(not fs.exists("/crn_new") or not fs.exists("/crn"), "Staging neben Installation bei n=" .. n)
-      t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", 20000), "Daten bei n=" .. n)
+      t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", DATA_SIZE), "Daten bei n=" .. n)
       local env3 = cc.env(fs, http)
       t.eq(run(env3, "zentrale", "v0.2.0", "--replace"), true, "Wiederholung bei n=" .. n .. ": " .. env3.output())
       t.eq(installer.check(cc.env(fs, http)), true)
@@ -359,7 +362,8 @@ return {
     local fs, http, env = world({ ref = "main" })
     local fh = fs.open("/installer.lua", "w"); fh.write(string.rep("x", 32061)); fh.close()
     t.eq(run(env, "zentrale"), true, env.output())
-    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", 20000)); data.close()
+    local DATA_SIZE = fs.getFreeSpace("/") - 25000          -- fast alles Freie belegt: alt und neu passen nicht zugleich (die Groesse der Rolle spielt keine Rolle)
+    local data = fs.open("/crn_data/netz.lua", "w"); data.write(string.rep("d", DATA_SIZE)); data.close()
     w.bump(http, "main", "0.2.0")
     local env2 = cc.env(fs, http)
     env2.answers = { "1", "1", "e", "n" }       -- Menue: aktualisieren, Rolle zentrale, ersetzen, nicht starten
@@ -367,6 +371,6 @@ return {
     t.contains(env2.output(), "Bisherige Version ersetzen")
     t.contains(fs.open("/crn/manifest.lua", "r").readAll(), '"0.2.0"')
     t.ok(not fs.exists("/crn_prev"))
-    t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", 20000))
+    t.eq(fs.open("/crn_data/netz.lua", "r").readAll(), string.rep("d", DATA_SIZE))
   end },
 }

@@ -19,16 +19,19 @@ return {
       local id = string.format("A%02d", n)
       local line = matrix:match("\n| " .. id .. " [^\n]*")
       t.ok(line, id .. " fehlt in der Matrix")
-      -- Spieltestschritte: letzte Spalte
-      local steps = line:match("| ([^|]*) |$")
-      t.ok(steps and steps:match("%d+%.%d+"), id .. " nennt keinen Spieltestschritt")
-      for step in steps:gmatch("%d+%.%d+") do
-        t.ok(test_doc:find("| " .. step .. " |", 1, true), id .. ": Schritt " .. step .. " steht nicht im Spieltest")
-      end
-      for path in line:gmatch("tests/[%w_]+%.lua") do
-        local fh = io.open(path, "r")
-        t.ok(fh, id .. ": " .. path .. " existiert nicht")
-        if fh then fh:close() end
+      -- Create regelt die Strecke: Signal- und Knoten-Abnahmen entfallen
+      if not line:find("entfaellt", 1, true) then
+        -- Spieltestschritte: letzte Spalte
+        local steps = line:match("| ([^|]*) |$")
+        t.ok(steps and steps:match("%d+%.%d+"), id .. " nennt keinen Spieltestschritt")
+        for step in steps:gmatch("%d+%.%d+") do
+          t.ok(test_doc:find("| " .. step .. " |", 1, true), id .. ": Schritt " .. step .. " steht nicht im Spieltest")
+        end
+        for path in line:gmatch("tests/[%w_]+%.lua") do
+          local fh = io.open(path, "r")
+          t.ok(fh, id .. ": " .. path .. " existiert nicht")
+          if fh then fh:close() end
+        end
       end
     end
   end },

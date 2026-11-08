@@ -7,7 +7,7 @@ local wizard = require('setup.wizard')
 local function fixture(role)
   local world = create.world()
   world.add_modem('left', true)
-  world.add_signal('sig')
+  world.add_observer('obs')
   world.add_station('station')
   local w = wizard.new({scan=function() return detect.scan(world.peripheral) end,
     env={peripheral=world.peripheral, redstone=world.redstone}, now=function() return 1 end})
@@ -16,24 +16,24 @@ local function fixture(role)
 end
 return {
   {'Geraeteausfall vor Aktivierung wird frisch erkannt', function()
-    local w,world=fixture('signal'); w.toggle_device('sig')
-    local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'signals',next(w.config.devices))
+    local w,world=fixture('depot'); w.toggle_device('station')
+    local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'station',next(w.config.devices))
     for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id,true),true) end
     t.eq(w.all_tests_ok(),true)
-    world.devices.sig=nil
+    world.devices.station=nil
     t.eq(w.finish({save=function() return true end},'/x'),nil,'ohne frische Pruefung wird nicht aktiviert')
-    world.add_signal('sig'); w.rescan()
+    world.add_station('station'); w.rescan()
     t.eq(w.all_tests_ok(),false,'Ausfall entwertet den alten Test')
   end},
   {'Rollenwechsel entfernt unpassende Auswahl', function()
-    local w=fixture('depot');w.toggle_device('station');w.add_track('Abstellplatz')
-    w.toggle_role('signal')
+    local w=fixture('depot');w.toggle_device('obs');w.add_track('Abstellplatz')
+    w.toggle_role('anmeldung')
     local ok,why,effect=w.toggle_role('depot')
     t.eq(ok,false); t.eq(why,'bestaetigen'); t.eq(effect.devices,1,'das Abwaehlen nennt, was es entfernt')
-    t.eq(w.device_selected('station'),true,'ohne Bestaetigung bleibt alles stehen')
+    t.eq(w.device_selected('obs'),true,'ohne Bestaetigung bleibt alles stehen')
     t.eq(w.toggle_role('depot',true),true)
-    t.eq(w.device_selected('station'),false)
-    t.eq(w.allowed_devices().station,nil)
+    t.eq(w.device_selected('obs'),false)
+    t.eq(w.allowed_devices().observer,nil)
   end},
   {'Laufende Node: Es gibt keinen Entwurf-Knopf; Abbrechen verwirft die Kopie, die laufende Einrichtung bleibt', function()
     local driver=dofile('tests/lib/ui_driver.lua')
@@ -116,46 +116,47 @@ return {
       local d=driver.new({world=world,width=size[1],height=size[2]});d.restart()
       local v=d.view();v.set_page('einrichtung');v.dispatch('act:start')
       local session=d.node.setup.session();local w=session.wiz
-      w.set_mode('join');w.set_network('N','z');w.set_name('Signal Nord');w.toggle_role('signal')
+      w.set_mode('join');w.set_network('N','z');w.set_name('Depot Nord');w.toggle_role('depot')
       session.manual=true      -- der manuelle Weg ("Von Hand") neben der gefuehrten Einrichtung
       session.screen='3.geraete';w.step=3;d.node.render()
-      t.ok(not d.has(v,'Depotstation'))
+      t.ok(d.has(v,'Depotstation'))
+      t.ok(not d.has(v,'sig'), 'Create-Signale gehoeren nicht mehr zur Auswahl (Create regelt die Strecke)')
       t.eq(d.area(v,'act:weiter').enabled,false)
       v.dispatch('act:weiter');t.eq(session.screen,'3.geraete')
-      w.toggle_device('sig');d.node.render();v.dispatch('act:weiter')
+      w.toggle_device('Depotstation');d.node.render();v.dispatch('act:weiter')
       t.eq(session.screen,'4.gleise')
       for _,a in ipairs(v.touch.areas) do t.ok(a.y+a.h-1<=size[2] and a.x+a.w-1<=size[1]) end
     end
   end},
-  {'Signalrolle blendet Bahnhof und Depotgeraete aus', function()
-    local w = fixture('signal')
-    t.eq(w.allowed_devices().station, nil)
-    t.eq(w.toggle_device('station'), false)
-    t.eq(w.allowed_devices().signal, true)
+  {'Depotrolle blendet Signale aus (Create regelt die Strecke)', function()
+    local w = fixture('depot')
+    t.eq(w.allowed_devices().signal, nil)
+    t.eq(w.toggle_device('sig'), false)
+    t.eq(w.allowed_devices().station, true)
   end},
   {'Pflichtgeraet und Gleis blockieren Weiter', function()
-    local w = fixture('signal')
+    local w = fixture('depot')
     w.step=3; t.eq(w.next(),false); t.eq(w.step,3)
-    w.toggle_device('sig'); t.eq(w.next(),true)
+    w.toggle_device('station'); t.eq(w.next(),true)
     t.eq(w.next(),false); t.eq(w.step,4)
     local id=w.add_track('Gleis 1'); local sid=next(w.config.devices)
-    w.toggle_track_device(id,'signals',sid)
+    w.toggle_track_device(id,'station',sid)
     t.eq(w.next(),true); t.eq(w.next(),false); t.eq(w.step,5)
   end},
   {'Aenderung der Zuordnung entwertet bestandene Tests', function()
-    local w = fixture('signal'); w.toggle_device('sig')
-    local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'signals',next(w.config.devices))
+    local w = fixture('depot'); w.toggle_device('station')
+    local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'station',next(w.config.devices))
     for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id,true),true) end
     t.eq(w.all_tests_ok(),true)
     w.set_direction(id,'hin'); t.eq(w.all_tests_ok(),false)
   end},
-  {'Leere Signalnode darf nie aktiviert werden', function()
-    local w = fixture('signal'); local saved
+  {'Leeres Depot darf nie aktiviert werden', function()
+    local w = fixture('depot'); local saved
     local status=w.finish({save=function(_,c) saved=c; return true end},'/x')
     t.eq(status,nil); t.eq(saved,nil,'nichts gespeichert')
   end},
   {'Bearbeiten veraendert die aktive Konfiguration nicht', function()
-    local c=model.new('Alt',{'signal'},{name='N',central_id='z'})
+    local c=model.new('Alt',{'depot'},{name='N',central_id='z'})
     local w=wizard.new({existing=c,scan=function() return {} end,env={},now=function() return 0 end})
     w.set_name('Neu'); t.eq(c.node.name,'Alt')
   end},

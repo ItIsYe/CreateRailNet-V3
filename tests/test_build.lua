@@ -134,8 +134,8 @@ return {
     pipe:close()
     t.eq(count > 0, true)
   end },
-  { "alle sieben Rollen nach Konzept Kapitel 4 sind da", function()
-    for _, role in ipairs({ "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "signal", "knoten", "anmeldung" }) do
+  { "alle fuenf Rollen (Create regelt die Strecke) sind da", function()
+    for _, role in ipairs({ "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung" }) do
       t.ok(config.roles[role], "Rolle fehlt: " .. role)
     end
   end },

@@ -164,44 +164,4 @@ return {
     for _ in ipairs(netz.nodes()) do count = count + 1 end
     t.eq(count, 1, "keine zweite Node im Verzeichnis")
   end },
-  { "Einrichtung aendern an einer laufenden Knoten-Node: die im Betrieb gesperrten Einfahrtsignale blockieren die Pruefung nicht", function()
-    local h, d, v = knoten_node(true)
-    -- im Betrieb sind die Einfahrtsignale gesperrt
-    local locked = 0
-    for i = 1, 2 do if d.world.devices["Create_Signal_" .. i].state.forced then locked = locked + 1 end end
-    t.ok(locked > 0, "die Knoten-Node sperrt ihre Einfahrt im Betrieb")
-    to_knoten_tests(h, d, v)
-    t.eq(screen(d), "5.test", d.text(v))
-    d.tap(v, "act:weiter")
-    t.eq(screen(d), "6.fertig", "die Ergebnisse der unveraenderten Geraete bleiben gueltig: " .. d.text(v))
-    d.tap(v, "act:speichern")
-    t.eq(d.node.config.status, "aktiv", d.text(v))
-    t.eq(d.node.config.node.id, "N0001")
-  end },
-  { "Sind die Ergebnisse trotzdem verfallen, gilt ein im Betrieb gesperrtes Signal der laufenden Node als geprueft (Sperre bleibt)", function()
-    local h, d, v = knoten_node(true)
-    to_knoten_tests(h, d, v)
-    d.node.setup.session().wiz.config.tests = {}
-    d.tap(v, "act:alle_pruefen")
-    t.eq(screen(d), "5.alle_bestaetigen", d.text(v))
-    d.tap(v, "act:alle_starten")
-    for _, id in ipairs({ "sperre:signal1", "sperre:signal2" }) do
-      local w = d.node.setup.session().wiz
-      local state, text = w.test_state(id)
-      t.eq(state, "ok", id .. ": " .. tostring(text))
-      t.contains(text, "gesperrt")
-    end
-    t.ok(d.world.devices["Create_Signal_1"].state.forced or d.world.devices["Create_Signal_2"].state.forced, "die Betriebssperre bleibt")
-    d.tap(v, "act:weiter")
-    t.eq(screen(d), "6.fertig", d.text(v))
-  end },
-  { "Neue Einrichtung: ein fremd gesperrtes Signal lehnt die Sperrpruefung ab, und der Hinweis nennt die Pruefung", function()
-    local h, d, v = knoten_node(false)
-    d.world.devices["Create_Signal_1"].state.forced = true
-    d.tap(v, "act:alle_pruefen"); d.tap(v, "act:alle_starten")
-    d.tap(v, "act:weiter")
-    t.eq(screen(d), "5.test", d.text(v))
-    t.contains(v.hint, "Sperre: Create_Signal_1 fehlgeschlagen")
-    t.not_contains(v.hint, "~")
-  end },
 }

@@ -16,7 +16,6 @@ local eventslib=require("dev.events")
 local viewlib=require("ui.view")
 local W=require("ui.widgets")
 local setup_page=require("setup.page")
-local pruefunglib=require("setup.pruefung")
 local version=require("core.version")
 local envcheck=require("core.envcheck")
 local dataformat=require("core.dataformat")
@@ -30,7 +29,6 @@ local M={}
 local DATA="/crn_data"
 local CONFIG=DATA.."/config.lua"
 local CLAIM=DATA.."/anforderung.lua"
-local PROBE_MARK=DATA.."/pruefmarke.lua"
 local MAX_MESSAGES=60
 
 local UI_EVENTS={key=true,char=true,mouse_click=true,monitor_touch=true}
@@ -46,16 +44,6 @@ local store=storelib.new(env.fs)
 store.heal(CONFIG)
 store.heal(DATA.."/clock.lua")
 n.store=store
-
-
-local function probe_marker()return(store.load(PROBE_MARK))end
-local function probe_mark(lauf)
-if lauf then return store.save(PROBE_MARK,lauf)end
-for _,suffix in ipairs({"",".tmp",".prev"})do
-if env.fs.exists(PROBE_MARK..suffix)then env.fs.delete(PROBE_MARK..suffix)end
-end
-return true
-end
 
 
 
@@ -219,9 +207,9 @@ local seconds=math.floor(n.clock.now())
 line(string.format("Betriebszeit: %d:%02d:%02d%s",math.floor(seconds/3600),math.floor(seconds/60)%60,seconds%60,
 n.clock.resumed()and" (fortgesetzt)"or""),"dim")
 line("Freier Platz: "..env.fs.getFreeSpace("/").." Byte","dim")
-local counts={station=0,signal=0,observer=0}
+local counts={station=0,observer=0}
 for _,d in ipairs(n.scan)do if counts[d.kind]then counts[d.kind]=counts[d.kind]+1 end end
-line(string.format("Geraete: %d Bahnhof, %d Signal, %d Beobachter",counts.station,counts.signal,counts.observer),"dim")
+line(string.format("Geraete: %d Bahnhof, %d Beobachter",counts.station,counts.observer),"dim")
 local radio={}
 for _,d in ipairs(n.scan)do if d.kind=="modem"and wireless(d.name)then radio[#radio+1]=d.name end end
 line("Funk: "..(#radio>0 and table.concat(radio,",")or"KEIN FUNKMODEM"),#radio>0 and"dim"or"attention")
@@ -348,7 +336,7 @@ config=function()return n.config end,
 modem_is_wireless=wireless,
 role_available=function(role)
 if not env.fs.exists("/crn/manifest.lua")then return true end
-local files={zentrale="zentrale",passagierbahnhof="station",gueterbahnhof="station",depot="station",anmeldung="anmeldung",signal="signal",knoten="knoten"}
+local files={zentrale="zentrale",passagierbahnhof="station",gueterbahnhof="station",depot="station",anmeldung="anmeldung"}
 return files[role]~=nil and env.fs.exists("/crn/roles/"..files[role]..".lua")
 end,
 notify=n.notify,
@@ -362,8 +350,6 @@ directory_tracks=function(central_id,area_id)return n.directory_tracks(central_i
 directory_claim=function(central_id,claim,role,area_id,track_ids,junction_id,legacy_id,extra)return n.directory_claim(central_id,claim,role,area_id,track_ids,junction_id,legacy_id,extra)end,
 directory_stations=function(central_id)return n.directory_stations(central_id)end,
 directory_backups=function(central_id)return n.directory_backups(central_id)end,
-directory_junctions=function(central_id)return n.directory_junctions(central_id)end,
-directory_junction=function(central_id,junction_id)return n.directory_junction(central_id,junction_id)end,
 directory_area_create=function(central_id,token,spec)return n.directory_area_create(central_id,token,spec)end,
 directory_track_change=function(central_id,claim,track_id,fields,if_rev)return n.directory_track_change(central_id,claim,track_id,fields,if_rev)end,
 directory_status=function()return n.directory_status()end,
@@ -371,8 +357,6 @@ directory_reset=function()return n.directory_reset()end,
 claim=function()return n.claim()end,
 new_claim=function()return n.new_claim()end,
 new_token=function()return n.new_token()end,
-check_mark=probe_mark,
-check_marker=probe_marker,
 on_saved=function(config)
 n.config=config
 n.rebuild_views()
@@ -851,84 +835,6 @@ end)
 end
 
 
-function n.directory_junctions(central_id)
-dir_send(central_id,{kind="knoten_liste"},function(p)
-if type(p.junctions)~="table"or#p.junctions>100 then return dir_bad()end
-local list={}
-for _,j in ipairs(p.junctions)do
-if type(j)~="table"or not dir_id(j.id,"K")or not dir_name(j.name)or type(j.connections)~="number"or type(j.open)~="number"then return dir_bad()end
-list[#list+1]={id=j.id,name=j.name,connections=math.floor(j.connections),open=math.floor(j.open)}
-end
-n.dir_state={kind="ok",text=#list.." Knoten im Netz.",junctions=list}
-end)
-end
-
-
-
-function n.parse_junction_connections(part,junction_id)
-if type(part)~="table"or part.id~=junction_id then return nil end
-if not dir_name(part.name)or type(part.rev)~="number"or type(part.connections)~="table"or#part.connections>20 then return nil end
-local conns,total={},0
-for _,c in ipairs(part.connections)do
-if type(c)~="table"or not dir_name(c.name)or type(c.tracks)~="table"or#c.tracks>40 then return nil end
-local ends={}
-for _,t in ipairs(c.tracks)do
-if type(t)~="table"or not dir_id(t.id,"A")or not dir_name(t.name)or not dir_name(t.area)then return nil end
-ends[#ends+1]={id=t.id,name=t.name,area=t.area}
-total=total+1
-end
-conns[#conns+1]={name=c.name,tracks=ends}
-end
-if total>60 then return nil end
-return{id=junction_id,name=part.name,rev=math.floor(part.rev),connections=conns}
-end
-
-function n.parse_junction_routes(part,junction_id)
-if type(part)~="table"or part.id~=junction_id or type(part.routes)~="table"or#part.routes>60 then return nil end
-local routes={}
-for _,r in ipairs(part.routes)do
-if type(r)~="table"or not dir_id(r.id,"F")or not dir_id(r.from,"A")or not dir_id(r.to,"A")then return nil end
-routes[#routes+1]={id=r.id,from=r.from,to=r.to}
-end
-return routes
-end
-
-function n.parse_junction_conflicts(part,junction_id)
-if type(part)~="table"or part.id~=junction_id or type(part.conflicts)~="table"or#part.conflicts>90 then return nil end
-local conflicts={}
-for _,c in ipairs(part.conflicts)do
-if type(c)~="table"or not dir_id(c.a,"F")or not dir_id(c.b,"F")then return nil end
-conflicts[#conflicts+1]={a=c.a,b=c.b}
-end
-return conflicts
-end
-
-function n.directory_junction(central_id,junction_id)
-local result
-local function ask(part,handler)
-dir_send(central_id,{kind="knoten_teil",junction=junction_id,part=part},function(p)
-if type(p.part)~="table"or p.part.id~=junction_id then return dir_bad()end
-handler(p.part)
-end)
-end
-ask("anschluesse",function(part)
-result=n.parse_junction_connections(part,junction_id)
-if not result then return dir_bad()end
-ask("fahrwege",function(routes_part)
-local routes=n.parse_junction_routes(routes_part,junction_id)
-if not routes then return dir_bad()end
-result.routes=routes
-ask("konflikte",function(conflict_part)
-local conflicts=n.parse_junction_conflicts(conflict_part,junction_id)
-if not conflicts then return dir_bad()end
-result.conflicts=conflicts
-n.dir_state={kind="ok",text="Knoten "..result.name.." geladen.",junction=result}
-end)
-end)
-end)
-end
-
-
 function n.directory_stations(central_id)
 local acc={}
 local function page(after)
@@ -1130,18 +1036,14 @@ for _,role in ipairs(n.config.node.roles)do
 if role=="passagierbahnhof"or role=="gueterbahnhof"or role=="depot"then modules.station="roles.station"
 elseif role=="zentrale"then modules.zentrale="roles.zentrale"
 elseif role=="anmeldung"then modules.anmeldung="roles.anmeldung"
-elseif role=="signal"or role=="knoten"then modules.signal="roles.signal"
-if role=="knoten"then modules.knoten="roles.knoten"end
 end
 end
-
 local names={}
-for _,name in ipairs({"station","zentrale","anmeldung","signal","knoten"})do
+for _,name in ipairs({"station","zentrale","anmeldung"})do
 if modules[name]then names[#names+1]=name end
 end
 for _,name in ipairs(names)do
 local ok,obj=pcall(function()
-if name=="knoten"then return require(modules[name]).new(n,n.roles.signal)end
 return require(modules[name]).new(n)
 end)
 if not ok then
@@ -1220,17 +1122,6 @@ if not ok and tostring(err)~="Terminated"then error(err,0)end
 end
 
 n.rebuild_views()
-
-if env.fs.exists(PROBE_MARK)or env.fs.exists(PROBE_MARK..".prev")then
-local check=pruefunglib.new({
-env=env,config=function()return n.config end,now=function()return n.clock.now()end,
-scan=function()return detect.scan(env.peripheral)end,
-marker=probe_marker,mark=probe_mark,
-})
-local note,ok=check.recover()
-if note then n.notify(ok and"warnung"or"fehler",note)end
-end
-
 n.start_services()
 if n.env_hold then n.notify("warnung","Die Umgebung (Modpack/Schnittstellen) hat sich geaendert: neue Abfahrten bleiben aus, bis die Pruefung auf der Seite Uebersicht bestanden ist.")end
 return n

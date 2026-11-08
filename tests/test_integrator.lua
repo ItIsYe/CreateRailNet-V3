@@ -350,7 +350,7 @@ return {
 
   { "Programmstart mit alten Daten: Anpassung laeuft vor dem Laden der Konfiguration, Meldung, Sicherung, Anzeige", function()
     local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "signal" }, tracks = { { name = "Gleis 1", signals = { "Sig_1" } } } })
+    local s = h.add_node({ id = "strecke", roles = { "gueterbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Hof" } } })
     storelib.new(s.fs).save("/crn_data/format.lua", { format = 1, program = "0.1" })
     s.env_extra = { data_format = 2, data_steps = { [1] = { text = "Merker", run = function(ctx)
       ctx.update("config.lua", function(c) c.angepasst = true end)
@@ -366,12 +366,12 @@ return {
     t.ok(#dataformat.backups(s.fs) == 1)
     local v = H.open_page(s, "uebersicht")
     t.contains(s.text(v), "Daten angepasst (Format 1)")
-    t.ok(n.roles.signal ~= nil, "die Rolle laeuft")
+    t.ok(n.roles.station ~= nil, "die Rolle laeuft")
   end },
 
   { "Programmstart, Anpassung scheitert: nichts veraendert, Automatik aus, Grund sichtbar, naechster Start versucht es erneut", function()
     local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "signal" }, tracks = { { name = "Gleis 1", signals = { "Sig_1" } } } })
+    local s = h.add_node({ id = "strecke", roles = { "gueterbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Hof" } } })
     local store = storelib.new(s.fs)
     store.save("/crn_data/format.lua", { format = 1, program = "0.1" })
     local before = ser.encode(store.load("/crn_data/config.lua"))
@@ -403,7 +403,7 @@ return {
     n = s.restart()
     t.eq(n.format_status, "migriert")
     t.eq(n.config.angepasst, true)
-    t.ok(n.roles.signal ~= nil)
+    t.ok(n.roles.station ~= nil)
     t.eq(attempts, 1)
   end },
 
@@ -415,8 +415,8 @@ return {
     for _, version in ipairs(versions) do
       local h = H.new()
       local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-      local s = h.add_node({ id = "strecke", roles = { "signal" }, central = "hauptstelle",
-        tracks = { { name = "Gleis 1", signals = { "Sig_1", "Sig_2" } }, { name = "Gleis 2", signals = { "Sig_3" } } } })
+      local s = h.add_node({ id = "strecke", roles = { "gueterbahnhof" }, central = "hauptstelle",
+        tracks = { { name = "Gleis 1", station_name = "Hof" } } })
       local b = h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
         tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })
       local old = fixtures[version]
@@ -429,7 +429,8 @@ return {
           if dir and not d.fs.exists(dir) then d.fs.makeDir(dir) end
           d.fs._state.files[path] = text
         end
-        -- Schritt 2 -> 3 entfernt den Freigabeausgang der Gleise (die Freigabe laeuft ueber den Fahrplan); alles andere bleibt, wie es war
+        -- Schritt 2 -> 3 entfernt den Freigabeausgang der Gleise (die Freigabe laeuft ueber den Fahrplan); Schritt 3 -> 4 die Rollen Signal und Knoten:
+        -- eine Node nur mit diesen Rollen verliert ihre Einrichtung, sonst bleibt alles, wie es war
         local before = storelib.new(d.fs).load("/crn_data/config.lua")
         for _, track in pairs(type(before) == "table" and before.tracks or {}) do track.release = nil end
         expect[d.id] = ser.encode(before)
@@ -441,14 +442,19 @@ return {
         local where = version .. "/" .. d.id
         -- Formate dieser Staende sind aelter als das aktuelle Programm: einmal angepasst (aktive Einrichtungen bleiben dabei unveraendert)
         t.eq(n.format_status, "migriert", where)
-        t.eq(n.status().kind, "ok", where .. ": " .. n.status().text)
         for _, m in ipairs(n.messages) do t.ok(m.level ~= "fehler", where .. ": " .. m.text) end
-        t.eq(ser.encode(storelib.new(d.fs).load("/crn_data/config.lua")), expect[d.id], where .. ": Konfiguration unveraendert")
+        if d.id == "strecke" then
+          -- die Node trug nur die Rolle Signal (Create regelt die Strecke jetzt allein): ihre Einrichtung ist verworfen, die Sicherung des Integrators behaelt sie
+          t.ok(not d.fs.exists("/crn_data/config.lua"), where .. ": Einrichtung verworfen")
+          t.ok(#dataformat.backups(d.fs) >= 1, where .. ": Sicherung vorhanden")
+        else
+          t.eq(n.status().kind, "ok", where .. ": " .. n.status().text)
+          t.eq(ser.encode(storelib.new(d.fs).load("/crn_data/config.lua")), expect[d.id], where .. ": Konfiguration unveraendert")
+        end
       end
-      t.ok(s.node.roles.signal ~= nil and #s.node.roles.signal.signals == 3, version .. ": drei Signale")
       t.ok(b.node.roles.station ~= nil, version .. ": Bahnhof")
       local nodes = z.node.roles.zentrale.info().nodes
-      t.ok(nodes.strecke and nodes.bahnhof, version .. ": die Leitstelle kennt beide Nodes")
+      t.ok(nodes.bahnhof, version .. ": die Leitstelle kennt den Bahnhof")
     end
   end },
 
@@ -459,7 +465,8 @@ return {
       local fs, store = world()
       store.save("/crn_data/format.lua", { format = 1, program = "0.1" })
       if config then store.save("/crn_data/config.lua", config) end
-      local status, _, dir, err = dataformat.check(fs, store, { program = "0.2" })
+      -- nur dieser Schritt: spaetere Schritte (Rollen Signal und Knoten entfallen) wuerden die Marke der Testsperre wieder loeschen
+      local status, _, dir, err = dataformat.check(fs, store, { format = 2, program = "0.2", migrations = { [1] = migrations.STEPS[1] } })
       return status, fs, store, dir, err
     end
     -- Entwurf mit Anforderungskennung und stehengebliebener Testsperre
@@ -472,7 +479,7 @@ return {
     local mark = store.load("/crn_data/pruefmarke.lua")
     t.eq(mark.name, "Create_Signal_9"); t.eq(mark.device, "signal1")
     t.eq(store.load(dir .. "/config.lua").status, "entwurf", "die Sicherung behaelt ihn")
-    t.eq(store.load("/crn_data/format.lua").format, migrations.FORMAT)
+    t.eq(store.load("/crn_data/format.lua").format, 2)
     -- Entwurf ohne Kennung: nur weg
     status, fs, store = run({ status = "entwurf", node = { id = "x", name = "x" }, devices = {}, tracks = {} })
     t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua")); t.ok(not fs.exists("/crn_data/anforderung.lua")); t.ok(not fs.exists("/crn_data/pruefmarke.lua"))
@@ -497,23 +504,71 @@ return {
     t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
   end },
 
+  { "Schritt 2 -> 3 (Freigabeausgang entfaellt): tracks.*.release faellt weg, eine offene Freigabe im Bahnhofszustand gilt als verbraucht", function()
+    local step = migrations.STEPS[2]
+    t.contains(step.text, "Freigabeausgang")
+    local fs, store = world()
+    store.save("/crn_data/format.lua", { format = 2, program = "0.2" })
+    store.save("/crn_data/config.lua", { status = "aktiv", node = { id = "n1", roles = { "passagierbahnhof" } }, devices = {},
+      tracks = { gleis1 = { name = "Gleis 1", release = { side = "back" } }, gleis2 = { name = "Gleis 2" } } })
+    store.save("/crn_data/station.lua", { tracks = { gleis1 = { stay = 3, release_set = true, release_train = "GZ-1", release_stay = 3, release_order = "A-1" }, gleis2 = { stay = 1, release_set = false } } })
+    local status, _, _, err = dataformat.check(fs, store, { format = 3, program = "0.3", migrations = { [1] = migrations.STEPS[1], [2] = step } })
+    t.eq(status, "migriert", tostring(err))
+    local c = store.load("/crn_data/config.lua")
+    t.eq(c.tracks.gleis1.release, nil); t.eq(c.tracks.gleis1.name, "Gleis 1"); t.eq(c.tracks.gleis2.name, "Gleis 2")
+    local st = store.load("/crn_data/station.lua")
+    t.eq(st.tracks.gleis1.release_set, false); t.eq(st.tracks.gleis1.release_train, nil); t.eq(st.tracks.gleis1.stay, 3, "der Aufenthaltszaehler bleibt")
+  end },
+
+  { "Schritt 3 -> 4 (Rollen Signal und Knoten entfallen): reine Signal-/Knoten-Node verliert ihre Einrichtung, Bahnhof mit Signal-Rolle behaelt den Bahnhofsteil", function()
+    local step = migrations.STEPS[3]
+    t.contains(step.text, "Signal")
+    local function run(config, extra_files)
+      local fs, store = world()
+      store.save("/crn_data/format.lua", { format = 3, program = "0.3" })
+      if config then store.save("/crn_data/config.lua", config) end
+      for name, value in pairs(extra_files or {}) do store.save("/crn_data/" .. name, value) end
+      local status, _, dir, err = dataformat.check(fs, store, { format = 4, program = "0.4", migrations = { [1] = migrations.STEPS[1], [2] = migrations.STEPS[2], [3] = step } })
+      return status, fs, store, dir, err
+    end
+    -- reine Signal-Node: Einrichtung und Rollendateien weg, die Sicherung behaelt sie
+    local status, fs, store, dir, err = run({ status = "aktiv", node = { id = "strecke", roles = { "signal" } }, devices = { signal1 = { kind = "signal", device = "Sig_1" } },
+      tracks = { gleis1 = { name = "Gleis 1", signals = { "signal1" }, observers = {} } } }, { ["sperren.lua"] = { x = 1 }, ["pruefmarke.lua"] = { device = "signal1" } })
+    t.eq(status, "migriert", tostring(err))
+    t.ok(not fs.exists("/crn_data/config.lua"), "Einrichtung verworfen")
+    t.ok(not fs.exists("/crn_data/pruefmarke.lua"), "Testsperre-Marke weg")
+    t.eq(store.load(dir .. "/config.lua").node.id, "strecke", "die Sicherung behaelt die Einrichtung")
+    -- reiner Knoten
+    status, fs = run({ status = "aktiv", node = { id = "tee", roles = { "knoten" } }, devices = {}, tracks = {}, junction = { connections = {}, moves = {}, conflicts = {} } })
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
+    -- Bahnhof mit zusaetzlicher Signal-Rolle: Rolle, Signale, Knotenangaben und Pruefergebnisse weg, Bahnhof bleibt
+    status, fs, store = run({ status = "aktiv", node = { id = "bf", roles = { "passagierbahnhof", "signal" }, junction = "K0001", junction_rev = 2 },
+      devices = { station1 = { kind = "station", device = "Create_Station_1" }, signal1 = { kind = "signal", device = "Sig_1" } },
+      tracks = { gleis1 = { name = "Gleis 1", station = "station1", signals = { "signal1" }, observers = {}, order_ok = true, junction = { connection = "West", role = "ein" } } },
+      junction = { connections = { West = true }, moves = {}, conflicts = {} }, tests = { ["lesen:signal1"] = { ok = true } } })
+    t.eq(status, "migriert")
+    local c = store.load("/crn_data/config.lua")
+    t.eq(#c.node.roles, 1); t.eq(c.node.roles[1], "passagierbahnhof")
+    t.eq(c.devices.signal1, nil); t.eq(c.devices.station1.device, "Create_Station_1")
+    t.eq(c.tracks.gleis1.signals, nil); t.eq(c.tracks.gleis1.junction, nil); t.eq(c.tracks.gleis1.station, "station1")
+    t.eq(c.junction, nil); t.eq(c.node.junction, nil)
+    t.eq(next(c.tests), nil, "die Pruefergebnisse gelten neu")
+    -- Bahnhof ohne Signal-Rolle bleibt unveraendert
+    local plain = { status = "aktiv", node = { id = "bf2", roles = { "depot" } }, devices = {}, tracks = {} }
+    status, fs, store = run(plain)
+    t.eq(status, "migriert"); t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(plain))
+  end },
+
   { "Form der gespeicherten Dateien ist festgehalten: aendert sie sich, muss ein Anpassungsschritt her oder die Festlegung bewusst erneuert werden", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
     z.node.roles.zentrale.netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2 })
-    h.add_node({ id = "strecke", roles = { "signal" }, central = "hauptstelle", area = "B0001", area_ends = { "Westbahnhof", "Ostbahnhof" }, label = "Strecke 1", claim = "abc",
+    h.add_node({ id = "depot", roles = { "depot" }, central = "hauptstelle", area = "B0001", area_ends = { "Westbahnhof", "Ostbahnhof" }, label = "Depot 1", claim = "abc",
       tracks = {
-        { name = "Gleis 1", signals = { "Sig_1", "Sig_2" }, signal_info = { use = "strecke", effect = "Ostbahnhof", place = "Ostbahnhof" }, dir = { id = "A0001", area = "B0001", direction = "Ostbahnhof", rev = 1 } },
-        { name = "Gleis 2", signals = { "Sig_3" }, observers = { "Obs_1" }, length = 40, dir = { id = "A0002", area = "B0001", direction = "Westbahnhof", rev = 1 } },
+        { name = "Abstell 1", station_name = "Depot Gleis 1", observers = { "Obs_1" }, length = 40, dir = { id = "A0001", area = "B0001", direction = "Ostbahnhof", rev = 1 } },
       } })
     h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
       tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })
-    h.add_node({ id = "tee", roles = { "knoten" }, central = "hauptstelle",
-      junction = { connections = { West = true, Ost = true }, moves = { { from = "West", to = "Ost" } }, conflicts = {} },
-      tracks = {
-        { name = "West ein", signals = { "Sig_W1", "Sig_W2" }, signal_infos = { Sig_W2 = { use = "einfahrt", effect = "Ost", place = "West" } }, observers = { "Obs_West" }, junction = { connection = "West", role = "ein" } },
-        { name = "Ost aus", observers = { "Obs_Ost" }, junction = { connection = "Ost", role = "aus" } },
-      } })
     h.step(150)
     local lines = {}
     for _, d in ipairs(h.order) do

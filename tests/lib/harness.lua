@@ -40,7 +40,6 @@ function H.new(opts)
         w.add_station(dev, { station_name = track.station_name, known = track.known })
         device_names[track.name] = dev
       end
-      for _, name in ipairs(track.signals or {}) do if not w.devices[name] then w.add_signal(name) end end
       for _, name in ipairs(track.observers or {}) do if not w.devices[name] then w.add_observer(name) end end
     end
     if spec.world_setup then spec.world_setup(w) end
@@ -55,24 +54,15 @@ function H.new(opts)
         device_ids[track.name] = model.add_device(config, "station", device_names[track.name])
         model.assign(config, tid, "station", device_ids[track.name])
       end
-      for _, name in ipairs(track.signals or {}) do
-        local did = model.add_device(config, "signal", name)
-        model.assign(config, tid, "signals", did)
-        if track.signal_info then config.devices[did].signal = track.signal_info end
-        if track.signal_infos and track.signal_infos[name] then config.devices[did].signal = track.signal_infos[name] end
-      end
       for _, name in ipairs(track.observers or {}) do model.assign(config, tid, "observers", model.add_device(config, "observer", name)) end
       if track.dir then config.tracks[tid].dir = track.dir end
-      if track.junction then config.tracks[tid].junction = track.junction end
       if track.length then config.tracks[tid].length = track.length end
       track.tid = tid
     end
-    if spec.junction then config.junction = spec.junction end
     if spec.registration then config.registration_station = device_ids[spec.registration] end
     if spec.area then config.node.claimed, config.node.area, config.node.area_ends = true, spec.area, spec.area_ends end
     if spec.claim then config.node.claim = spec.claim end
     if spec.label then config.node.label = spec.label end
-    if spec.directory_junction then config.node.claimed, config.node.junction, config.node.junction_rev = true, spec.directory_junction.id, spec.directory_junction.rev end
     config.status = "aktiv"
     d.fs.makeDir("/crn_data")
     storelib.new(d.fs).save("/crn_data/config.lua", config)

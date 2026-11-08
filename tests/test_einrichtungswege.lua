@@ -244,15 +244,6 @@ sc("Passagierbahnhof mit 2 Signalen und Beobachter an Gleis 1", function()
   return h, node(h, { stations = 3, signals = 2, observers = 1 }), { roles = { "passagierbahnhof" }, signal_roles = true, observers_on_tracks = true,
     devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3", "Create_Signal_1", "Create_Signal_2", "Create_Observer_1" } }
 end)
-sc("Signal-Node (gefuehrt), 2 Gleise, 3 Signale", function()
-  local h = H.new(); local z, netz = leitstelle(h, function(n) n.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 2, pattern = "gegenlaeufig" }) end)
-  return h, node(h, { signals = 3 }), { roles = { "signal" }, devices = {} }
-end)
-sc("Passagierbahnhof + Signal (kombiniert)", function()
-  local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3, signals = 3 }), { roles = { "passagierbahnhof", "signal" }, signal_roles = true, signals_on_every_track = true,
-    devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3", "Create_Signal_1", "Create_Signal_2", "Create_Signal_3" } }
-end)
 sc("Passagierbahnhof + Anmeldung", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
   return h, node(h, { stations = 3 }), { roles = { "passagierbahnhof", "anmeldung" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
@@ -260,18 +251,6 @@ end)
 sc("Anmeldung allein (Betriebsstelle aus dem Verzeichnis)", function()
   local h = H.new(); local z, netz = leitstelle(h, function(n) area_station(n); assert(n.add_station({ name = "Westbahnhof", kind = "personenbahnhof" })) end)
   return h, node(h, { stations = 2 }), { roles = { "anmeldung" }, devices = { "Create_Station_1" } }
-end)
-sc("Knoten-Node (Knoten aus dem Verzeichnis)", function()
-  local h = H.new()
-  local z, netz = leitstelle(h, function(n)
-    n.add_area({ name = "Kreuzung", ends = { "Nord", "Sued" }, count = 4 })
-    local k = assert(n.add_junction({ name = "Hauptknoten" }))
-    assert(n.add_connection(k, "West", { "A0001", "A0002" })); assert(n.add_connection(k, "Ost", { "A0003", "A0004" }))
-    assert(n.add_route(k, "A0001", "A0003", true)); assert(n.add_route(k, "A0004", "A0002", true))
-    assert(n.add_conflict(k, "F0001", "F0002", true))
-  end)
-  return h, node(h, { signals = 2, observers = 4 }), { roles = { "knoten" },
-    devices = { "Create_Signal_1", "Create_Signal_2", "Create_Observer_1", "Create_Observer_2", "Create_Observer_3", "Create_Observer_4" } }
 end)
 
 local function run(s)

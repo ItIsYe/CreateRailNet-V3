@@ -80,16 +80,6 @@ return {
     t.eq(ask({ kind = "node_anfordern" }).status, "abgelehnt")
     t.eq(#netz.nodes(), 1, "abgelehnte Anforderungen hinterlassen nichts")
   end },
-  { "Meldet sich die angeforderte Node im Betrieb, wird die Reservierung aktiv", function()
-    local h, z, s, ask = network()
-    local netz = z.node.roles.zentrale.netz
-    local a = netz.add_area({ name = "West-Ost", ends = { "West", "Ost" }, count = 2 })
-    ask({ kind = "node_anfordern", claim = "claim-aaaa-0001", role = "signal", area = a, tracks = { "A0001" } })
-    t.eq(netz.node("N0001").state, "reserviert")
-    h.add_node({ id = "N0001", roles = { "signal" }, central = "hauptstelle", tracks = { { name = "Gleis 1", signals = { "Sig_1" } } } })
-    h.step(12)
-    t.eq(netz.node("N0001").state, "aktiv")
-  end },
   { "Seite Bereiche: anlegen mit Vorlage, aendern, Fehlertext bei falscher Eingabe, loeschen nur nach zweitem Druck", function()
     local h, z = network()
     local netz = z.node.roles.zentrale.netz

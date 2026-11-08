@@ -94,36 +94,4 @@ return {
     t.eq(#netz.areas(), 2, v.hint)
     t.eq(netz.area("B0002").tracks[1].id, "A0003"); t.eq(#netz.area("B0001").tracks, 2)
   end },
-  { "Abgleich: die aktive Signal-Node erfaehrt, dass sie jetzt zu einem anderen Bereich gehoert, und uebernimmt Bereich und Label", function()
-    local h = H.new()
-    local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    local netz = z.node.roles.zentrale.netz
-    netz.add_area({ name = "West-Ost", ends = { "Westbahnhof", "Ostbahnhof" }, count = 4 })
-    local claim = "abgleich-claim-1"
-    local entry = assert(netz.claim_node({ claim = claim, role = "signal", area = "B0001", tracks = { "A0003", "A0004" } }))
-    local s = h.add_node({
-      id = entry.id, roles = { "signal" }, central = "hauptstelle", area = "B0001", area_ends = { "Westbahnhof", "Ostbahnhof" }, claim = claim, label = entry.label,
-      tracks = {
-        { name = "Gleis 3", signals = { "Sig_3" }, signal_info = { use = "strecke", effect = "Westbahnhof", place = "Westbahnhof" }, dir = { id = "A0003", area = "B0001", direction = "Westbahnhof", rev = 1 } },
-        { name = "Gleis 4", signals = { "Sig_4" }, signal_info = { use = "strecke", effect = "Westbahnhof", place = "Westbahnhof" }, dir = { id = "A0004", area = "B0001", direction = "Westbahnhof", rev = 1 } },
-      },
-    })
-    local role = s.node.roles.signal
-    h.step(40)
-    t.eq(role.sync.state, "gleich")
-    assert(netz.split_area("B0001", { name = "Mitte-West", ends = { "Westbahnhof", "Mitte" }, tracks = { "A0003", "A0004" } }))
-    assert(role.sync_request()); h.step(4)
-    t.eq(role.sync.state, "abweichend", tostring(role.sync.note))
-    t.eq(role.sync.diffs[1].kind, "bereich")
-    t.contains(role.describe_difference(role.sync.diffs[1]), "Mitte-West")
-    t.eq(s.node.config.node.area, "B0001", "noch nichts geaendert")
-    local v = H.open_page(s, "signale")
-    s.tap(v, "act:abgleich")
-    t.contains(v.hint, "uebernommen")
-    t.eq(s.node.config.node.area, "B0002"); t.eq(s.node.config.node.area_ends[2], "Mitte")
-    t.eq(s.node.config.node.label, entry.id .. " | SIG | B0002"); t.eq(s.label, entry.id .. " | SIG | B0002")
-    for _, tr in pairs(s.node.config.tracks) do t.eq(tr.dir.area, "B0002") end
-    assert(role.sync_request()); h.step(4)
-    t.eq(role.sync.state, "gleich", tostring(role.sync.note))
-  end },
 }

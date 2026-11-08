@@ -12,9 +12,9 @@ Jede Pruefung aus Konzept 17.2 mit dem automatischen Test (laeuft ohne Spiel, je
 | A06 | Letzte Freigabebedingung | tests/test_domain.lua | 4.20 |
 | A07 | Zwei Weizen-Tastendruecke | tests/test_e2e_station.lua | 4.13 |
 | A08 | 639 und 640 Weizen | tests/test_domain.lua, tests/test_e2e_station.lua | 4.9, 4.10 |
-| A09 | Signal rot erzwingen und aufheben | tests/test_stage6.lua | 6.3 |
+| A09 | entfaellt: Signal rot erzwingen und aufheben (Create regelt die Strecke, CC steuert keine Signale mehr) | entfaellt | entfaellt |
 | A10 | Computer stoppen, Modem abziehen | (nur im Spiel messbar) | 6.7 |
-| A11 | T-Knoten mit langen Zuegen | tests/test_areas.lua, tests/test_stage6.lua | 6.10 |
+| A11 | entfaellt: T-Knoten mit langen Zuegen (Kreuzungen regelt Create) | entfaellt | entfaellt |
 | A12 | Vier und weitere Gleise | tests/test_stage5.lua | 5.3, 5.7 |
 | A13 | Manuell gefahrenen Zug anmelden | tests/test_stage7.lua | 7.7, 7.8, 7.9 |
 | A14 | Unbekannten Zug einfahren lassen | tests/test_stage7.lua, tests/test_e2e_station.lua | 7.12 |
@@ -23,4 +23,4 @@ Jede Pruefung aus Konzept 17.2 mit dem automatischen Test (laeuft ohne Spiel, je
 | A17 | Computer ersetzen | tests/test_stage8.lua | 8.10, 8.11, 8.12 |
 | A18 | Update des Modpacks | tests/test_stage8.lua, tests/test_installer.lua | 8.13, 8.14 |
 
-Last (Konzept 16, Stufe 9): `tests/test_load.lua` mit 312 Signalen an 26 Computern; im Spiel `docs/GROSSER_TEST.md` Abschnitt Stufe 9.
+Last (Konzept 16, Stufe 9): im Spiel `docs/GROSSER_TEST.md` Abschnitt Stufe 9. (Die frühere Lastprüfung mit Signal-Computern entfällt mit den Rollen Signal und Knoten.)

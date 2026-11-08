@@ -1,12 +1,11 @@
 --[[
-Purpose: Geraeteschicht (src/dev): Erkennung, Bahnhof, Signal, Beobachter, Ereigniszuordnung, Bindung. Die Fake-Welt verhaelt sich wie die Messung (docs/MESSWERTE.md).
+Purpose: Geraeteschicht (src/dev): Erkennung, Bahnhof, Beobachter, Ereigniszuordnung (Create-Signale werden nur noch erkannt, nicht gesteuert), Bindung. Die Fake-Welt verhaelt sich wie die Messung (docs/MESSWERTE.md).
 ]]
 
 local t = dofile("tests/lib/t.lua")
 local create = dofile("tests/fakes/create.lua")
 local detect = require("dev.detect")
 local stationlib = require("dev.station")
-local signallib = require("dev.signal")
 local observerlib = require("dev.observer")
 local eventslib = require("dev.events")
 local bind = require("dev.bind")
@@ -195,62 +194,6 @@ return {
     t.eq(s.rename_train("GZ-001"), true)
     t.eq(s.read().train, "GZ-001")
     t.eq(s.station_name(), "Abstell 11")
-  end },
-  -- Signal ---------------------------------------------------------------------------------------------------------------------
-  { "Signal lesen", function()
-    local w = world()
-    local g = signallib.new(env(w), "Create_Signal_5")
-    local state = g.read()
-    t.eq(state.available, true)
-    t.eq(state.state, "GREEN")
-    t.eq(state.forced, false)
-    t.eq(state.signal_type, "ENTRY_SIGNAL")
-    t.eq(#state.blocking, 0)
-  end },
-  { "Zwangsrot setzen: bestaetigt nur nach dem Zuruecklesen von isForcedRed", function()
-    local w = world()
-    local g = signallib.new(env(w), "Create_Signal_5")
-    local r = g.hold()
-    t.eq(r.requested, true); t.eq(r.confirmed, true); t.eq(r.forced, true)
-    t.eq(g.read().state, "RED")
-    local r2 = g.release()
-    t.eq(r2.confirmed, true); t.eq(r2.forced, false)
-    t.eq(g.read().state, "GREEN")
-  end },
-  { "Zwangsrot ohne Wirkung wird nicht bestaetigt, obwohl der Aufruf klappt", function()
-    local w = create.world()
-    w.add_signal("S", { ignore_hold = true })
-    local g = signallib.new(env(w), "S")
-    local r = g.hold()
-    t.eq(r.requested, true)
-    t.eq(r.confirmed, false)
-  end },
-  { "Aufheben der Sperre macht ein belegtes Signal nicht gruen", function()
-    local w = world()
-    w.set_base("Create_Signal_5", "RED")        -- Zug im Abschnitt
-    local g = signallib.new(env(w), "Create_Signal_5")
-    g.hold()
-    local r = g.release()
-    t.eq(r.confirmed, true)
-    t.eq(g.read().state, "RED", "nur die zusaetzliche Sperre ist weg")
-    t.eq(g.read().forced, false)
-  end },
-  { "Signal: Fehler beim Setzen wird gemeldet", function()
-    local w = world()
-    w.devices["Create_Signal_5"].methods.setForcedRed = function() error("Signal gehoert zu keinem Block", 0) end
-    local g = signallib.new(env(w), "Create_Signal_5")
-    local r = g.hold()
-    t.eq(r.confirmed, false)
-    t.contains(r.error, "keinem Block")
-  end },
-  { "Signal nicht verfuegbar", function()
-    local w = world()
-    local g = signallib.new(env(w), "Create_Signal_5")
-    w.detach("Create_Signal_5")
-    t.eq(g.read().available, false)
-    local r = g.hold()
-    t.eq(r.confirmed, false)
-    t.ok(r.error)
   end },
   -- Beobachter --------------------------------------------------------------------------------------------------------------------
   { "Beobachter", function()
