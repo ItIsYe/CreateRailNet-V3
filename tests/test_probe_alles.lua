@@ -1,5 +1,5 @@
 --[[
-Purpose: Das Gesamt-Messprogramm probe/crn_alles.lua gegen eine nachgebildete Anlage (Bahnhof mit Zug, Signal mit Zugverkehr, Beobachter) mit virtueller Uhr, nachgebautem shell.run (mit der Zerlegung in Anfuehrungszeichen wie in CC), http.get, Dateien und pastebin: nur eine Rueckfrage am Anfang, die Teile S1, S2 und B laufen nacheinander, die Signalsperre und der Fahrplan werden zurueckgestellt, fehlende Geraete und fehlende Zuege fuehren zu begruendetem Ueberspringen, ein gemeinsamer Bericht entsteht und wird hochgeladen.
+Purpose: Das Messprogramm probe/crn_alles.lua gegen eine nachgebildete Anlage (Bahnhof mit Zug) mit virtueller Uhr, nachgebautem shell.run (mit der Zerlegung in Anfuehrungszeichen wie in CC), http.get, Dateien und pastebin: nur eine Rueckfrage am Anfang, crn_probe3 wird geladen und gestartet, der Fahrplan wird zurueckgestellt, fehlender Bahnhof und fehlende Datei fuehren zu begruendetem Ueberspringen oder FEHLER, ein Bericht entsteht und wird hochgeladen.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -47,41 +47,12 @@ local function tokenise(text)
   return out
 end
 
--- opts: no_station, no_signals, second_station, no_traffic, no_http, pastebin_fail, files (vorhandene Dateien)
+-- opts: no_station, second_station, no_train_at_start, own_only, no_http, pastebin_fail, files (vorhandene Dateien)
 local function world(opts)
   opts = opts or {}
   local w = { now = 0, timers = {}, queue = {}, next_timer = 0, files = {}, output = {}, writes = {}, runs = {}, pastebin = {}, downloads = {}, reads = 0 }
   for k, v in pairs(opts.files or {}) do w.files[k] = v end
-  local forced = false
   local function at(time, ...) w.queue[#w.queue + 1] = { at = time, ev = { ... } } end
-
-  -- Zugverkehr: alle 45 s faehrt ein Zug durch den Block hinter Create_Signal_0 (7 s rot) und am Beobachter vorbei
-  if not opts.no_traffic and not opts.no_signals then
-    for k = 0, 60 do
-      local base = 20 + 45 * k
-      at(base, "train_signal_state_change", "Create_Signal_0", "RED")
-      at(base + 0.1, "train_passing", "Create_TrainObserver_0", "Zug 1")
-      at(base + 3, "train_passed", "Create_TrainObserver_0", "Zug 1")
-      at(base + 7, "train_signal_state_change", "Create_Signal_0", "GREEN")
-    end
-  end
-  local function phase() return (w.now - 20) % 45 end
-  local function occupied() return not opts.no_traffic and w.now >= 20 and phase() < 7 end
-
-  local signal = {
-    getState = function() return (forced or occupied()) and "RED" or "GREEN" end,
-    isForcedRed = function() return forced end,
-    setForcedRed = function(v) w.writes[#w.writes + 1] = tostring(v); forced = v and true or false end,
-    getSignalType = function() return "ENTRY_SIGNAL" end,
-    listBlockingTrainNames = function() if occupied() then return { "Zug 1" } end return {} end,
-  }
-  local observer = {
-    isTrainPassing = function() return not opts.no_traffic and w.now >= 20 and phase() >= 0.1 and phase() < 3 end,
-    getPassingTrainName = function()
-      if opts.no_traffic or w.now < 20 or phase() < 0.1 or phase() >= 3 then error("there is no train passing") end
-      return "Zug 1"
-    end,
-  }
 
   local function station_methods(st)
     local function event_at(time, ...) at(time, ...) end
@@ -110,10 +81,6 @@ local function world(opts)
   local devices = {}
   if not opts.no_station then devices.Create_Station_1 = { type = "Create_Station", methods = station_methods(w.station) } end
   if opts.second_station then devices.Create_Station_2 = { type = "Create_Station", methods = station_methods(station2) } end
-  if not opts.no_signals then
-    devices.Create_Signal_0 = { type = "Create_Signal", methods = signal }
-    devices.Create_TrainObserver_0 = { type = "Create_TrainObserver", methods = observer }
-  end
   w.peripheral = {
     getNames = function()
       local names = {}
@@ -134,8 +101,6 @@ local function world(opts)
       return d.methods[method](...)
     end,
   }
-  w.forced = function() return forced end
-
   w.os = {
     clock = function() return w.now end,
     startTimer = function(seconds)
@@ -237,66 +202,40 @@ local function run(w, args, answer)
 end
 
 local function sources()
-  return { ["crn_probe3.lua"] = read_source("probe/crn_probe3.lua"), ["crn_probe4.lua"] = read_source("probe/crn_probe4.lua") }
-end
-
-
-local function fixture(name) return read_source("tests/fixtures/" .. name) end
-
--- Ersatzprogramm fuer crn_probe4: schreibt einen fertigen Bericht in die --out-Datei; mit force sperrt es bei --sperre ein Signal und gibt es nicht frei
-local function stub_probe4(report, force_device)
-  return "local args = { ... }\n" ..
-    "local out, hold\n" ..
-    "for i, a in ipairs(args) do if a == '--out' then out = args[i + 1] end if a == '--sperre-an' then hold = true end end\n" ..
-    (force_device and ("if hold then peripheral.call('" .. force_device .. "', 'setForcedRed', true) end\n") or "") ..
-    "local fh = fs.open(out, 'w')\nfh.write([==[" .. report .. "]==])\nfh.close()\n"
+  return { ["crn_probe3.lua"] = read_source("probe/crn_probe3.lua") }
 end
 
 return {
-  { "Alles in einem Lauf: S1 beobachten, S2 das befahrene Signal sperren, B Fahrplan-Proben samt Rundlauf; keine Rueckfrage mit --ja, alles zurueckgestellt, ein Bericht, ein Upload", function()
+  { "Alles in einem Lauf: Fahrplan-Proben samt Rundlauf; keine Rueckfrage mit --ja, Fahrplan zurueckgestellt, ein Bericht, ein Upload", function()
     local w = world({ second_station = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "60" })
+    local ok, err, out = run(w, { "--ja" })
     t.ok(ok, tostring(err))
-    t.eq(w.reads, 0, "mit --ja keine Rueckfrage, auch nicht in den Einzelprogrammen")
-    t.contains(out, "[ok] Signale beobachten")
-    t.contains(out, "[ok] Signal sperren")
+    t.eq(w.reads, 0, "mit --ja keine Rueckfrage, auch nicht im Einzelprogramm")
     t.contains(out, "[ok] Abfahrt ueber die Station")
-    -- Sperre: einmal gesetzt, einmal zurueckgestellt
-    local sig_writes = {}
-    for _, x in ipairs(w.writes) do if x == "true" or x == "false" then sig_writes[#sig_writes + 1] = x end end
-    t.eq(table.concat(sig_writes, ","), "true,false", "Signal gesperrt und zurueckgestellt")
-    t.eq(w.forced(), false)
     t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL), "Fahrplan wiederhergestellt")
-    -- Aufrufe der Einzelprogramme
     local runs = table.concat(w.runs, "\n")
-    t.contains(runs, "crn_probe4 --wait 60 --out crn_alles_s1.txt")
-    t.contains(runs, "crn_probe4 --sperre-an Create_Signal_0 --ja --wait 60 --out crn_alles_s2.txt")
-    t.contains(runs, "crn_probe3 --ja --out crn_alles_b.txt --station Create_Station_1 --ziel auto")
-    t.eq(#w.downloads, 2, "beide Programme neu geladen")
-    t.contains(w.downloads[1], "https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/probe/")
-    -- Bericht
+    t.contains(runs, "crn_probe3 --ja --out crn_alles_abfahrt.txt --station Create_Station_1 --ziel auto")
+    t.eq(#w.downloads, 1, "crn_probe3 neu geladen")
+    t.contains(w.downloads[1], "https://raw.githubusercontent.com/ItIsYe/CreateRailNet-V3/beta/probe/crn_probe3.lua")
     local report = w.files["crn_alles.txt"]
     t.ok(report and #report > 1000, "Bericht geschrieben")
-    t.contains(report, "== Kurzfassungen")
-    t.contains(report, "--- S1 (crn_alles_s1.txt) ---")
-    t.contains(report, "Signal Create_Signal_0 nennt Zug Zug 1: JA")
-    t.contains(report, "--- B (crn_alles_b.txt) ---")
+    t.contains(report, "== Kurzfassung")
     t.contains(report, "D Rundlauf beendet: JA")
-    t.contains(report, "== Vollstaendige Berichte")
+    t.contains(report, "== Vollstaendiger Bericht")
     t.eq(#w.pastebin, 1)
     t.eq(w.pastebin[1], "put crn_alles.txt")
     t.contains(out, "Uploaded as https://pastebin.com/TEST")
   end },
   { "Ohne --ja gibt es genau eine Rueckfrage, danach laeuft alles ohne weitere", function()
     local w = world({ second_station = true })
-    local ok, err = run(w, { "--zeit", "40" }, "j")
+    local ok, err = run(w, {}, "j")
     t.ok(ok, tostring(err))
     t.eq(w.reads, 1, "nur die eine Rueckfrage des Hauptprogramms")
-    t.ok(#w.runs >= 4, "alle Teile gelaufen")
+    t.ok(#w.runs >= 2, "Messung und Upload gelaufen")
   end },
   { "Antwort n: nichts wird geladen, gestartet, geschrieben oder hochgeladen", function()
     local w = world({ second_station = true })
-    local ok, err, out = run(w, { "--zeit", "40" }, "n")
+    local ok, err, out = run(w, {}, "n")
     t.ok(ok, tostring(err))
     t.contains(out, "abgebrochen: nichts wurde veraendert")
     t.eq(#w.runs, 0)
@@ -304,19 +243,10 @@ return {
     t.eq(#w.writes, 0)
     t.eq(#w.pastebin, 0)
   end },
-  { "Nur Signale am Netz: B entfaellt mit Grund, S1 und S2 laufen", function()
-    local w = world({ no_station = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "60" })
-    t.ok(ok, tostring(err))
-    t.contains(out, "[ok] Signal sperren")
-    t.contains(out, "[uebersprungen] Abfahrt ueber die Station: kein Bahnhof am Netz")
-    t.ok(not table.concat(w.runs, "\n"):find("crn_probe3", 1, true))
-  end },
-  { "Nur ein Bahnhof am Netz: S1 und S2 entfallen mit Grund, B laeuft mit dem Rundlauf zu einem Bahnhof aus dem Fahrplan des Zuges", function()
-    local w = world({ no_signals = true })
+  { "Ein Bahnhof am Netz: Rundlauf zu einem Bahnhof aus dem Fahrplan des Zuges", function()
+    local w = world({})
     local ok, err, out = run(w, { "--ja" })
     t.ok(ok, tostring(err))
-    t.contains(out, "[uebersprungen] Signale beobachten: kein Signal am Netz")
     t.contains(out, "[ok] Abfahrt ueber die Station")
     t.contains(out, "Rundlauf zu einem Bahnhof aus dem Fahrplan des Zuges")
     t.contains(table.concat(w.runs, "\n"), "--ziel auto")
@@ -324,121 +254,76 @@ return {
     t.eq(ser.encode(w.station.schedule), ser.encode(ORIGINAL))
   end },
   { "Steht beim Planen noch kein Zug am Bahnhof, wird der angeschlossene Bahnhof nicht selbst zum Ziel (Fehler im ersten Spiellauf)", function()
-    local w = world({ no_signals = true, no_train_at_start = true })
-    local ok, err, out = run(w, { "--ja" })
+    local w = world({ no_train_at_start = true })
+    local ok, err = run(w, { "--ja" })
     t.ok(ok, tostring(err))
     local runs = table.concat(w.runs, "\n")
     t.contains(runs, "--ziel auto")
     t.ok(not runs:find("--ziel Hof A", 1, true), "nie der eigene Bahnhof als Ziel")
   end },
   { "Fahrplan des Zuges nennt nur den eigenen Bahnhof: Probe D entfaellt, im Bericht steht der Grund", function()
-    local w = world({ no_signals = true, own_only = true })
+    local w = world({ own_only = true })
     local ok, err = run(w, { "--ja" })
     t.ok(ok, tostring(err))
     t.contains(w.files["crn_alles.txt"], "im Fahrplan des Zuges steht kein anderer Bahnhof")
     t.contains(w.files["crn_alles.txt"], "D Abfahrt per Fahrplan: nicht gemessen: kein Zielbahnhof")
   end },
-  { "Ohne Geraete: Hinweis, keine Rueckfrage, nichts gestartet", function()
-    local w = world({ no_station = true, no_signals = true })
+  { "Ohne Bahnhof: Hinweis, keine Rueckfrage, nichts gestartet", function()
+    local w = world({ no_station = true })
     local ok, err, out = run(w, {})
     t.ok(ok, tostring(err))
     t.contains(out, "Nichts zu tun")
     t.eq(w.reads, 0)
     t.eq(#w.runs, 0)
   end },
-  { "Kein Zug im Beobachtungszeitraum: das Signal wird nicht gesperrt", function()
-    local w = world({ no_station = true, no_traffic = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "30" })
-    t.ok(ok, tostring(err))
-    t.contains(out, "[uebersprungen] Signal sperren: in S1 wurde kein Zug an einem Signal gesehen")
-    t.eq(#w.writes, 0)
-  end },
-  { "--ohne-sperre: nur beobachten, nichts geschrieben", function()
-    local w = world({ no_station = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "60", "--ohne-sperre" })
-    t.ok(ok, tostring(err))
-    t.contains(out, "[uebersprungen] Signal sperren: --ohne-sperre")
-    t.eq(#w.writes, 0)
-  end },
-  { "--ohne-fahrt: am Bahnhof nur die Proben A bis C, auch wenn ein zweiter Bahnhof da ist", function()
-    local w = world({ no_signals = true, second_station = true })
+  { "--ohne-fahrt: nur die Proben A bis C, auch wenn ein zweiter Bahnhof da ist", function()
+    local w = world({ second_station = true })
     local ok, err, out = run(w, { "--ja", "--ohne-fahrt" })
     t.ok(ok, tostring(err))
     t.ok(not table.concat(w.runs, "\n"):find("--ziel", 1, true))
     t.contains(out, "ohne Rundlauf")
   end },
-  { "--nur signal und --nur abfahrt", function()
-    local w = world({ second_station = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "40", "--nur", "signal" })
-    t.ok(ok, tostring(err))
-    t.contains(out, "[uebersprungen] Abfahrt ueber die Station: --nur signal")
-    local w2 = world({ second_station = true })
-    local ok2, err2, out2 = run(w2, { "--ja", "--nur", "abfahrt" })
-    t.ok(ok2, tostring(err2))
-    t.contains(out2, "[uebersprungen] Signale beobachten: --nur abfahrt")
-    t.contains(out2, "[ok] Abfahrt ueber die Station")
-  end },
   { "Explizites Ziel mit Leerzeichen kommt als ein Argument an (Anfuehrungszeichen fuer shell.run)", function()
-    local w = world({ no_signals = true })
+    local w = world({})
     local ok, err, out = run(w, { "--ja", "--ziel", "Hof B" })
     t.ok(ok, tostring(err))
     t.contains(out, "[ok] Abfahrt ueber die Station")
     t.contains(table.concat(w.runs, "\n"), "--ziel Hof B")
     t.contains(w.files["crn_alles.txt"], "D Rundlauf beendet: JA")
   end },
-  { "Download scheitert, vorhandene Dateien werden benutzt", function()
+  { "Download scheitert, vorhandene Datei wird benutzt", function()
     local w = world({ no_http = true, second_station = true, files = sources() })
-    local ok, err, out = run(w, { "--ja", "--zeit", "40" })
+    local ok, err, out = run(w, { "--ja" })
     t.ok(ok, tostring(err))
-    t.contains(out, "es wird die vorhandene Datei crn_probe4.lua benutzt")
-    t.contains(out, "[ok] Signale beobachten")
+    t.contains(out, "es wird die vorhandene Datei crn_probe3.lua benutzt")
     t.contains(out, "[ok] Abfahrt ueber die Station")
   end },
-  { "Download scheitert und keine Datei da: die Teile melden FEHLER, das Programm laeuft zu Ende und schreibt den Bericht", function()
+  { "Download scheitert und keine Datei da: FEHLER, das Programm laeuft zu Ende und schreibt den Bericht", function()
     local w = world({ no_http = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "40" })
+    local ok, err, out = run(w, { "--ja" })
     t.ok(ok, tostring(err))
-    t.contains(out, "[FEHLER] Signale beobachten: crn_probe4.lua nicht verfuegbar")
     t.contains(out, "[FEHLER] Abfahrt ueber die Station: crn_probe3.lua nicht verfuegbar")
     t.ok(w.files["crn_alles.txt"], "Bericht trotzdem geschrieben")
   end },
-  { "--lokal: kein Download, vorhandene Dateien", function()
-    local w = world({ no_station = true, files = sources() })
-    local ok, err = run(w, { "--ja", "--zeit", "40", "--lokal" })
+  { "--lokal: kein Download, vorhandene Datei", function()
+    local w = world({ files = sources() })
+    local ok, err = run(w, { "--ja", "--lokal" })
     t.ok(ok, tostring(err))
     t.eq(#w.downloads, 0)
   end },
   { "--nicht-hochladen: kein pastebin; Upload-Fehler wird gemeldet statt abzustuerzen", function()
-    local w = world({ no_station = true })
-    local ok, err, out = run(w, { "--ja", "--zeit", "40", "--nicht-hochladen" })
+    local w = world({})
+    local ok, err, out = run(w, { "--ja", "--nicht-hochladen" })
     t.ok(ok, tostring(err))
     t.eq(#w.pastebin, 0)
     t.contains(out, "Senden: pastebin put crn_alles.txt")
-    local w2 = world({ no_station = true, pastebin_fail = true })
-    local ok2, err2, out2 = run(w2, { "--ja", "--zeit", "40" })
+    local w2 = world({ pastebin_fail = true })
+    local ok2, err2, out2 = run(w2, { "--ja" })
     t.ok(ok2, tostring(err2))
     t.contains(out2, "Hochladen fehlgeschlagen")
   end },
-  { "Das staerkste Signal wird aus dem echten Bericht gelesen (Lauf 1 und Lauf 2 vom Spiel): Create_Signal_5 mit den meisten Wechseln auf ROT", function()
-    for _, name in ipairs({ "crn_probe4_lauf1.txt", "crn_probe4_lauf2.txt" }) do
-      local w = world({ no_station = true, files = { ["crn_probe4.lua"] = stub_probe4(fixture(name)) } })
-      local ok, err, out = run(w, { "--ja", "--zeit", "30", "--lokal" })
-      t.ok(ok, tostring(err))
-      t.contains(table.concat(w.runs, "\n"), "--sperre-an Create_Signal_5 --ja", name)
-      t.contains(out, "Gesperrt wird Create_Signal_5")
-    end
-  end },
-  { "Bleibt ein Signal nach S2 gesperrt, gibt das Hauptprogramm es frei und warnt", function()
-    local s1 = "\n== Ergebnis (Kurzfassung)\nSignal Create_Signal_0 getState: GREEN (+0.0 s) -> RED (+20.2 s) -> GREEN (+27.2 s)\n"
-    local w = world({ no_station = true, files = { ["crn_probe4.lua"] = stub_probe4(s1, "Create_Signal_0") } })
-    local ok, err, out = run(w, { "--ja", "--zeit", "30", "--lokal" })
-    t.ok(ok, tostring(err))
-    t.eq(w.forced(), false, "Sperre vom Hauptprogramm aufgehoben")
-    t.contains(out, "WARNUNG: Create_Signal_0 war nach S2 noch gesperrt")
-    t.eq(table.concat(w.writes, ","), "true,false")
-  end },
   { "Ziel ist der eigene Bahnhof: kein Rundlauf, Hinweis auf die Regel", function()
-    local w = world({ no_signals = true })
+    local w = world({})
     local ok, err, out = run(w, { "--ja", "--ziel", "Hof A" })
     t.ok(ok, tostring(err))
     t.contains(out, "Ziel Hof A ist der eigene Bahnhof")
@@ -450,20 +335,19 @@ return {
     local ok, err, out = run(w, { "--hilfe" })
     t.ok(ok, tostring(err))
     t.contains(out, "crn_alles --ja")
-    t.contains(out, "--nur signal")
     t.eq(w.reads, 0)
     t.eq(#w.runs, 0)
     t.eq(#w.downloads, 0)
     t.ok(w.files["crn_alles.txt"] == nil, "keine Datei geschrieben")
   end },
-  { "Unbekannte Optionen: klarer Fehler", function()
+  { "Unbekannte Optionen (auch die entfernten Signal-Optionen): klarer Fehler", function()
     local w = world()
     local ok, err = run(w, { "--quatsch" })
     t.ok(not ok)
     t.contains(tostring(err), "Unbekannte Option")
     local w2 = world()
-    local ok2, err2 = run(w2, { "--nur", "irgendwas" })
+    local ok2, err2 = run(w2, { "--nur", "signal" })
     t.ok(not ok2)
-    t.contains(tostring(err2), "--nur versteht")
+    t.contains(tostring(err2), "Unbekannte Option")
   end },
 }

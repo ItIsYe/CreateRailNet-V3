@@ -18,7 +18,7 @@ return {
   {'Geraeteausfall vor Aktivierung wird frisch erkannt', function()
     local w,world=fixture('depot'); w.toggle_device('station')
     local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'station',next(w.config.devices))
-    for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id,true),true) end
+    for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id),true) end
     t.eq(w.all_tests_ok(),true)
     world.devices.station=nil
     t.eq(w.finish({save=function() return true end},'/x'),nil,'ohne frische Pruefung wird nicht aktiviert')
@@ -146,7 +146,7 @@ return {
   {'Aenderung der Zuordnung entwertet bestandene Tests', function()
     local w = fixture('depot'); w.toggle_device('station')
     local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'station',next(w.config.devices))
-    for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id,true),true) end
+    for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id),true) end
     t.eq(w.all_tests_ok(),true)
     w.set_direction(id,'hin'); t.eq(w.all_tests_ok(),false)
   end},

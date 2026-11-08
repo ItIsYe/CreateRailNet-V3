@@ -67,7 +67,7 @@ return {
     d.tap(v, "act:weiter")
     d.type(v, "name", "Hauptstelle"); d.tap(v, "act:weiter")
     d.tap(v, "act:weiter")
-    t.contains(d.text(v), "Lesen sofort, Schalten erst nach Bestaetigung.")
+    t.contains(d.text(v), "Die Pruefungen lesen nur.")
     t.eq(#truncated(d, v), 0, d.text(v))
     d.tap(v, "act:weiter")
     t.eq(#truncated(d, v), 0, d.text(v))

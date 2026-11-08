@@ -2,7 +2,7 @@
 
 **Hinweis (Datenformat 4):** Create regelt Signale, Bloecke, Weichen und Kreuzungen vollstaendig; die Software schaltet und liest keine Signale mehr. Die Messwerte zu Signalen (M07 bis M09, M15 zum Teil, M17 bis M19, die Signal-Proben in M21 und M22) bleiben als Beobachtung des Modpacks stehen, sind fuer die Software aber nicht mehr noetig. Gebraucht werden: Bahnhof (M03 bis M06, M10 bis M14, M16, M20 bis M22: Fahrplaene und Freigabe per Abschnittsfahrplan) und Beobachter.
 
-Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: ComputerCraft 1.120.2, Minecraft 1.21.1, ein Computer mit Funkmodem (`left`), Kabelmodem mit Hub (`right`), Create_Station, Create_Signal und Create_TrainObserver. Das ist die Grundlage fuer die Pruefungen A01 bis A05 des Konzepts 1.1. Was nicht gemessen wurde, steht unten bei "Offen".
+Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua` (das zweite Messprogramm ist entfernt: es pruefte die Schreibwege von Signalen, die die Software nicht mehr steuert; die Ergebnisse bleiben hier stehen). Umgebung: ComputerCraft 1.120.2, Minecraft 1.21.1, ein Computer mit Funkmodem (`left`), Kabelmodem mit Hub (`right`), Create_Station, Create_Signal und Create_TrainObserver. Das ist die Grundlage fuer die Pruefungen A01 bis A05 des Konzepts 1.1. Was nicht gemessen wurde, steht unten bei "Offen".
 
 ## Gesichert
 
@@ -39,7 +39,7 @@ Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: Compute
 
 ## M18 Signal bei Zugdurchfahrt (vom Betreiber gemessen, ohne Beobachter)
 
-Messung mit `probe/crn_probe4.lua`: 180 s, zwei Signale (`Create_Signal_5`, `Create_Signal_34`), ein Zug "Zug 5" auf einem Rundkurs, **kein Beobachter angeschlossen**, Abfrage alle 0,2 s (die drei Aufrufe je Signal laufen nacheinander).
+Messung mit `crn_probe4` (Messprogramm entfernt, seit Create die Signale allein regelt): 180 s, zwei Signale (`Create_Signal_5`, `Create_Signal_34`), ein Zug "Zug 5" auf einem Rundkurs, **kein Beobachter angeschlossen**, Abfrage alle 0,2 s (die drei Aufrufe je Signal laufen nacheinander).
 
 - Bei jeder Durchfahrt wechselt das Signal auf `RED` und `listBlockingTrainNames()` nennt den Zugnamen; beim Verlassen des Blocks wird es wieder `GREEN` und die Liste ist leer. **6 von 6 Durchfahrten** (4 an `Create_Signal_5`, 2 an `Create_Signal_34`).
 - Der Name erscheint 0 bis 0,75 s nach dem Ereignis `train_signal_state_change` (RED) in der Liste und verschwindet gleichzeitig mit dem Ereignis GREEN (0 bis 0,2 s); feiner als der Abfrageabstand ist das nicht aufgeloest. Das Ereignis kommt 0,05 bis 0,15 s vor dem gelesenen `getState`.
@@ -47,7 +47,7 @@ Messung mit `probe/crn_probe4.lua`: 180 s, zwei Signale (`Create_Signal_5`, `Cre
 - Die Methodenliste des Signals hat sechs Eintraege (`getState`, `cycleSignalType`, `isForcedRed`, `setForcedRed`, `listBlockingTrainNames`, `getSignalType`), der Signaltyp ist `ENTRY_SIGNAL`.
 - Folge: Der Zugname im Signal ist belegt, und das Verschwinden des Namens zeigt, dass der Block hinter dem Signal geraeumt ist. Der Vergleich mit einem Beobachter steht in M19.
 
-## M19 Signal gegen Beobachter (vom Betreiber gemessen, zweiter Lauf von `crn_probe4`)
+## M19 Signal gegen Beobachter (vom Betreiber gemessen, zweiter Lauf von `crn_probe4`, Messprogramm entfernt)
 
 Aufbau: `Create_Signal_34` liegt vor einem Bahnhof (`Create_Station_1`), `Create_TrainObserver_1` am Bahnhofseingang, `Create_Signal_5` hinter dem Bahnhof; zwei Zuege im Wechsel ("Zug 5" und "Unnamed Train"), 180 s, Abfrage alle 0,2 s, keine Sperre. Die Ereignisse des Bahnhofs (`train_imminent`, `train_arrival`, `train_departure`) wurden mitgeschrieben.
 
@@ -67,7 +67,7 @@ Aufbau: `Create_Signal_34` liegt vor einem Bahnhof (`Create_Station_1`), `Create
 
 ## M21 Erster Lauf von `crn_alles` (vom Betreiber gemessen, 2026-11-06)
 
-Aufbau: ein Bahnhof "Abstell 11" (`Create_Station_1`) mit Zug "Unnamed Train" (Fahrplan zyklisch: Abstell 11, 5 s; Abstell 10, 5 s), `Create_Signal_34` vor dem Bahnhof, `Create_Signal_5` dahinter, ein Beobachter am Bahnhofseingang, zwei Zuege im Wechsel ("Zug 5", "Unnamed Train"). Rohbericht: `tests/fixtures/crn_alles_lauf1.txt`.
+Aufbau: ein Bahnhof "Abstell 11" (`Create_Station_1`) mit Zug "Unnamed Train" (Fahrplan zyklisch: Abstell 11, 5 s; Abstell 10, 5 s), `Create_Signal_34` vor dem Bahnhof, `Create_Signal_5` dahinter, ein Beobachter am Bahnhofseingang, zwei Zuege im Wechsel ("Zug 5", "Unnamed Train").
 
 **Abfahrt ueber die Station (`crn_probe3`, Proben A bis C; Annahmen H1 bis H3 aus `docs/FREIGABE_PER_FAHRPLAN.md`):**
 - A: `setSchedule` mit geaendertem Inhalt (Fahrplan plus 1 s Wartezeit): ok, gelesen genau wie geschrieben; die Rueckstellung auf den urspruenglichen Fahrplan war nach jeder Probe "IDENTISCH". H1 bestaetigt.
@@ -75,7 +75,7 @@ Aufbau: ein Bahnhof "Abstell 11" (`Create_Station_1`) mit Zug "Unnamed Train" (F
 - C: `create:powered` ohne Strom wird angenommen, der Zug haelt mindestens 15 s. H3 bestaetigt.
 - D (Abfahrt per Fahrplan, H4 und H5): **nicht gemessen**. Das Hauptprogramm hatte den eigenen Bahnhof als Ziel gewaehlt, weil beim Planen noch kein Zug am Bahnhof stand (Fehler, behoben: das Ziel kommt jetzt aus dem Fahrplan des Zuges, hier "Abstell 10").
 
-**Signal bei erzwungenem Rot (`crn_probe4 --sperre`, 150 s, `Create_Signal_5` gesperrt):**
+**Signal bei erzwungenem Rot (`crn_probe4 --sperre`, Messprogramm entfernt, 150 s, `Create_Signal_5` gesperrt):**
 - `setForcedRed(true)`: Ereignis nach 0,05 s, `getState` RED nach 0,2 s; die Rueckstellung klappte.
 - Der erste Zug, der nach der Sperre vom Bahnhof abfuhr (+53,7 s), blieb vor dem Signal stehen: danach 96 s lang kein Ereignis, kein `train_passed`, `Create_Signal_34` blieb ROT (Block besetzt).
 - **Ein wartender Zug steht nicht in `listBlockingTrainNames` des gesperrten Signals:** die Liste blieb von +41,2 s bis zum Ende leer, obwohl der Zug dort wartete. Sie nennt nur Zuege im Block hinter dem Signal. Ob das Signal davor (`Create_Signal_34`, Block des Bahnhofs) den wartenden Zug nennt, ist nicht aufgezeichnet (in S2 war nur das gesperrte Signal gewaehlt; seit dem Fix beobachtet S2 alle Signale).
@@ -123,7 +123,7 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 - `setSchedule` bei einem Zug ohne Namen. (Mit geaendertem Inhalt ist es bestaetigt, H1 bis H5; die Freigabe per Abschnittsfahrplan ist umgesetzt, `docs/FREIGABE_PER_FAHRPLAN.md`.)
 - Mengenbedingung (`create:item_threshold`) im ersten Eintrag eines Abschnittsfahrplans bei einem stehenden Zug, und die Restwartezeit: Spieltest 4.9 bis 4.11 in `docs/GROSSER_TEST.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
-- Alle offenen Messungen zum Bahnhof laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
+- Alle Messungen zur Abfahrt am Bahnhof laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
 - ~~Signal statt Beobachter am Knoten~~ (Spieltest 3.96): entfaellt, weil Create Signale und Kreuzungen allein regelt und die Software keinen Knoten mehr steuert. Offen bleiben gleiche Zugnamen (M14).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

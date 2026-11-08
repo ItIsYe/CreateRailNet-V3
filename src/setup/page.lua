@@ -18,7 +18,7 @@ function M.new(services)
   local page = { id = "einrichtung", title = "Einrichtung" }
 
   -- gemeinsamer Zustand aller Ansichten: wer bearbeitet gerade?
-  local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, test_pending = nil, pick = {}, dir = {} }
+  local session = { owner = nil, wiz = nil, screen = nil, stack = {}, track = nil, cancel_armed = false, pick = {}, dir = {} }
 
   -- Titel der Bildschirme der Einrichtung
   local GUIDED_TITLE = {
@@ -29,7 +29,7 @@ function M.new(services)
     ["4.gleise"] = "Gleise einrichten", ["4.g.name"] = "Name des Gleises", ["4.g.richtung"] = "Richtung",
     ["4.g.bahnhof"] = "Bahnhof zuordnen", ["4.g.beobachter"] = "Beobachter zuordnen",
     ["4.anmeldung"] = "Anmeldestation",
-    ["5.test"] = "Pruefungen", ["5.alle_bestaetigen"] = "Pruefungen bestaetigen", ["5.bestaetigen"] = "Pruefung bestaetigen",
+    ["5.test"] = "Pruefungen",
     ["6.fertig"] = "Zusammenfassung",
   }
 
@@ -116,10 +116,10 @@ function M.new(services)
     session.wiz.step = step_of(screen) or session.wiz.step
     session.cancel_armed = false
     if not screen:match("^1%.") then apply_preset() end
-    -- lesende Pruefungen laufen von selbst (Konzept 13.1); schaltende erst nach Bestaetigung
+    -- die Pruefungen lesen nur und laufen beim Oeffnen von selbst (Konzept 13.1)
     if screen == "5.test" then
       for _, test in ipairs(session.wiz.tests()) do
-        if test.kind == "lesen" and session.wiz.test_state(test.id, nil, test) ~= "ok" then session.wiz.run_test(test.id, false) end
+        if session.wiz.test_state(test.id, nil, test) ~= "ok" then session.wiz.run_test(test.id) end
       end
     end
     if screen == "1.netzwahl" then
@@ -591,20 +591,18 @@ function M.new(services)
   }
 
   local function summarize_tests(result)
-    local text = result.ok .. " ok, " .. result.failed .. " Fehler"
-    if result.stopped then text = text .. ". GESTOPPT nach " .. result.stopped .. " (Zustand unklar): " .. result.open .. " Pruefung(en) nicht gelaufen." end
-    return text
+    return result.ok .. " ok, " .. result.failed .. " Fehler"
   end
 
   screens["5.test"] = {
     render = function(v, rect)
-      header(v, rect, nil, "Lesen sofort, Schalten erst nach Bestaetigung.")
+      header(v, rect, nil, "Die Pruefungen lesen nur.")
       local items = {}
       session.pick.tests = {}
       for _, test in ipairs(session.wiz.tests()) do
         local state, text = session.wiz.test_state(test.id)
         local kind = (state == "ok") and "ok" or (state == "fehler") and "halt" or "wait"
-        items[#items + 1] = { text = test.title, detail = state .. (test.kind == "schalten" and " (schaltet)" or "") .. (text and state == "fehler" and (": " .. text) or ""), kind = kind }
+        items[#items + 1] = { text = test.title, detail = state .. (text and state == "fehler" and (": " .. text) or ""), kind = kind }
         session.pick.tests[#items] = test
       end
       local area = body_rect(rect, 3)
@@ -613,29 +611,11 @@ function M.new(services)
     action = function(v, id)
       local selected = session.pick.tests and session.pick.tests[list_state(v, "tests").index]
       if id == "act:ausfuehren" and selected then
-        if selected.kind == "schalten" then
-          session.test_pending = selected
-          push("5.bestaetigen")
-        else
-          local ok, text = session.wiz.run_test(selected.id, false)
-          v.hint = (ok and "ok: " or "Fehler: ") .. tostring(text)
-        end
-        return true
-      elseif id == "act:alle_lesen" then
-        local ran = 0
-        for _, test in ipairs(session.wiz.tests()) do
-          if test.kind == "lesen" then session.wiz.run_test(test.id, false) ran = ran + 1 end
-        end
-        v.hint = ran .. " lesende Pruefungen ausgefuehrt."
+        local ok, text = session.wiz.run_test(selected.id)
+        v.hint = (ok and "ok: " or "Fehler: ") .. tostring(text)
         return true
       elseif id == "act:alle_pruefen" then
-        -- gemeinsamer Start (Konzept 13.1): die Wirkung aller schaltenden Pruefungen wird zusammen gezeigt und einmal bestaetigt
-        local open = session.wiz.run_open_tests(false)
-        if open.open > 0 then
-          push("5.alle_bestaetigen")
-        else
-          v.hint = summarize_tests(open)
-        end
+        v.hint = summarize_tests(session.wiz.run_open_tests())
         return true
       end
     end,
@@ -644,80 +624,8 @@ function M.new(services)
       return {
         { id = "alle_pruefen", label = "Alle pruefen" },
         { id = "ausfuehren", label = "Einzeln", kind = "secondary", enabled = selected ~= nil, reason = "Erst eine Pruefung waehlen." },
-        { id = "alle_lesen", label = "Lesende", kind = "secondary" },
       }
     end,
-  }
-
-  screens["5.alle_bestaetigen"] = {
-    hide_nav_buttons = true,
-    render = function(v, rect)
-      header(v, rect, nil, "Alle offenen Pruefungen starten")
-      local y = rect.y + 2
-      local lines = { "Folgende Pruefungen schalten kurz und stellen den Ausgangszustand wieder her:" }
-      for _, test in ipairs(session.wiz.tests()) do
-        if test.kind == "schalten" and session.wiz.test_state(test.id, nil, test) ~= "ok" then lines[#lines + 1] = "- " .. test.title end
-      end
-      lines[#lines + 1] = "Der Testbereich muss vorbereitet sein: kein Zug darf auf eine Freigabe warten, kein Signal darf einen Zug schuetzen."
-      for _, line in ipairs(lines) do
-        for _, part in ipairs(W.wrap(line, rect.w - 2)) do
-          if y <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y, part, "text", rect.w - 2) end
-          y = y + 1
-        end
-      end
-    end,
-    action = function(v, id)
-      if id == "act:alle_starten" then
-        local result = session.wiz.run_open_tests(true)
-        pop()
-        v.hint = summarize_tests(result)
-        return true
-      elseif id == "act:alle_abbruch" then
-        pop()
-        v.hint = "Pruefungen nicht gestartet."
-        return true
-      end
-    end,
-    actions = function(v)
-      return {
-        { id = "alle_starten", label = "Vorbereitung erledigt: alle starten" },
-        { id = "alle_abbruch", label = "Abbrechen", kind = "secondary" },
-      }
-    end,
-  }
-
-  screens["5.bestaetigen"] = {
-    render = function(v, rect)
-      local test = session.test_pending
-      header(v, rect, nil, "Schaltende Pruefung bestaetigen")
-      if not test then return end
-      W.label(v, rect.x + 1, rect.y + 3, test.title, "hell", rect.w - 2)
-      for i, line in ipairs(W.wrap(test.explain, rect.w - 2)) do
-        if rect.y + 4 + i <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, rect.y + 4 + i, line, "text", rect.w - 2) end
-      end
-    end,
-    action = function(v, id)
-      if id == "act:start_test" then
-        local test = session.test_pending
-        local ok, text = session.wiz.run_test(test.id, true)
-        session.test_pending = nil
-        pop()
-        v.hint = (ok and "ok: " or "Fehler: ") .. tostring(text)
-        return true
-      elseif id == "act:test_abbruch" then
-        session.test_pending = nil
-        pop()
-        v.hint = "Pruefung nicht ausgefuehrt."
-        return true
-      end
-    end,
-    actions = function(v)
-      return {
-        { id = "start_test", label = "Vorbereitung erledigt: starten" },
-        { id = "test_abbruch", label = "Abbrechen", kind = "secondary" },
-      }
-    end,
-    hide_nav_buttons = true,
   }
 
   local function dir_status() return services.directory_status and services.directory_status() or nil end

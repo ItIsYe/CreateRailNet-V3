@@ -408,12 +408,9 @@ w.config.tests[test.id]={ok=ok,text=text,spec=test.spec,fp=test.fp,at=opts.now()
 return ok,text
 end
 
-function w.run_test(id,confirmed)
+function w.run_test(id)
 local test=find_test(id)
 if not test then return false,"unbekannte Pruefung"end
-if test.kind=="schalten"and confirmed~=true then
-return false,"Schaltende Pruefung: erst die Vorbereitung bestaetigen."
-end
 local kind,ref=id:match("^(%a+):(.+)$")
 if kind=="lesen"then
 local d=w.config.devices[ref]
@@ -430,32 +427,12 @@ end
 
 
 
-
-
-function w.run_open_tests(confirmed)
-local result={ok=0,failed=0,open=0}
-local pending_switch={}
+function w.run_open_tests()
+local result={ok=0,failed=0}
 for _,test in ipairs(w.tests())do
 if w.test_state(test.id,nil,test)~="ok"then
-if test.kind=="lesen"then
-local ok=w.run_test(test.id,false)
+local ok=w.run_test(test.id)
 result[ok and"ok"or"failed"]=result[ok and"ok"or"failed"]+1
-else
-pending_switch[#pending_switch+1]=test
-end
-end
-end
-if#pending_switch>0 and confirmed~=true then
-result.open=#pending_switch
-return result
-end
-for i,test in ipairs(pending_switch)do
-local ok,text=w.run_test(test.id,true)
-result[ok and"ok"or"failed"]=result[ok and"ok"or"failed"]+1
-if not ok and tostring(text):sub(1,7)=="ACHTUNG"then
-result.stopped=test.title
-result.open=#pending_switch-i
-break
 end
 end
 return result

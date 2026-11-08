@@ -245,7 +245,7 @@ return {
     t.ok(fresh.has(v, "[6 Fertig]"), fresh.text(v))
     t.eq(fresh.node.setup.session().wiz.config.node.id, "weizenhof", "Kennung bleibt erhalten")
     local wiz = fresh.node.setup.session().wiz
-    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, true) end        -- Schritt 5: die Pruefungen am neuen Computer
+    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id) end        -- Schritt 5: die Pruefungen am neuen Computer
     fresh.node.render()
     fresh.tap(v, "act:speichern")
     t.eq(fresh.node.config.status, "aktiv")

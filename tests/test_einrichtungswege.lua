@@ -48,10 +48,7 @@ local function fix(c, sc, hint)
       if ok then d.tap(v, "act:bearbeiten"); c.sub = tonumber(label:match("(%d+)")) or c.sub return true end
     end
   elseif sc == "5.test" then
-    if try_tap(d, v, "act:alle_pruefen") then
-      if screen(d) == "5.alle_bestaetigen" then d.tap(v, "act:alle_starten") end
-      return true
-    end
+    if try_tap(d, v, "act:alle_pruefen") then return true end
   elseif sc == "4.zuordnung" then
     local n = tostring(hint):match("^(.-):")
     for i, r in ipairs(d.node.setup.session().wiz.guided_rows()) do

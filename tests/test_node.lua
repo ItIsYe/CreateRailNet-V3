@@ -123,8 +123,8 @@ return {
     d.tap(v, "act:weiter")
     -- Schritt 5: Pruefungen
     t.ok(d.has(v, "[5 Test]"), d.text(v))
-    d.tap(v, "act:alle_lesen")
-    t.ok(d.has(v, "2 lesende Pruefungen ausgefuehrt"), d.text(v))
+    d.tap(v, "act:alle_pruefen")
+    t.ok(d.has(v, "0 ok, 0 Fehler"), "die lesenden Pruefungen liefen schon beim Oeffnen: " .. d.text(v))
     t.ok(not d.has(v, "Ausgang: Gleis"), "keine Ausgangspruefung ohne Ausgang")
     d.tap(v, "act:weiter")
     -- Schritt 6

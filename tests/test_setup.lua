@@ -322,25 +322,22 @@ return {
     t.contains(joined, "lesen:lesen:station1")
     t.not_contains(joined, "schalten")
     t.not_contains(joined, "ausgang")
-    for _, test in ipairs(wiz.tests()) do
-      if test.kind == "schalten" then t.ok(#test.explain > 20, "Erklaerung fehlt bei " .. test.id) end
-    end
   end },
   { "lesende Pruefung laeuft ohne Bestaetigung", function()
     local w = world()
     local wiz = station_config(w)
-    local ok = wiz.run_test("lesen:station1", false)
+    local ok = wiz.run_test("lesen:station1")
     t.eq(ok, true)
     t.eq(wiz.test_state("lesen:station1"), "ok")
-    t.eq(wiz.run_test("unbekannt:x", true), false)
+    t.eq(wiz.run_test("unbekannt:x"), false)
     w.detach("Create_TrainObserver_1")
-    local ok2, why = wiz.run_test("lesen:observer1", false)
+    local ok2, why = wiz.run_test("lesen:observer1")
     t.eq(ok2, false); t.contains(why, "nicht erreichbar")
   end },
   { "Pruefergebnis gilt nur, solange das Geraet dasselbe ist", function()
     local w = world()
     local wiz, ids, g1 = station_config(w)
-    wiz.run_test("lesen:observer1", false)
+    wiz.run_test("lesen:observer1")
     t.eq(wiz.test_state("lesen:observer1"), "ok")
     -- anderer Beobachter an dieselbe Kennung: das alte Ergebnis ist ungueltig
     wiz.config.devices.observer1.device = "Create_TrainObserver_6"
@@ -359,7 +356,7 @@ return {
     t.ok(not fs.exists("/crn_data/config.lua"), "kein Entwurf auf dem Computer")
     t.eq(wiz.config.revision, 1)
     t.eq(wiz.config.status, "offen")
-    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, test.kind == "schalten") end
+    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id) end
     t.eq(wiz.all_tests_ok(), true)
     status, problems = wiz.finish(store, "/crn_data/config.lua")
     t.eq(status, "aktiv", problem_codes(problems))
@@ -375,7 +372,7 @@ return {
     local fs = cc.fs()
     fs.makeDir("/crn_data")
     local wiz = station_config(w)
-    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, test.kind == "schalten") end
+    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id) end
     w.detach("Create_Station_2")
     wiz.rescan()
     local status, problems = wiz.finish(storelib.new(fs), "/crn_data/config.lua")
@@ -387,7 +384,7 @@ return {
   { "Fertig: Speichern scheitert -> Fehler wird gemeldet, die Einrichtung bleibt offen", function()
     local w = world()
     local wiz = station_config(w)
-    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id, test.kind == "schalten") end
+    for _, test in ipairs(wiz.tests()) do wiz.run_test(test.id) end
     local failing = { save = function() return nil, "Platte voll" end }
     local status, problems, err = wiz.finish(failing, "/x")
     t.eq(status, nil)
@@ -411,7 +408,7 @@ return {
     for k in pairs(d.config.devices) do id = k end
     local g = d.add_track("Abstell 1")
     d.toggle_track_device(g, "station", id)
-    for _, test in ipairs(d.tests()) do d.run_test(test.id, test.kind == "schalten") end
+    for _, test in ipairs(d.tests()) do d.run_test(test.id) end
     t.eq((d.finish(store, "/crn_data/d.lua")), "aktiv")
     -- Anmeldung
     local a = start(w)
@@ -419,7 +416,7 @@ return {
     a.toggle_device("Create_Station_1")
     for k in pairs(a.config.devices) do id = k end
     a.set_registration(id)
-    for _, test in ipairs(a.tests()) do a.run_test(test.id, false) end
+    for _, test in ipairs(a.tests()) do a.run_test(test.id) end
     t.eq((a.finish(store, "/crn_data/a.lua")), "aktiv")
   end },
   { "bestehende Konfiguration wird zum Bearbeiten geladen", function()
@@ -427,7 +424,7 @@ return {
     local fs = cc.fs(); fs.makeDir("/crn_data")
     local store = storelib.new(fs)
     local first = station_config(w)
-    for _, test in ipairs(first.tests()) do first.run_test(test.id, test.kind == "schalten") end
+    for _, test in ipairs(first.tests()) do first.run_test(test.id) end
     first.finish(store, "/crn_data/config.lua")
     local saved = store.load("/crn_data/config.lua")
     local again = start(w, saved)

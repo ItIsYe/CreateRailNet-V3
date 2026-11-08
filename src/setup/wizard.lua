@@ -1,7 +1,7 @@
 --[[
-Purpose: Ablauf des Einrichtungsassistenten in sechs Hauptschritten (Konzept 29.1): Netz, Aufgabe (Rolle, Kennung der Leitstelle), Geraete, Gleise, Test, Fertig. Reine Zustandsfuehrung ohne Oberflaeche: Eingaben, Weiterschalten mit Pruefung, Geraeteauswahl, Gleise und Knotenpunkt bearbeiten, gefuehrte Pruefungen (lesend und schaltend, schaltend nur nach ausdruecklicher Bestaetigung), Speichern als Entwurf oder aktiv.
-API: wizard.new{ scan, env, now, existing } -> w; w.step; w.next() / w.back(); w.step_ok(n) -> ok, grund; w.config; w.tests() -> Liste; w.run_test(id, confirmed) -> ok, text; w.finish(store, path) -> status, probleme
-Notes: Lesende Erkennung und schaltende Pruefungen sind getrennt: ein schaltender Test laeuft nur mit confirmed = true, nennt vorher Geraet und erwartete Wirkung (test.explain) und stellt den Ausgangszustand wieder her. Ein erfolgreicher API-Aufruf zaehlt nur als Ausfuehrung des Befehls (Konzept 29.1). Fehlt ein Geraet, wird die Einrichtung als Entwurf gespeichert; die betroffene Betriebsfunktion bleibt inaktiv (status = "entwurf").
+Purpose: Ablauf des Einrichtungsassistenten in sechs Hauptschritten (Konzept 29.1): Netz, Aufgabe (Rolle, Kennung der Leitstelle), Geraete, Gleise, Test, Fertig. Reine Zustandsfuehrung ohne Oberflaeche: Eingaben, Weiterschalten mit Pruefung, Geraeteauswahl, Gleise bearbeiten, gefuehrte Pruefungen (alle lesend: Train Station und Beobachter), Speichern nur als aktive Einrichtung.
+API: wizard.new{ scan, env, now, existing } -> w; w.step; w.next() / w.back(); w.step_ok(n) -> ok, grund; w.config; w.tests() -> Liste; w.run_test(id) -> ok, text; w.run_open_tests() -> { ok, failed }; w.finish(store, path) -> status, probleme
+Notes: Alle Pruefungen lesen nur (Create regelt Signale und Strecke, es gibt nichts zu schalten); ein erfolgreicher Lesevorgang zaehlt nur als Ausfuehrung des Befehls (Konzept 29.1). Fehlt ein Geraet, laesst sich die Einrichtung nicht aktivieren; es gibt keinen Entwurf.
 ]]
 
 local model = require("setup.model")
@@ -408,12 +408,9 @@ function M.new(opts)
     return ok, text
   end
 
-  function w.run_test(id, confirmed)
+  function w.run_test(id)
     local test = find_test(id)
     if not test then return false, "unbekannte Pruefung" end
-    if test.kind == "schalten" and confirmed ~= true then
-      return false, "Schaltende Pruefung: erst die Vorbereitung bestaetigen."
-    end
     local kind, ref = id:match("^(%a+):(.+)$")
     if kind == "lesen" then
       local d = w.config.devices[ref]
@@ -428,34 +425,14 @@ function M.new(opts)
     return false, "unbekannte Pruefung"
   end
 
-  -- Alle noch offenen oder fehlgeschlagenen Pruefungen nacheinander (Konzept 13.1, 13.2): zuerst die lesenden, dann die schaltenden. Gueltige Ergebnisse
-  -- unveraenderter Geraete bleiben (13.5). Schaltende Pruefungen laufen nur mit confirmed = true (gemeinsame Bestaetigung). Bleibt nach einer Schaltpruefung
-  -- ein Zustand unklar ("ACHTUNG"), wird die Serie gestoppt und das gemeldet (13.4).
-  -- Ergebnis: { ok = n, failed = n, open = n (nicht gelaufen), stopped = Titel oder nil }
-  function w.run_open_tests(confirmed)
-    local result = { ok = 0, failed = 0, open = 0 }
-    local pending_switch = {}
+  -- Alle noch offenen oder fehlgeschlagenen Pruefungen nacheinander (Konzept 13.1, 13.2). Gueltige Ergebnisse unveraenderter Geraete bleiben (13.5).
+  -- Ergebnis: { ok = n, failed = n }
+  function w.run_open_tests()
+    local result = { ok = 0, failed = 0 }
     for _, test in ipairs(w.tests()) do
       if w.test_state(test.id, nil, test) ~= "ok" then
-        if test.kind == "lesen" then
-          local ok = w.run_test(test.id, false)
-          result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
-        else
-          pending_switch[#pending_switch + 1] = test
-        end
-      end
-    end
-    if #pending_switch > 0 and confirmed ~= true then
-      result.open = #pending_switch
-      return result
-    end
-    for i, test in ipairs(pending_switch) do
-      local ok, text = w.run_test(test.id, true)
-      result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
-      if not ok and tostring(text):sub(1, 7) == "ACHTUNG" then
-        result.stopped = test.title
-        result.open = #pending_switch - i
-        break
+        local ok = w.run_test(test.id)
+        result[ok and "ok" or "failed"] = result[ok and "ok" or "failed"] + 1
       end
     end
     return result

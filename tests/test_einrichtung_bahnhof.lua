@@ -59,7 +59,7 @@ return {
     t.contains(d.text(v), "Gleis 1"); t.contains(d.text(v), "Gleis 2")
     d.tap(v, "act:weiter")
     t.eq(screen(d), "5.test", d.text(v))
-    d.tap(v, "act:alle_lesen")
+    d.tap(v, "act:alle_pruefen")
     t.ok(not d.has(v, "Ausgang: Gleis"), "keine Ausgangspruefungen ohne Ausgang: " .. d.text(v))
     d.tap(v, "act:weiter")
     t.eq(screen(d), "6.fertig", d.text(v))

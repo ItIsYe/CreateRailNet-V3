@@ -5,7 +5,7 @@ Usage: crn_probe3                     Zug an einem Bahnhof (Computer mit Kabelmo
        crn_probe3 --ziel auto         wie --ziel, das Ziel ist der erste andere Bahnhof im Fahrplan des Zuges (sicher erreichbar); steht dort keiner, entfaellt Probe D
        crn_probe3 --station GERAET    bestimmtes Geraet (zum Beispiel Create_Station_1); Standard: der erste Bahnhof mit Zug
        crn_probe3 --no-write          nur lesen, nichts wird veraendert
-       crn_probe3 --ja                Rueckfragen gelten als mit j beantwortet (fuer den automatischen Ablauf, crn_alles)
+       crn_probe3 --ja                Rueckfragen gelten als mit j beantwortet (fuer den Ablauf aus crn_alles)
        crn_probe3 --wait N            so lange (Sekunden) auf einen Zug warten (Standard 150); bei Probe D so lange auf die Rueckkehr (Standard 240)
        crn_probe3 --out datei.txt     anderer Dateiname (Standard crn_probe3.txt)
 Notes: Voraussetzung: ein Zug mit Fahrplan steht am Bahnhof (er wird nach jeder Probe auf seinen Fahrplan zurueckgestellt, auch bei Fehlern). Schreibt nur Fahrplaene ueber setSchedule: A geaenderter Inhalt (eine Sekunde Wartezeit mehr), B Haltefahrplan (ein Eintrag am eigenen Bahnhof, eine Sekunde, nicht zyklisch), C create:powered ohne Strom, D Abfahrt per Fahrplan (nur mit --ziel). Kein Redstone, kein rednet, kein Signal, kein Zusammenbauen. Probe D bewegt den Zug wirklich; nur starten, wenn der Weg zum Ziel frei ist.
