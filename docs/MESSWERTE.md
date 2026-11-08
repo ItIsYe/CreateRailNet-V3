@@ -1,5 +1,7 @@
 # Messwerte vom echten Modpack
 
+**Hinweis (Datenformat 4):** Create regelt Signale, Bloecke, Weichen und Kreuzungen vollstaendig; die Software schaltet und liest keine Signale mehr. Die Messwerte zu Signalen (M07 bis M09, M15 zum Teil, M17 bis M19, die Signal-Proben in M21 und M22) bleiben als Beobachtung des Modpacks stehen, sind fuer die Software aber nicht mehr noetig. Gebraucht werden: Bahnhof (M03 bis M06, M10 bis M14, M16, M20 bis M22: Fahrplaene und Freigabe per Abschnittsfahrplan) und Beobachter.
+
 Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua`. Umgebung: ComputerCraft 1.120.2, Minecraft 1.21.1, ein Computer mit Funkmodem (`left`), Kabelmodem mit Hub (`right`), Create_Station, Create_Signal und Create_TrainObserver. Das ist die Grundlage fuer die Pruefungen A01 bis A05 des Konzepts 1.1. Was nicht gemessen wurde, steht unten bei "Offen".
 
 ## Gesichert
@@ -121,7 +123,7 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 - `setSchedule` bei einem Zug ohne Namen. (Mit geaendertem Inhalt ist es bestaetigt, H1 bis H5; die Freigabe per Abschnittsfahrplan ist umgesetzt, `docs/FREIGABE_PER_FAHRPLAN.md`.)
 - Mengenbedingung (`create:item_threshold`) im ersten Eintrag eines Abschnittsfahrplans bei einem stehenden Zug, und die Restwartezeit: Spieltest 4.9 bis 4.11 in `docs/GROSSER_TEST.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
-- Alle offenen Messungen laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Stand nach M22: offen ist nur noch ein Lauf an einem echten Knoten; die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
-- Signal statt Beobachter am Knoten (Spieltest 3.96, Teilergebnisse M18, M19, M21 und M22): offen sind ein echter Knoten mit allen Einfahrtssignalen (`--signal A,B,C`: nennen alle den Zug im gemeinsamen Block, und deckt der Block den ganzen Kreuzungsbereich?) und gleiche Zugnamen (M14). Gemessen: ein wartender Zug steht in der Liste des Signals davor, nicht in der des gesperrten Signals selbst (M22).
+- Alle offenen Messungen zum Bahnhof laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
+- ~~Signal statt Beobachter am Knoten~~ (Spieltest 3.96): entfaellt, weil Create Signale und Kreuzungen allein regelt und die Software keinen Knoten mehr steuert. Offen bleiben gleiche Zugnamen (M14).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

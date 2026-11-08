@@ -43,7 +43,7 @@ Dazu M20: Create schickt einen Zug nicht direkt vom selben Bahnhof wieder dorthi
 - **Auftraege, die beim Update offen waren:** der Zug traegt noch den alten Gesamtfahrplan mit `create:powered`; der Node kennt ihn nicht, die Freigabe wird als "Ausgangslage unklar" abgelehnt und der Auftrag geht in die Klaerung.
 - **Nicht gemessen:** die Mengenbedingung im ersten Eintrag eines Abschnitts (Spieltest 4.9/4.10 in `docs/GROSSER_TEST.md`). Sollte Create sie nicht wie erwartet auswerten, bleibt der Zug stehen und der Auftrag steht in "Abfahrt freigegeben".
 - **Gleichnamige Zuege** (M14) bleiben ein offenes Problem und werden durch dieses Verfahren nicht groesser.
-- Die Sicherheitsannahme "keine zweite Gruppe, die den Halt umgehen koennte" bleibt: jeder Eintrag hat genau eine Bedingungsgruppe (`check_section`). Signale und Reservierungen der Leitstelle sind nicht betroffen.
+- Die Sicherheitsannahme "keine zweite Gruppe, die den Halt umgehen koennte" bleibt: jeder Eintrag hat genau eine Bedingungsgruppe (`check_section`). Signale und Weichen regelt Create allein; die Leitstelle schaltet keine.
 
 ## Einrichtung
 

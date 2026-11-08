@@ -863,7 +863,7 @@ function M.new(env)
   local function fresh_claim()
     return string.format("c%d-%06d%06d", n.clock.boot_id(), math.random(0, 999999), math.random(0, 999999))
   end
-  -- eine frische Kennung fuer einmalige Vorgaenge (zum Beispiel "Bereich anlegen": bei Wiederholung derselben Eingabe legt die Leitstelle nichts doppelt an)
+  -- eine frische Kennung fuer einmalige Vorgaenge (bei Wiederholung derselben Eingabe legt die Leitstelle nichts doppelt an)
   n.new_token = fresh_claim
   function n.claim()
     if n.config and n.config.node and type(n.config.node.claim) == "string" then return n.config.node.claim end

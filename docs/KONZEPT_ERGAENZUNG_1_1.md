@@ -1,5 +1,7 @@
 # Ergaenzungen zum Konzept 1.1
 
+**Stand beta (Datenformat 4):** Das Konzept sah Signal- und Knoten-Nodes vor. Das ist entfallen: Create regelt Signale, Bloecke, Weichen und Kreuzungen vollstaendig, CC:Tweaked orchestriert nur noch (Zugregister, Auftraege, Freigabe der Abfahrt ueber die Train Station, Linien, Anzeigen). Die Eintraege E2 und E10 sowie die Abschnitte zu Signalen sind deshalb nur noch Geschichte; sie stehen unveraendert da, damit nachvollziehbar bleibt, was gemessen wurde.
+
 Grundlage: das Konzept 1.1 (27. Oktober 2026) und die Messwerte M01 bis M16 in `docs/MESSWERTE.md`. Hier steht nur, was das Konzept noch nicht entscheidet oder was die Messung bestaetigt oder verschiebt. Es ist noch kein Code geschrieben. Kapitelnummern verweisen auf das Konzept.
 
 ## 1. Die Messung bestaetigt das Konzept

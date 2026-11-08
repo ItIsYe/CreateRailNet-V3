@@ -13,7 +13,7 @@ Jede Pruefung aus Konzept 17.2 mit dem automatischen Test (laeuft ohne Spiel, je
 | A07 | Zwei Weizen-Tastendruecke | tests/test_e2e_station.lua | 4.13 |
 | A08 | 639 und 640 Weizen | tests/test_domain.lua, tests/test_e2e_station.lua | 4.9, 4.10 |
 | A09 | entfaellt: Signal rot erzwingen und aufheben (Create regelt die Strecke, CC steuert keine Signale mehr) | entfaellt | entfaellt |
-| A10 | Computer stoppen, Modem abziehen | (nur im Spiel messbar) | 6.7 |
+| A10 | Computer stoppen, Modem abziehen (an einem Bahnhof; Create regelt die Strecke weiter) | (nur im Spiel messbar) | 9.3 |
 | A11 | entfaellt: T-Knoten mit langen Zuegen (Kreuzungen regelt Create) | entfaellt | entfaellt |
 | A12 | Vier und weitere Gleise | tests/test_stage5.lua | 5.3, 5.7 |
 | A13 | Manuell gefahrenen Zug anmelden | tests/test_stage7.lua | 7.7, 7.8, 7.9 |
