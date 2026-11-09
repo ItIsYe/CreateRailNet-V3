@@ -34,9 +34,7 @@ end
 -- legt ein Gleis an und ordnet ihm eine Train Station zu; danach steht der Assistent wieder auf der Gleisliste
 local function add_track(d, v, station_device)
   d.tap(v, "act:neues_gleis")
-  d.tap(v, "act:weiter")                                  -- Name
-  d.tap(v, "act:weiter")                                  -- Richtung
-  d.tap_row(v, "bahnhof", station_device); d.tap(v, "act:weiter")
+  d.tap_row(v, "bahnhof", station_device); d.tap(v, "act:weiter")     -- Name und Bahnhof auf einem Bildschirm
 end
 
 return {

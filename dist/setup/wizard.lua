@@ -10,12 +10,11 @@ local ser=require("core.ser")
 local adler=require("core.adler")
 local detect=require("dev.detect")
 local stationlib=require("dev.station")
-local observerlib=require("dev.observer")
 
 local M={}
 
 
-local SELECTABLE={station=true,observer=true,monitor=true,displaylink=true}
+local SELECTABLE={station=true,monitor=true,displaylink=true}
 
 M.STEPS={"Netz","Aufgabe","Geraete","Gleise","Test","Fertig"}
 
@@ -27,7 +26,7 @@ local existing=opts.existing
 w.was_active=existing~=nil and existing.status=="aktiv"
 if not existing and opts.role_available and not opts.role_available("zentrale")then w.mode="join"end
 
-w.config=existing and assert(ser.decode(ser.encode(existing)))or model.new("",{},{})
+w.config=existing and model.drop_legacy(assert(ser.decode(ser.encode(existing))))or model.new("",{},{})
 w.claimed_id=(existing~=nil and existing.node.claimed==true)and existing.node.id or nil
 if existing then
 w.network_name=existing.network.name
@@ -150,9 +149,7 @@ if c.tracks[ref]then part.track=track_part(c.tracks[ref])end
 else
 part.device=c.devices[ref]
 for _,track in pairs(c.tracks)do
-local owns=track.station==ref
-for _,did in ipairs(track.observers)do if did==ref then owns=true end end
-if owns then part.track=track_part(track)end
+if track.station==ref then part.track=track_part(track)end
 end
 end
 local text=ser.encode(part)
@@ -287,40 +284,15 @@ track.name=name
 return true
 end
 
-function w.set_direction(id,direction)
-local track=w.config.tracks[id]
-if not track then return false end
-track.direction=direction
-return true
-end
 
-
-function w.toggle_track_device(track_id,field,device_id)
+function w.toggle_track_station(track_id,device_id)
 local track=w.config.tracks[track_id]
 if not track then return false,"unbekanntes Gleis"end
-if field=="station"then
 if track.station==device_id then track.station=nil return true end
 for id,other in pairs(w.config.tracks)do
 if id~=track_id and other.station==device_id then return false,"Das Geraet gehoert schon zu "..other.name.."."end
 end
 track.station=device_id
-return true
-end
-local list=track[field]
-for i,existing_id in ipairs(list)do
-if existing_id==device_id then
-table.remove(list,i)
-return true
-end
-end
-for id,other in pairs(w.config.tracks)do
-if id~=track_id then
-for _,ref in ipairs(other[field])do
-if ref==device_id then return false,"Das Geraet gehoert schon zu "..other.name.."."end
-end
-end
-end
-list[#list+1]=device_id
 return true
 end
 
@@ -373,7 +345,7 @@ for id in pairs(w.config.devices)do ids[#ids+1]=id end
 table.sort(ids)
 for _,id in ipairs(ids)do
 local d=w.config.devices[id]
-if d.kind=="station"or d.kind=="observer"then
+if d.kind=="station"then
 list[#list+1]={
 id="lesen:"..id,kind="lesen",title="Lesen: "..d.device,spec=d.device,fp=test_fingerprint("geraet",id),
 explain="Der Zustand von "..d.device.." wird nur gelesen.",
@@ -414,10 +386,7 @@ if not test then return false,"unbekannte Pruefung"end
 local kind,ref=id:match("^(%a+):(.+)$")
 if kind=="lesen"then
 local d=w.config.devices[ref]
-local adapter
-if d.kind=="station"then adapter=stationlib.new(env,d.device)
-else adapter=observerlib.new(env,d.device)end
-local state=adapter.read()
+local state=stationlib.new(env,d.device).read()
 if not state.available then return record(test,false,"nicht erreichbar: "..tostring(state.errors and state.errors[1]or""))end
 if state.errors and#state.errors>0 then return record(test,false,state.errors[1])end
 return record(test,true,"lesbar")

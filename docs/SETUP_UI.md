@@ -33,11 +33,11 @@ Die Leitstelle vergibt jeder Node Kennung, Namen und Computerlabel; die Strecke 
 **2. Auf der Node (Bahnhof, Depot).** Einrichtung starten, Beitreten, Netz waehlen, Rolle (Passagierbahnhof, Gueterbahnhof, Depot, auf Wunsch zusammen mit Anmeldung; ist auf dem Computer nur ein Rollenpaket installiert, entfaellt die Rollenauswahl). Dann:
 
 1. **Kennung anfordern.** "Weiter" fragt die Leitstelle; sie antwortet mit `N0001`, dem Namen (zum Beispiel "Personenbahnhof N0001") und dem Computerlabel (`N0001 | PBF`). Dieselbe Anforderung liefert dieselbe Kennung (kein Doppeleintrag nach Wiederholung oder Neustart). "Von Hand" fuehrt auf den Weg ohne Verzeichnis (eigener Name, keine Kennung der Leitstelle).
-2. **Geraete** waehlen: die Train Stations und Beobachter des Computers.
-3. **Gleise**: "Neu" legt ein Gleis an (Name, Richtung), danach Train Station und Beobachter des Gleises waehlen. Bearbeiten, Kopieren und Entfernen gehen wie bei jeder Node. Weiter geht es erst, wenn jedes Gleis eine Train Station hat. Welche Train Station an welchem echten Gleis steht, kann der Computer nicht lesen: das ist die einzige Angabe, die von Hand bestaetigt wird.
-4. **Test und Aktivieren.** Beim Oeffnen des Schritts Test laufen die lesenden Pruefungen von selbst (Train Station und Beobachter lesen); es gibt nichts zu schalten. Das Computerlabel wird beim Aktivieren gesetzt.
+2. **Geraete** waehlen: die Train Stations des Computers.
+3. **Gleise**: "Neu" legt ein Gleis an: Name und Train Station des Gleises stehen auf einem Bildschirm (eine Richtung oder Beobachter gibt es nicht mehr; eine Einrichtung aus einer aelteren Version verliert sie beim Aendern). Bearbeiten, Kopieren und Entfernen gehen wie bei jeder Node. Weiter geht es erst, wenn jedes Gleis eine Train Station hat. Welche Train Station an welchem echten Gleis steht, kann der Computer nicht lesen: das ist die einzige Angabe, die von Hand bestaetigt wird.
+4. **Test und Aktivieren.** Beim Oeffnen des Schritts Test laufen die lesenden Pruefungen von selbst (Train Station lesen); es gibt nichts zu schalten. Das Computerlabel wird beim Aktivieren gesetzt.
 
-**Mehrere Rollen auf einem Computer** (Bahnhof und Depot, auch mit Anmeldung) gehen denselben Weg: eine Anforderung, eine Kennung; Name und Label nennen die Rollen (`N0001 | PBF ANM`). Bei den Gleisen folgen je Gleis Bahnhof und Beobachter, danach gegebenenfalls die Anmeldestation.
+**Mehrere Rollen auf einem Computer** (Bahnhof und Depot, auch mit Anmeldung) gehen denselben Weg: eine Anforderung, eine Kennung; Name und Label nennen die Rollen (`N0001 | PBF ANM`). Bei den Gleisen folgen je Gleis Name und Bahnhof, danach gegebenenfalls die Anmeldestation.
 
 **Anmeldung allein** gehoert zu einer Betriebsstelle des Netzes (Seite Betriebsstellen in der Leitstelle): Betriebsstelle waehlen, Kennung (`N0005 | ANM | BF0001`), Geraete, Anmeldestation, Test, Aktivieren.
 
@@ -57,12 +57,12 @@ Auf einer schon eingerichteten Bahnhof- oder Depot-Node: Seite Einrichtung, "Ein
 
 | Rolle | Pflichtangaben vor dem Aktivieren | Pruefungen |
 |---|---|---|
-| Passagier-/Gueterbahnhof | je Gleis eine Train Station | Train Station und Beobachter lesen |
-| Depot | je Gleis eine Train Station | Train Station und Beobachter lesen |
+| Passagier-/Gueterbahnhof | je Gleis eine Train Station | Train Station lesen |
+| Depot | je Gleis eine Train Station | Train Station lesen |
 | Anmeldung | eine Station fuer die Anmeldung | Station lesen |
 | Leitstelle | Netzname, keine zweite Leitstelle | keine Geraetepruefung |
 
-Eine Funktion erzeugt erst dann Pflichtangaben, wenn ihre Rolle gewaehlt ist (Konzept 12.5). Beobachter sind optional; wer sie waehlt, muss sie erreichen und lesen koennen.
+Eine Funktion erzeugt erst dann Pflichtangaben, wenn ihre Rolle gewaehlt ist (Konzept 12.5).
 
 ## Netz beitreten (Netzsuche)
 
@@ -74,9 +74,6 @@ Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vor
 - Passagier-, Gueterbahnhof und Depot: eine Station je Gleis; kein Freigabeausgang.
 - Anmeldung: ausgewaehlte, gueltige Station.
 - Nur Rollen mit installierten Laufzeitmodulen werden angeboten.
-- Zusaetzliche Beobachter eines Bahnhofs sind optional. Ohne Auswahl
-  erscheint ihre Zuordnungsseite nicht. Eine gewaehlt aktivierte Erweiterung
-  muss erreichbar und pruefbar sein.
 
 ## Sperren
 

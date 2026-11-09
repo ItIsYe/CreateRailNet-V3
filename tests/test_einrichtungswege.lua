@@ -1,5 +1,5 @@
 --[[
-Purpose: Keine Sackgassen im Einrichtungsassistenten: jede Rolle (Bahnhof, Gueterbahnhof, Depot, Bahnhof mit Beobachter, Bahnhof plus Anmeldung, Anmeldung allein, Leitstelle) wird frisch eingerichtet und danach mit "Einrichtung aendern" noch einmal durchlaufen, bis zum Aktivieren; ein Stillstand (Weiter ohne Wirkung und ohne behebbaren Hinweis) ist ein Fehler.
+Purpose: Keine Sackgassen im Einrichtungsassistenten: jede Rolle (Bahnhof, Gueterbahnhof, Depot, Bahnhof plus Anmeldung, Anmeldung allein, Leitstelle) wird frisch eingerichtet und danach mit "Einrichtung aendern" noch einmal durchlaufen, bis zum Aktivieren; ein Stillstand (Weiter ohne Wirkung und ohne behebbaren Hinweis) ist ein Fehler.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -80,12 +80,11 @@ local function fix(c, sc, hint)
     return did
   elseif sc == "4.anmeldung" then
     if has_area(d, v, "sel:anmeldung:1") then d.tap(v, "sel:anmeldung:1") return true end
-  elseif sc == "4.g.signale" or sc == "4.g.beobachter" or sc == "4.g.bahnhof" then
-    local list, pat = ({ ["4.g.signale"] = { "signale", "Create_Signal_%S+" }, ["4.g.beobachter"] = { "beobachter", "Create_Observer_%S+" }, ["4.g.bahnhof"] = { "bahnhof", "Create_Station_%S+" } })[sc][1],
-      ({ ["4.g.signale"] = { "signale", "Create_Signal_%S+" }, ["4.g.beobachter"] = { "beobachter", "Create_Observer_%S+" }, ["4.g.bahnhof"] = { "bahnhof", "Create_Station_%S+" } })[sc][2]
+  elseif sc == "4.g.name" then
+    local list, pat = "bahnhof", "Create_Station_%S+"
     -- ein Geraet, das schon zu einem anderen Gleis gehoert, wird abgelehnt: das naechste freie probieren
     for _, r in ipairs(rows(d, v)) do
-      local nm = r:match("%[ %] (" .. pat .. ")")
+      local nm = r:match("%( %) (" .. pat .. ")")
       if nm then
         d.tap_row(v, list, nm)
         if marked_row(d, v, nm) then return true end
@@ -117,18 +116,18 @@ local function prep(c, sc)
   elseif sc == "3.geraete" then
     for _, name in ipairs(o.devices or {}) do ensure_row(d, v, "geraete", name) end
   elseif sc == "4.gleise" then
-    -- Gleise legt der Assistent nicht vor: eines nach dem anderen anlegen (Name, Richtung, Bahnhof, Beobachter fuehren die folgenden Schritte)
+    -- Gleise legt der Assistent nicht vor: eines nach dem anderen anlegen (Name und Bahnhof stehen auf einem Bildschirm)
     local made = #d.node.setup.session().wiz.tracks()
     if made < (o.track_count or 2) then
       c.sub = made + 1
       d.tap(v, "act:neues_gleis")
     end
-  elseif sc == "4.g.bahnhof" then
+  elseif sc == "4.g.name" then
     local n = c.sub or 1
     local name = (o.station_prefix or "Create_Station_") .. n
     if find_row(d, v, name) then ensure_row(d, v, "bahnhof", name) else
       -- irgendeine freie
-      for _, r in ipairs(rows(d, v)) do local nm = r:match("%[ %] (%S+)") if nm then d.tap_row(v, "bahnhof", nm) break end end
+      for _, r in ipairs(rows(d, v)) do local nm = r:match("%( %) (%S+)") if nm then d.tap_row(v, "bahnhof", nm) break end end
     end
   elseif sc == "4.g.signale" then
     if o.signal_roles then
@@ -138,12 +137,6 @@ local function prep(c, sc)
         local num = r:match("%[ %] Create_Signal_(%d+)")
         if num and ((o.signals_on_every_track and tonumber(num) == n) or (not o.signals_on_every_track and n == 1)) then d.tap_row(v, "signale", "Create_Signal_" .. num) end
       end
-    end
-  elseif sc == "4.g.beobachter" then
-    if o.observers_on_tracks then
-      local n = c.sub or 1
-      local name = "Create_Observer_" .. n
-      if find_row(d, v, name) then ensure_row(d, v, "beobachter", name) end
     end
   elseif sc == "4.anmeldung" then
     if has_area(d, v, "sel:anmeldung:1") and not find_row(d, v, "[x]") then d.tap(v, "sel:anmeldung:1") end
@@ -236,11 +229,6 @@ end)
 sc("Depot", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
   return h, node(h, { stations = 3 }), { roles = { "depot" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
-end)
-sc("Passagierbahnhof mit Beobachter an Gleis 1", function()
-  local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3, observers = 1 }), { roles = { "passagierbahnhof" }, observers_on_tracks = true,
-    devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3", "Create_Observer_1" } }
 end)
 sc("Passagierbahnhof + Anmeldung", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)

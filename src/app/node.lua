@@ -207,9 +207,9 @@ function M.new(env)
       line(string.format("Betriebszeit: %d:%02d:%02d%s", math.floor(seconds / 3600), math.floor(seconds / 60) % 60, seconds % 60,
         n.clock.resumed() and " (fortgesetzt)" or ""), "dim")
       line("Freier Platz: " .. env.fs.getFreeSpace("/") .. " Byte", "dim")
-      local counts = { station = 0, observer = 0 }
-      for _, d in ipairs(n.scan) do if counts[d.kind] then counts[d.kind] = counts[d.kind] + 1 end end
-      line(string.format("Geraete: %d Bahnhof, %d Beobachter", counts.station, counts.observer), "dim")
+      local stations = 0
+      for _, d in ipairs(n.scan) do if d.kind == "station" then stations = stations + 1 end end
+      line(string.format("Geraete: %d Bahnhof", stations), "dim")
       local radio = {}
       for _, d in ipairs(n.scan) do if d.kind == "modem" and wireless(d.name) then radio[#radio + 1] = d.name end end
       line("Funk: " .. (#radio > 0 and table.concat(radio, ",") or "KEIN FUNKMODEM"), #radio > 0 and "dim" or "attention")

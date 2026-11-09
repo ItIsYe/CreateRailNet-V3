@@ -6,7 +6,7 @@ Kurzanleitung fuer ein neues Netz, von den Computern bis zum ersten aktiven Bahn
 
 - **HTTP** ist auf dem Server fuer Computer erlaubt (sonst kann der Installer nichts laden).
 - **Ein Computer je Aufgabe** (Advanced Computer): eine Leitstelle, je eine Node fuer Bahnhoefe und Depot. Eine Node darf mehrere Rollen tragen. Strecke, Signale und Weichen regelt Create allein; dafuer braucht es keinen Computer.
-- **Funk:** an jedem Computer ein Funkmodem (Ender-Modem reicht ueber jede Entfernung, sonst gilt die Reichweite des Funkmodems). Create-Geraete (Train Station, Beobachter) haengen direkt am Computer oder an einem Kabelmodem.
+- **Funk:** an jedem Computer ein Funkmodem (Ender-Modem reicht ueber jede Entfernung, sonst gilt die Reichweite des Funkmodems). Create-Geraete (Train Station) haengen direkt am Computer oder an einem Kabelmodem.
 - **Monitor** ist freiwillig (Advanced Monitor). Das grosse Layout (ab 100x40 Zeichen) braucht bei Textgroesse 0,5 mindestens 5x4 Bloecke (umschalten mit der Taste "Textgroesse" auf der Seite Geraete, oder von Hand mit `monitor.setTextScale(0.5)`), bei der Vorgabe 1,0 mindestens 10x6; ab 6x3 Bloecken (Textgroesse 1,0) gibt es die kompakte Ansicht. Alles geht auch am Terminal des Computers (51x19); Texteingaben gehen nur dort (Rechnung in `docs/MESSWERTE.md`, Q01 bis Q04).
 - **Chunks laden:** ein Computer in einem nicht geladenen Chunk laeuft nicht. Leitstelle und Bahnhoefe gehoeren in dauerhaft geladene Chunks (Chunk-Lader), siehe "Nicht geladene Chunks" in `docs/NETZVERZEICHNIS.md`.
 - **Platz:** ein Computer fasst 1 MB. Die Leitstelle belegt rund 470 KB, die Nodes 280 bis 300 KB.

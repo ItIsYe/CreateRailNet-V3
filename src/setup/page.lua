@@ -12,7 +12,6 @@ local W = require("ui.widgets")
 
 local M = {}
 
-local DIRECTIONS = { { id = "hin", text = "hin (eine Richtung)" }, { id = "rueck", text = "rueck (Gegenrichtung)" }, { id = "beide", text = "beide Richtungen" } }
 
 function M.new(services)
   local page = { id = "einrichtung", title = "Einrichtung" }
@@ -26,14 +25,12 @@ function M.new(services)
     ["2.rollen"] = "Rolle waehlen", ["2.name"] = "Name der Node", ["2.kennung"] = "Kennung anfordern",
     ["2.station"] = "Betriebsstelle waehlen",
     ["3.geraete"] = "Geraete waehlen",
-    ["4.gleise"] = "Gleise einrichten", ["4.g.name"] = "Name des Gleises", ["4.g.richtung"] = "Richtung",
-    ["4.g.bahnhof"] = "Bahnhof zuordnen", ["4.g.beobachter"] = "Beobachter zuordnen",
+    ["4.gleise"] = "Gleise einrichten", ["4.g.name"] = "Gleis bearbeiten",
     ["4.anmeldung"] = "Anmeldestation",
     ["5.test"] = "Pruefungen",
     ["6.fertig"] = "Zusammenfassung",
   }
 
-  local first_device_screen                       -- weiter unten bei den Gleisbildschirmen
 
   -- Konzept 12.2: ist nur eine Rolle installiert (und passt zur Betriebsart), wird sie vorbelegt und die Auswahlseite entfaellt
   local function preset_role()
@@ -246,7 +243,7 @@ function M.new(services)
       if kinds[d.kind] then
         local chosen = session.wiz.device_selected(d.name)
         local missing = {}
-        if d.kind == "station" or d.kind == "observer" then missing = detect.missing(d.kind, d) end
+        if d.kind == "station" then missing = detect.missing(d.kind, d) end
         items[#items + 1] = {
           text = (chosen and "[x] " or "[ ] ") .. d.name,
           detail = d.kind .. (#missing > 0 and (", fehlt: " .. table.concat(missing, ",")) or ""),
@@ -436,7 +433,6 @@ function M.new(services)
         local t = session.wiz.config.tracks[id]
         local parts = {}
         if t.station then parts[#parts + 1] = "Bahnhof" end
-        if #t.observers > 0 then parts[#parts + 1] = #t.observers .. " Beobachter" end
         items[#items + 1] = { text = t.name, detail = #parts > 0 and table.concat(parts, ", ") or "noch leer", kind = #parts > 0 and "ok" or "wait" }
         session.pick.tracks[#items] = id
       end
@@ -484,89 +480,39 @@ function M.new(services)
     end,
   }
 
+  -- Ein Bildschirm je Gleis: Name und die zugehoerige Train Station (Create-Bahnhof)
   screens["4.g.name"] = {
     render = function(v, rect)
       local t = session.wiz.config.tracks[session.track]
-      header(v, rect, nil, "Bearbeiten: " .. (t and label.track(t.name) or "?"))
+      header(v, rect, nil, "Name des Gleises und sein Create-Bahnhof.")
       W.field(v, "gleisname", rect.x + 1, rect.y + 3, math.min(rect.w - 2, 36), "Gleisname", fields(v).gleisname)
-      if t then
-        W.label(v, rect.x + 1, rect.y + 6, "Richtung: " .. t.direction, "dim", rect.w - 2)
-        W.label(v, rect.x + 1, rect.y + 7, "Weiter fuehrt durch die Einstellungen.", "dim", rect.w - 2)
+      W.label(v, rect.x + 1, rect.y + 6, "Welcher Create-Bahnhof gehoert zum Gleis?", "dim", rect.w - 2)
+      local items = {}
+      session.pick.bahnhof = {}
+      for _, d in ipairs(config_devices_of("station")) do
+        items[#items + 1] = { text = ((t and t.station == d.id) and "(o) " or "( ) ") .. d.device }
+        session.pick.bahnhof[#items] = d.id
+      end
+      local area = body_rect(rect, 7)
+      W.list(v, "bahnhof", area, items, list_state(v, "bahnhof"), { row_h = 1, empty = "Kein Bahnhof in Schritt 3 gewaehlt." })
+    end,
+    action = function(v, id)
+      local n = id:match("^sel:bahnhof:(%d+)$")
+      if n then
+        local device_id = session.pick.bahnhof and session.pick.bahnhof[tonumber(n)]
+        if device_id then
+          local ok, why = session.wiz.toggle_track_station(session.track, device_id)
+          if not ok then v.hint = why end
+        end
+        return true
       end
     end,
     next = function(v)
       session.wiz.rename_track(session.track, fields(v).gleisname.value)
-      push("4.g.richtung")
+      while session.screen ~= "4.gleise" and pop() do end
       return true
     end,
   }
-
-  -- erster rollenabhaengiger Bildschirm eines Gleises (nach Name und Richtung)
-  function first_device_screen()
-    return "4.g.bahnhof"
-  end
-
-  screens["4.g.richtung"] = {
-    render = function(v, rect)
-      local t = session.wiz.config.tracks[session.track]
-      header(v, rect, nil, "In welche Richtung wird " .. label.track(t.name) .. " befahren?", 2)
-      local items = {}
-      for _, d in ipairs(DIRECTIONS) do items[#items + 1] = { text = (t.direction == d.id and "(o) " or "( ) ") .. d.text } end
-      W.list(v, "richtung", body_rect(rect, 3), items, list_state(v, "richtung"), { row_h = v.layout.mode == "gross" and 3 or 1 })
-    end,
-    action = function(v, id)
-      local n = id:match("^sel:richtung:(%d+)$")
-      if n then session.wiz.set_direction(session.track, DIRECTIONS[tonumber(n)].id) return true end
-    end,
-    next = function(v)
-      push(first_device_screen())
-      return true
-    end,
-  }
-
-  local function device_choice_screen(id, kind, field, subtitle, single)
-    return {
-      render = function(v, rect)
-        local t = session.wiz.config.tracks[session.track]
-        header(v, rect, nil, subtitle .. " " .. label.track(t.name), 2)
-        local items = {}
-        session.pick[id] = {}
-        for _, d in ipairs(config_devices_of(kind)) do
-          local on
-          if single then on = (t.station == d.id) else
-            on = false
-            for _, ref in ipairs(t[field]) do if ref == d.id then on = true end end
-          end
-          items[#items + 1] = { text = (on and "[x] " or "[ ] ") .. d.device }
-          session.pick[id][#items] = d.id
-        end
-        W.list(v, id, body_rect(rect, 3), items, list_state(v, id), { row_h = 1, empty = "Kein passendes Geraet in Schritt 3 gewaehlt." })
-      end,
-      action = function(v, act)
-        local n = act:match("^sel:" .. id .. ":(%d+)$")
-        if n then
-          local device_id = session.pick[id] and session.pick[id][tonumber(n)]
-          if device_id then
-            local ok, why = session.wiz.toggle_track_device(session.track, field, device_id)
-            if not ok then v.hint = why end
-          end
-          return true
-        end
-      end,
-    }
-  end
-
-  screens["4.g.bahnhof"] = device_choice_screen("bahnhof", "station", "station", "Welcher Create-Bahnhof gehoert zu", true)
-  screens["4.g.bahnhof"].next = function(v)
-    if #config_devices_of("observer") > 0 then push("4.g.beobachter")
-    else while session.screen ~= "4.gleise" and pop() do end end
-    return true
-  end
-  screens["4.g.beobachter"] = device_choice_screen("beobachter", "observer", "observers", "Welche Beobachter gehoeren zu")
-  screens["4.g.beobachter"].next = function(v)
-    while session.screen ~= "4.gleise" and pop() do end
-    return true
-  end
 
   screens["4.anmeldung"] = {
     render = function(v, rect)
@@ -883,9 +829,7 @@ function M.new(services)
     if screen == "2.name" then return w.step_ok(2, true) end
     if screen == "3.geraete" then return w.step_ok(3, true) end
     if screen == "4.g.name" and not fields(v).gleisname.value:match("%S") then return false, "Der Gleisname fehlt." end
-    if track then
-      if screen == "4.g.bahnhof" and not track.station then return false, "Bitte eine Train Station zuordnen." end
-    end
+    if screen == "4.g.name" and track and not track.station then return false, "Bitte eine Train Station zuordnen." end
     if screen == "4.gleise" then return w.step_ok(4, true, { anmeldung_station = true }) end
     if screen == "4.anmeldung" then return w.step_ok(4, true) end
     if screen == "5.test" then return w.step_ok(5, true) end

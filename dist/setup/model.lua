@@ -55,9 +55,20 @@ config.devices[id]={kind=kind,device=device}
 return id
 end
 
+
+function M.drop_legacy(config)
+for id,d in pairs(config.devices or{})do
+if d.kind=="observer"then config.devices[id]=nil end
+end
+for _,track in pairs(config.tracks or{})do
+track.observers,track.direction=nil,nil
+end
+return config
+end
+
 function M.add_track(config,name)
 local id=next_id(config.tracks,"gleis")
-config.tracks[id]={name=name,direction="beide",observers={},status="offen"}
+config.tracks[id]={name=name,status="offen"}
 return id
 end
 
@@ -67,7 +78,6 @@ local src=config.tracks[id]
 if not src then return nil,"unbekanntes Gleis"end
 local new_id=M.add_track(config,name)
 local dst=config.tracks[new_id]
-dst.direction=src.direction
 dst.length=src.length
 dst.preferred=src.preferred
 dst.kind=src.kind
@@ -83,9 +93,6 @@ function M.remove_device(config,id)
 config.devices[id]=nil
 for _,track in pairs(config.tracks)do
 if track.station==id then track.station=nil end
-local kept={}
-for _,ref in ipairs(track.observers)do if ref~=id then kept[#kept+1]=ref end end
-track.observers=kept
 end
 if config.registration_station==id then config.registration_station=nil end
 end
@@ -95,9 +102,6 @@ local track=config.tracks[track_id]
 if not track then return nil,"unbekanntes Gleis"end
 if field=="station"then
 track.station=device_id
-elseif field=="observers"then
-for _,existing in ipairs(track.observers)do if existing==device_id then return true end end
-track.observers[#track.observers+1]=device_id
 else
 return nil,"unbekanntes Feld"
 end
@@ -109,7 +113,6 @@ function M.free_devices(config,scan,kind)
 local used={}
 for _,track in pairs(config.tracks)do
 if track.station then used[config.devices[track.station]and config.devices[track.station].device or""]=true end
-for _,id in ipairs(track.observers)do if config.devices[id]then used[config.devices[id].device]=true end end
 end
 local out={}
 for _,d in ipairs(scan)do
@@ -129,7 +132,6 @@ function M.profile(config)
 local station=has_role(config,"passagierbahnhof")or has_role(config,"gueterbahnhof")or has_role(config,"depot")
 local allowed={monitor=true}
 if station or has_role(config,"anmeldung")then allowed.station=true end
-if station then allowed.observer=true end
 if has_role(config,"passagierbahnhof")then allowed.displaylink=true end
 return{station=station,tracks=station,allowed=allowed}
 end
@@ -158,7 +160,7 @@ if not found then
 add("geraet_fehlt","Geraet "..d.device.." ("..id..") ist nicht angeschlossen.")
 elseif found.kind~=d.kind then
 add("geraet_art","Geraet "..d.device.." ist keine/kein "..d.kind..".")
-elseif#detect.missing(d.kind,found)>0 and(d.kind=="station"or d.kind=="observer")then
+elseif#detect.missing(d.kind,found)>0 and d.kind=="station"then
 add("geraet_methoden","Geraet "..d.device.." fehlen Methoden: "..table.concat(detect.missing(d.kind,found),","))
 end
 if used_devices[d.device]then add("geraet_doppelt","Geraet "..d.device.." ist doppelt eingetragen.")end
@@ -187,15 +189,8 @@ add("geraet_zwei_gleise","Geraet "..config.devices[device_id].device.." gehoert 
 end
 owner[device_id]=id
 end
-if track.direction~="hin"and track.direction~="rueck"and track.direction~="beide"then add("gleis_richtung",label.track(track.name)..": Richtung fehlt oder ist ungueltig.")end
-for field,kind in pairs({station="station",observers="observer"})do
-local refs=field=="station"and(track.station and{track.station}or{})or track[field]
-for _,ref in ipairs(refs)do
-if config.devices[ref]and config.devices[ref].kind~=kind then add("gleis_art",label.track(track.name)..": falsche Geraeteart fuer "..field..".")end
-end
-end
+if track.station and config.devices[track.station]and config.devices[track.station].kind~="station"then add("gleis_art",label.track(track.name)..": falsche Geraeteart fuer den Bahnhof.")end
 claim(track.station,"Bahnhof")
-for _,o in ipairs(track.observers)do claim(o,"Beobachter")end
 if needs_station and not track.station then add("gleis_bahnhof",label.track(track.name).." hat keinen Bahnhof.")end
 
 end

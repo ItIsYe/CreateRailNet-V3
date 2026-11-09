@@ -5,7 +5,6 @@
 
 
 local stationlib=require("dev.station")
-local observerlib=require("dev.observer")
 local schedulelib=require("domain.schedule")
 local W=require("ui.widgets")
 local ser=require("core.ser")
@@ -46,13 +45,8 @@ local device=config.devices[spec.station].device
 local tr={
 id=id,name=spec.name,spec=spec,device_id=spec.station,device=device,
 station=stationlib.new(env,device),
-observers={},
 present=false,train=nil,since=0,restored=false,available=true,
-last_passing=nil,
 }
-for _,oid in ipairs(spec.observers or{})do
-if config.devices[oid]then tr.observers[#tr.observers+1]=observerlib.new(env,config.devices[oid].device)end
-end
 persisted.tracks[id]=persisted.tracks[id]or{stay=0,release_set=false}
 tr.p=persisted.tracks[id]
 role.tracks[id]=tr
@@ -88,7 +82,7 @@ function role.hello()
 local list={}
 for _,tr in ipairs(role.tracks)do
 list[#list+1]={
-id=tr.id,name=tr.name,station_name=tr.station_name,direction=tr.spec.direction,
+id=tr.id,name=tr.name,station_name=tr.station_name,
 length=tr.spec.length,
 }
 end
@@ -191,10 +185,6 @@ if tr.present then close_stay(tr,true,ev.train)end
 elseif ev.type=="train_imminent"then
 tr.imminent=ev.train
 report("angekuendigt",tr,{train=ev.train})
-end
-elseif ev.kind=="observer"then
-for _,tr in ipairs(role.tracks)do
-tr.last_passing={type=ev.type,train=ev.train,t=ev.t}
 end
 end
 end

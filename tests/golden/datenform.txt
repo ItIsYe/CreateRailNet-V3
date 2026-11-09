@@ -13,10 +13,8 @@ depot:config.lua node.roles.[] string
 depot:config.lua revision number
 depot:config.lua status string
 depot:config.lua tests leer
-depot:config.lua tracks.gleis#.direction string
 depot:config.lua tracks.gleis#.length number
 depot:config.lua tracks.gleis#.name string
-depot:config.lua tracks.gleis#.observers.[] string
 depot:config.lua tracks.gleis#.station string
 depot:config.lua tracks.gleis#.status string
 depot:config.lua version number
@@ -34,9 +32,7 @@ passagierbahnhof:config.lua registration_station string
 passagierbahnhof:config.lua revision number
 passagierbahnhof:config.lua status string
 passagierbahnhof:config.lua tests leer
-passagierbahnhof:config.lua tracks.gleis#.direction string
 passagierbahnhof:config.lua tracks.gleis#.name string
-passagierbahnhof:config.lua tracks.gleis#.observers leer
 passagierbahnhof:config.lua tracks.gleis#.station string
 passagierbahnhof:config.lua tracks.gleis#.status string
 passagierbahnhof:config.lua version number

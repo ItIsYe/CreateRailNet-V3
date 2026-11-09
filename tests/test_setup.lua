@@ -54,14 +54,13 @@ local function station_config(w)
   wiz.toggle_role("passagierbahnhof")
   assert(wiz.next())
   assert(wiz.next())
-  for _, name in ipairs({ "Create_Station_1", "Create_Station_2", "Create_TrainObserver_1" }) do wiz.toggle_device(name) end
+  for _, name in ipairs({ "Create_Station_1", "Create_Station_2" }) do wiz.toggle_device(name) end
   local ids = {}
   for id, d in pairs(wiz.config.devices) do ids[d.device] = id end
   local g1 = wiz.add_track("Gleis 1")
-  wiz.toggle_track_device(g1, "station", ids.Create_Station_1)
-  wiz.toggle_track_device(g1, "observers", ids.Create_TrainObserver_1)
+  wiz.toggle_track_station(g1, ids.Create_Station_1)
   local g2 = wiz.add_track("Gleis 2")
-  wiz.toggle_track_device(g2, "station", ids.Create_Station_2)
+  wiz.toggle_track_station(g2, ids.Create_Station_2)
   return wiz, ids, g1, g2
 end
 
@@ -151,16 +150,14 @@ return {
   { "Vorlage kopiert Struktur und Standardwerte, aber keine Geraete; Gleis bleibt offen", function()
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
     local g1 = model.add_track(c, "Gleis 1")
-    c.tracks[g1].direction = "hin"
     c.tracks[g1].length = 12
     local s = model.add_device(c, "station", "Create_Station_1")
     model.assign(c, g1, "station", s)
-    model.assign(c, g1, "observers", model.add_device(c, "observer", "Create_TrainObserver_1"))
     c.tracks[g1].status = "aktiv"
     local g2 = model.copy_track(c, g1, "Gleis 2")
     local copy = c.tracks[g2]
-    t.eq(copy.direction, "hin"); t.eq(copy.length, 12)
-    t.eq(copy.station, nil); t.eq(#copy.observers, 0)
+    t.eq(copy.length, 12)
+    t.eq(copy.station, nil)
     t.eq(copy.status, "offen")
     t.eq(copy.name, "Gleis 2")
     t.eq(model.copy_track(c, "nix", "x"), nil)
@@ -168,11 +165,11 @@ return {
   { "Geraet entfernen raeumt alle Verweise auf", function()
     local c = model.new("Bf", { "passagierbahnhof" }, { name = "N", central_id = "z" })
     local g = model.add_track(c, "G")
-    local st, ob = model.add_device(c, "station", "S"), model.add_device(c, "observer", "O")
-    model.assign(c, g, "station", st); model.assign(c, g, "observers", ob)
+    local st = model.add_device(c, "station", "S")
+    model.assign(c, g, "station", st)
     c.registration_station = st
-    model.remove_device(c, st); model.remove_device(c, ob)
-    t.eq(c.tracks[g].station, nil); t.eq(#c.tracks[g].observers, 0); t.eq(c.registration_station, nil)
+    model.remove_device(c, st)
+    t.eq(c.tracks[g].station, nil); t.eq(c.registration_station, nil)
   end },
   { "freie Geraete: noch keinem Gleis zugeordnet", function()
     local w = world()
@@ -268,14 +265,15 @@ return {
     local wiz = start(w)
     wiz.set_network("N", "z"); wiz.set_mode("join"); wiz.next()
     wiz.set_name("Bf"); wiz.toggle_role("passagierbahnhof"); wiz.next()
-    w.add_observer("Create_TrainObserver_9")      -- kommt nach dem ersten Scan dazu
+    w.add_station("Create_Station_9")             -- kommt nach dem ersten Scan dazu
     wiz.next(); wiz.back()
     wiz.next()
-    t.ok(detect.find(wiz.scan, "Create_TrainObserver_9"), "neuer Scan in Schritt 3")
-    t.eq(wiz.toggle_device("Create_TrainObserver_9"), true)
-    t.eq(wiz.device_selected("Create_TrainObserver_9"), true)
-    t.eq(wiz.toggle_device("Create_TrainObserver_9"), true)
-    t.eq(wiz.device_selected("Create_TrainObserver_9"), false)
+    t.ok(detect.find(wiz.scan, "Create_Station_9"), "neuer Scan in Schritt 3")
+    t.eq(wiz.toggle_device("Create_Station_9"), true)
+    t.eq(wiz.device_selected("Create_Station_9"), true)
+    t.eq(wiz.toggle_device("Create_Station_9"), true)
+    t.eq(wiz.device_selected("Create_Station_9"), false)
+    t.eq(wiz.toggle_device("Create_TrainObserver_1"), false, "Beobachter gehoeren nicht mehr zur Auswahl")
     t.eq(wiz.toggle_device("left"), false, "Modems gehoeren nicht zur Geraeteauswahl")
     t.eq(wiz.toggle_device("gibt-es-nicht"), false)
   end },
@@ -290,25 +288,21 @@ return {
     t.eq(wiz.step, 3)
     t.ok(detect.find(wiz.scan, "Create_TrainObserver_9"), "neuer Scan beim Betreten von Schritt 3")
   end },
-  { "Gleis bearbeiten: Geraet nur einem Gleis, Richtung, Umbenennen", function()
+  { "Gleis bearbeiten: Station nur einem Gleis, Umbenennen, Kopieren", function()
     local w = world()
     local wiz, ids, g1, g2 = station_config(w)
-    local ok, why = wiz.toggle_track_device(g2, "station", ids.Create_Station_1)
+    local ok, why = wiz.toggle_track_station(g2, ids.Create_Station_1)
     t.eq(ok, false); t.contains(why, "gehoert schon zu Gleis 1")
-    ok, why = wiz.toggle_track_device(g2, "observers", ids.Create_TrainObserver_1)
-    t.eq(ok, false); t.contains(why, "gehoert schon zu Gleis 1")
-    t.eq(wiz.toggle_track_device(g1, "observers", ids.Create_TrainObserver_1), true, "vom eigenen Gleis nehmen")
-    t.eq(wiz.toggle_track_device(g2, "observers", ids.Create_TrainObserver_1), true, "danach frei fuer ein anderes Gleis")
-    t.eq(wiz.toggle_track_device(g2, "observers", ids.Create_TrainObserver_1), true)
-    t.eq(wiz.set_direction(g1, "hin"), true)
-    t.eq(wiz.config.tracks[g1].direction, "hin")
+    t.eq(wiz.toggle_track_station(g1, ids.Create_Station_1), true, "vom eigenen Gleis nehmen")
+    t.eq(wiz.config.tracks[g1].station, nil)
+    t.eq(wiz.toggle_track_station(g2, ids.Create_Station_1), true, "danach frei fuer ein anderes Gleis")
+    t.eq(wiz.config.tracks[g2].station, ids.Create_Station_1)
     t.eq(wiz.rename_track(g1, "Gleis Eins"), true)
     t.eq(wiz.config.tracks[g1].name, "Gleis Eins")
     t.eq(wiz.rename_track("x", "y"), false)
     wiz.remove_track(g2)
     t.eq(#wiz.tracks(), 1)
     local g3 = wiz.copy_track(g1, "Gleis 3")
-    t.eq(wiz.config.tracks[g3].direction, "hin")
     t.eq(wiz.config.tracks[g3].station, nil)
   end },
   -- Pruefungen ---------------------------------------------------------------------------------------------------------------------------------
@@ -318,7 +312,7 @@ return {
     local ids = {}
     for _, test in ipairs(wiz.tests()) do ids[#ids + 1] = test.kind .. ":" .. test.id end
     local joined = table.concat(ids, " ")
-    t.contains(joined, "lesen:lesen:observer1")
+    t.contains(joined, "lesen:lesen:station2")
     t.contains(joined, "lesen:lesen:station1")
     t.not_contains(joined, "schalten")
     t.not_contains(joined, "ausgang")
@@ -330,18 +324,18 @@ return {
     t.eq(ok, true)
     t.eq(wiz.test_state("lesen:station1"), "ok")
     t.eq(wiz.run_test("unbekannt:x"), false)
-    w.detach("Create_TrainObserver_1")
-    local ok2, why = wiz.run_test("lesen:observer1")
+    w.detach("Create_Station_2")
+    local ok2, why = wiz.run_test("lesen:station2")
     t.eq(ok2, false); t.contains(why, "nicht erreichbar")
   end },
   { "Pruefergebnis gilt nur, solange das Geraet dasselbe ist", function()
     local w = world()
     local wiz, ids, g1 = station_config(w)
-    wiz.run_test("lesen:observer1")
-    t.eq(wiz.test_state("lesen:observer1"), "ok")
-    -- anderer Beobachter an dieselbe Kennung: das alte Ergebnis ist ungueltig
-    wiz.config.devices.observer1.device = "Create_TrainObserver_6"
-    t.eq(wiz.test_state("lesen:observer1"), "offen")
+    wiz.run_test("lesen:station2")
+    t.eq(wiz.test_state("lesen:station2"), "ok")
+    -- andere Station an dieselbe Kennung: das alte Ergebnis ist ungueltig
+    wiz.config.devices.station2.device = "Create_Station_6"
+    t.eq(wiz.test_state("lesen:station2"), "offen")
   end },
   -- Fertig ------------------------------------------------------------------------------------------------------------------------------------
   { "Fertig: ohne Pruefungen wird nichts gespeichert (kein Entwurf); mit allen Pruefungen aktiv; Revision steigt; gespeichert und lesbar", function()
@@ -407,7 +401,7 @@ return {
     local id
     for k in pairs(d.config.devices) do id = k end
     local g = d.add_track("Abstell 1")
-    d.toggle_track_device(g, "station", id)
+    d.toggle_track_station(g, id)
     for _, test in ipairs(d.tests()) do d.run_test(test.id) end
     t.eq((d.finish(store, "/crn_data/d.lua")), "aktiv")
     -- Anmeldung
@@ -437,5 +431,25 @@ return {
     again.set_name("Westbahnhof Neu")
     again.step_ok(1)
     t.eq(again.config.node.id, "westbahnhof")
+  end },
+  { "Einrichtung aus einer aelteren Version: Beobachter und Gleisrichtung werden beim Aendern verworfen, der Rest bleibt", function()
+    local w = world()
+    local fs = cc.fs(); fs.makeDir("/crn_data")
+    local store = storelib.new(fs)
+    local first = station_config(w)
+    for _, test in ipairs(first.tests()) do first.run_test(test.id) end
+    first.finish(store, "/crn_data/config.lua")
+    local saved = store.load("/crn_data/config.lua")
+    -- so sah eine Einrichtung frueher aus: ein Beobachter am Gleis und eine Richtung
+    saved.devices.observer1 = { kind = "observer", device = "Create_TrainObserver_1" }
+    saved.tracks.gleis1.observers = { "observer1" }
+    saved.tracks.gleis1.direction = "hin"
+    local again = start(w, saved)
+    t.eq(again.config.devices.observer1, nil, "Beobachter weg")
+    t.eq(again.config.tracks.gleis1.observers, nil)
+    t.eq(again.config.tracks.gleis1.direction, nil)
+    t.eq(#again.tracks(), 2, "die Gleise bleiben")
+    t.ok(again.config.tracks.gleis1.station, "die Station des Gleises bleibt")
+    t.eq(#model.validate(again.config, detect.scan(w.peripheral)), 0, "keine Meldung wegen der alten Felder")
   end },
 }

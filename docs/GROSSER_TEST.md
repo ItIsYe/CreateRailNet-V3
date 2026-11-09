@@ -39,8 +39,8 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.2 | Assistent: Schritt 1 ohne Netzname auf "Weiter" | Hinweis "Der Netzname fehlt."; mit Namen geht es weiter | |
 | 3.3 | Schritt 2: ohne Rolle auf "Weiter"; dann Rolle Leitstelle waehlen oder (Netz beitreten) Passagierbahnhof | Hinweis; danach Eingabe des Namens (nur Buchstaben, Ziffern, Leerzeichen, - und _) | |
 | 3.4 | Schritt 3 (Geraete) | Alle Create-Geraete mit Typ; Funk- und Kabelmodem getrennt genannt (z.B. "Funk: left   Kabel: right"); Antippen setzt "[x]" | |
-| 3.5 | Schritt 4 (Gleise): Gleis anlegen, Bahnhof und Beobachter zuordnen, "Kopieren" | Ein Geraet laesst sich nur einem Gleis geben; es gibt keine Frage nach einem Ausgang und keine nach Signalen; die Kopie hat keine Geraete | |
-| 3.6 | Schritt 5 (Test): "Alle pruefen" | Alle Pruefungen (Train Station und Beobachter lesen) stehen schon beim Oeffnen auf ok; es gibt nichts zu schalten und keinen Bestaetigungsbildschirm | |
+| 3.5 | Schritt 4 (Gleise): Gleis anlegen (Name und Train Station auf einem Bildschirm, keine Frage nach Richtung oder Beobachter), "Kopieren" | Ein Geraet laesst sich nur einem Gleis geben; es gibt keine Frage nach einem Ausgang und keine nach Signalen; die Kopie hat keine Geraete | |
+| 3.6 | Schritt 5 (Test): "Alle pruefen" | Alle Pruefungen (Train Station lesen) stehen schon beim Oeffnen auf ok; es gibt nichts zu schalten und keinen Bestaetigungsbildschirm | |
 | 3.7 | Schritt 6, "Aktivieren" | Zustand "Bereit"; nach einem Neustart (`reboot`) startet der Node mit derselben Einrichtung | |
 | 3.8 | Schritt 6 ohne alle Pruefungen | "Aktivieren" ist gesperrt (Hinweis nennt den Grund); es gibt keinen Entwurf-Knopf; nichts wird gespeichert | |
 | 3.9 | Monitor: berühren der Reiter, Einrichtung dort bedienen, waehrend der Terminal eine andere Seite zeigt | Jede Ansicht hat ihre eigene Seite; bearbeitet die eine die Einrichtung, zeigt die andere "Einrichtung wird bearbeitet." | |
@@ -56,7 +56,7 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.22 | **Node-Verzeichnis**: Leitstelle, Seite "Betriebsstellen", "Neu": einen Personenbahnhof und ein Depot mit demselben Standort anlegen; denselben Namen noch einmal | BF0001 und BF0002; der Standort erscheint einmal; der doppelte Name wird mit Hinweis abgelehnt; Loeschen verlangt einen zweiten Druck | |
 | 3.23 | Neuer Computer mit einer Train Station: Einrichtung starten, Beitreten, Netz waehlen, Rolle Passagierbahnhof, Weiter | Bildschirm "Kennung anfordern"; "Von Hand" fuehrt auf den Weg ohne Verzeichnis (eigener Name) | |
 | 3.24 | Auf "Kennung anfordern" Weiter | Die Leitstelle vergibt die Kennung (Hinweis "Kennung N0001"), Name "Personenbahnhof N0001"; in der Leitstelle Seite "Netz": N0001 RESERVIERT | |
-| 3.25 | Geraete waehlen, bei den Gleisen "Neu": Name, Richtung, Train Station und Beobachter zuordnen; ein zweites Gleis | Nach dem Bahnhof (und Beobachter) geht es zurueck zur Gleisliste; Weiter ist erst moeglich, wenn jedes Gleis eine Train Station hat; welche Train Station welche ist, bestaetigst du von Hand | |
+| 3.25 | Geraete waehlen, bei den Gleisen "Neu": Name und Train Station auf einem Bildschirm; ein zweites Gleis | Mit "Weiter" geht es zurueck zur Gleisliste; Weiter ist erst moeglich, wenn jedes Gleis eine Train Station hat; welche Train Station welche ist, bestaetigst du von Hand | |
 | 3.26 | Test, Aktivieren | Die lesenden Pruefungen stehen auf ok; die Node ist aktiv, das Computerlabel lautet `N0001 \| PBF` (im Spiel pruefen); die Leitstelle fuehrt N0001 nach wenigen Sekunden als aktiv | |
 | 3.27 | entfaellt: keine Signalsperren mehr, die eine Pruefung beachten muesste | entfaellt | entfaellt |
 | 3.28 | entfaellt: keine schaltende Abschlusspruefung mehr | entfaellt | entfaellt |
@@ -81,7 +81,7 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.47 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.48 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.49 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
-| 3.50 | Computer mit Train Stations: Beitreten mit den Rollen Passagierbahnhof und Anmeldung | Eine Kennung, Label `N000x \| PBF ANM`; je Gleis Bahnhof (und Beobachter), danach die Anmeldestation; nach dem Test aktiv | |
+| 3.50 | Computer mit Train Stations: Beitreten mit den Rollen Passagierbahnhof und Anmeldung | Eine Kennung, Label `N000x \| PBF ANM`; je Gleis Name und Bahnhof, danach die Anmeldestation; nach dem Test aktiv | |
 | 3.51 | Computer mit einer Train Station: Beitreten mit der Rolle Anmeldung, Betriebsstelle waehlen | Kennung `N000x`, Label `... \| ANM \| BF000y`; Geraete, Anmeldestation, Test, aktiv; die Betriebsstelle laesst sich in der Leitstelle nicht loeschen | |
 | 3.52 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.53 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |

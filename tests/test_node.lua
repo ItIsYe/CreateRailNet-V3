@@ -49,13 +49,10 @@ local function setup_station(d, v)
   d.type(v, "name", "Westbahnhof")
   d.tap(v, "act:weiter")
   d.tap_row(v, "geraete", "Create_Station_1")
-  d.tap_row(v, "geraete", "Create_TrainObserver_1")
   d.tap(v, "act:weiter")
-  -- Gleisliste
+  -- Gleisliste: ein neues Gleis; der Bildschirm bleibt offen (Name und Create-Bahnhof)
   d.tap(v, "act:neues_gleis")
   d.type(v, "gleisname", "Gleis 1")
-  d.tap(v, "act:weiter")                    -- Richtung
-  d.tap(v, "act:weiter")                    -- Bahnhof
   return d
 end
 
@@ -103,23 +100,19 @@ return {
     t.ok(d.has(v, "Funk: left"), "Funkmodem wird gezeigt")
     d.tap_row(v, "geraete", "Create_Station_1")
     t.ok(d.has(v, "[x] Create_Station_1"))
-    d.tap_row(v, "geraete", "Create_TrainObserver_1")
+    t.ok(not d.has(v, "Create_TrainObserver_1"), "Beobachter stehen nicht mehr zur Auswahl: " .. d.text(v))
     d.tap(v, "act:weiter")
-    -- Schritt 4: ein Gleis
+    -- Schritt 4: ein Gleis, Name und Create-Bahnhof auf einem Bildschirm
     t.ok(d.has(v, "[4 Gleise]"), d.text(v))
     d.tap(v, "act:neues_gleis")
     d.type(v, "gleisname", "Gleis 1")
-    d.tap(v, "act:weiter")
-    d.tap_row(v, "richtung", "hin")
-    d.tap(v, "act:weiter")
     d.tap_row(v, "bahnhof", "Create_Station_1")
-    d.tap(v, "act:weiter")
-    d.tap_row(v, "beobachter", "Create_TrainObserver_1")
+    t.ok(not d.has(v, "Richtung"), "keine Frage nach der Richtung: " .. d.text(v))
     d.tap(v, "act:weiter")
     t.ok(not d.has(v, "Welcher Ausgang"), "kein Ausgang-Menue: " .. d.text(v))
     t.ok(d.has(v, "Gleis 1"), "zurueck in der Gleisliste")
     t.ok(d.has(v, "> Gleis 1"))
-    t.ok(d.has(v, "Bahnhof, 1 Beobachter"), "Zusammenfassung des Gleises in der Liste: " .. d.text(v))
+    t.ok(d.has(v, "Bahnhof"), "Zusammenfassung des Gleises in der Liste: " .. d.text(v))
     d.tap(v, "act:weiter")
     -- Schritt 5: Pruefungen
     t.ok(d.has(v, "[5 Test]"), d.text(v))
@@ -350,8 +343,8 @@ return {
     local v = d.view()
     setup_station(d, v)
     d.tap_row(v, "bahnhof", "Create_Station_1")
-    d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
-    w.devices["Create_TrainObserver_1"].methods.isTrainPassing = function() error("kaputt", 0) end      -- der Beobachter laesst sich nicht lesen
+    d.tap(v, "act:weiter")              -- zur Gleisliste
+    w.devices["Create_Station_1"].methods.isTrainPresent = function() error("kaputt", 0) end      -- die Station laesst sich nicht lesen
     d.tap(v, "act:weiter")              -- Pruefungen
     d.tap(v, "act:weiter")              -- Fertig
     t.eq(d.node.setup.session().screen, "5.test", "eine fehlgeschlagene Pruefung blockiert Weiter")
@@ -367,10 +360,9 @@ return {
     local v = d.view()
     setup_station(d, v)
     d.tap_row(v, "bahnhof", "Create_Station_1")
-    d.tap(v, "act:weiter")                   -- Beobachter
     d.tap(v, "act:weiter")                   -- zurueck zur Liste
     d.tap(v, "act:kopieren")
-    t.ok(d.has(v, "Bearbeiten: Gleis 1 Kopie"))
+    t.ok(d.has(v, "Gleis 1 Kopie"), d.text(v))
     t.ok(d.has(v, "Kopie: Geraete neu zuordnen."))
   end },
   { "main startet die Laufzeit und beendet sich sauber, wenn das Programm abgebrochen wird", function()

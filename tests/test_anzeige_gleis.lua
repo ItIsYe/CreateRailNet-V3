@@ -8,7 +8,7 @@ local model = require("setup.model")
 local label = require("core.label")
 local storelib = require("core.store")
 
--- Bahnhof ueber das Netzverzeichnis einrichten bis zum Gleis-Bildschirm (wie in test_einrichtung_bahnhof)
+-- Bahnhof ueber das Netzverzeichnis einrichten bis zum Gleis-Bildschirm (Name und Create-Bahnhof, wie in test_einrichtung_bahnhof)
 local function station_flow()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
@@ -24,7 +24,7 @@ local function station_flow()
   h.step(3); d.node.render()
   d.tap(v, "act:weiter"); h.step(3); d.node.render()
   d.tap_row(v, "geraete", "Create_Station_1"); d.tap(v, "act:weiter")
-  d.tap(v, "act:neues_gleis"); d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
+  d.tap(v, "act:neues_gleis")
   return h, d, v
 end
 
@@ -42,21 +42,13 @@ return {
   { "Einrichtung Bahnhof: Fragen nennen das Gleis einmal und sind nicht abgeschnitten", function()
     local h, d, v = station_flow()
     local text = d.text(v)
-    t.contains(text, "Welcher Create-Bahnhof gehoert zu Gleis 1")
+    -- ein Bildschirm fuer Name und Create-Bahnhof: der Name steht im Feld, die Frage nennt das Gleis nicht noch einmal
+    t.contains(text, "Gleisname")
+    t.contains(text, "Welcher Create-Bahnhof gehoert zum Gleis?")
+    t.contains(text, "Create_Station_1")
     t.not_contains(text, "Gleis Gleis")
-    -- ein sehr langer Name: die zweite Zeile wird am Wortende gekuerzt, die Liste bleibt unberuehrt
-    local session = d.node.setup.session()
-    session.wiz.config.tracks[session.track].name = "Westbahnhof Nordseite Gleis mit sehr langem Namen fuer den Test ausgeschrieben"
-    d.node.render()
-    text = d.text(v)
-    local lines = {}
-    for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
-    t.contains(lines[3], "Bahnhof zuordnen")
-    t.contains(lines[4], "Welcher Create-Bahnhof gehoert zu")
-    t.contains(lines[5], "~")
-    t.contains(lines[6], "Create_Station_1")
+    t.not_contains(text, "Richtung")
     -- nach dem Bahnhof gibt es keine Frage nach einem Ausgang mehr
-    session.wiz.config.tracks[session.track].name = "Gleis 1"
     d.tap_row(v, "bahnhof", "Create_Station_1"); d.tap(v, "act:weiter")
     t.not_contains(d.text(v), "Welcher Ausgang")
   end },
@@ -64,12 +56,10 @@ return {
   { "Pruefmeldungen und Texte der Einrichtung: kein doppeltes Gleis", function()
     local c = model.new("Hof", { "passagierbahnhof" }, { name = "Netz" })
     local tid = model.add_track(c, "Gleis 1")
-    c.tracks[tid].direction = "kaputt"
     local texts = {}
     for _, p in ipairs(model.validate(c, {})) do texts[#texts + 1] = p.text end
     local joined = table.concat(texts, "\n")
     t.contains(joined, "Gleis 1 hat keinen Bahnhof.")
-    t.contains(joined, "Gleis 1: Richtung fehlt oder ist ungueltig.")
     t.not_contains(joined, "Gleis Gleis")
     local c2 = model.new("Hof", { "passagierbahnhof" }, { name = "Netz" })
     model.add_track(c2, "Nord")

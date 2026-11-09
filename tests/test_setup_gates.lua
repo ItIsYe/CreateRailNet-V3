@@ -17,7 +17,7 @@ end
 return {
   {'Geraeteausfall vor Aktivierung wird frisch erkannt', function()
     local w,world=fixture('depot'); w.toggle_device('station')
-    local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'station',next(w.config.devices))
+    local id=w.add_track('Gleis 1'); w.toggle_track_station(id,next(w.config.devices))
     for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id),true) end
     t.eq(w.all_tests_ok(),true)
     world.devices.station=nil
@@ -26,13 +26,14 @@ return {
     t.eq(w.all_tests_ok(),false,'Ausfall entwertet den alten Test')
   end},
   {'Rollenwechsel entfernt unpassende Auswahl', function()
-    local w=fixture('depot');w.toggle_device('obs');w.add_track('Abstellplatz')
+    local w=fixture('depot');w.toggle_device('station');w.add_track('Abstellplatz')
     w.toggle_role('anmeldung')
     local ok,why,effect=w.toggle_role('depot')
-    t.eq(ok,false); t.eq(why,'bestaetigen'); t.eq(effect.devices,1,'das Abwaehlen nennt, was es entfernt')
-    t.eq(w.device_selected('obs'),true,'ohne Bestaetigung bleibt alles stehen')
+    t.eq(ok,false); t.eq(why,'bestaetigen'); t.eq(effect.tracks,1,'das Abwaehlen nennt, was es entfernt')
+    t.eq(#w.tracks(),1,'ohne Bestaetigung bleibt alles stehen')
     t.eq(w.toggle_role('depot',true),true)
-    t.eq(w.device_selected('obs'),false)
+    t.eq(#w.tracks(),0,'die Gleise gehoeren zur Bahnhofsrolle')
+    t.eq(w.device_selected('station'),true,'die Station bleibt fuer die Anmeldung')
     t.eq(w.allowed_devices().observer,nil)
   end},
   {'Laufende Node: Es gibt keinen Entwurf-Knopf; Abbrechen verwirft die Kopie, die laufende Einrichtung bleibt', function()
@@ -140,15 +141,15 @@ return {
     w.toggle_device('station'); t.eq(w.next(),true)
     t.eq(w.next(),false); t.eq(w.step,4)
     local id=w.add_track('Gleis 1'); local sid=next(w.config.devices)
-    w.toggle_track_device(id,'station',sid)
+    w.toggle_track_station(id,sid)
     t.eq(w.next(),true); t.eq(w.next(),false); t.eq(w.step,5)
   end},
   {'Aenderung der Zuordnung entwertet bestandene Tests', function()
     local w = fixture('depot'); w.toggle_device('station')
-    local id=w.add_track('Gleis 1'); w.toggle_track_device(id,'station',next(w.config.devices))
+    local id=w.add_track('Gleis 1'); w.toggle_track_station(id,next(w.config.devices))
     for _,test in ipairs(w.tests()) do t.eq(w.run_test(test.id),true) end
     t.eq(w.all_tests_ok(),true)
-    w.set_direction(id,'hin'); t.eq(w.all_tests_ok(),false)
+    w.config.tracks[id].length=99; t.eq(w.all_tests_ok(),false)
   end},
   {'Leeres Depot darf nie aktiviert werden', function()
     local w = fixture('depot'); local saved
