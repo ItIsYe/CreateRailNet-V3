@@ -941,7 +941,10 @@ function M.new(node)
     return true
   end
 
-  function role.create_template(fields)
+  -- opts.replace: eine vorhandene Vorlage mit dieser Kennung aendern (Prioritaet bleibt); ohne wird eine vorhandene Kennung nicht ueberschrieben
+  function role.create_template(fields, opts2)
+    local previous = role.orders.template(fields.id)
+    if previous and not (opts2 and opts2.replace) then return nil, "Die Vorlage " .. tostring(fields.id) .. " gibt es schon: mit Aendern bearbeiten." end
     local stops, err = orderslib.parse_stops(fields.stops)
     if not stops then return nil, err end
     local train = role.register.get(fields.train)
@@ -949,9 +952,31 @@ function M.new(node)
     for _, stop in ipairs(stops) do
       if stop.cargo and not samples.item_threshold then return nil, "Fuer Mengenangaben fehlt das Muster (Seite Vorlagen, Muster erfassen)." end
     end
-    local ok, e = role.orders.add_template({ id = fields.id, title = fields.title, train = fields.train, return_to_start = true, stops = stops },
+    local ok, e = role.orders.add_template({ id = fields.id, title = fields.title, train = fields.train, return_to_start = true, stops = stops, priority = previous and previous.priority or nil },
       function(name) return role.stations.get(name) ~= nil end)
     if not ok then return nil, e end
+    return true
+  end
+
+  -- Einen Bahnhof mit mehreren Gleisen aendern oder umbenennen; die Halte der Vorlagen folgen dem neuen Namen
+  function role.update_station_group(old, name, members)
+    local renamed = name ~= old
+    if renamed then
+      -- zuerst pruefen, ob ein laufender Auftrag den alten Namen braucht (nichts wird geaendert, wenn ja)
+      for _, order in ipairs(role.orders.active()) do
+        local template = role.orders.template(order.template)
+        local uses = false
+        for _, stop in ipairs(template and template.stops or {}) do if stop.station == old then uses = true end end
+        for _, plan_name in ipairs(order.plan or {}) do if plan_name == old then uses = true end end
+        if uses then return nil, "Der Auftrag " .. order.id .. " faehrt zu diesem Bahnhof: erst beenden oder abbrechen." end
+      end
+    end
+    local ok, err = role.stations.update(old, name, members)
+    if not ok then return nil, err end
+    if renamed then
+      local count, why = role.orders.rename_station(old, name)
+      if not count then return nil, why end
+    end
     return true
   end
 
@@ -1372,6 +1397,13 @@ function M.new(node)
     render = function(v, rect)
       local state = v.page_state("zuege")
       state.list = state.list or { index = 1 }
+      state.fields = state.fields or { name = { value = "", max = 30 }, create = { value = "", max = 30 } }
+      if state.screen == "aendern" then
+        W.label(v, rect.x + 1, rect.y, "Zug " .. tostring(state.edit) .. " aendern", "hell", rect.w - 2)
+        W.field(v, "zname", rect.x + 1, rect.y + 2, math.min(34, rect.w - 2), "Anzeigename", state.fields.name)
+        W.field(v, "zcreate", rect.x + 1, rect.y + 5, math.min(34, rect.w - 2), "Create-Zugname (so heisst der Zug in Create)", state.fields.create)
+        return
+      end
       local items = {}
       state.trains = {}
       for i, train in ipairs(role.register.list()) do
@@ -1384,10 +1416,53 @@ function M.new(node)
     end,
     actions = function(v)
       local state = v.page_state("zuege")
+      if state.screen == "aendern" then
+        return {
+          { id = "z_speichern", label = "Speichern", side = "rechts" },
+          { id = "z_zurueck", label = "Zurueck", kind = "secondary", side = "rechts" },
+        }
+      end
       local train = state.trains and state.trains[(state.list or { index = 1 }).index]
-      return { { id = "abmelden", label = arm.unregister and "Wirklich?" or "Abmelden", kind = "danger", enabled = train ~= nil, reason = "Erst einen Zug waehlen." } }
+      return {
+        { id = "z_aendern", label = "Aendern", kind = "secondary", enabled = train ~= nil, reason = "Erst einen Zug waehlen." },
+        { id = "abmelden", label = arm.unregister and "Wirklich?" or "Abmelden", kind = "danger", enabled = train ~= nil, reason = "Erst einen Zug waehlen." },
+      }
     end,
     on_action = function(v, id)
+      local state = v.page_state("zuege")
+      if id == "act:z_aendern" then
+        local train = state.trains and state.trains[state.list.index]
+        if not train then return true end
+        state.fields = state.fields or { name = { value = "", max = 30 }, create = { value = "", max = 30 } }
+        state.fields.name.value, state.fields.create.value = train.display_name or "", train.create_name or ""
+        state.edit, state.screen = train.id, "aendern"
+        return true
+      elseif id == "act:z_zurueck" then
+        state.screen = nil
+        return true
+      elseif id == "act:z_speichern" then
+        local train = role.register.get(state.edit)
+        if not train then state.screen = nil return true end
+        local new_create = state.fields.create.value:match("^%s*(.-)%s*$")
+        if new_create ~= train.create_name then
+          for _, order in ipairs(role.orders.active()) do
+            if order.train == train.id then
+              v.hint = "Der Zug hat den aktiven Auftrag " .. order.id .. ": erst beenden oder abbrechen."
+              return true
+            end
+          end
+          local ok, err = role.register.rename_create(train.id, new_create)
+          if not ok then v.hint = err return true end
+        end
+        local new_name = state.fields.name.value:match("^%s*(.-)%s*$")
+        if new_name ~= "" and new_name ~= train.display_name then
+          local ok, err = role.register.rename_display(train.id, new_name)
+          if not ok then v.hint = err return true end
+        end
+        v.hint = "Gespeichert."
+        state.screen = nil
+        return true
+      end
       if id == "act:abmelden" then
         local state = v.page_state("zuege")
         local train = state.trains and state.trains[state.list.index]
@@ -1631,11 +1706,11 @@ function M.new(node)
         end
         W.list(v, "vorlagen", rect, items, state.list, { empty = "Noch keine Vorlage. Mit 'Neue Vorlage' anlegen." })
       elseif state.screen == "neu1" then
-        W.label(v, rect.x + 1, rect.y, "Neue Vorlage (1/2)", "hell")
-        W.field(v, "id", rect.x + 1, rect.y + 2, math.min(24, rect.w - 2), "Kennung (z.B. weizen)", state.fields.id)
+        W.label(v, rect.x + 1, rect.y, (state.edit and "Vorlage aendern" or "Neue Vorlage") .. " (1/2)", "hell")
+        W.field(v, "id", rect.x + 1, rect.y + 2, math.min(24, rect.w - 2), state.edit and "Kennung (bleibt)" or "Kennung (z.B. weizen)", state.fields.id)
         W.field(v, "title", rect.x + 1, rect.y + 5, math.min(34, rect.w - 2), "Titel (z.B. Weizen liefern)", state.fields.title)
       elseif state.screen == "neu2" then
-        W.label(v, rect.x + 1, rect.y, "Neue Vorlage (2/2)", "hell")
+        W.label(v, rect.x + 1, rect.y, (state.edit and "Vorlage aendern" or "Neue Vorlage") .. " (2/2)", "hell")
         W.field(v, "train", rect.x + 1, rect.y + 2, math.min(24, rect.w - 2), "Zug (Kennung, angemeldet)", state.fields.train)
         W.field(v, "stops", rect.x + 1, rect.y + 5, rect.w - 2, "Halte: Bahnhof:Sekunden:Menge; naechster ...", state.fields.stops)
         W.label(v, rect.x + 1, rect.y + 8, "Beispiel: Weizenhof:5:640; Zentrallager:3", "dim", rect.w - 2)
@@ -1658,6 +1733,7 @@ function M.new(node)
         return {
           { id = "anfordern", label = "Anfordern", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
           { id = "neu", label = "Neu", kind = "secondary" },
+          { id = "vl_aendern", label = "Aendern", kind = "secondary", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
           { id = "prio", label = "Prio", kind = "secondary", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
           { id = "muster", label = "Muster", kind = "secondary" },
           { id = "vl_loeschen", label = arm.template == (info and info.id) and info ~= nil and "Wirklich?" or "Loeschen", kind = "danger", enabled = info ~= nil, reason = "Erst eine Vorlage waehlen." },
@@ -1682,6 +1758,17 @@ function M.new(node)
         return true
       elseif id == "act:neu" then
         f.id.value, f.title.value, f.train.value, f.stops.value = "", "", "", ""
+        state.edit = nil
+        state.screen = "neu1"
+        return true
+      elseif id == "act:vl_aendern" then
+        local info = state.templates and state.templates[state.list.index]
+        if not info then return true end
+        local template = role.orders.template(info.id)
+        if not template then return true end
+        f.id.value, f.title.value, f.train.value = template.id, template.title, template.train
+        f.stops.value = orderslib.format_stops(template.stops)
+        state.edit = info.id
         state.screen = "neu1"
         return true
       elseif id == "act:prio" then
@@ -1716,12 +1803,14 @@ function M.new(node)
         state.screen = "neu2"
         return true
       elseif id == "act:vl_zurueck" then
+        if state.screen ~= "neu2" then state.edit = nil end
         state.screen = (state.screen == "neu2") and "neu1" or "liste"
         return true
       elseif id == "act:vl_speichern" then
-        local ok, err = role.create_template({ id = f.id.value, title = f.title.value, train = f.train.value, stops = f.stops.value })
+        local ok, err = role.create_template({ id = state.edit or f.id.value, title = f.title.value, train = f.train.value, stops = f.stops.value }, { replace = state.edit ~= nil })
         if ok then
           v.hint = "Vorlage gespeichert."
+          state.edit = nil
           state.screen = "liste"
         else
           v.hint = err
@@ -1750,16 +1839,23 @@ function M.new(node)
       { id = "members", label = "Gleise (Create-Namen mit ; trennen)", max = 160, width = 48 },
     },
     edit = function(g) return { name = g.name, members = table.concat(g.members, "; ") } end,
-    on_save = function(values)
+    on_save = function(values, record)
       local members = {}
       for part in (values.members or ""):gmatch("[^;]+") do
         local name = part:match("^%s*(.-)%s*$")
         if name ~= "" then members[#members + 1] = name end
       end
+      if record then return role.update_station_group(record.name, values.name, members) end
+      if role.stations.get(values.name) then return nil, "Einen Bahnhof " .. tostring(values.name) .. " gibt es schon: mit Aendern bearbeiten." end
       return role.stations.set(values.name, members)
     end,
     extra = {
-      { id = "loeschen", label = "Loeschen", kind = "danger", run = function(v, g) local ok, err = role.stations.remove(g.name) return ok and "Bahnhof geloescht (die Gleise bleiben)." or err end },
+      { id = "loeschen", label = "Loeschen", kind = "danger", run = function(v, g)
+          local using = role.orders.templates_using(g.name)
+          local ok, err = role.stations.remove(g.name)
+          if not ok then return err end
+          return #using > 0 and ("Bahnhof geloescht. Die Vorlage " .. using[1].title .. " nennt ihn noch.") or "Bahnhof geloescht (die Gleise bleiben)."
+        end },
       { id = "sperren", label = "Sperre", run = function(v, g)
           local name = g.members[1]
           local ok, err = role.set_closed(name, not closed[name])
@@ -1791,7 +1887,10 @@ function M.new(node)
       { id = "priority", label = "Prioritaet: normal oder bevorzugt", max = 10, width = 14, default = "normal" },
     },
     edit = function(line) return { id = line.id, title = line.title, template = line.template, trains = table.concat(line.trains, "; "), interval = line.interval, priority = line.priority } end,
-    on_save = function(values)
+    on_save = function(values, record)
+      -- die Kennung einer vorhandenen Linie bleibt (sonst entstuende eine zweite Linie); Titel, Vorlage, Zuege, Takt und Prioritaet lassen sich aendern
+      if record then values.id = record.id
+      elseif role.lines.get(values.id) then return nil, "Die Linie " .. tostring(values.id) .. " gibt es schon: mit Aendern bearbeiten." end
       local trains = {}
       for part in (values.trains or ""):gmatch("[^;]+") do
         local id = part:match("^%s*(.-)%s*$")

@@ -1,6 +1,6 @@
 --[[
 Purpose: Fahrtauftraege (Konzept 8): Vorlage und Ausfuehrung sind getrennt; jede Ausfuehrung ist ein eigener Vorgang mit Lebenszyklus (angefordert, in Pruefung, wartend, vorbereitet, Fahrplan uebergeben, Abfahrt freigegeben, unterwegs, am Ziel, abgeschlossen, Klaerung erforderlich; dazu abgelehnt und storniert). Uebergaenge sind begrenzt, jeder Schritt bleibt mit Zeit und Grund erhalten. Eine zweite Anforderung derselben Vorlage zeigt den laufenden Auftrag, statt eine neue Fahrt zu erzeugen.
-API: orders.new{ store, path, now } -> o; o.add_template(t); o.remove_template(id); o.templates(); o.request(template_id, request_id) -> auftrag, neu; o.get(id); o.active(); o.active_for(template_id); o.transition(id, to, grund); o.cancel(id) -> ok, hinweis; o.list(); o.save()
+API: orders.new{ store, path, now } -> o; o.add_template(t); o.remove_template(id); o.templates_using(bahnhof); o.rename_station(alt, neu); M.format_stops(stops); o.templates(); o.request(template_id, request_id) -> auftrag, neu; o.get(id); o.active(); o.active_for(template_id); o.transition(id, to, grund); o.cancel(id) -> ok, hinweis; o.list(); o.save()
 Notes: Eine Ablehnung betrifft eine nicht ausfuehrbare Anforderung; Stornieren geht nur, solange noch kein Fahrplan uebergeben wurde. Danach ist "Abbrechen" nur ein Aenderungswunsch (change_request), kein Zustandswechsel: das Loeschen eines Auftrags bremst keinen Zug (8.1). Wiederholte Anforderung mit derselben request_id liefert denselben Auftrag.
 ]]
 
@@ -62,6 +62,18 @@ function M.parse_stops(text)
   return stops
 end
 
+-- die Umkehrung von parse_stops: Halte -> "Weizenhof:5:640; Zentrallager:3"
+function M.format_stops(stops)
+  local parts = {}
+  for _, stop in ipairs(stops or {}) do
+    local text = stop.station
+    if stop.wait ~= nil or stop.cargo then text = text .. ":" .. tostring(stop.wait or 0) end
+    if stop.cargo then text = text .. ":" .. tostring(stop.cargo.count) end
+    parts[#parts + 1] = text
+  end
+  return table.concat(parts, "; ")
+end
+
 local function copy(v)
   if type(v) ~= "table" then return v end
   local out = {}
@@ -98,6 +110,11 @@ function M.new(opts)
       return nil, names[i] .. " zweimal hintereinander (Halt " .. i .. ", " .. ((returns and j == #names) and "Rueckfahrt" or tostring(j)) .. ")."
     end
     local previous = data.templates[t.id]
+    -- eine vorhandene Vorlage wird ersetzt, nicht aber unter einem laufenden Auftrag
+    if previous then
+      local running = o.active_for(t.id)
+      if running then return nil, "Aus der Vorlage laeuft der Auftrag " .. running.id .. ": erst beenden oder abbrechen." end
+    end
     data.templates[t.id] = copy(t)
     local ok, err = o.save()
     if not ok then
@@ -129,6 +146,45 @@ function M.new(opts)
     local ok, err = o.save()
     if not ok then data.templates[id] = template return nil, err end
     return true
+  end
+
+  -- Vorlagen, die den Bahnhof (Gruppen- oder Create-Name) anfahren
+  function o.templates_using(station)
+    local out = {}
+    for _, template in ipairs(o.templates()) do
+      for _, stop in ipairs(template.stops or {}) do
+        if stop.station == station then out[#out + 1] = template break end
+      end
+    end
+    return out
+  end
+
+  -- Ein Bahnhof wurde umbenannt: die Halte der Vorlagen folgen. Nicht, solange ein Auftrag zu dem Bahnhof faehrt (sein Plan nennt den alten Namen).
+  function o.rename_station(old, new)
+    for _, order in ipairs(o.active()) do
+      local template = data.templates[order.template]
+      local uses = false
+      for _, stop in ipairs(template and template.stops or {}) do if stop.station == old then uses = true end end
+      for _, name in ipairs(order.plan or {}) do if name == old then uses = true end end
+      if uses then return nil, "Der Auftrag " .. order.id .. " faehrt zu diesem Bahnhof: erst beenden oder abbrechen." end
+    end
+    local changed = {}
+    for _, template in ipairs(o.templates_using(old)) do
+      changed[#changed + 1] = template
+    end
+    for _, template in ipairs(changed) do
+      for _, stop in ipairs(template.stops) do if stop.station == old then stop.station = new end end
+    end
+    if #changed > 0 then
+      local ok, err = o.save()
+      if not ok then
+        for _, template in ipairs(changed) do
+          for _, stop in ipairs(template.stops) do if stop.station == new then stop.station = old end end
+        end
+        return nil, err
+      end
+    end
+    return #changed
   end
 
   function o.templates()

@@ -1,6 +1,6 @@
 --[[
 Purpose: Logische Bahnhoefe mit mehreren Haltegleisen (Konzept 10.1) und die Wahl des Zielgleises: bevorzugtes Gleis zuerst, dann die Alternativen, jeweils nur wenn es erreichbar, frei, nicht zugewiesen, nicht gesperrt und lang genug ist. Das Ziel wird vor der Fahrplanuebergabe festgelegt und danach nicht mehr getauscht.
-API: stations.new{ store, path } -> s; s.set(name, mitglieder) -> ok, fehler; s.remove(name); s.get(name); s.list(); s.candidates(name) -> Liste von Create-Namen (Gruppe: ihre Mitglieder in Rangfolge, sonst der Name selbst); s.group_of(create_name); stations.choose(candidates, info) -> create_name oder nil, Gruende
+API: stations.new{ store, path } -> s; s.set(name, mitglieder) -> ok, fehler; s.update(alter_name, neuer_name, mitglieder) benennt um und aendert die Gleise; s.remove(name); s.get(name); s.list(); s.candidates(name) -> Liste von Create-Namen (Gruppe: ihre Mitglieder in Rangfolge, sonst der Name selbst); s.group_of(create_name); stations.choose(candidates, info) -> create_name oder nil, Gruende
 Notes: Mitglieder sind Create-Bahnhofsnamen in Rangfolge (erster = bevorzugt). Ein Create-Bahnhof gehoert hoechstens zu einer Gruppe. info(name) liefert { problem = Text oder nil }; die Pruefungen selbst (Erreichbarkeit, Belegung, Zuweisung, Sperre, Laenge) liegen bei der Leitstelle, damit hier nichts geraten wird.
 ]]
 
@@ -38,6 +38,32 @@ function M.new(opts)
     data.groups[name] = { members = members }
     local ok, err = save()
     if not ok then data.groups[name] = previous return nil, err end
+    return true
+  end
+
+  -- einen vorhandenen Bahnhof aendern (auch umbenennen): die Gleise des Bahnhofs selbst gelten nicht als "schon vergeben"
+  function s.update(old, name, members)
+    if not data.groups[old] then return nil, "Den Bahnhof gibt es nicht." end
+    if type(name) ~= "string" or name == "" then return nil, "Der Bahnhof braucht einen Namen." end
+    if name ~= old and data.groups[name] then return nil, "Einen Bahnhof " .. name .. " gibt es schon." end
+    if type(members) ~= "table" or #members == 0 then return nil, "Der Bahnhof braucht mindestens ein Gleis (Create-Bahnhofsname)." end
+    local seen = {}
+    for _, member in ipairs(members) do
+      if type(member) ~= "string" or member == "" then return nil, "Ein Gleisname ist leer." end
+      if seen[member] then return nil, label.track(member) .. " steht doppelt in der Liste." end
+      seen[member] = true
+      local other = s.group_of(member)
+      if other and other ~= old then return nil, label.track(member) .. " gehoert schon zum Bahnhof " .. other .. "." end
+    end
+    if seen[name] and #members > 1 then return nil, "Der Bahnhofsname darf nicht zugleich ein Gleisname sein." end
+    local previous_old, previous_new = data.groups[old], data.groups[name]
+    data.groups[old] = nil
+    data.groups[name] = { members = members }
+    local ok, err = save()
+    if not ok then
+      data.groups[name], data.groups[old] = previous_new, previous_old
+      return nil, err
+    end
     return true
   end
 

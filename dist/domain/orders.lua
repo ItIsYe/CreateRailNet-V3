@@ -62,6 +62,18 @@ if#stops==0 then return nil,"Mindestens ein Halt ist noetig."end
 return stops
 end
 
+
+function M.format_stops(stops)
+local parts={}
+for _,stop in ipairs(stops or{})do
+local text=stop.station
+if stop.wait~=nil or stop.cargo then text=text..":"..tostring(stop.wait or 0)end
+if stop.cargo then text=text..":"..tostring(stop.cargo.count)end
+parts[#parts+1]=text
+end
+return table.concat(parts,"; ")
+end
+
 local function copy(v)
 if type(v)~="table"then return v end
 local out={}
@@ -98,6 +110,11 @@ if i and not(is_group and is_group(names[i]))then
 return nil,names[i].." zweimal hintereinander (Halt "..i..", "..((returns and j==#names)and"Rueckfahrt"or tostring(j))..")."
 end
 local previous=data.templates[t.id]
+
+if previous then
+local running=o.active_for(t.id)
+if running then return nil,"Aus der Vorlage laeuft der Auftrag "..running.id..": erst beenden oder abbrechen."end
+end
 data.templates[t.id]=copy(t)
 local ok,err=o.save()
 if not ok then
@@ -129,6 +146,45 @@ data.templates[id]=nil
 local ok,err=o.save()
 if not ok then data.templates[id]=template return nil,err end
 return true
+end
+
+
+function o.templates_using(station)
+local out={}
+for _,template in ipairs(o.templates())do
+for _,stop in ipairs(template.stops or{})do
+if stop.station==station then out[#out+1]=template break end
+end
+end
+return out
+end
+
+
+function o.rename_station(old,new)
+for _,order in ipairs(o.active())do
+local template=data.templates[order.template]
+local uses=false
+for _,stop in ipairs(template and template.stops or{})do if stop.station==old then uses=true end end
+for _,name in ipairs(order.plan or{})do if name==old then uses=true end end
+if uses then return nil,"Der Auftrag "..order.id.." faehrt zu diesem Bahnhof: erst beenden oder abbrechen."end
+end
+local changed={}
+for _,template in ipairs(o.templates_using(old))do
+changed[#changed+1]=template
+end
+for _,template in ipairs(changed)do
+for _,stop in ipairs(template.stops)do if stop.station==old then stop.station=new end end
+end
+if#changed>0 then
+local ok,err=o.save()
+if not ok then
+for _,template in ipairs(changed)do
+for _,stop in ipairs(template.stops)do if stop.station==new then stop.station=old end end
+end
+return nil,err
+end
+end
+return#changed
 end
 
 function o.templates()

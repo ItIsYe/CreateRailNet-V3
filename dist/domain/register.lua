@@ -112,6 +112,21 @@ return persist()
 end
 
 
+function r.rename_create(id,name)
+local train=data.trains[id]
+if not train then return nil,"unbekannter Zug"end
+if not valid_text(name)then return nil,"Der Create-Zugname ist leer oder enthaelt unzulaessige Zeichen."end
+if name==M.DEFAULT_NAME then return nil,"Der Standardname 'Unnamed Train' ist nicht eindeutig: bitte zuerst umbenennen."end
+local other=r.by_create_name(name)
+if other and other.id~=id then return nil,"Der Create-Zugname "..name.." gehoert schon zu "..other.id.."."end
+local previous=train.create_name
+train.create_name=name
+local ok,err=persist()
+if not ok then train.create_name=previous return nil,err end
+return true
+end
+
+
 function r.unregister(id)
 if not data.trains[id]then return nil,"unbekannter Zug"end
 data.trains[id]=nil

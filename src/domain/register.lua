@@ -1,6 +1,6 @@
 --[[
 Purpose: Zugregister der Leitstelle (Konzept 7): jeder verwaltete Zug hat eine interne Kennung, einen eindeutigen Create-Zugnamen, einen Anzeigenamen, Verwendung, Betriebsart, Laenge und Zustand. Die Kennung ist keine von Create gelesene Fahrzeug-ID; der Zugname ist veraenderbar und gilt nur eindeutig. Aussagen ueber den Aufenthalt tragen Art, Ort, Herkunft und Zeit.
-API: register.new{ store, path } -> r; r.validate(req) -> ok, grund; r.register(req) -> ok, grund; r.get(id); r.list(); r.by_create_name(name); r.set_state(id, state); r.set_position(id, kind, where, source, t); r.set_mode(id, mode); r.rename_display(id, name); r.unregister(id)
+API: register.new{ store, path } -> r; r.validate(req) -> ok, grund; r.register(req) -> ok, grund; r.get(id); r.list(); r.by_create_name(name); r.set_state(id, state); r.set_position(id, kind, where, source, t); r.set_mode(id, mode); r.rename_display(id, name); r.rename_create(id, name); r.unregister(id)
 Notes: Zustaende (7.3): registriert, gesteuert, uebergabe, abgestellt, ausgeschleust. Unregistrierte Zuege sind keine Eintraege (sie sind als Belegung relevant, siehe Leitstelle). Der Standardname "Unnamed Train" und doppelte Namen werden abgewiesen (Messung M14); eine Aenderung des Create-Zugnamens ist eine eigene kontrollierte Aktion, nicht dasselbe wie der Anzeigename. Betriebsart und Aufenthaltswissen werden unabhaengig vom Zustand gespeichert.
 ]]
 
@@ -109,6 +109,21 @@ function M.new(opts)
     if not valid_text(name) then return nil, "Der Anzeigename enthaelt unzulaessige Zeichen." end
     train.display_name = name
     return persist()
+  end
+
+  -- Der Zug wurde in Create umbenannt: der neue Name muss eindeutig sein (wie bei der Anmeldung)
+  function r.rename_create(id, name)
+    local train = data.trains[id]
+    if not train then return nil, "unbekannter Zug" end
+    if not valid_text(name) then return nil, "Der Create-Zugname ist leer oder enthaelt unzulaessige Zeichen." end
+    if name == M.DEFAULT_NAME then return nil, "Der Standardname 'Unnamed Train' ist nicht eindeutig: bitte zuerst umbenennen." end
+    local other = r.by_create_name(name)
+    if other and other.id ~= id then return nil, "Der Create-Zugname " .. name .. " gehoert schon zu " .. other.id .. "." end
+    local previous = train.create_name
+    train.create_name = name
+    local ok, err = persist()
+    if not ok then train.create_name = previous return nil, err end
+    return true
   end
 
   -- Abmelden entfernt die betriebliche Zustaendigkeit, nicht den Zug (15.3)

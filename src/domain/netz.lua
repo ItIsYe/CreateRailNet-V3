@@ -190,6 +190,14 @@ function M.new(spec)
         local name, why = valid_name(fields.name)
         if not name then return nil, why end
         if station_name_taken(name, id) then return nil, "Eine Betriebsstelle " .. name .. " gibt es schon." end
+        if st.name ~= name then
+          -- der Name der Anmeldung dieser Betriebsstelle folgt (die Kennung und das Label bleiben)
+          for node_id, node in pairs(data.nodes) do
+            if node.station == id and node.state ~= "verworfen" and #(node.roles or {}) == 1 then
+              node.name = ROLE_TEXT[node.roles[1]] .. " " .. name .. " " .. node_id
+            end
+          end
+        end
         st.name = name
       end
       if fields.kind ~= nil then

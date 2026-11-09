@@ -41,6 +41,32 @@ if not ok then data.groups[name]=previous return nil,err end
 return true
 end
 
+
+function s.update(old,name,members)
+if not data.groups[old]then return nil,"Den Bahnhof gibt es nicht."end
+if type(name)~="string"or name==""then return nil,"Der Bahnhof braucht einen Namen."end
+if name~=old and data.groups[name]then return nil,"Einen Bahnhof "..name.." gibt es schon."end
+if type(members)~="table"or#members==0 then return nil,"Der Bahnhof braucht mindestens ein Gleis (Create-Bahnhofsname)."end
+local seen={}
+for _,member in ipairs(members)do
+if type(member)~="string"or member==""then return nil,"Ein Gleisname ist leer."end
+if seen[member]then return nil,label.track(member).." steht doppelt in der Liste."end
+seen[member]=true
+local other=s.group_of(member)
+if other and other~=old then return nil,label.track(member).." gehoert schon zum Bahnhof "..other.."."end
+end
+if seen[name]and#members>1 then return nil,"Der Bahnhofsname darf nicht zugleich ein Gleisname sein."end
+local previous_old,previous_new=data.groups[old],data.groups[name]
+data.groups[old]=nil
+data.groups[name]={members=members}
+local ok,err=save()
+if not ok then
+data.groups[name],data.groups[old]=previous_new,previous_old
+return nil,err
+end
+return true
+end
+
 function s.remove(name)
 local previous=data.groups[name]
 if not previous then return nil,"Den Bahnhof gibt es nicht."end

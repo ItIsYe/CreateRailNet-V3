@@ -290,10 +290,31 @@ function M.new(opts)
       end
     end
     if two_rows then
+      -- passen die Tasten nicht in eine Zeile, laufen die linken in die zweite Zeile weiter (keine Taste faellt weg); die rechten stehen
+      -- rechts neben den linken der letzten Zeile, sonst darunter
       local h = math.floor(r.h / 2)
-      place(left, lw, r.x + 1, r.y, h)
+      local avail = r.w - 2
+      local rows, row, used = {}, {}, 0
+      for i = 1, #left do
+        if #row > 0 and used + 1 + lw[i] > avail then rows[#rows + 1] = { items = row, used = used }; row, used = {}, 0 end
+        row[#row + 1] = i
+        used = used + (#row > 1 and 1 or 0) + lw[i]
+      end
+      if #row > 0 then rows[#rows + 1] = { items = row, used = used } end
+      for ri, entry in ipairs(rows) do
+        if ri <= 2 then
+          local x = r.x + 1
+          for _, i in ipairs(entry.items) do
+            W.button(v, "act:" .. left[i].id, x, r.y + (ri - 1) * h, lw[i], h, left[i].label, { kind = left[i].kind or "primary", enabled = left[i].enabled, reason = left[i].reason })
+            x = x + lw[i] + 1
+          end
+        end
+      end
+      local right_row = 2
+      if #rows == 1 and rows[1].used + 1 + rtotal <= avail then right_row = 1 end
+      if #rows >= 2 then right_row = math.min(2, #rows) end
       local start = r.x + r.w - rtotal - 1
-      place(right, rw, math.max(r.x + 1, start), r.y + h, h)
+      place(right, rw, math.max(r.x + 1, start), r.y + (right_row - 1) * h, h)
     else
       local h = math.min(v.layout.action_row_h, r.h)
       place(left, lw, r.x + 1, r.y, h)
