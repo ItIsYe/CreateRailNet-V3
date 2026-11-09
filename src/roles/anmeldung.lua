@@ -182,7 +182,11 @@ function M.new(node)
           local r = registration.result
           local text = r.status == "angenommen" and ("Angemeldet: " .. tostring(registration.fields.id)) or ("Abgelehnt: " .. tostring(r.grund))
           if r.status == "spaeter" then text = "Noch nicht moeglich: " .. tostring(r.grund) end
-          W.label(v, rect.x + 1, rect.y + 6, text, r.status == "angenommen" and "ok" or (r.status == "spaeter" and "wait" or "halt"), rect.w - 2)
+          -- die Begruendung der Leitstelle wird umgebrochen (bis zu vier Zeilen), nicht abgeschnitten
+          for i, line in ipairs(W.wrap(text, rect.w - 2)) do
+            if i > 4 then break end
+            W.label(v, rect.x + 1, rect.y + 5 + i, line, r.status == "angenommen" and "ok" or (r.status == "spaeter" and "wait" or "halt"), rect.w - 2)
+          end
         elseif registration then
           W.label(v, rect.x + 1, rect.y + 6, now() - registration.sent >= REPLY_WAIT and "Rueckmeldung fehlt." or "Anmeldung gesendet ...", "wait", rect.w - 2)
         end

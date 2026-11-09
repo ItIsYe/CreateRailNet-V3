@@ -21,7 +21,7 @@ Gemessen mit `probe/crn_probe.lua` und `probe/crn_probe2.lua` (das zweite Messpr
 | M11 | `getSchedule()` enthaelt keinen Fortschritt (aktueller Eintrag) | Das Ziel eines Zuges aus Ereignissen ableiten oder als unbekannt fuehren. |
 | M12 | `setSchedule` mit dem unveraenderten Fahrplan eines haltenden Zuges: `ok`, danach identisch, Zug fuhr normal weiter | Der Schreibweg ueber den Bahnhof funktioniert. Aenderung des Inhalts ist nicht gemessen. |
 | M13 | `canTrainReach(Name)` liefert `true, nil` oder `false, "no-target"`; `distanceTo(eigener Name)` liefert `0, nil` | Zwei Rueckgabewerte beachten. |
-| M14 | Zugname ist nicht eindeutig: `Unnamed Train` ist der Standardname, zwei Zuege hatten verschiedene Fahrplaene | Zugregister nicht auf den Namen allein stuetzen; eindeutige Namen vor Betriebsfreigabe verlangen. |
+| M14 | Zugname ist nicht eindeutig: `Unnamed Train` ist der Standardname, zwei Zuege hatten verschiedene Fahrplaene | Zugregister nicht auf den Namen allein stuetzen; eindeutige Namen vor Betriebsfreigabe verlangen. **Umsetzung:** Die Anmeldung weist `Unnamed Train`, einen Namen eines schon registrierten Zuges und einen Namen ab, den im Netz schon ein anderer Zug traegt (er steht an einem Gleis eines Bahnhofs, oder die Leitstelle hat ihn als fremden Zug gesehen); der Zug wird dann nicht umbenannt. Nicht erkennbar sind Zuege, die noch nie an einem Bahnhof des Netzes standen. |
 | M15 | 40 Geraeteaufrufe (Signal ueber das Kabelmodem, Bahnhof) brauchen weniger als 5 ms Echtzeit und keinen Tick | Abfragekosten sind kein Engpass; 300 Signale abzufragen ist billig. |
 | M16 | `isTrainEnroute()` ist `true`, sobald ein Zug zum Bahnhof unterwegs ist | Vorwarnung ohne Ereignis lesbar. |
 
@@ -124,6 +124,6 @@ Quelle: `Config.java`, `ServerMonitor.rebuild`, `MonitorBlockEntity` (Repository
 - Mengenbedingung (`create:item_threshold`) im ersten Eintrag eines Abschnittsfahrplans bei einem stehenden Zug, und die Restwartezeit: Spieltest 4.9 bis 4.11 in `docs/GROSSER_TEST.md`.
 - Monitor-Groessen und Farben, Create_DisplayLink: kein Geraet angeschlossen (die Groessen stehen als Rechnung aus dem Quelltext unter Q02, gemessen ist noch nichts).
 - Alle Messungen zur Abfahrt am Bahnhof laufen mit `probe/crn_alles.lua` in einem Lauf (Spieltest 3.97). Die Rueckkehr des Pruefzuges in Probe D ist mit dem behobenen Messprogramm noch nicht belegt (fuer die Freigabe nicht noetig).
-- ~~Signal statt Beobachter am Knoten~~ (Spieltest 3.96): entfaellt, weil Create Signale und Kreuzungen allein regelt und die Software keinen Knoten mehr steuert. Offen bleiben gleiche Zugnamen (M14).
+- ~~Signal statt Beobachter am Knoten~~ (Spieltest 3.96): entfaellt, weil Create Signale und Kreuzungen allein regelt und die Software keinen Knoten mehr steuert. Gleiche Zugnamen (M14) weist die Anmeldung ab (Spieltest 4.20).
 - Funkreichweite und Nachrichtenverlust zwischen Computern (Ender-Modem).
 - Verhalten bei vielen Geraeten am Kabel (hier nur ein Signal, ein Bahnhof, ein Beobachter).

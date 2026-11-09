@@ -595,6 +595,32 @@ function M.new(node)
     node.reply(m, "ok", { fertig = true })
   end
 
+  -- Traegt schon ein anderer Zug diesen Namen im Netz (M14)? Gesucht wird in den Zustandsberichten der Gleise (Zug steht dort) und unter den fremden
+  -- Zuegen, die die Leitstelle gesehen hat. Ergebnis: der Ort (Bahnhofsname) oder nil. Der Zug, der gerade angemeldet wird, steht am Gleis der Anmeldung
+  -- unter seinem jetzigen Namen: er zaehlt nicht. Registrierte Zuege prueft das Zugregister selbst.
+  local function name_in_network(name, own_where, current)
+    local function place(node_id, track_id)
+      local info = nodes[node_id]
+      for _, tr in ipairs(info and info.tracks or {}) do
+        if tr.id == track_id and tr.station_name then return tr.station_name end
+      end
+      return tostring(node_id)
+    end
+    local keys = {}
+    for key in pairs(track_state) do keys[#keys + 1] = key end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+      local st = track_state[key]
+      if st.present and st.train == name and not (key == own_where and name == current) then
+        local node_id, track_id = key:match("^(.-):(.+)$")
+        return place(node_id, track_id), true
+      end
+    end
+    local e = unknown_trains[name]
+    if e and name ~= current then return place(e.node, e.track), e.present end
+    return nil
+  end
+
   -- Anfragen von Bedien-Nodes ---------------------------------------------------------------------------------------------------------------
   local function handle_register(m)
     local p = m.payload
@@ -606,6 +632,10 @@ function M.new(node)
     local req = { id = p.id, create_name = p.create_name, display_name = p.display_name, usage = p.usage, mode = p.mode, length = p.length }
     local ok, why = role.register.validate(req)
     if not ok then return node.reply(m, "abgelehnt", { grund = why }) end
+    local where, standing = name_in_network(p.create_name, entry.node .. ":" .. entry.track, p.current_name)
+    if where then
+      return node.reply(m, "abgelehnt", { grund = "Einen Zug namens " .. p.create_name .. " gibt es im Netz schon (" .. (standing and "steht" or "gesehen") .. " an " .. where .. "). Bitte einen anderen Namen waehlen." })
+    end
     local function finish()
       req.evidence = { present = true, train_name = p.create_name, where = entry.node .. ":" .. entry.track, source = "abfrage", t = now() }
       local saved, err = role.register.register(req)

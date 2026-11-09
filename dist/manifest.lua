@@ -1,5 +1,5 @@
 return {
-  id = "4965d1ce",
+  id = "8697d1e9",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4870, sum = "9d5ba795" },
@@ -31,7 +31,7 @@ return {
     ["domain/register.lua"] = { size = 4960, sum = "e126ed3e" },
     ["domain/schedule.lua"] = { size = 6326, sum = "950fd613" },
     ["domain/stations.lua"] = { size = 3376, sum = "8e77b92a" },
-    ["roles/anmeldung.lua"] = { size = 10635, sum = "4066b687" },
+    ["roles/anmeldung.lua"] = { size = 10710, sum = "5065cf0b" },
     ["roles/leitstelle/auftraege.lua"] = { size = 2147, sum = "91830251" },
     ["roles/leitstelle/bahnhoefe.lua"] = { size = 1845, sum = "10d585cb" },
     ["roles/leitstelle/depot.lua"] = { size = 4366, sum = "441c1b34" },
@@ -41,7 +41,7 @@ return {
     ["roles/leitstelle/vorlagen.lua"] = { size = 6352, sum = "a317ba07" },
     ["roles/leitstelle/zuege.lua"] = { size = 3543, sum = "1cdce7a7" },
     ["roles/station.lua"] = { size = 21283, sum = "5f571557" },
-    ["roles/zentrale.lua"] = { size = 55204, sum = "f47fb036" },
+    ["roles/zentrale.lua"] = { size = 56213, sum = "445616ca" },
     ["setup/model.lua"] = { size = 6435, sum = "86ace1a7" },
     ["setup/page.lua"] = { size = 36525, sum = "bf049bee" },
     ["setup/wizard.lua"] = { size = 12748, sum = "fcb5b3a4" },
