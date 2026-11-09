@@ -1869,11 +1869,17 @@ function M.new(node)
     id = "linien", title = "Linien", empty = "Noch keine Linie. Eine Linie fuehrt eine Vorlage im Takt aus.", new_label = "Neu",
     items = function()
       local items, records = {}, {}
+      -- Plan (Termin) und Ist (laufender Auftrag) getrennt, wie auf der Tafel der Bahnhoefe
+      local ist_of = {}
+      for _, row in ipairs(role.board()) do ist_of[row.line] = row.order end
       for i, line in ipairs(role.lines.list()) do
         local text = line.title .. " alle " .. line.interval .. " s" .. (line.priority == "bevorzugt" and " (bevorzugt)" or "") .. (line.active and "" or " [aus]")
-        local detail = "naechster Termin in " .. math.max(0, math.floor(line.next_due - now())) .. " s, ausgelassen " .. line.missed
-        if line.note then detail = detail .. ": " .. line.note end
-        items[i] = { text = text, detail = detail, kind = line.active and "text" or "dim" }
+        -- kurz, damit es in eine Zeile des Terminals passt: Termin in n s, ausgelassene, laufender Zug mit Zustand und Halt
+        local order = ist_of[line.id]
+        local detail = "in " .. math.max(0, math.floor(line.next_due - now())) .. " s" .. (line.missed > 0 and (", " .. line.missed .. " ausgel.") or "")
+          .. ", " .. (order and (order.train .. " " .. (STATE_TEXT[order.state] or order.state) .. " " .. math.min(order.leg, order.legs) .. "/" .. order.legs) or "kein Zug")
+        if line.note then detail = detail .. ". " .. line.note end
+        items[i] = { text = text, detail = detail, kind = line.active and (order and STATE_KIND[order.state] or "text") or "dim" }
         records[i] = line
       end
       return items, records
@@ -1911,34 +1917,6 @@ function M.new(node)
       { id = "loeschen", label = "Loeschen", kind = "danger", run = function(v, line) local ok, err = role.lines.remove(line.id) return ok and "Linie geloescht (laufende Auftraege bleiben)." or err end },
     },
   })
-
-  -- Tafel: Plan und Ist getrennt ------------------------------------------------------------------------------------------------------
-  pages[#pages + 1] = {
-    id = "tafel", title = "Tafel",
-    render = function(v, rect)
-      local rows = role.board()
-      if #rows == 0 then
-        for i, line in ipairs(W.wrap("Noch keine Linie. Die Tafel zeigt Plan (Termin) und Ist (Zug) getrennt.", rect.w - 2)) do
-          W.label(v, rect.x + 1, rect.y + i, line, "dim", rect.w - 2)
-        end
-        return
-      end
-      local y = rect.y
-      for _, row in ipairs(rows) do
-        if y + 1 > rect.y + rect.h - 1 then break end
-        W.label(v, rect.x + 1, y, row.title .. (row.active and "" or " [aus]"), "hell", rect.w - 2)
-        W.label(v, rect.x + 1, y + 1, "Plan:  naechster Termin in " .. math.max(0, math.floor(row.in_seconds)) .. " s (alle " .. row.interval .. " s)" .. (row.missed > 0 and (", ausgelassen " .. row.missed) or ""), "text", rect.w - 2)
-        local ist = "kein Zug unterwegs"
-        local kind = "dim"
-        if row.order then
-          ist = row.order.train .. ": " .. (STATE_TEXT[row.order.state] or row.order.state) .. " (Halt " .. math.min(row.order.leg, row.order.legs) .. "/" .. row.order.legs .. ")"
-          kind = STATE_KIND[row.order.state] or "text"
-        end
-        if y + 2 <= rect.y + rect.h - 1 then W.label(v, rect.x + 1, y + 2, "Ist:   " .. ist, kind, rect.w - 2) end
-        y = y + 4
-      end
-    end,
-  }
 
   -- Depot: abstellen, aktivieren, ausschleusen, aufnehmen, Betriebsart ---------------------------------------------------------------------
   local ZSTATE = { registriert = "registriert", gesteuert = "gesteuert", uebergabe = "Uebergabe offen", abgestellt = "abgestellt", ausgeschleust = "ausgeschleust" }
@@ -2038,37 +2016,6 @@ function M.new(node)
     end,
   }
 
-  -- Unbekannte Zuege: reale Beobachtungen, keine Zuordnung --------------------------------------------------------------------------------
-  pages[#pages + 1] = {
-    id = "unbekannt", title = "Fremde",
-    render = function(v, rect)
-      local state = v.page_state("unbekannt")
-      state.list = state.list or { index = 1 }
-      state.rows = {}
-      local items = {}
-      for i, row in ipairs(role.unknown_list()) do
-        items[i] = { text = row.name, detail = (row.present and "steht " or "war ") .. "an " .. tostring(row.station or row.track) .. " (" .. tostring(row.node) .. ")", kind = row.present and "attention" or "dim" }
-        state.rows[i] = row
-      end
-      W.list(v, "unbekannt", rect, items, state.list, { empty = "Keine fremden Zuege beobachtet." })
-    end,
-    actions = function(v)
-      local state = v.page_state("unbekannt")
-      local row = state.rows and state.rows[(state.list or { index = 1 }).index]
-      return { { id = "vergessen", label = "Vergessen", kind = "secondary", enabled = row ~= nil and not row.present, reason = "Nur Zuege, die nicht mehr am Gleis stehen." } }
-    end,
-    on_action = function(v, id)
-      if id ~= "act:vergessen" then return end
-      local state = v.page_state("unbekannt")
-      local row = state.rows and state.rows[state.list.index]
-      if row then
-        local ok, why = role.forget_unknown(row.name)
-        v.hint = ok and "Aus der Liste genommen; Belegungen bleiben ueber ihre eigenen Meldungen bestehen." or why
-      end
-      return true
-    end,
-  }
-
   -- Stoerungen und Wartung -------------------------------------------------------------------------------------------------------------------
   local hold_arm = {}
   pages[#pages + 1] = {
@@ -2076,17 +2023,26 @@ function M.new(node)
     render = function(v, rect)
       local state = v.page_state("stoerungen")
       state.list = state.list or { index = 1 }
+      state.rows = {}
       local items = {}
-      for i, f in ipairs(role.faults()) do items[i] = { text = f.who, detail = f.text, kind = f.kind } end
+      for _, f in ipairs(role.faults()) do items[#items + 1] = { text = f.who, detail = f.text, kind = f.kind } end
+      -- fremde Zuege (nicht angemeldet): reale Beobachtungen, keine Zuordnung
+      for _, row in ipairs(role.unknown_list()) do
+        items[#items + 1] = { text = "Fremd: " .. row.name, detail = (row.present and "steht " or "war ") .. "an " .. tostring(row.station or row.track) .. " (" .. tostring(row.node) .. ")", kind = row.present and "attention" or "dim" }
+        state.rows[#items] = row
+      end
       local drain = role.drain_state()
-      W.list(v, "stoerungen", { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 }, items, state.list, { empty = "Keine Stoerung bekannt." })
+      W.list(v, "stoerungen", { x = rect.x, y = rect.y, w = rect.w, h = rect.h - 1 }, items, state.list, { empty = "Keine Stoerung und keine fremden Zuege bekannt." })
       W.label(v, rect.x + 1, rect.y + rect.h - 1, "Auftraege: " .. drain.active .. " offen, " .. drain.committed .. " mit Freigabe/unterwegs", "dim", rect.w - 2)
     end,
     actions = function(v)
       local is_held = held()
+      local state = v.page_state("stoerungen")
+      local row = state.rows and state.rows[(state.list or { index = 1 }).index]
       return {
         { id = "halten", label = is_held and (hold_arm.resume and "Wirklich?" or "Fortsetzen") or "Halten", kind = is_held and "primary" or "danger" },
         { id = "pruefen", label = "Pruefen", kind = "secondary" },
+        { id = "vergessen", label = "Vergessen", kind = "secondary", enabled = row ~= nil and not row.present, reason = "Nur ein fremder Zug, der nicht mehr am Gleis steht." },
       }
     end,
     on_action = function(v, id)
@@ -2107,6 +2063,14 @@ function M.new(node)
         return true
       elseif id == "act:pruefen" then
         v.hint = "Zustandsabfrage an " .. role.refresh_all() .. " Nodes gesendet."
+        return true
+      elseif id == "act:vergessen" then
+        local state = v.page_state("stoerungen")
+        local row = state.rows and state.rows[state.list.index]
+        if row then
+          local ok, why = role.forget_unknown(row.name)
+          v.hint = ok and "Aus der Liste genommen; Belegungen bleiben ueber ihre eigenen Meldungen bestehen." or why
+        end
         return true
       end
     end,

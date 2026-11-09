@@ -242,7 +242,8 @@ return {
     z.tap(v, "act:dp_aufnehmen")
     h.step(4)
     t.eq(zentrale.register.get("GZ-001").state, "gesteuert")
-    local fv = H.open_page(z, "unbekannt")
-    t.ok(z.has(fv, "Keine fremden Zuege"), z.text(fv))
+    local fv = H.open_page(z, "stoerungen")
+    t.ok(not z.has(fv, "Fremd:"), z.text(fv))
+    t.ok(not pcall(H.open_page, z, "unbekannt"), "die Seite Fremde ist in Stoerungen aufgegangen")
   end },
 }

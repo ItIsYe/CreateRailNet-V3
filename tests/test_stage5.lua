@@ -312,14 +312,15 @@ return {
     z.tap(v, "act:loeschen")
     t.eq(zentrale.lines.get("pendel"), nil)
   end },
-  { "Tafel-Seiten: Leitstelle und Bahnhof zeigen Plan und Ist getrennt", function()
+  { "Tafel und Linienseite: der Bahnhof zeigt Plan und Ist auf der Tafel, die Leitstelle in der Liste der Linien", function()
     local h, z, hbf, lager, sim, zentrale = build()
     put_train(h, z, hbf, sim, "GZ-1", "Hbf Gleis 1", "gleis1")
     template(zentrale, "pendel", "GZ-1", { { station = "Hauptbahnhof", wait = 0 }, { station = "Zentrallager", wait = 3 } })
     zentrale.lines.set({ id = "pendel", title = "Pendel", template = "pendel", trains = { "GZ-1" }, interval = 300, offset = 30 })
-    local zv = H.open_page(z, "tafel")
-    t.ok(z.has(zv, "Plan:"), z.text(zv))
-    t.ok(z.has(zv, "kein Zug unterwegs"), z.text(zv))
+    local zv = H.open_page(z, "linien")
+    t.ok(z.has(zv, "in 30 s"), z.text(zv))
+    t.ok(z.has(zv, "kein Zug"), z.text(zv))
+    t.ok(not pcall(H.open_page, z, "tafel"), "die Leitstelle hat keine eigene Tafelseite mehr")
     local lv = H.open_page(lager, "tafel")
     h.step(14)
     lager.node.render()
@@ -330,6 +331,6 @@ return {
     t.ok(lager.has(lv, "GZ-1:"), lager.text(lv))
     t.ok(lager.has(lv, "Ist:"), lager.text(lv))
     z.node.render()
-    t.ok(z.has(zv, "GZ-1:"), z.text(zv))
+    t.ok(z.has(zv, "GZ-1 "), z.text(zv))
   end },
 }

@@ -1,5 +1,5 @@
 return {
-  id = "7eed210f",
+  id = "153820e1",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4870, sum = "9d5ba795" },
@@ -33,7 +33,7 @@ return {
     ["domain/stations.lua"] = { size = 3376, sum = "8e77b92a" },
     ["roles/anmeldung.lua"] = { size = 10635, sum = "4066b687" },
     ["roles/station.lua"] = { size = 21283, sum = "5f571557" },
-    ["roles/zentrale.lua"] = { size = 82831, sum = "488fcde6" },
+    ["roles/zentrale.lua"] = { size = 81869, sum = "174d87da" },
     ["setup/model.lua"] = { size = 6252, sum = "7595a59f" },
     ["setup/page.lua"] = { size = 36818, sum = "be600ba7" },
     ["setup/wizard.lua"] = { size = 12769, sum = "1331b9cb" },

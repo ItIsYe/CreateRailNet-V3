@@ -190,7 +190,7 @@ Aufbau: wie Stufe 4, dazu ein **Personen-/Hauptbahnhof mit drei Haltegleisen** (
 | 5.11 | 10 Minuten laufen lassen | Jeder Termin erzeugt genau einen Auftrag (Seite "Auftraege": Quelle Linie); die beiden Zuege wechseln sich ab; ist kein Zug bereit, steht "Termin ausgelassen: kein Zug bereit am Start" und der Zaehler "ausgelassen" steigt, ohne dass Fahrten nachgeholt werden | |
 | 5.12 | "Ein/Aus" bei der Linie | Ausgeschaltet entstehen keine neuen Termine; laufende Fahrten bleiben | |
 | 5.13 | Leitstelle waehrend einer Linienfahrt neu starten | Die Fahrt laeuft weiter; nach dem Start kommt kein Schwall an Terminen, sondern hoechstens einer, falls einer faellig war | |
-| 5.14 | Seite "Tafel" auf der Leitstelle und auf den Bahnhofs-Nodes | Zwei getrennte Zeilen je Linie: **Plan** (naechster Termin in ... s) und **Ist** (Zug, Zustand, Halt k/n) | |
+| 5.14 | Seite "Linien" der Leitstelle und Seite "Tafel" auf den Bahnhofs-Nodes | Die Tafel der Bahnhoefe zeigt zwei getrennte Zeilen je Linie: **Plan** (naechster Termin in ... s) und **Ist** (Zug, Zustand, Halt k/n); die Leitstelle zeigt beides in der Zeile der Linie ("in 30 s, GZ-1 unterwegs 1/2" oder "kein Zug") und hat keine eigene Tafelseite | |
 | 5.15 | Zug bei einer Linienfahrt auf ein anderes Gleis des Ziels umleiten (Create-Eingriff) | Ankunft "an unerwarteter Station" -> Auftrag "KLAERUNG erforderlich", kein stiller Erfolg | |
 
 Zu 5.x: Die Fahrzeit der Linien wird in dieser Stufe nicht geschaetzt; die Tafel zeigt deshalb nur den Plan-Termin der Abfahrt und den gemeldeten Ist-Stand, keine geschaetzte Ankunftszeit.
@@ -218,8 +218,8 @@ Aufbau: wie Stufe 4 und zusaetzlich ein **Depot** (`depot1`, Rolle "Depot und Ue
 | 7.9 | "Aufnehmen" (zweimal tippen), Zug steht am Bahnhof, von Hand mit anderem Fahrplan | Der vereinbarte Warteauftrag ersetzt den alten Fahrplan (Uebergabe ist bestaetigt); Zustand "gesteuert", Betriebsart "bedarf" | |
 | 7.10 | "Aufnehmen", obwohl der Zug nicht mehr am Gleis steht | Abgelehnt: "nicht nachgewiesen" | |
 | 7.11 | "Art" (Betriebsart) am Haltepunkt: bedarf -> linie -> manuell -> bedarf | Wechselt nur am Haltepunkt und nicht waehrend eines Auftrags | |
-| 7.12 | Fremden Zug (nicht registriert) in den Bahnhof fahren | Meldung "Unerwarteter Zug ..."; Seite "Fremde" zeigt ihn mit Ort; er wird keinem Auftrag zugeordnet; Zielwahl meidet das Gleis ("belegt von ...") | |
-| 7.13 | Fremden Zug wegfahren lassen, dann auf "Fremde" "Vergessen" | Erst danach moeglich; Belegungen anderer Nachweise bleiben unveraendert | |
+| 7.12 | Fremden Zug (nicht registriert) in den Bahnhof fahren | Meldung "Unerwarteter Zug ..."; Seite "Stoerungen" zeigt ihn als "Fremd: ..." mit Ort; er wird keinem Auftrag zugeordnet; Zielwahl meidet das Gleis ("belegt von ...") | |
+| 7.13 | Fremden Zug wegfahren lassen, dann auf "Stoerungen" die Zeile "Fremd: ..." waehlen und "Vergessen" | Erst danach moeglich; Belegungen anderer Nachweise bleiben unveraendert | |
 
 ## Stufe 8: Stoerung, Wiederanlauf, Ersatzcomputer, Update
 

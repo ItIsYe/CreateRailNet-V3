@@ -103,7 +103,7 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap(v, "act:speichern")
     local expect = {
-      betriebsstellen = "oder Depot)", linien = "im Takt aus", tafel = "getrennt", bahnhoefe = "Einzelne",
+      betriebsstellen = "oder Depot)", linien = "im Takt aus", stoerungen = "keine fremden Zuege", bahnhoefe = "Einzelne",
     }
     for page, tail in pairs(expect) do
       v.set_page(page); d.node.render()
