@@ -12,7 +12,7 @@ return {
     domain = { "domain/schedule.lua", "domain/register.lua" },
     domain_leitstelle = { "domain/orders.lua", "domain/stations.lua", "domain/lines.lua", "domain/netz.lua" },
     rolle_bahnhof = { "roles/station.lua", "roles/anmeldung.lua" },
-    rolle_leitstelle = { "roles/zentrale.lua" },
+    rolle_leitstelle = { "roles/zentrale.lua", "roles/leitstelle/zuege.lua", "roles/leitstelle/auftraege.lua", "roles/leitstelle/netz.lua", "roles/leitstelle/vorlagen.lua", "roles/leitstelle/bahnhoefe.lua", "roles/leitstelle/linien.lua", "roles/leitstelle/depot.lua", "roles/leitstelle/stoerungen.lua" },
     app = { "app/main.lua", "app/selftest.lua", "app/node.lua" },
   },
   -- Rollen nach Konzept Kapitel 4: jede Rolle bekommt nur die Module, die sie braucht (Ergaenzung E6). Die Leitstelle kann zusaetzlich Bahnhof und Anmeldung tragen.

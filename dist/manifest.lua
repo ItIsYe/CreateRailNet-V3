@@ -1,5 +1,5 @@
 return {
-  id = "d8f003ba",
+  id = "4965d1ce",
   version = "0.1.0",
   files = {
     ["app/main.lua"] = { size = 4870, sum = "9d5ba795" },
@@ -32,8 +32,16 @@ return {
     ["domain/schedule.lua"] = { size = 6326, sum = "950fd613" },
     ["domain/stations.lua"] = { size = 3376, sum = "8e77b92a" },
     ["roles/anmeldung.lua"] = { size = 10635, sum = "4066b687" },
+    ["roles/leitstelle/auftraege.lua"] = { size = 2147, sum = "91830251" },
+    ["roles/leitstelle/bahnhoefe.lua"] = { size = 1845, sum = "10d585cb" },
+    ["roles/leitstelle/depot.lua"] = { size = 4366, sum = "441c1b34" },
+    ["roles/leitstelle/linien.lua"] = { size = 2895, sum = "3acfeeca" },
+    ["roles/leitstelle/netz.lua"] = { size = 3361, sum = "5e769c95" },
+    ["roles/leitstelle/stoerungen.lua"] = { size = 2408, sum = "66165881" },
+    ["roles/leitstelle/vorlagen.lua"] = { size = 6352, sum = "a317ba07" },
+    ["roles/leitstelle/zuege.lua"] = { size = 3543, sum = "1cdce7a7" },
     ["roles/station.lua"] = { size = 21283, sum = "5f571557" },
-    ["roles/zentrale.lua"] = { size = 79963, sum = "71abdb6c" },
+    ["roles/zentrale.lua"] = { size = 55204, sum = "f47fb036" },
     ["setup/model.lua"] = { size = 6435, sum = "86ace1a7" },
     ["setup/page.lua"] = { size = 36525, sum = "bf049bee" },
     ["setup/wizard.lua"] = { size = 12748, sum = "fcb5b3a4" },
@@ -52,6 +60,6 @@ return {
     depot = { "app/main.lua", "app/node.lua", "app/selftest.lua", "core/adler.lua", "core/chunks.lua", "core/clock.lua", "core/dataformat.lua", "core/envcheck.lua", "core/journal.lua", "core/label.lua", "core/migrations.lua", "core/msg.lua", "core/net.lua", "core/ser.lua", "core/store.lua", "core/ticker.lua", "core/updater.lua", "core/version.lua", "dev/bind.lua", "dev/detect.lua", "dev/events.lua", "dev/observer.lua", "dev/station.lua", "domain/register.lua", "domain/schedule.lua", "roles/anmeldung.lua", "roles/station.lua", "setup/model.lua", "setup/page.lua", "setup/wizard.lua", "ui/canvas.lua", "ui/forms.lua", "ui/keymap.lua", "ui/layout.lua", "ui/palette.lua", "ui/touch.lua", "ui/view.lua", "ui/widgets.lua" },
     gueterbahnhof = { "app/main.lua", "app/node.lua", "app/selftest.lua", "core/adler.lua", "core/chunks.lua", "core/clock.lua", "core/dataformat.lua", "core/envcheck.lua", "core/journal.lua", "core/label.lua", "core/migrations.lua", "core/msg.lua", "core/net.lua", "core/ser.lua", "core/store.lua", "core/ticker.lua", "core/updater.lua", "core/version.lua", "dev/bind.lua", "dev/detect.lua", "dev/events.lua", "dev/observer.lua", "dev/station.lua", "domain/register.lua", "domain/schedule.lua", "roles/anmeldung.lua", "roles/station.lua", "setup/model.lua", "setup/page.lua", "setup/wizard.lua", "ui/canvas.lua", "ui/forms.lua", "ui/keymap.lua", "ui/layout.lua", "ui/palette.lua", "ui/touch.lua", "ui/view.lua", "ui/widgets.lua" },
     passagierbahnhof = { "app/main.lua", "app/node.lua", "app/selftest.lua", "core/adler.lua", "core/chunks.lua", "core/clock.lua", "core/dataformat.lua", "core/envcheck.lua", "core/journal.lua", "core/label.lua", "core/migrations.lua", "core/msg.lua", "core/net.lua", "core/ser.lua", "core/store.lua", "core/ticker.lua", "core/updater.lua", "core/version.lua", "dev/bind.lua", "dev/detect.lua", "dev/events.lua", "dev/observer.lua", "dev/station.lua", "domain/register.lua", "domain/schedule.lua", "roles/anmeldung.lua", "roles/station.lua", "setup/model.lua", "setup/page.lua", "setup/wizard.lua", "ui/canvas.lua", "ui/forms.lua", "ui/keymap.lua", "ui/layout.lua", "ui/palette.lua", "ui/touch.lua", "ui/view.lua", "ui/widgets.lua" },
-    zentrale = { "app/main.lua", "app/node.lua", "app/selftest.lua", "core/adler.lua", "core/chunks.lua", "core/clock.lua", "core/dataformat.lua", "core/envcheck.lua", "core/journal.lua", "core/label.lua", "core/migrations.lua", "core/msg.lua", "core/net.lua", "core/ser.lua", "core/store.lua", "core/ticker.lua", "core/updater.lua", "core/version.lua", "dev/bind.lua", "dev/detect.lua", "dev/events.lua", "dev/observer.lua", "dev/station.lua", "domain/lines.lua", "domain/netz.lua", "domain/orders.lua", "domain/register.lua", "domain/schedule.lua", "domain/stations.lua", "roles/anmeldung.lua", "roles/station.lua", "roles/zentrale.lua", "setup/model.lua", "setup/page.lua", "setup/wizard.lua", "ui/canvas.lua", "ui/forms.lua", "ui/keymap.lua", "ui/layout.lua", "ui/palette.lua", "ui/touch.lua", "ui/view.lua", "ui/widgets.lua" },
+    zentrale = { "app/main.lua", "app/node.lua", "app/selftest.lua", "core/adler.lua", "core/chunks.lua", "core/clock.lua", "core/dataformat.lua", "core/envcheck.lua", "core/journal.lua", "core/label.lua", "core/migrations.lua", "core/msg.lua", "core/net.lua", "core/ser.lua", "core/store.lua", "core/ticker.lua", "core/updater.lua", "core/version.lua", "dev/bind.lua", "dev/detect.lua", "dev/events.lua", "dev/observer.lua", "dev/station.lua", "domain/lines.lua", "domain/netz.lua", "domain/orders.lua", "domain/register.lua", "domain/schedule.lua", "domain/stations.lua", "roles/anmeldung.lua", "roles/leitstelle/auftraege.lua", "roles/leitstelle/bahnhoefe.lua", "roles/leitstelle/depot.lua", "roles/leitstelle/linien.lua", "roles/leitstelle/netz.lua", "roles/leitstelle/stoerungen.lua", "roles/leitstelle/vorlagen.lua", "roles/leitstelle/zuege.lua", "roles/station.lua", "roles/zentrale.lua", "setup/model.lua", "setup/page.lua", "setup/wizard.lua", "ui/canvas.lua", "ui/forms.lua", "ui/keymap.lua", "ui/layout.lua", "ui/palette.lua", "ui/touch.lua", "ui/view.lua", "ui/widgets.lua" },
   },
 }
