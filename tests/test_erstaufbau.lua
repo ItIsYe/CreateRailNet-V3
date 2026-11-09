@@ -156,10 +156,10 @@ return {
     d.tap(v, "sel:modus:1"); d.tap(v, "act:weiter")
     d.type(v, "netz", "Testnetz"); d.tap(v, "act:weiter")
     local wiz = d.node.setup.session().wiz
-    wiz.toggle_role("zentrale"); wiz.toggle_role("depot")          -- abgewaehlt, andere Rolle gewaehlt
+    wiz.toggle_role("zentrale"); wiz.toggle_role("bahnhof")          -- abgewaehlt, andere Rolle gewaehlt
     d.tap(v, "act:zurueck"); d.tap(v, "act:zurueck")
     d.tap(v, "sel:modus:1")
-    t.eq(#wiz.roles, 1); t.eq(wiz.roles[1], "depot")
+    t.eq(#wiz.roles, 1); t.eq(wiz.roles[1], "bahnhof")
   end },
   { "Lange Namen: Zusammenfassung und Kopfzeilen werden umgebrochen beziehungsweise am Wort gekuerzt, nicht mitten im Wort", function()
     local d, v = fresh()

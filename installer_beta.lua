@@ -327,12 +327,12 @@ function M.rollback(env)
   return true
 end
 
-local ROLE_ORDER = { "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung" }
+local ROLE_ORDER = { "zentrale", "bahnhof", "anmeldung" }
+-- alte Namen des Bahnhof-Pakets: sie bleiben im Verzeichnis, damit sich vorhandene Computer weiter aktualisieren, stehen aber nicht mehr zur Auswahl
+local ROLE_HIDDEN = { passagierbahnhof = true, gueterbahnhof = true, depot = true }
 local ROLE_TEXT = {
   zentrale = "Leitstelle fuer das ganze Netz",
-  passagierbahnhof = "Bahnhof fuer Fahrgaeste",
-  gueterbahnhof = "Bahnhof fuer Fracht",
-  depot = "Abstellen und Uebergabe von Zuegen",
+  bahnhof = "Bahnhof (Fahrgaeste, Fracht, Depot)",
   anmeldung = "Zuganmeldung und Bedarfstasten",
 }
 
@@ -612,7 +612,9 @@ function M.wizard(env)
       end
       for _, role in ipairs(ROLE_ORDER) do if source.manifest.roles[role] then add(role) end end
       local extra = {}
-      for role in pairs(source.manifest.roles) do if not shown[role] then extra[#extra + 1] = role end end
+      for role in pairs(source.manifest.roles) do
+        if not shown[role] and (not ROLE_HIDDEN[role] or (info and info.role == role)) then extra[#extra + 1] = role end
+      end
       table.sort(extra)
       for _, role in ipairs(extra) do add(role) end
       entries[#entries + 1] = { key = "z", text = "Zurueck" }
@@ -698,7 +700,7 @@ local USAGE = {
   "  installer --status | --check | --rollback",
   "  Zusatz: --yes (keine Rueckfrage), --drop-prev (Vorversion loeschen, wenn der Platz knapp ist),",
   "          --replace (bisherige Version ersetzen, wenn alt und neu nicht zugleich passen; grosse Rollen)",
-  "  Rollen: zentrale, passagierbahnhof, gueterbahnhof, depot, anmeldung",
+  "  Rollen: zentrale, bahnhof, anmeldung",
 }
 
 function M.run(args, env)

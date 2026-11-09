@@ -13,11 +13,11 @@ local function build()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
-    id = "weizenhof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
+    id = "weizenhof", roles = { "bahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
     tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = { Zentrallager = 100, Weizenhof = 0 } } },
   })
   local l = h.add_node({
-    id = "lager", roles = { "gueterbahnhof" }, central = "hauptstelle",
+    id = "lager", roles = { "bahnhof" }, central = "hauptstelle",
     tracks = { { name = "Gleis 1", station_name = "Zentrallager", known = { Weizenhof = 100, Zentrallager = 0 } } },
   })
   local sim = h.sim({ { node = "weizenhof", name = "Weizenhof" }, { node = "lager", name = "Zentrallager" } }, 12)
@@ -101,9 +101,9 @@ return {
     t.eq(again, nil); t.contains(why2, "schon entfernt")
     t.eq(n.remove_node("N9999"), nil)
     t.eq(n.remove_station(bf), true, "die Betriebsstelle ist frei")
-    local rejected, why3 = n.claim_node({ claim = "c1-00000100000001", role = "gueterbahnhof" })
+    local rejected, why3 = n.claim_node({ claim = "c1-00000100000001", role = "bahnhof" })
     t.eq(rejected, nil); t.contains(why3, "verworfen")
-    local fresh = n.claim_node({ claim = "c1-00000100000002", role = "gueterbahnhof" })
+    local fresh = n.claim_node({ claim = "c1-00000100000002", role = "bahnhof" })
     t.ok(fresh and fresh.id ~= entry.id, "eine neue Anforderung bekommt eine neue Kennung")
   end },
 

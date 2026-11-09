@@ -220,19 +220,19 @@ local function area_station(netz) end
 
 sc("Passagierbahnhof", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3, signals = 0 }), { roles = { "passagierbahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
+  return h, node(h, { stations = 3, signals = 0 }), { roles = { "bahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
 sc("Gueterbahnhof", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3 }), { roles = { "gueterbahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
+  return h, node(h, { stations = 3 }), { roles = { "bahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
 sc("Depot", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3 }), { roles = { "depot" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
+  return h, node(h, { stations = 3 }), { roles = { "bahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
 sc("Passagierbahnhof + Anmeldung", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3 }), { roles = { "passagierbahnhof", "anmeldung" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
+  return h, node(h, { stations = 3 }), { roles = { "bahnhof", "anmeldung" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
 sc("Anmeldung allein (Betriebsstelle aus dem Verzeichnis)", function()
   local h = H.new(); local z, netz = leitstelle(h, function(n) area_station(n); assert(n.add_station({ name = "Westbahnhof", kind = "personenbahnhof" })) end)

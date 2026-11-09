@@ -39,7 +39,7 @@ return {
     local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "1" } },
-      { "Welche Rolle", { "3" } },
+      { "Welche Rolle", { "2" } },
       { "Zusammenfassung", { "j" } },
       { "Jetzt starten?", { "j" } },
     })
@@ -52,13 +52,13 @@ return {
     t.contains(out, "Noch nichts installiert.")
     t.not_contains(out, "Installation pruefen", "ohne Installation gibt es nichts zu pruefen")
     t.not_contains(out, "Zur Vorversion", "keine Rueckkehr ohne Vorversion")
-    t.contains(out, "Rolle:    gueterbahnhof")
+    t.contains(out, "Rolle:    bahnhof")
     t.contains(out, "Bisher:   neue Installation")
     t.contains(out, "startup:  wird angelegt")
     t.contains(out, "Installiert: Version 0.1.0")
     t.eq(env.started, 1, "Programm wurde gestartet")
     t.eq(installer.check(cc.env(fs, http)), true)
-    t.contains(fs.open("/crn/install.lua", "r").readAll(), 'role = "gueterbahnhof"')
+    t.contains(fs.open("/crn/install.lua", "r").readAll(), 'role = "bahnhof"')
     t.ok((env.cleared or 0) > 0, "Bildschirm wird zwischen den Schritten geleert")
   end },
   { "Der Kanal kommt aus der Datei: installer_beta.lua installiert beta, installer.lua installiert main", function()
@@ -88,16 +88,17 @@ return {
     t.contains(env2.output(), "Verzeichnis nicht erreichbar")
     t.contains(http2.requests[1], "/main/dist/")
   end },
-  { "Rollenliste zeigt Beschreibungen und alle fuenf Rollen", function()
+  { "Rollenliste zeigt Beschreibungen und die drei Rollen (die alten Bahnhofsnamen stehen nicht mehr zur Auswahl)", function()
     local fs, http, env = w.world({ ref = "main" })
     dialog(env, {
       { MENU, { "1" } },
       { "Welche Rolle", { "q" } },
     })
     local out = env.output()
-    for _, text in ipairs({ "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung", "Leitstelle fuer das ganze Netz", "Bahnhof fuer Fracht" }) do
+    for _, text in ipairs({ "zentrale", "bahnhof", "anmeldung", "Leitstelle fuer das ganze Netz", "Bahnhof (Fahrgaeste, Fracht, Depot)" }) do
       t.contains(out, text)
     end
+    for _, text in ipairs({ "passagierbahnhof", "gueterbahnhof", "depot" }) do t.not_contains(out, text) end
     t.ok(not fs.exists("/crn"), "Abbruch aendert nichts")
   end },
   { "zurueck und wieder vor, Abbruch im Menue", function()
@@ -160,7 +161,7 @@ return {
     local fs, http, env = w.world({ ref = "main" })
     local ok = dialog(env, {
       { MENU, { "1" } },
-      { "Welche Rolle", { "1", "5" } },
+      { "Welche Rolle", { "1", "3" } },
       { "Zusammenfassung", { "z", "j" } },
       { "Jetzt starten?", { "n" } },
     })
@@ -175,7 +176,7 @@ return {
     local env2 = cc.env(fs, http)
     dialog(env2, {
       { MENU, { "1" } },
-      { "Welche Rolle", { "5" } },
+      { "Welche Rolle", { "3" } },
       { "Zusammenfassung", { "q" } },
     })
     local out = env2.output()

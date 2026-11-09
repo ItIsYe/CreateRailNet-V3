@@ -37,7 +37,7 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 |---|---|---|---|
 | 3.1 | Start ohne Einrichtung | Seite "Einrichtung", Betriebszustand "Einrichtung", Kopfzeile "CRN - noch nicht eingerichtet" | |
 | 3.2 | Assistent: Schritt 1 ohne Netzname auf "Weiter" | Hinweis "Der Netzname fehlt."; mit Namen geht es weiter | |
-| 3.3 | Schritt 2: ohne Rolle auf "Weiter"; dann Rolle Leitstelle waehlen oder (Netz beitreten) Passagierbahnhof | Hinweis; danach Eingabe des Namens (nur Buchstaben, Ziffern, Leerzeichen, - und _) | |
+| 3.3 | Schritt 2: ohne Rolle auf "Weiter"; dann Rolle Leitstelle waehlen oder (Netz beitreten) Bahnhof | Hinweis; danach Eingabe des Namens (nur Buchstaben, Ziffern, Leerzeichen, - und _) | |
 | 3.4 | Schritt 3 (Geraete) | Alle Create-Geraete mit Typ; Funk- und Kabelmodem getrennt genannt (z.B. "Funk: left   Kabel: right"); Antippen setzt "[x]" | |
 | 3.5 | Schritt 4 (Gleise): Gleis anlegen (Name und Train Station auf einem Bildschirm, keine Frage nach Richtung oder Beobachter), "Kopieren" | Ein Geraet laesst sich nur einem Gleis geben; es gibt keine Frage nach einem Ausgang und keine nach Signalen; die Kopie hat keine Geraete | |
 | 3.6 | Schritt 5 (Test): "Alle pruefen" | Alle Pruefungen (Train Station lesen) stehen schon beim Oeffnen auf ok; es gibt nichts zu schalten und keinen Bestaetigungsbildschirm | |
@@ -54,10 +54,10 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.16 | Zweiter Computer (zum Beispiel Bahnhof), Einrichtung starten, "Diesem bestehenden Netz beitreten", Weiter. Die Leitstelle laeuft in Funkreichweite (Ender-Modem) | Seite "Welchem Netz soll dieser Computer beitreten?": nach wenigen Sekunden steht dort das Netz der Leitstelle mit "Leitstelle <Kennung>". Auswaehlen und Weiter fuehrt direkt zur Rolle (Netzname und Leitstelle werden nicht mehr getippt) | |
 | 3.17 | Dasselbe mit ausgeschalteter Leitstelle oder ausser Reichweite | "Kein Netz gefunden ..."; "Netz von Hand eingeben" fuehrt zu den Feldern Netzname und Leitstelle; "Neu suchen" wiederholt die Suche | |
 | 3.22 | **Node-Verzeichnis**: Leitstelle, Seite "Betriebsstellen", "Neu": einen Personenbahnhof und ein Depot mit demselben Standort anlegen; denselben Namen noch einmal | BF0001 und BF0002; der Standort erscheint einmal; der doppelte Name wird mit Hinweis abgelehnt; Loeschen verlangt einen zweiten Druck | |
-| 3.23 | Neuer Computer mit einer Train Station: Einrichtung starten, Beitreten, Netz waehlen, Rolle Passagierbahnhof, Weiter | Bildschirm "Kennung anfordern"; "Von Hand" fuehrt auf den Weg ohne Verzeichnis (eigener Name) | |
+| 3.23 | Neuer Computer mit einer Train Station: Einrichtung starten, Beitreten, Netz waehlen, Rolle Bahnhof, Weiter | Bildschirm "Kennung anfordern"; "Von Hand" fuehrt auf den Weg ohne Verzeichnis (eigener Name) | |
 | 3.24 | Auf "Kennung anfordern" Weiter | Die Leitstelle vergibt die Kennung (Hinweis "Kennung N0001"), Name "Personenbahnhof N0001"; in der Leitstelle Seite "Netz": N0001 RESERVIERT | |
 | 3.25 | Geraete waehlen, bei den Gleisen "Neu": Name und Train Station auf einem Bildschirm; ein zweites Gleis | Mit "Weiter" geht es zurueck zur Gleisliste; Weiter ist erst moeglich, wenn jedes Gleis eine Train Station hat; welche Train Station welche ist, bestaetigst du von Hand | |
-| 3.26 | Test, Aktivieren | Die lesenden Pruefungen stehen auf ok; die Node ist aktiv, das Computerlabel lautet `N0001 \| PBF` (im Spiel pruefen); die Leitstelle fuehrt N0001 nach wenigen Sekunden als aktiv | |
+| 3.26 | Test, Aktivieren | Die lesenden Pruefungen stehen auf ok; die Node ist aktiv, das Computerlabel lautet `N0001 \| BHF` (im Spiel pruefen); die Leitstelle fuehrt N0001 nach wenigen Sekunden als aktiv | |
 | 3.27 | entfaellt: keine Signalsperren mehr, die eine Pruefung beachten muesste | entfaellt | entfaellt |
 | 3.28 | entfaellt: keine schaltende Abschlusspruefung mehr | entfaellt | entfaellt |
 | 3.29 | Waehrend der Einrichtung den Computer ausschalten (Strom/Chunk), neu starten | Die Einrichtung beginnt von vorn (es gibt keinen Entwurf); derselbe Computer bekommt dieselbe Kennung (keine zweite Node in der Leitstelle) | |
@@ -70,18 +70,18 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 | 3.36 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.37 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.38 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
-| 3.39 | Computer mit Train Station: Beitreten, Netz, Rolle Passagierbahnhof, Weiter (Kennung anfordern) | Die Leitstelle vergibt eine Kennung `N000x`; es folgen Geraete und Gleise; bei den Gleisen "Neu", Bearbeiten, Kopieren, Entfernen wie bei jeder Node | |
+| 3.39 | Computer mit Train Station: Beitreten, Netz, Rolle Bahnhof, Weiter (Kennung anfordern) | Die Leitstelle vergibt eine Kennung `N000x`; es folgen Geraete und Gleise; bei den Gleisen "Neu", Bearbeiten, Kopieren, Entfernen wie bei jeder Node | |
 | 3.40 | Schritt Test: nichts antippen, Liste ansehen; dann "Alle pruefen" | Die lesenden Pruefungen stehen schon auf ok; es wird nichts geschaltet, es gibt keinen Bestaetigungsbildschirm; kein wartender Zug faehrt ab | |
-| 3.41 | Nach dem Aktivieren Computerlabel ansehen und in der Leitstelle die Seite "Netz" | Label `N000x \| PBF`; die Node steht als aktiv | |
+| 3.41 | Nach dem Aktivieren Computerlabel ansehen und in der Leitstelle die Seite "Netz" | Label `N000x \| BHF`; die Node steht als aktiv | |
 | 3.42 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.43 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.44 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.45 | Eine schon laufende Bahnhof-Node (bisherige Einrichtung): auf der Node "Einrichtung aendern", beitreten (das eigene Netz ist vorgewaehlt, Weiter), Kennung anfordern | Gleise und Geraete bleiben, wie sie sind; die Leitstelle zeigt eine reservierte Kennung `N000x` | |
-| 3.46 | Test und Aktivieren | Die Node behaelt ihre bisherige Kennung, bekommt das Label `N000x \| PBF`, die Leitstelle fuehrt `N000x` danach als aktiv | |
+| 3.46 | Test und Aktivieren | Die Node behaelt ihre bisherige Kennung, bekommt das Label `N000x \| BHF`, die Leitstelle fuehrt `N000x` danach als aktiv | |
 | 3.47 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.48 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.49 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
-| 3.50 | Computer mit Train Stations: Beitreten mit den Rollen Passagierbahnhof und Anmeldung | Eine Kennung, Label `N000x \| PBF ANM`; je Gleis Name und Bahnhof, danach die Anmeldestation; nach dem Test aktiv | |
+| 3.50 | Computer mit Train Stations: Beitreten mit den Rollen Bahnhof und Anmeldung | Eine Kennung, Label `N000x \| BHF ANM`; je Gleis Name und Bahnhof, danach die Anmeldestation; nach dem Test aktiv | |
 | 3.51 | Computer mit einer Train Station: Beitreten mit der Rolle Anmeldung, Betriebsstelle waehlen | Kennung `N000x`, Label `... \| ANM \| BF000y`; Geraete, Anmeldestation, Test, aktiv; die Betriebsstelle laesst sich in der Leitstelle nicht loeschen | |
 | 3.52 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
 | 3.53 | entfaellt: Bereiche, Knoten und Signale gibt es nicht mehr (Create regelt die Strecke) | entfaellt | entfaellt |
@@ -140,8 +140,8 @@ Ein Computer ohne Einrichtung (alte `/crn_data` mit `delete /crn_data` entfernen
 Aufbau (drei Computer, alle mit Funkmodem, alle mit `installer` auf die gleiche Version gebracht und eingerichtet wie in Stufe 3):
 
 - **Leitstelle** `hauptstelle`, Rolle "Leitstelle" (zentrale). Kein Create-Geraet noetig.
-- **Weizenhof** `weizenhof`, Rollen "Gueterbahnhof" und "Anmeldung". Ein Gleis mit dem Create-Bahnhof "Weizenhof". Einen Freigabeausgang (Redstone) gibt es nicht mehr: die Abfahrt wird ueber den Fahrplan der Train Station freigegeben (`docs/FREIGABE_PER_FAHRPLAN.md`).
-- **Zentrallager** `lager`, Rolle "Gueterbahnhof", ein Gleis mit dem Create-Bahnhof "Zentrallager".
+- **Weizenhof** `weizenhof`, Rollen "Bahnhof" und "Anmeldung". Ein Gleis mit dem Create-Bahnhof "Weizenhof". Einen Freigabeausgang (Redstone) gibt es nicht mehr: die Abfahrt wird ueber den Fahrplan der Train Station freigegeben (`docs/FREIGABE_PER_FAHRPLAN.md`).
+- **Zentrallager** `lager`, Rolle "Bahnhof", ein Gleis mit dem Create-Bahnhof "Zentrallager".
 - Ein Zug, der noch **"Unnamed Train"** heisst, steht am Weizenhof. Zwischen beiden Bahnhoefen liegt Gleis, auf dem der Zug fahren kann.
 - Uhrzeit-/Wartezeiten sind Betriebszeit (E1); alle Zeitangaben unten in Spielsekunden.
 
@@ -172,7 +172,7 @@ Hinweis fuer den Test: Gemessen sind `create:powered` ohne Strom (haelt), `setSc
 
 ## Stufe 5: Zweiter Bahnhof, mehrere Gleise, Linien und Takt, Tafel
 
-Aufbau: wie Stufe 4, dazu ein **Personen-/Hauptbahnhof mit drei Haltegleisen** (`hbf`, Rolle "Passagierbahnhof"; drei Create-Bahnhoefe "Hbf Gleis 1" bis "Hbf Gleis 3", jedes Gleis mit - falls bekannt - der Gleislaenge in Wagen im Assistenten). Beide Zuege (`GZ-001`, ein zweiter angemeldeter Zug) stehen auf Gleisen des Hauptbahnhofs. Das Gleisnetz verbindet alle Gleise mit dem Zentrallager. Fuer die Anmeldung weiterer Zuege am Hauptbahnhof muss dort eine Anmeldestation gewaehlt sein (Rolle "Anmeldung").
+Aufbau: wie Stufe 4, dazu ein **Personen-/Hauptbahnhof mit drei Haltegleisen** (`hbf`, Rolle "Bahnhof"; drei Create-Bahnhoefe "Hbf Gleis 1" bis "Hbf Gleis 3", jedes Gleis mit - falls bekannt - der Gleislaenge in Wagen im Assistenten). Beide Zuege (`GZ-001`, ein zweiter angemeldeter Zug) stehen auf Gleisen des Hauptbahnhofs. Das Gleisnetz verbindet alle Gleise mit dem Zentrallager. Fuer die Anmeldung weiterer Zuege am Hauptbahnhof muss dort eine Anmeldestation gewaehlt sein (Rolle "Anmeldung").
 
 | Nr | Schritt | Erwartung | Ergebnis |
 |---|---|---|---|
@@ -203,7 +203,7 @@ Fuer die Strecke genuegt eine Sichtpruefung im Spiel (nicht Teil der Software): 
 
 ## Stufe 7: Depot und manuelle Zuege
 
-Aufbau: wie Stufe 4 und zusaetzlich ein **Depot** (`depot1`, Rolle "Depot und Uebergabe", ein Gleis mit Create-Bahnhof "Depot Gleis 1"). Der Zug `GZ-001` ist angemeldet und steht am Weizenhof. Die Leitstelle hat die Seiten "Depot" und "Fremde".
+Aufbau: wie Stufe 4 und zusaetzlich ein **Depot** (`depot1`, Rolle "Bahnhof", ein Gleis mit Create-Bahnhof "Depot Gleis 1"). Der Zug `GZ-001` ist angemeldet und steht am Weizenhof. Die Leitstelle hat die Seiten "Depot" und "Fremde".
 
 | Nr | Schritt | Erwartung | Ergebnis |
 |---|---|---|---|

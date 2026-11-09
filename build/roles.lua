@@ -18,6 +18,8 @@ return {
   -- Rollen nach Konzept Kapitel 4: jede Rolle bekommt nur die Module, die sie braucht (Ergaenzung E6). Die Leitstelle kann zusaetzlich Bahnhof und Anmeldung tragen.
   roles = {
     zentrale = { "core", "dev", "ui", "setup", "domain", "domain_leitstelle", "rolle_leitstelle", "rolle_bahnhof", "app" },
+    bahnhof = { "core", "dev", "ui", "setup", "domain", "rolle_bahnhof", "app" },
+    -- Aliase: bis zur Zusammenlegung hiessen die Pakete so; vorhandene Computer tragen den Namen und aktualisieren sich weiter (das Auswahlmenue des Installers zeigt sie nicht)
     passagierbahnhof = { "core", "dev", "ui", "setup", "domain", "rolle_bahnhof", "app" },
     gueterbahnhof = { "core", "dev", "ui", "setup", "domain", "rolle_bahnhof", "app" },
     depot = { "core", "dev", "ui", "setup", "domain", "rolle_bahnhof", "app" },

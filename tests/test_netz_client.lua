@@ -41,11 +41,11 @@ return {
     local h, z, blank, netz = network()
     local claim = blank.node.new_claim()
     t.ok(#claim >= 8 and #claim <= 64 and not claim:find("[^%w%-_]"), claim)
-    blank.node.directory_claim("hauptstelle", claim, "passagierbahnhof", nil, { roles = { "passagierbahnhof" } })
+    blank.node.directory_claim("hauptstelle", claim, "bahnhof", nil, { roles = { "bahnhof" } })
     local st = settle(h, blank)
     t.eq(st.kind, "ok", st.text)
-    t.eq(st.node.id, "N0001"); t.eq(st.node.name, "Personenbahnhof N0001"); t.eq(st.node.label, "N0001 | PBF")
-    blank.node.directory_claim("hauptstelle", claim, "passagierbahnhof", nil, { roles = { "passagierbahnhof" } })
+    t.eq(st.node.id, "N0001"); t.eq(st.node.name, "Bahnhof N0001"); t.eq(st.node.label, "N0001 | BHF")
+    blank.node.directory_claim("hauptstelle", claim, "bahnhof", nil, { roles = { "bahnhof" } })
     st = settle(h, blank)
     t.eq(st.node.id, "N0001", "kein zweiter Eintrag")
     t.eq(#netz.nodes(), 1)
@@ -82,7 +82,7 @@ return {
       t.contains(st.text, "Unerwartete Antwort", text)
     end
     local function stations() blank.node.directory_stations("hauptstelle") end
-    local function claim() blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "depot", nil, { roles = { "depot" } }) end
+    local function claim() blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "depot", nil, { roles = { "bahnhof" } }) end
     bad(stations, { stations = "viel" }, "Betriebsstellen keine Liste")
     bad(stations, { stations = { { id = "../x", name = "A", kind = "depot" } } }, "Kennung")
     bad(stations, { stations = { { id = "BF0001", name = "A;B", kind = "depot" } } }, "Name mit Sonderzeichen")
@@ -100,7 +100,7 @@ return {
   { "Ein schon eingerichteter Computer fragt ueber seinen eigenen Funk mit seiner Kennung, nicht ueber die vorlaeufige Verbindung", function()
     local h, z, blank, netz = network()
     netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof" })
-    local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, central = "hauptstelle", tracks = { { name = "Nord", station = "Station_N" } } })
+    local s = h.add_node({ id = "strecke", roles = { "bahnhof" }, central = "hauptstelle", tracks = { { name = "Nord", station = "Station_N" } } })
     s.node.directory_stations("hauptstelle")
     local st = settle(h, s)
     t.eq(st.kind, "ok", st.text)
@@ -120,8 +120,8 @@ return {
   end },
   { "Computerlabel: wird ueber die Umgebung gesetzt, ein Fehler dort bleibt folgenlos", function()
     local h, z, blank = network()
-    t.eq(blank.node.set_label("N0001 | PBF"), true)
-    t.eq(blank.label, "N0001 | PBF")
+    t.eq(blank.node.set_label("N0001 | BHF"), true)
+    t.eq(blank.label, "N0001 | BHF")
     local real = blank.env.set_label
     blank.env.set_label = function() error("kein Label moeglich") end
     t.eq(blank.node.set_label("N0002"), false)

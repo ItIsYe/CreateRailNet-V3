@@ -22,11 +22,11 @@ local function build()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
-    id = "weizenhof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
+    id = "weizenhof", roles = { "bahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
     tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = { ["Depot Gleis 1"] = 100, Weizenhof = 0 } } },
   })
   local d = h.add_node({
-    id = "depot1", roles = { "depot" }, central = "hauptstelle",
+    id = "depot1", roles = { "bahnhof" }, central = "hauptstelle",
     tracks = { { name = "Abstell 1", station_name = "Depot Gleis 1", known = { Weizenhof = 100, ["Depot Gleis 1"] = 0 } } },
   })
   local sim = h.sim({ { node = "weizenhof", name = "Weizenhof" }, { node = "depot1", name = "Depot Gleis 1" } }, 12)

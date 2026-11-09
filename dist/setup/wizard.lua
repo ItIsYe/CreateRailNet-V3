@@ -26,7 +26,7 @@ local existing=opts.existing
 w.was_active=existing~=nil and existing.status=="aktiv"
 if not existing and opts.role_available and not opts.role_available("zentrale")then w.mode="join"end
 
-w.config=existing and model.drop_legacy(assert(ser.decode(ser.encode(existing))))or model.new("",{},{})
+w.config=existing and model.normalize_config(model.drop_legacy(assert(ser.decode(ser.encode(existing)))))or model.new("",{},{})
 w.claimed_id=(existing~=nil and existing.node.claimed==true)and existing.node.id or nil
 if existing then
 w.network_name=existing.network.name
@@ -34,7 +34,7 @@ w.central_id=existing.network.central_id or""
 w.key=existing.network.key or""
 w.name=existing.node.name
 w.roles={}
-for _,r in ipairs(existing.node.roles)do w.roles[#w.roles+1]=r end
+w.roles=model.normalize_roles(existing.node.roles)
 w.mode=model.has_role(existing,"zentrale")and"create"or"join"
 end
 
@@ -74,7 +74,7 @@ w.network_name,w.central_id,w.key=name or w.network_name,central or w.central_id
 sync_config()
 end
 
-local NAME_BASE={zentrale="Leitstelle",passagierbahnhof="Bahnhof",gueterbahnhof="Gueterbahnhof",depot="Depot",anmeldung="Anmeldung"}
+local NAME_BASE={zentrale="Leitstelle",bahnhof="Bahnhof",anmeldung="Anmeldung"}
 function w.suggest_name()
 w.name_number=w.name_number or math.random(100,999)
 return(NAME_BASE[w.roles[1]or""]or"Node").." "..w.name_number
@@ -91,6 +91,7 @@ end
 
 
 function w.removal_effect(role)
+role=model.LEGACY_ROLE[role]or role
 local effect={devices=0,tracks=0}
 if not has(w.roles,role)then return effect end
 local roles={}
@@ -103,6 +104,7 @@ end
 
 
 function w.toggle_role(role,confirmed)
+role=model.LEGACY_ROLE[role]or role
 if not has(w.available_roles(),role)then return false end
 local removed
 if has(w.roles,role)then
@@ -310,10 +312,8 @@ return(existing~=nil and existing.node.claimed~=true)and existing.node.id or nil
 end
 
 function w.guided_begin(info)
-local roles={}
-for _,r in ipairs(info.roles or{info.role or"passagierbahnhof"})do roles[#roles+1]=r end
 w.mode="join"
-w.roles=roles
+w.roles=model.normalize_roles(info.roles or{info.role or"bahnhof"})
 w.claimed_id=info.node.id
 w.name=info.node.name
 sync_config()

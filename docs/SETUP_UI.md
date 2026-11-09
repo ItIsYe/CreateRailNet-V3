@@ -30,14 +30,14 @@ Die Leitstelle vergibt jeder Node Kennung, Namen und Computerlabel; die Strecke 
 
 **Aendern und Loeschen, was die Einrichtung angelegt hat.** Jede Liste der Leitstelle hat "Aendern" und "Loeschen": ein **Bahnhof mit mehreren Gleisen** (Seite Bahnhoefe) laesst sich umbenennen und umbauen (kein zweiter Eintrag; die Halte der Vorlagen folgen dem neuen Namen, nicht aber unter einem laufenden Auftrag), eine **Linie** behaelt beim Aendern ihre Kennung, eine **Vorlage** laesst sich aendern (Kennung und Prioritaet bleiben; nicht unter einem laufenden Auftrag), ein **Zug** bekommt einen neuen Anzeigenamen oder, wenn er in Create umbenannt wurde, den neuen Create-Zugnamen (nicht unter einem laufenden Auftrag), eine **Betriebsstelle** laesst sich umbenennen (die Anmeldung dieser Betriebsstelle traegt den neuen Namen). Loeschen: Nichts ist eine Sackgasse: Betriebsstellen (Seite Betriebsstellen), Bahnhoefe mit mehreren Gleisen, Linien und **Vorlagen** (Seite Vorlagen, "Loeschen"; nicht, solange ein Auftrag aus ihr laeuft oder eine Linie sie fuehrt) loescht man in der Leitstelle mit zweimal Tippen. Eine Node nimmt die Leitstelle auf der Seite **Netz** mit "Entfernen" ganz aus dem Netz (Gleise, Sicherung, Verzeichniseintrag): nur, wenn sie stillgelegt ist oder sich nicht mehr meldet, eine laufende wuerde sich sofort wieder anmelden. Ihre Kennung bleibt vergeben und gesperrt; ein Computer, der noch mit ihr laeuft, wird abgewiesen und richtet sich neu ein. Auf dem Computer selbst loescht **"Einrichtung loeschen"** (Seite Einrichtung, zweimal tippen) die gesamte Einrichtung: Rollen, Geraete und Gleise; die Anforderungskennung und die Daten der Rollen bleiben, danach laesst er sich neu einrichten. Einzelne Gleise und Geraete entfernt man im Assistenten (Schritt Gleise "Entfernen", Schritt Geraete abwaehlen).
 
-**2. Auf der Node (Bahnhof, Depot).** Einrichtung starten, Beitreten, Netz waehlen, Rolle (Passagierbahnhof, Gueterbahnhof, Depot, auf Wunsch zusammen mit Anmeldung; ist auf dem Computer nur ein Rollenpaket installiert, entfaellt die Rollenauswahl). Dann:
+**2. Auf der Node (Bahnhof).** Einrichtung starten, Beitreten, Netz waehlen, Rolle (**Bahnhof**, auf Wunsch zusammen mit Anmeldung; frueher gab es Passagierbahnhof, Gueterbahnhof und Depot, sie unterschieden sich nur im Namen und sind eine Rolle; ist auf dem Computer nur ein Rollenpaket installiert, entfaellt die Rollenauswahl). Dann:
 
-1. **Kennung anfordern.** "Weiter" fragt die Leitstelle; sie antwortet mit `N0001`, dem Namen (zum Beispiel "Personenbahnhof N0001") und dem Computerlabel (`N0001 | PBF`). Dieselbe Anforderung liefert dieselbe Kennung (kein Doppeleintrag nach Wiederholung oder Neustart). "Von Hand" fuehrt auf den Weg ohne Verzeichnis (eigener Name, keine Kennung der Leitstelle).
+1. **Kennung anfordern.** "Weiter" fragt die Leitstelle; sie antwortet mit `N0001`, dem Namen (zum Beispiel "Bahnhof N0001") und dem Computerlabel (`N0001 | BHF`). Dieselbe Anforderung liefert dieselbe Kennung (kein Doppeleintrag nach Wiederholung oder Neustart). "Von Hand" fuehrt auf den Weg ohne Verzeichnis (eigener Name, keine Kennung der Leitstelle).
 2. **Geraete** waehlen: die Train Stations des Computers.
 3. **Gleise**: "Neu" legt ein Gleis an: Name und Train Station des Gleises stehen auf einem Bildschirm (eine Richtung oder Beobachter gibt es nicht mehr; eine Einrichtung aus einer aelteren Version verliert sie beim Aendern). Bearbeiten, Kopieren und Entfernen gehen wie bei jeder Node. Weiter geht es erst, wenn jedes Gleis eine Train Station hat. Welche Train Station an welchem echten Gleis steht, kann der Computer nicht lesen: das ist die einzige Angabe, die von Hand bestaetigt wird.
 4. **Test und Aktivieren.** Beim Oeffnen des Schritts Test laufen die lesenden Pruefungen von selbst (Train Station lesen); es gibt nichts zu schalten. Das Computerlabel wird beim Aktivieren gesetzt.
 
-**Mehrere Rollen auf einem Computer** (Bahnhof und Depot, auch mit Anmeldung) gehen denselben Weg: eine Anforderung, eine Kennung; Name und Label nennen die Rollen (`N0001 | PBF ANM`). Bei den Gleisen folgen je Gleis Name und Bahnhof, danach gegebenenfalls die Anmeldestation.
+**Bahnhof und Anmeldung auf einem Computer** gehen denselben Weg: eine Anforderung, eine Kennung; Name und Label nennen die Rollen (`N0001 | BHF ANM`). Bei den Gleisen folgen je Gleis Name und Bahnhof, danach gegebenenfalls die Anmeldestation.
 
 **Anmeldung allein** gehoert zu einer Betriebsstelle des Netzes (Seite Betriebsstellen in der Leitstelle): Betriebsstelle waehlen, Kennung (`N0005 | ANM | BF0001`), Geraete, Anmeldestation, Test, Aktivieren.
 
@@ -57,8 +57,7 @@ Auf einer schon eingerichteten Bahnhof- oder Depot-Node: Seite Einrichtung, "Ein
 
 | Rolle | Pflichtangaben vor dem Aktivieren | Pruefungen |
 |---|---|---|
-| Passagier-/Gueterbahnhof | je Gleis eine Train Station | Train Station lesen |
-| Depot | je Gleis eine Train Station | Train Station lesen |
+| Bahnhof | je Gleis eine Train Station | Train Station lesen |
 | Anmeldung | eine Station fuer die Anmeldung | Station lesen |
 | Leitstelle | Netzname, keine zweite Leitstelle | keine Geraetepruefung |
 
@@ -71,7 +70,7 @@ Beim Beitreten ruft der Assistent einmal per Funk (Rundruf, Anfrage `netze`, vor
 ## Rollen
 
 - Leitstelle: keine lokalen Gleise erforderlich, Monitor freiwillig.
-- Passagier-, Gueterbahnhof und Depot: eine Station je Gleis; kein Freigabeausgang.
+- Bahnhof: eine Station je Gleis; kein Freigabeausgang.
 - Anmeldung: ausgewaehlte, gueltige Station.
 - Nur Rollen mit installierten Laufzeitmodulen werden angeboten.
 

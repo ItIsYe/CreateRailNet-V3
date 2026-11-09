@@ -10,12 +10,14 @@ local M={}
 
 M.MAX_NODES=500
 M.MAX_STATIONS=300
-M.VERSION=3
+M.VERSION=4
 M.NAME_MAX=30
 
-local ROLE_CODE={passagierbahnhof="PBF",gueterbahnhof="GBF",depot="DEP",anmeldung="ANM"}
-local ROLE_TEXT={passagierbahnhof="Personenbahnhof",gueterbahnhof="Gueterbahnhof",depot="Depot",anmeldung="Anmeldung"}
+local ROLE_CODE={bahnhof="BHF",anmeldung="ANM"}
+local ROLE_TEXT={bahnhof="Bahnhof",anmeldung="Anmeldung"}
 M.ROLE_CODE,M.ROLE_TEXT=ROLE_CODE,ROLE_TEXT
+
+local LEGACY_ROLE={passagierbahnhof="bahnhof",gueterbahnhof="bahnhof",depot="bahnhof"}
 
 local function copy(value)return ser.decode(ser.encode(value))end
 
@@ -37,9 +39,10 @@ M.valid_name=valid_name
 
 local function same(a,b)return a:lower()==b:lower()end
 
-local ROLE_ORDER={"passagierbahnhof","gueterbahnhof","depot","anmeldung"}
+local ROLE_ORDER={"bahnhof","anmeldung"}
 local ROLE_RANK={}
 for i,r in ipairs(ROLE_ORDER)do ROLE_RANK[r]=i end
+
 
 
 
@@ -48,10 +51,12 @@ data.areas,data.tracks,data.junctions=nil,nil,nil
 for _,st in pairs(data.stations or{})do st.links=nil end
 for _,node in pairs(data.nodes or{})do
 node.area,node.junction,node.tracks=nil,nil,nil
-local roles={}
+local roles,seen={},{}
 for _,r in ipairs(node.roles or{node.role})do
-if ROLE_CODE[r]then roles[#roles+1]=r end
+r=LEGACY_ROLE[r]or r
+if ROLE_CODE[r]and not seen[r]then seen[r]=true;roles[#roles+1]=r end
 end
+table.sort(roles,function(a,b)return(a=="bahnhof"and 0 or 1)<(b=="bahnhof"and 0 or 1)end)
 if#roles==0 then
 node.roles={}
 if node.state=="reserviert"then node.state="verworfen"end
@@ -59,6 +64,18 @@ else
 node.roles=roles
 end
 node.role=roles[1]
+
+if#roles>0 and type(node.name)=="string"then
+local codes,texts={},{}
+for _,r in ipairs(roles)do codes[#codes+1]=ROLE_CODE[r];texts[#texts+1]=ROLE_TEXT[r]end
+local id
+for key,other in pairs(data.nodes)do if other==node then id=key end end
+local st=node.station and data.stations and data.stations[node.station]
+if id then
+node.name=((#roles==1)and texts[1]or table.concat(codes," "))..(st and(" "..st.name)or"").." "..id
+node.label=id.." | "..table.concat(codes," ")..(node.station and(" | "..node.station)or"")
+end
+end
 end
 if data.counters then data.counters.bereich,data.counters.gleis,data.counters.knoten=nil,nil,nil end
 if data.tokens then data.tokens=nil end
@@ -264,12 +281,15 @@ local function claim_roles(spec2)
 local list=spec2.roles
 if list==nil then list={spec2.role}end
 if type(list)~="table"or#list==0 or#list>4 then return nil,"Fuer diese Rolle gibt es keine Anforderung."end
-local seen,out={},{}
+local seen,named,out={},{},{}
 for _,r in ipairs(list)do
+local given=r
+if type(r)=="string"then r=LEGACY_ROLE[r]or r end
 if type(r)~="string"or not ROLE_CODE[r]then return nil,"Fuer diese Rolle gibt es keine Anforderung."end
-if seen[r]then return nil,"Die Rolle "..r.." ist doppelt angegeben."end
-seen[r]=true
-out[#out+1]=r
+
+if named[given]then return nil,"Die Rolle "..r.." ist doppelt angegeben."end
+named[given]=true
+if not seen[r]then seen[r]=true;out[#out+1]=r end
 end
 table.sort(out,function(a,b)return ROLE_RANK[a]<ROLE_RANK[b]end)
 return out

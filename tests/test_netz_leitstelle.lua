@@ -8,7 +8,7 @@ local H = dofile("tests/lib/harness.lua")
 local function network()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-  local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, central = "hauptstelle", tracks = { { name = "Nord", station_name = "Nord Bahnhof" } } })
+  local s = h.add_node({ id = "strecke", roles = { "bahnhof" }, central = "hauptstelle", tracks = { { name = "Nord", station_name = "Nord Bahnhof" } } })
   h.step(3)
   local replies = {}
   local real = z.node.reply
@@ -62,10 +62,10 @@ return {
   { "Abfrage 'node_anfordern': Kennung, Name, Label; wiederholbar; Fehler werden begruendet abgelehnt", function()
     local h, z, s, ask = network()
     local netz = z.node.roles.zentrale.netz
-    local r = ask({ kind = "node_anfordern", claim = "claim-aaaa-0001", role = "passagierbahnhof", roles = { "passagierbahnhof" } })
+    local r = ask({ kind = "node_anfordern", claim = "claim-aaaa-0001", role = "bahnhof", roles = { "bahnhof" } })
     t.eq(r.status, "ok")
-    t.eq(r.payload.node.id, "N0001"); t.eq(r.payload.node.name, "Personenbahnhof N0001"); t.eq(r.payload.node.label, "N0001 | PBF")
-    local again = ask({ kind = "node_anfordern", claim = "claim-aaaa-0001", role = "passagierbahnhof", legacy = "alt" })
+    t.eq(r.payload.node.id, "N0001"); t.eq(r.payload.node.name, "Bahnhof N0001"); t.eq(r.payload.node.label, "N0001 | BHF")
+    local again = ask({ kind = "node_anfordern", claim = "claim-aaaa-0001", role = "bahnhof", legacy = "alt" })
     t.eq(again.payload.node.id, "N0001")
     local bad = ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "anmeldung", station = "BF0099" })
     t.eq(bad.status, "abgelehnt"); t.contains(bad.payload.grund, "Betriebsstelle")
@@ -89,7 +89,7 @@ return {
     local netz = z.node.roles.zentrale.netz
     netz.claim_node({ claim = "claim-ok-0001", role = "depot" })
     local v = H.open_page(z, "netz")
-    t.ok(z.has(v, "N0001 Depot N0001"), z.text(v))
+    t.ok(z.has(v, "N0001 Bahnhof N0001"), z.text(v))
     t.ok(z.has(v, "RESERVIERT"), z.text(v))
     -- die reservierte Zeile waehlen (nach dem laufenden Node strecke)
     z.key(v, "down")

@@ -35,12 +35,12 @@ end
 return {
   { "Bahnhof und Anmeldung zusammen: nach den Gleisen folgt die Wahl der Anmeldestation", function()
     local h, z, d, v, netz = setup()
-    join(h, d, v, { "Passagierbahnhof", "Anmeldung" })
+    join(h, d, v, { "Bahnhof", "Anmeldung" })
     t.eq(screen(d), "2.kennung", d.text(v))
     d.tap(v, "act:weiter")
     h.step(3); d.node.render()
     t.eq(screen(d), "3.geraete", d.text(v))
-    t.eq(netz.node("N0001").label, "N0001 | PBF ANM")
+    t.eq(netz.node("N0001").label, "N0001 | BHF ANM")
     d.tap_row(v, "geraete", "Create_Station_1"); d.tap_row(v, "geraete", "Create_Station_2")
     d.tap(v, "act:weiter")
     for _, station in ipairs({ "Create_Station_1", "Create_Station_2" }) do

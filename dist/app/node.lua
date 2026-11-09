@@ -57,6 +57,8 @@ n.journal=journallib.new({fs=env.fs,path=DATA.."/journal.log",now=n.clock.now})
 n.ticker=tickerlib.new(n.clock)
 n.config=store.load(CONFIG)
 
+if n.config and n.config.node then require("setup.model").normalize_config(n.config)end
+
 if n.config and n.config.status~="aktiv"then n.config=nil end
 n.scan=detect.scan(env.peripheral)
 
@@ -336,7 +338,7 @@ config=function()return n.config end,
 modem_is_wireless=wireless,
 role_available=function(role)
 if not env.fs.exists("/crn/manifest.lua")then return true end
-local files={zentrale="zentrale",passagierbahnhof="station",gueterbahnhof="station",depot="station",anmeldung="anmeldung"}
+local files={zentrale="zentrale",bahnhof="station",anmeldung="anmeldung"}
 return files[role]~=nil and env.fs.exists("/crn/roles/"..files[role]..".lua")
 end,
 notify=n.notify,
@@ -996,7 +998,7 @@ return
 end
 local modules={}
 for _,role in ipairs(n.config.node.roles)do
-if role=="passagierbahnhof"or role=="gueterbahnhof"or role=="depot"then modules.station="roles.station"
+if role=="bahnhof"or role=="passagierbahnhof"or role=="gueterbahnhof"or role=="depot"then modules.station="roles.station"
 elseif role=="zentrale"then modules.zentrale="roles.zentrale"
 elseif role=="anmeldung"then modules.anmeldung="roles.anmeldung"
 end

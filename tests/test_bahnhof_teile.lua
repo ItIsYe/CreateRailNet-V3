@@ -17,7 +17,7 @@ end
 local function build(count, opts)
   local h = H.new(opts)
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-  local b = h.add_node({ id = "grossbahnhof", roles = { "gueterbahnhof" }, central = "hauptstelle", tracks = tracks_spec(count) })
+  local b = h.add_node({ id = "grossbahnhof", roles = { "bahnhof" }, central = "hauptstelle", tracks = tracks_spec(count) })
   return h, z, b
 end
 
@@ -91,7 +91,7 @@ return {
   { "Anmeldung in Teilen: unvollstaendiger Satz gilt nicht und wird nicht als angekommen quittiert, der vollstaendige gilt", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    local s = h.add_node({ id = "sender", roles = { "gueterbahnhof" }, central = "hauptstelle", tracks = tracks_spec(1) })
+    local s = h.add_node({ id = "sender", roles = { "bahnhof" }, central = "hauptstelle", tracks = tracks_spec(1) })
     h.step(3)
     local replies = {}
     local real = z.node.reply
@@ -100,7 +100,7 @@ return {
       return real(m, status, payload)
     end
     local function send(part, parts, set, list)
-      local m = s.node.factory.make("meldung", "hauptstelle", { kind = "hallo", node = "fremd", name = "Fremd", roles = { "gueterbahnhof" }, revision = 1, set = set, part = part, parts = parts, tracks = list, active = true })
+      local m = s.node.factory.make("meldung", "hauptstelle", { kind = "hallo", node = "fremd", name = "Fremd", roles = { "bahnhof" }, revision = 1, set = set, part = part, parts = parts, tracks = list, active = true })
       z.node.roles.zentrale.on_message(m, "ok")
     end
     send(1, 2, "9.1", { { id = "a", name = "A" } })
@@ -123,7 +123,7 @@ return {
   { "Eine stillgelegte Node wird durch eine verspaetete Anmeldung nicht wiederbelebt", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    local s = h.add_node({ id = "sender", roles = { "gueterbahnhof" }, central = "hauptstelle", tracks = tracks_spec(1) })
+    local s = h.add_node({ id = "sender", roles = { "bahnhof" }, central = "hauptstelle", tracks = tracks_spec(1) })
     h.step(10)
     local zentrale = z.node.roles.zentrale
     t.ok(zentrale.info().nodes.sender)
@@ -132,7 +132,7 @@ return {
     local answers = {}
     local real = z.node.reply
     z.node.reply = function(m, status, payload) answers[#answers + 1] = payload return real(m, status, payload) end
-    local m = s.node.factory.make("meldung", "hauptstelle", { kind = "hallo", node = "sender", name = "Sender", roles = { "gueterbahnhof" }, revision = 1, tracks = {}, active = true })
+    local m = s.node.factory.make("meldung", "hauptstelle", { kind = "hallo", node = "sender", name = "Sender", roles = { "bahnhof" }, revision = 1, tracks = {}, active = true })
     zentrale.on_message(m, "old_sequence")
     t.eq(zentrale.info().nodes.sender.retired, true, "bleibt stillgelegt")
     t.eq(answers[#answers].stillgelegt, true)
@@ -143,11 +143,11 @@ return {
   { "Verspaetet eintreffende Anmeldungsteile zaehlen, Teile verschiedener Nodes mischen sich nicht", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    local s = h.add_node({ id = "sender", roles = { "gueterbahnhof" }, central = "hauptstelle", tracks = tracks_spec(1) })
+    local s = h.add_node({ id = "sender", roles = { "bahnhof" }, central = "hauptstelle", tracks = tracks_spec(1) })
     h.step(3)
     local zentrale = z.node.roles.zentrale
     local function part(node_id, nr, parts, set, id)
-      return s.node.factory.make("meldung", "hauptstelle", { kind = "hallo", node = node_id, name = node_id, roles = { "gueterbahnhof" }, revision = 1, set = set, part = nr, parts = parts, tracks = { { id = id } }, active = true })
+      return s.node.factory.make("meldung", "hauptstelle", { kind = "hallo", node = node_id, name = node_id, roles = { "bahnhof" }, revision = 1, set = set, part = nr, parts = parts, tracks = { { id = id } }, active = true })
     end
     -- verspaetet (old_sequence) trotzdem angenommen
     zentrale.on_message(part("spaet", 1, 2, "5.1", "a"), "old_sequence")
@@ -164,7 +164,7 @@ return {
   { "Der Bahnhof nimmt Aufgaben erst an, wenn die Leitstelle die Anmeldung vollstaendig und angenommen quittiert hat", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    local b = h.add_node({ id = "grossbahnhof", roles = { "gueterbahnhof" }, central = "hauptstelle", tracks = tracks_spec(2) })
+    local b = h.add_node({ id = "grossbahnhof", roles = { "bahnhof" }, central = "hauptstelle", tracks = tracks_spec(2) })
     z.node.handle = function() end          -- die Leitstelle antwortet nicht von selbst
     h.step(1)
     local station = b.node.roles.station

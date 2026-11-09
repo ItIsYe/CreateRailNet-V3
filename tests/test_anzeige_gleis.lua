@@ -20,7 +20,7 @@ local function station_flow()
   d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
   h.step(5); d.node.render()
   d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-  d.tap_row(v, "rollen", "Passagierbahnhof"); d.tap(v, "act:weiter")
+  d.tap_row(v, "rollen", "Bahnhof"); d.tap(v, "act:weiter")
   h.step(3); d.node.render()
   d.tap(v, "act:weiter"); h.step(3); d.node.render()
   d.tap_row(v, "geraete", "Create_Station_1"); d.tap(v, "act:weiter")
@@ -54,14 +54,14 @@ return {
   end },
 
   { "Pruefmeldungen und Texte der Einrichtung: kein doppeltes Gleis", function()
-    local c = model.new("Hof", { "passagierbahnhof" }, { name = "Netz" })
+    local c = model.new("Hof", { "bahnhof" }, { name = "Netz" })
     local tid = model.add_track(c, "Gleis 1")
     local texts = {}
     for _, p in ipairs(model.validate(c, {})) do texts[#texts + 1] = p.text end
     local joined = table.concat(texts, "\n")
     t.contains(joined, "Gleis 1 hat keinen Bahnhof.")
     t.not_contains(joined, "Gleis Gleis")
-    local c2 = model.new("Hof", { "passagierbahnhof" }, { name = "Netz" })
+    local c2 = model.new("Hof", { "bahnhof" }, { name = "Netz" })
     model.add_track(c2, "Nord")
     local joined2 = {}
     for _, p in ipairs(model.validate(c2, {})) do joined2[#joined2 + 1] = p.text end
@@ -89,7 +89,7 @@ return {
 
   { "Titelzeile: Node ohne Namen zeigt ihre Kennung, ein langer Name bleibt ganz (die Rolle entfaellt zuerst)", function()
     local h = H.new()
-    local s = h.add_node({ id = "strecke", roles = { "passagierbahnhof" }, tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } } })
+    local s = h.add_node({ id = "strecke", roles = { "bahnhof" }, tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } } })
     local store = storelib.new(s.fs)
     local config = store.load("/crn_data/config.lua")
     config.node.name = ""
@@ -98,7 +98,7 @@ return {
     s.restart()
     local v = s.view()
     local first = s.text(v):match("^[^\n]*")
-    t.contains(first, config.node.id .. " - passagierbahnhof")
+    t.contains(first, config.node.id .. " - bahnhof")
     t.not_contains(first, "  - ")
     t.not_contains(first, "neue Node")
     config.node.name = "Personenbahnhof Hauptbahnhof N0001"

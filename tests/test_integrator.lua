@@ -8,6 +8,7 @@ local storelib = require("core.store")
 local dataformat = require("core.dataformat")
 local migrations = require("core.migrations")
 local ser = require("core.ser")
+local model = require("setup.model")
 local H = dofile("tests/lib/harness.lua")
 local fixtures = dofile("tests/fixtures/alte_staende.lua")
 local shape = dofile("tests/lib/shape.lua")
@@ -433,6 +434,8 @@ return {
         -- eine Node nur mit diesen Rollen verliert ihre Einrichtung, sonst bleibt alles, wie es war
         local before = storelib.new(d.fs).load("/crn_data/config.lua")
         for _, track in pairs(type(before) == "table" and before.tracks or {}) do track.release = nil end
+        -- Schritt 4 -> 5: die Bahnhofsrollen sind eine, Beobachter und Gleisrichtung fallen weg
+        if type(before) == "table" and before.node then model.normalize_config(model.drop_legacy(before)) end
         expect[d.id] = ser.encode(before)
         d.restart()
       end
@@ -559,18 +562,49 @@ return {
     t.eq(status, "migriert"); t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(plain))
   end },
 
+  { "Schritt 4 -> 5 (Bahnhofsrollen zusammengelegt, Beobachter und Gleisrichtung entfallen): nur config.lua aendert sich, alles andere bleibt", function()
+    local step = migrations.STEPS[4]
+    t.contains(step.text, "Bahnhofsrollen")
+    local function run(config)
+      local fs, store = world()
+      store.save("/crn_data/format.lua", { format = 4, program = "0.4" })
+      if config then store.save("/crn_data/config.lua", config) end
+      store.save("/crn_data/register.lua", { trains = { a = 1 } })
+      local status, _, dir, err = dataformat.check(fs, store, { format = 5, program = "0.5", migrations = { [4] = step } })
+      return status, fs, store, dir, err
+    end
+    -- Bahnhof und Depot auf einem Computer, mit Beobachter und Richtung: eine Rolle, Beobachter und Richtung weg, Station und Gleis bleiben
+    local status, fs, store, dir, err = run({ status = "aktiv", node = { id = "bf", roles = { "passagierbahnhof", "depot", "anmeldung" } },
+      devices = { station1 = { kind = "station", device = "Create_Station_1" }, observer1 = { kind = "observer", device = "Obs_1" } },
+      tracks = { gleis1 = { name = "Gleis 1", station = "station1", observers = { "observer1" }, direction = "hin", length = 12 } } })
+    t.eq(status, "migriert", tostring(err))
+    local c = store.load("/crn_data/config.lua")
+    t.eq(table.concat(c.node.roles, ","), "bahnhof,anmeldung")
+    t.eq(c.devices.observer1, nil); t.eq(c.devices.station1.device, "Create_Station_1")
+    t.eq(c.tracks.gleis1.observers, nil); t.eq(c.tracks.gleis1.direction, nil)
+    t.eq(c.tracks.gleis1.station, "station1"); t.eq(c.tracks.gleis1.length, 12)
+    t.eq(store.load("/crn_data/register.lua").trains.a, 1, "andere Dateien bleiben")
+    t.ok(store.load(dir .. "/config.lua").node.roles[1] == "passagierbahnhof", "die Sicherung behaelt den alten Stand")
+    -- eine Leitstelle und eine schon neue Einrichtung bleiben unveraendert; ohne Einrichtung gibt es nichts zu tun
+    local fresh = { status = "aktiv", node = { id = "zentrale", roles = { "zentrale", "bahnhof" } }, devices = {}, tracks = {} }
+    status, fs, store = run(fresh)
+    t.eq(status, "migriert"); t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(fresh))
+    status, fs = run(nil)
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
+  end },
+
   { "Form der gespeicherten Dateien ist festgehalten: aendert sie sich, muss ein Anpassungsschritt her oder die Festlegung bewusst erneuert werden", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
     local netz = z.node.roles.zentrale.netz
     assert(netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof", site = "Mitte" }))
-    assert(netz.claim_node({ claim = "claim-golden-0001", role = "depot" }))
+    assert(netz.claim_node({ claim = "claim-golden-0001", role = "bahnhof" }))
     assert(netz.claim_node({ claim = "claim-golden-0002", role = "anmeldung", station = "BF0001" }))
-    h.add_node({ id = "depot", roles = { "depot" }, central = "hauptstelle", label = "N0001 | DEP", claim = "claim-golden-0001",
+    h.add_node({ id = "depot", roles = { "bahnhof" }, central = "hauptstelle", label = "N0001 | BHF", claim = "claim-golden-0001",
       tracks = {
-        { name = "Abstell 1", station_name = "Depot Gleis 1", observers = { "Obs_1" }, length = 40 },
+        { name = "Abstell 1", station_name = "Depot Gleis 1", length = 40 },
       } })
-    h.add_node({ id = "bahnhof", roles = { "passagierbahnhof" }, central = "hauptstelle",
+    h.add_node({ id = "bahnhof", roles = { "bahnhof" }, central = "hauptstelle",
       tracks = { { name = "Gleis 1", station_name = "Westbahnhof" } }, registration = "Gleis 1" })
     h.step(150)
     local lines = {}

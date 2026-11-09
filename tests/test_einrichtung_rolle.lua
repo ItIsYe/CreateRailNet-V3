@@ -25,12 +25,19 @@ end
 local function screen(d) return d.node.setup.session().screen end
 
 return {
-  { "Station installiert (mehrere Rollen moeglich): die Auswahl bleibt", function()
-    local h, z, d, v = build({ "station" })
+  { "Bahnhof und Anmeldung installiert (mehrere Rollen moeglich): die Auswahl bleibt", function()
+    local h, z, d, v = build({ "station", "anmeldung" })
     join_to_network(h, d, v)
     t.eq(screen(d), "2.rollen", d.text(v))
-    t.ok(d.has(v, "Personenbahnhof") or d.has(v, "bahnhof"), d.text(v))
+    t.ok(d.has(v, "Bahnhof") and d.has(v, "Anmeldung"), d.text(v))
     t.eq(#d.node.setup.session().wiz.roles, 0)
+  end },
+  { "Nur die Station installiert: es gibt nur die Rolle Bahnhof, sie ist gesetzt und die Rollenauswahl entfaellt", function()
+    local h, z, d, v = build({ "station" })
+    join_to_network(h, d, v)
+    t.ok(screen(d) ~= "2.rollen", d.text(v))
+    d.tap(v, "act:weiter")
+    t.eq(d.node.setup.session().wiz.roles[1], "bahnhof")
   end },
   { "Ohne Installationsverzeichnis (Entwicklung): alle Rollen, Auswahl bleibt", function()
     local h, z, d, v = build(nil)
@@ -63,7 +70,7 @@ return {
     d.tap(v, "act:start")
     d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter"); h.step(5); d.node.render()
     d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-    d.tap_row(v, "rollen", "Passagierbahnhof"); d.tap(v, "act:weiter"); h.step(3); d.node.render()
+    d.tap_row(v, "rollen", "Bahnhof"); d.tap(v, "act:weiter"); h.step(3); d.node.render()
     d.tap(v, "act:weiter"); h.step(3); d.node.render()
     t.eq(screen(d), "3.geraete", d.text(v))
     d.tap(v, "act:weiter")

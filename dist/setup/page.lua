@@ -49,8 +49,7 @@ end
 
 
 
-local STATION_ROLES={passagierbahnhof=true,gueterbahnhof=true,depot=true}
-local CLAIM_ROLES={passagierbahnhof=true,gueterbahnhof=true,depot=true,anmeldung=true}
+local CLAIM_ROLES={bahnhof=true,anmeldung=true}
 local function roles_in(allowed,need_one_of)
 local w=session.wiz
 if not w or#w.roles==0 then return false end
@@ -64,7 +63,7 @@ end
 local function station_mode()
 local w=session.wiz
 return w~=nil and w.mode=="join"and not session.manual and services.directory_claim~=nil
-and roles_in(CLAIM_ROLES,{passagierbahnhof=true,gueterbahnhof=true,depot=true})
+and roles_in(CLAIM_ROLES,{bahnhof=true})
 end
 
 local function anmeldung_mode()
@@ -97,9 +96,7 @@ end
 seq[#seq+1]="2.name"
 seq[#seq+1]="3.geraete"
 local c=session.wiz.config
-if model.has_role(c,"passagierbahnhof")or model.has_role(c,"gueterbahnhof")or model.has_role(c,"depot")then
-seq[#seq+1]="4.gleise"
-end
+if model.has_role(c,"bahnhof")then seq[#seq+1]="4.gleise"end
 if model.has_role(c,"anmeldung")then seq[#seq+1]="4.anmeldung"end
 seq[#seq+1]="5.test"
 seq[#seq+1]="6.fertig"
@@ -665,7 +662,7 @@ if d.claiming then v.hint="Frage die Leitstelle nach der Kennung ..."return true
 d.claim=d.claim or node_claim()
 d.claiming={roles=session.wiz.roles}
 services.directory_reset()
-services.directory_claim(session.wiz.central_id,d.claim,session.wiz.roles[1]or"passagierbahnhof",session.wiz.legacy_id(),{roles=session.wiz.roles})
+services.directory_claim(session.wiz.central_id,d.claim,session.wiz.roles[1]or"bahnhof",session.wiz.legacy_id(),{roles=session.wiz.roles})
 v.hint="Frage die Leitstelle nach der Kennung ..."
 return true
 end,

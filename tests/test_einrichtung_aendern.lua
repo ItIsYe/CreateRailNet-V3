@@ -20,7 +20,7 @@ local function activated()
   d.tap(v, "sel:modus:2"); d.tap(v, "act:weiter")
   h.step(5); d.node.render()
   d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
-  d.tap_row(v, "rollen", "Passagierbahnhof"); d.tap(v, "act:weiter")
+  d.tap_row(v, "rollen", "Bahnhof"); d.tap(v, "act:weiter")
   h.step(3); d.node.render()
   d.tap(v, "act:weiter")                                  -- Kennung anfordern
   h.step(3); d.node.render()

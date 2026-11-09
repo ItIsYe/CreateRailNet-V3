@@ -102,6 +102,33 @@ M.STEPS = {
       ctx.save("config.lua", c)
     end,
   },
+  -- 4 -> 5: Passagierbahnhof, Gueterbahnhof und Depot sind eine Rolle (Bahnhof); sie unterschieden sich nur im Namen. Dazu fallen Beobachter und Gleisrichtung weg
+  -- (nichts wertete sie aus). Betroffen ist nur config.lua; das Verzeichnis der Leitstelle (netz.lua) stellt sich beim Laden selbst um.
+  [4] = {
+    text = "Bahnhofsrollen zusammenfassen, Beobachter und Gleisrichtung entfernen",
+    scope = { "config.lua" },
+    run = function(ctx)
+      local c = ctx.load("config.lua")
+      if type(c) ~= "table" or type(c.node) ~= "table" then return end
+      local changed = false
+      if type(c.node.roles) == "table" then
+        local legacy = { passagierbahnhof = true, gueterbahnhof = true, depot = true }
+        local out, seen = {}, {}
+        for _, role in ipairs(c.node.roles) do
+          if legacy[role] then role = "bahnhof" end
+          if not seen[role] then seen[role] = true; out[#out + 1] = role end
+        end
+        if table.concat(out, ",") ~= table.concat(c.node.roles, ",") then c.node.roles, changed = out, true end
+      end
+      for id, d in pairs(type(c.devices) == "table" and c.devices or {}) do
+        if type(d) == "table" and d.kind == "observer" then c.devices[id], changed = nil, true end
+      end
+      for _, track in pairs(type(c.tracks) == "table" and c.tracks or {}) do
+        if type(track) == "table" and (track.observers ~= nil or track.direction ~= nil) then track.observers, track.direction, changed = nil, nil, true end
+      end
+      if changed then ctx.save("config.lua", c) end
+    end,
+  },
 }
 
 -- liefert nil, wenn die Schritte lueckenlos von 1 an numeriert sind und je Text und Funktion haben, sonst den Grund

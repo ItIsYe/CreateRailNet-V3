@@ -15,7 +15,7 @@ local function build(opts)
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local known = { ["Hbf Gleis 1"] = 10, ["Hbf Gleis 2"] = 10, ["Hbf Gleis 3"] = 10, Zentrallager = 100 }
   local hbf = h.add_node({
-    id = "hbf", roles = { "passagierbahnhof" }, central = "hauptstelle",
+    id = "hbf", roles = { "bahnhof" }, central = "hauptstelle",
     tracks = {
       { name = "Gleis 1", station_name = "Hbf Gleis 1", length = opts.lengths and opts.lengths[1] or 8, known = known },
       { name = "Gleis 2", station_name = "Hbf Gleis 2", length = opts.lengths and opts.lengths[2] or 8, known = known },
@@ -23,7 +23,7 @@ local function build(opts)
     },
   })
   local lager = h.add_node({
-    id = "lager", roles = { "gueterbahnhof" }, central = "hauptstelle",
+    id = "lager", roles = { "bahnhof" }, central = "hauptstelle",
     tracks = { { name = "Gleis 1", station_name = "Zentrallager", known = { ["Hbf Gleis 1"] = 100, ["Hbf Gleis 2"] = 100, ["Hbf Gleis 3"] = 100, Zentrallager = 0 } } },
   })
   local sim = h.sim({

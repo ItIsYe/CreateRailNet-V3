@@ -134,9 +134,13 @@ return {
     pipe:close()
     t.eq(count > 0, true)
   end },
-  { "alle fuenf Rollen (Create regelt die Strecke) sind da", function()
-    for _, role in ipairs({ "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung" }) do
+  { "die drei Rollen (Leitstelle, Bahnhof, Anmeldung) sind da; die alten Bahnhofspakete bleiben als gleiche Aliase, damit sich vorhandene Computer weiter aktualisieren", function()
+    for _, role in ipairs({ "zentrale", "bahnhof", "anmeldung" }) do
       t.ok(config.roles[role], "Rolle fehlt: " .. role)
+    end
+    for _, alias in ipairs({ "passagierbahnhof", "gueterbahnhof", "depot" }) do
+      t.ok(config.roles[alias], "Alias fehlt: " .. alias)
+      t.eq(table.concat(config.roles[alias], ","), table.concat(config.roles.bahnhof, ","), alias .. " ist dasselbe Paket wie bahnhof")
     end
   end },
   { "Verzeichnis stimmt mit den Dateien ueberein", function()

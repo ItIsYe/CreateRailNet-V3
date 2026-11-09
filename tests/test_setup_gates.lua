@@ -44,7 +44,7 @@ return {
       local world=create.world();world.add_modem('left',true);world.add_station('Create_Station_1')
       local d=driver.new({world=world,width=size[1],height=size[2]})
       local model=require('setup.model')
-      local config=model.new('hof',{'gueterbahnhof'},{name='Testnetz',central_id='zentrale'})
+      local config=model.new('hof',{'bahnhof'},{name='Testnetz',central_id='zentrale'})
       config.node.id='hof'
       local tid=model.add_track(config,'Gleis 1')
       local did=model.add_device(config,'station','Create_Station_1')

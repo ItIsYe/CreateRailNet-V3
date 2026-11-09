@@ -7,12 +7,12 @@ Bezug: Konzept "Modulares Streckennetz und vereinfachte Einrichtung" (Abschnitts
 | Abschnitt | Inhalt | Stand | Wo |
 |---|---|---|---|
 | 6 | Betriebsstellen (Personen-, Gueterbahnhof, Depot) mit optionalem Standort; sie dienen der Anmeldung als Zuordnung. Die Gleisbeziehungen (vorbei, Verbindung, Bahnhofsgleis) entfallen | umgesetzt in der Leitstelle (Seite *Betriebsstellen*; Standorte entstehen ueber den Namen und verschwinden, wenn sie leer sind) | `src/domain/netz.lua`, `zentrale.lua` |
-| 9.1 | unterstuetzte Rollen | alle Rollen ausser der Leitstelle ueber das Verzeichnis anforderbar: Bahnhof, Depot (auch kombiniert, mit oder ohne Anmeldung), Anmeldung allein bei einer Betriebsstelle | `netz.lua`, `page.lua` |
+| 9.1 | unterstuetzte Rollen | alle Rollen ausser der Leitstelle ueber das Verzeichnis anforderbar: Bahnhof (auch kombiniert mit der Anmeldung), Anmeldung allein bei einer Betriebsstelle | `netz.lua`, `page.lua` |
 | 9.3 | genau eine steuernde Verantwortung | zwei Computer mit derselben Node-Kennung werden erkannt und gemeldet | `zentrale.lua` |
 | 10.1, 10.2 | zentrales Verzeichnis, Einrichtung von einem Node-Assistenten aus | umgesetzt (die Leitstelle haelt es, die Node fragt Kennung und Betriebsstellen ab; wiederholbare Anforderungen; Antworten werden auf Form geprueft) | `zentrale.lua`, `node.lua` |
 | 11.1 | automatische dauerhafte Kennungen N (Nodes), BF (Betriebsstellen), S (Standorte), nie wiederverwendet | umgesetzt | `netz.lua` |
-| 11.2 | automatische Namen | umgesetzt in der Form "Personenbahnhof N0017" (ohne Sonderzeichen); eine Anmeldung nennt ihre Betriebsstelle ("Anmeldung Hauptbahnhof N0017") | |
-| 11.3 | Computerlabel `N0017 \| PBF` (Anmeldung allein: `N0017 \| ANM \| BF0002`) | umgesetzt (Aufruf beim Aktivieren und beim Start; Wirkung im Spiel zu pruefen) | `node.lua`, `main.lua` |
+| 11.2 | automatische Namen | umgesetzt in der Form "Bahnhof N0017" (ohne Sonderzeichen); eine Anmeldung nennt ihre Betriebsstelle ("Anmeldung Hauptbahnhof N0017") | |
+| 11.3 | Computerlabel `N0017 \| BHF` (Anmeldung allein: `N0017 \| ANM \| BF0002`) | umgesetzt (Aufruf beim Aktivieren und beim Start; Wirkung im Spiel zu pruefen) | `node.lua`, `main.lua` |
 | 11.4 | Austausch und Kopien | umgesetzt ueber die Konfigurationssicherung: der Ersatzcomputer waehlt die Node aus einer Liste der Nodes mit Sicherung (Zustand aktiv, ausgefallen, stillgelegt) oder tippt die Kennung; Herausgabe erst bei Ausfall oder Stilllegung, danach gilt der Ersatz, ein Weiterlaufen der alten Node wird als Doppelbetrieb gemeldet | `zentrale.lua`, `page.lua` |
 | 12.1 | Zielablauf der Einrichtung von Bahnhof und Depot | umgesetzt: Rolle, *Kennung anfordern* (Weiter fragt die Leitstelle), Geraete, Gleise (je Gleis Name und Bahnhof auf einem Bildschirm), Pruefung, Aktivieren. *Von Hand* geht ohne Kennung aus dem Verzeichnis | `setup/page.lua`, `setup/wizard.lua` |
 | 12.2 | Rolle vorbelegen, wenn nur eine installiert ist | umgesetzt (die Rollenauswahl entfaellt, wenn genau eine Rolle zur Betriebsart passt) | `page.lua` |

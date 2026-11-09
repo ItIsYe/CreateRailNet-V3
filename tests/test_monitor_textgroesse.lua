@@ -20,7 +20,7 @@ local function setup(bw, bh, saved, plain)
   w.add_monitor("monitor_0", sw, sh)
   local d = drv.new({ world = w, monitors = { monitor_0 = screen } })
   d.restart()
-  local cfg = model.new("Westbahnhof", { "passagierbahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
+  local cfg = model.new("Westbahnhof", { "bahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
   local id = model.add_device(cfg, "monitor", "monitor_0")
   if saved then cfg.devices[id].text_scale = saved end
   cfg.status = "aktiv"

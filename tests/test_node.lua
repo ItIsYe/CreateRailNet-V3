@@ -43,7 +43,7 @@ local function setup_station(d, v)
   d.tap(v, "act:weiter")
   d.type(v, "zentrale", "hauptstelle")
   d.tap(v, "act:weiter")
-  d.tap_row(v, "rollen", "Passagierbahnhof")
+  d.tap_row(v, "rollen", "Bahnhof")
   d.tap(v, "act:weiter")
   d.tap(v, "act:von_hand")               -- ohne Netzverzeichnis: der bisherige Weg
   d.type(v, "name", "Westbahnhof")
@@ -89,7 +89,7 @@ return {
     t.ok(d.has(v, "[2 Aufgabe]") and d.has(v, "Rolle waehlen"), d.text(v))
     d.tap(v, "act:weiter")
     t.ok(d.has(v, "mindestens eine Rolle"), "Hinweis ohne Rolle")
-    d.tap_row(v, "rollen", "Passagierbahnhof")
+    d.tap_row(v, "rollen", "Bahnhof")
     d.tap(v, "act:weiter")
     d.tap(v, "act:von_hand")
     d.type(v, "name", "Westbahnhof")
@@ -139,7 +139,7 @@ return {
     local d = new_driver()
     local v = d.view()
     -- Konfiguration mit Monitor direkt speichern
-    local cfg = require("setup.model").new("Westbahnhof", { "passagierbahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
+    local cfg = require("setup.model").new("Westbahnhof", { "bahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
     require("setup.model").add_device(cfg, "monitor", "monitor_0")
     cfg.status = "aktiv"
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
@@ -148,7 +148,7 @@ return {
     t.ok(monitor_view, "Monitor-Ansicht vorhanden")
     t.eq(monitor_view.layout.mode, "gross")
     t.eq(term_view.layout.mode, "kompakt")
-    t.ok(d.has(monitor_view, "Westbahnhof - passagierbahnhof"))
+    t.ok(d.has(monitor_view, "Westbahnhof - bahnhof"))
     -- auf dem Monitor eine andere Seite waehlen
     d.node.render()
     local a = d.area(monitor_view, "nav:geraete")
@@ -232,7 +232,7 @@ return {
   end },
   { "Create-Ereignisse und Funknachrichten gehen an die Rollenanschluesse, Fehler dort stoppen nichts", function()
     local d, w = new_driver()
-    local cfg = require("setup.model").new("Westbahnhof", { "passagierbahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
+    local cfg = require("setup.model").new("Westbahnhof", { "bahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
     require("setup.model").add_device(cfg, "station", "Create_Station_1")
     cfg.status = "aktiv"
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
@@ -306,6 +306,21 @@ return {
     for _, m in ipairs(d.node.messages) do if m.level == "fehler" and m.text:find("kaputter Touch", 1, true) then found = found + 1 end end
     t.eq(found, 1, "der gleiche Fehler wird nur einmal gemeldet")
   end },
+  { "Eine Einrichtung mit den alten Rollennamen (Passagierbahnhof, Gueterbahnhof, Depot) laeuft weiter: es gibt nur die Rolle Bahnhof, sie startet", function()
+    local d = new_driver()
+    local model = require("setup.model")
+    local cfg = model.new("Hof", { "bahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
+    cfg.node.roles = { "passagierbahnhof", "depot", "anmeldung" }      -- so stand es frueher in der Datei
+    local tid = model.add_track(cfg, "Gleis 1")
+    model.assign(cfg, tid, "station", model.add_device(cfg, "station", "Create_Station_1"))
+    cfg.registration_station = "station1"
+    cfg.status = "aktiv"
+    storelib.new(d.fs).save("/crn_data/config.lua", cfg)
+    d.restart()
+    t.eq(table.concat(d.node.config.node.roles, ","), "bahnhof,anmeldung")
+    t.ok(d.node.roles.station, "die Rolle Bahnhof laeuft")
+    t.ok(d.node.roles.anmeldung, "die Anmeldung laeuft")
+  end },
   { "Wizard: Abbrechen braucht zwei Beruehrungen und laesst die Einrichtung unveraendert", function()
     local d = new_driver()
     local v = d.view()
@@ -320,7 +335,7 @@ return {
   end },
   { "Wizard: nur eine Ansicht bearbeitet, die andere zeigt den Hinweis", function()
     local d = new_driver()
-    local cfg = require("setup.model").new("Westbahnhof", { "passagierbahnhof" }, { name = "N", central_id = "h" })
+    local cfg = require("setup.model").new("Westbahnhof", { "bahnhof" }, { name = "N", central_id = "h" })
     cfg.status = "aktiv"
     require("setup.model").add_device(cfg, "monitor", "monitor_0")
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
@@ -374,7 +389,7 @@ return {
   end },
   { "Wizard auf dem grossen Monitor", function()
     local d = new_driver()
-    local cfg = require("setup.model").new("Westbahnhof", { "passagierbahnhof" }, { name = "N", central_id = "h" })
+    local cfg = require("setup.model").new("Westbahnhof", { "bahnhof" }, { name = "N", central_id = "h" })
     cfg.status = "aktiv"
     require("setup.model").add_device(cfg, "monitor", "monitor_0")
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)

@@ -11,7 +11,7 @@ local LIMIT = 4800
 local function build()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-  local a = h.add_node({ id = "anmeldehof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
+  local a = h.add_node({ id = "anmeldehof", roles = { "bahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
     tracks = { { name = "Gleis 1", station_name = "Anmeldehof", known = {} } } })
   h.step(3)
   local asks = {}
@@ -80,7 +80,7 @@ return {
     for seed = 1, 6 do
       local h = H.new({ seed = seed, drop = 0.2, dup = 0.3, reorder = true })
       local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-      local a = h.add_node({ id = "anmeldehof", roles = { "gueterbahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
+      local a = h.add_node({ id = "anmeldehof", roles = { "bahnhof", "anmeldung" }, central = "hauptstelle", registration = "Gleis 1",
         tracks = { { name = "Gleis 1", station_name = "Anmeldehof", known = {} } } })
       for i = 1, 70 do
         z.node.roles.zentrale.orders.add_template({

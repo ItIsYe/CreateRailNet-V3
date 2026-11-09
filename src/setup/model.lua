@@ -9,11 +9,27 @@ local label = require("core.label")
 
 local M = {}
 
-M.ROLES = { "zentrale", "passagierbahnhof", "gueterbahnhof", "depot", "anmeldung" }
+M.ROLES = { "zentrale", "bahnhof", "anmeldung" }
 M.ROLE_TEXT = {
-  zentrale = "Leitstelle", passagierbahnhof = "Passagierbahnhof", gueterbahnhof = "Gueterbahnhof", depot = "Depot und Uebergabe",
-  anmeldung = "Anmeldung und Auftraege",
+  zentrale = "Leitstelle", bahnhof = "Bahnhof", anmeldung = "Anmeldung und Auftraege",
 }
+-- Passagierbahnhof, Gueterbahnhof und Depot waren drei Namen fuer dieselbe Rolle (sie unterschieden sich nur in der Beschriftung): aeltere Einrichtungen tragen sie noch
+M.LEGACY_ROLE = { passagierbahnhof = "bahnhof", gueterbahnhof = "bahnhof", depot = "bahnhof" }
+
+-- bildet alte Rollennamen auf die heutigen ab und entfernt Doppelte (Reihenfolge bleibt)
+function M.normalize_roles(roles)
+  local out, seen = {}, {}
+  for _, r in ipairs(roles or {}) do
+    r = M.LEGACY_ROLE[r] or r
+    if not seen[r] then seen[r] = true; out[#out + 1] = r end
+  end
+  return out
+end
+
+function M.normalize_config(config)
+  if config and config.node then config.node.roles = M.normalize_roles(config.node.roles) end
+  return config
+end
 local ROLE_SET = {}
 for _, r in ipairs(M.ROLES) do ROLE_SET[r] = true end
 
@@ -32,7 +48,7 @@ function M.new(name, roles, network)
     version = 1,
     revision = 1,
     network = { name = network and network.name or "", central_id = network and network.central_id or nil, key = network and network.key or nil },
-    node = { id = M.slug(name), name = name, roles = roles or {} },
+    node = { id = M.slug(name), name = name, roles = M.normalize_roles(roles) },
     devices = {},
     tracks = {},
     tests = {},
@@ -122,17 +138,17 @@ function M.free_devices(config, scan, kind)
 end
 
 local function has_role(config, role)
-  for _, r in ipairs(config.node.roles) do if r == role then return true end end
+  for _, r in ipairs(config.node.roles) do if (M.LEGACY_ROLE[r] or r) == role then return true end end
   return false
 end
 M.has_role = has_role
 
 -- Rollenprofil ist die gemeinsame Grundlage fuer Auswahl und Pruefung.
 function M.profile(config)
-  local station = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof") or has_role(config, "depot")
+  local station = has_role(config, "bahnhof")
   local allowed = { monitor = true }
   if station or has_role(config, "anmeldung") then allowed.station = true end
-  if has_role(config, "passagierbahnhof") then allowed.displaylink = true end
+  if station then allowed.displaylink = true end
   return { station = station, tracks = station, allowed = allowed }
 end
 
@@ -143,7 +159,7 @@ function M.validate(config, scan)
   -- der Name ist nur Anzeige (ohne Namen gilt die Kennung): er blockiert nie, auch nicht bei einer Einrichtung aus aelteren Versionen
   if #config.node.roles == 0 then add("rolle", "Es ist keine Rolle gewaehlt.") end
   for _, r in ipairs(config.node.roles) do
-    if not ROLE_SET[r] then add("rolle", "Unbekannte Rolle " .. tostring(r) .. ".") end
+    if not ROLE_SET[M.LEGACY_ROLE[r] or r] then add("rolle", "Unbekannte Rolle " .. tostring(r) .. ".") end
   end
   if config.network.name == "" then add("netz", "Der Netzname fehlt.") end
   if not has_role(config, "zentrale") and not config.network.central_id then
@@ -172,7 +188,7 @@ function M.validate(config, scan)
   local ids = {}
   for id in pairs(config.tracks) do ids[#ids + 1] = id end
   table.sort(ids)
-  local needs_station = has_role(config, "passagierbahnhof") or has_role(config, "gueterbahnhof") or has_role(config, "depot")
+  local needs_station = has_role(config, "bahnhof")
   for _, id in ipairs(ids) do
     local track = config.tracks[id]
     if track.name == "" then add("gleis_name", "Ein Gleis hat keinen Namen.") end

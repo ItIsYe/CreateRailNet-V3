@@ -18,7 +18,7 @@ local function node_with_name(name, monitor_w, monitor_h)
   local d = drv.new({ world = w, monitors = monitors })
   d.restart()
   local model = require("setup.model")
-  local cfg = model.new(name, { "passagierbahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
+  local cfg = model.new(name, { "bahnhof" }, { name = "Testnetz", central_id = "hauptstelle" })
   if monitor_w then model.add_device(cfg, "monitor", "monitor_0") end
   cfg.status = "aktiv"
   storelib.new(d.fs).save("/crn_data/config.lua", cfg)
@@ -68,12 +68,12 @@ return {
   { "Kopfzeile am Monitor (100 Zeichen): Name und Rolle stehen ganz da, wo der Platz reicht", function()
     local d = node_with_name("Personenbahnhof N0001 Nord", 100, 40)
     local row = first_row(d.view("monitor_0"))
-    t.ok(row:find("Personenbahnhof N0001 Nord - passagierbahnhof", 1, true), "Name und Rolle: " .. row)
+    t.ok(row:find("Personenbahnhof N0001 Nord - bahnhof", 1, true), "Name und Rolle: " .. row)
     t.ok(not row:find("~", 1, true), "nichts gekuerzt")
   end },
   { "Kopfzeile: kurzer Name behaelt die Rolle auch am PC-Terminal", function()
     local d = node_with_name("Westbahnhof", nil)
-    t.ok(first_row(d.view()):find("Westbahnhof - passagierbahnhof", 1, true))
+    t.ok(first_row(d.view()):find("Westbahnhof - bahnhof", 1, true))
   end },
   { "Kopfzeile: ein Name, der auch allein nicht passt, wird als Letztes gekuerzt", function()
     local d = node_with_name("Ein sehr langer Name fuer einen Bahnhof am Rand der Welt", nil)

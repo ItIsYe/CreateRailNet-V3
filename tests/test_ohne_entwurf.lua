@@ -47,7 +47,7 @@ return {
 
   { "Eine eingerichtete Node behaelt ihre Anforderung (config.node.claim), auch wenn die Datei fehlt", function()
     local d = new_driver()
-    local cfg = model.new("Hof", { "gueterbahnhof" }, { name = "Netz", central_id = "z" })
+    local cfg = model.new("Hof", { "bahnhof" }, { name = "Netz", central_id = "z" })
     cfg.status = "aktiv"
     cfg.node.claim, cfg.node.claimed = "c7-123456789012", true
     storelib.new(d.fs).save("/crn_data/config.lua", cfg)
@@ -60,7 +60,7 @@ return {
     local d = new_driver()
     local store = storelib.new(d.fs)
     -- Stand der Vorversion: Format 1, ein Entwurf mit Kennung und leerem Namen
-    local draft = model.new("", { "passagierbahnhof" }, { name = "Netz", central_id = "z" })
+    local draft = model.new("", { "bahnhof" }, { name = "Netz", central_id = "z" })
     draft.status = "entwurf"
     draft.node.id, draft.node.claimed, draft.node.claim = "N0007", true, "c3-555555555555"
     store.save("/crn_data/config.lua", draft)
@@ -88,7 +88,7 @@ return {
     d.tap(v, "sel:netzwahl:1"); d.tap(v, "act:weiter")
     d.type(v, "netz", "Testnetz"); d.tap(v, "act:weiter")
     d.type(v, "zentrale", "hauptstelle"); d.tap(v, "act:weiter")
-    d.tap_row(v, "rollen", "Passagierbahnhof"); d.tap(v, "act:weiter")
+    d.tap_row(v, "rollen", "Bahnhof"); d.tap(v, "act:weiter")
     d.tap(v, "act:von_hand")
     t.eq(d.node.setup.session().screen, "2.name", d.text(v))
     local wiz = d.node.setup.session().wiz
@@ -104,7 +104,7 @@ return {
 
   { "Eine Einrichtung ohne Namen (aus einer alten Version) laesst sich aendern; Titel und Uebersicht zeigen die Kennung", function()
     local d = new_driver()
-    local cfg = model.new("", { "gueterbahnhof" }, { name = "Netz", central_id = "z" })
+    local cfg = model.new("", { "bahnhof" }, { name = "Netz", central_id = "z" })
     cfg.status, cfg.node.id = "aktiv", "alter-hof"
     local tid = model.add_track(cfg, "Gleis 1")
     model.assign(cfg, tid, "station", model.add_device(cfg, "station", "Create_Station_1"))
@@ -112,7 +112,7 @@ return {
     d.restart()
     local v = d.view()
     local first = d.text(v):match("^[^\n]*")
-    t.contains(first, "alter-hof - gueterbahnhof")
+    t.contains(first, "alter-hof - bahnhof")
     t.not_contains(first, "neue Node")
     d.tap(v, "nav:uebersicht")
     t.contains(d.text(v), "Node: alter-hof")

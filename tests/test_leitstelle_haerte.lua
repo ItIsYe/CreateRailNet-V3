@@ -9,10 +9,10 @@ local function build()
   local h = H.new()
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local w = h.add_node({
-    id = "weizenhof", roles = { "gueterbahnhof" }, central = "hauptstelle",
+    id = "weizenhof", roles = { "bahnhof" }, central = "hauptstelle",
     tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = {} } },
   })
-  local f = h.add_node({ id = "fremd", roles = { "gueterbahnhof" }, central = "hauptstelle",
+  local f = h.add_node({ id = "fremd", roles = { "bahnhof" }, central = "hauptstelle",
     tracks = { { name = "Gleis 1", station_name = "Fremdhof", known = {} } } })
   h.step(15)
   local replies = {}
@@ -102,7 +102,7 @@ return {
   { "Nach Datenverlust der Leitstelle (Epoche beginnt neu) werden ihre Nachrichten von laufenden Nodes weiter angenommen", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
-    local w = h.add_node({ id = "weizenhof", roles = { "gueterbahnhof" }, central = "hauptstelle",
+    local w = h.add_node({ id = "weizenhof", roles = { "bahnhof" }, central = "hauptstelle",
       tracks = { { name = "Gleis 1", station_name = "Weizenhof", known = {} } } })
     z.utc_seconds = function() return 1700000000 + h.t end
     h.restart("hauptstelle")
