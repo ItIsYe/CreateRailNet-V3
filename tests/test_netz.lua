@@ -1,5 +1,5 @@
 --[[
-Purpose: Node-Verzeichnis (src/domain/netz.lua): dauerhafte Kennungen ohne Wiederverwendung, wiederholbare Node-Anforderung (Bahnhof, Depot, kombiniert, Anmeldung), Name und Computerlabel von der Leitstelle, Aktivieren und Verwerfen, Speichern und Laden, Dateiversion 3 (Uebernahme einer Datei der Version 2 ohne Bereiche, Gleise und Knoten).
+Purpose: Node-Verzeichnis (src/domain/netz.lua): dauerhafte Kennungen ohne Wiederverwendung, wiederholbare Node-Anforderung (Bahnhof, Depot, kombiniert, Anmeldung), Name und Computerlabel von der Leitstelle, Aktivieren und Verwerfen, Speichern und Laden, Dateiversion 5 (Uebernahme aelterer Dateien: ohne Bereiche, Gleise, Knoten, Betriebsstellen und Standorte; die Anmeldung nennt den Bahnhof mit seinem Namen).
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -45,23 +45,44 @@ return {
     local twice, why = n.claim_node({ claim = "claim-alt-02", roles = { "bahnhof", "bahnhof" } })
     t.eq(twice, nil); t.contains(why, "doppelt")
   end },
-  { "Anmeldung allein gehoert zu einer Betriebsstelle; andere Rollen nehmen keine an", function()
+  { "Anmeldung allein nennt den Bahnhof (seinen Namen); andere Rollen nehmen keinen an", function()
     local n = setup()
-    local bf = n.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof" })
-    local ok, why = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = "BF0099" })
-    t.eq(ok, nil); t.contains(why, "Betriebsstelle")
-    ok, why = n.claim_node({ claim = "claim-anm-1", role = "anmeldung" })
-    t.eq(ok, nil); t.contains(why, "Betriebsstelle")
-    ok, why = n.claim_node({ claim = "claim-bf-1", role = "depot", station = bf })
+    local ok, why = n.claim_node({ claim = "claim-anm-1", role = "anmeldung" })
+    t.eq(ok, nil); t.contains(why, "Bahnhof")
+    ok, why = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = "" })
+    t.eq(ok, nil); t.contains(why, "Bahnhof")
+    ok, why = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = string.rep("x", 41) })
+    t.eq(ok, nil); t.contains(why, "zu lang")
+    ok, why = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = "Haupt\1bahnhof" })
+    t.eq(ok, nil); t.contains(why, "ungueltig")
+    ok, why = n.claim_node({ claim = "claim-bf-1", role = "bahnhof", station = "Hauptbahnhof" })
     t.eq(ok, nil); t.contains(why, "anmeldung")
-    local node = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = bf })
-    t.eq(node.id, "N0001"); t.eq(node.station, bf)
+    local node = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = "  Hauptbahnhof " })
+    t.eq(node.id, "N0001"); t.eq(node.station, "Hauptbahnhof")
     t.eq(node.name, "Anmeldung Hauptbahnhof N0001")
-    t.eq(node.label, "N0001 | ANM | " .. bf)
-    ok, why = n.remove_station(bf)
-    t.eq(ok, nil); t.contains(why, node.id)
-    t.eq(n.discard_node(node.id), true)
-    t.eq(n.remove_station(bf), true, "nach dem Verwerfen geht es")
+    t.eq(node.label, "N0001 | ANM", "das Label nennt den Bahnhof nicht")
+    -- Create-Namen duerfen mehr Zeichen enthalten: Name und Label der Node bleiben aus erlaubten Zeichen
+    local special = n.claim_node({ claim = "claim-anm-2", role = "anmeldung", station = "Weizenhof Sued.1 \195\188" })
+    t.eq(special.station, "Weizenhof Sued.1 \195\188")
+    t.eq(special.name, "Anmeldung Weizenhof Sued1 N0002")
+    t.ok(special.name:match("^[%w _%-]+$"), special.name)
+  end },
+  { "Bahnhof umbenannt: die Anmeldungen dieses Bahnhofs tragen den neuen Namen, Kennung und Label bleiben", function()
+    local n = setup()
+    local a = n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = "Hafen" })
+    local b = n.claim_node({ claim = "claim-anm-2", role = "anmeldung", station = "Hafen" })
+    local c = n.claim_node({ claim = "claim-anm-3", role = "anmeldung", station = "Dorf" })
+    local kombi = n.claim_node({ claim = "claim-kombi", roles = { "bahnhof", "anmeldung" } })
+    t.eq(n.discard_node(b.id), true)
+    local rev = n.revision()
+    t.eq(n.rename_station("Hafen", "Hafen Nord"), 1, "nur die nicht verworfene Anmeldung")
+    t.eq(n.revision(), rev + 1)
+    t.eq(n.node(a.id).station, "Hafen Nord"); t.eq(n.node(a.id).name, "Anmeldung Hafen Nord " .. a.id); t.eq(n.node(a.id).label, a.label)
+    t.eq(n.node(c.id).station, "Dorf")
+    t.eq(n.node(kombi.id).station, nil)
+    local bad, why = n.rename_station("Dorf", "")
+    t.eq(bad, nil); t.contains(why, "fehlt")
+    t.eq(n.node(c.id).station, "Dorf")
   end },
   { "Anforderung wird geprueft: Kennung, Rolle, doppelte Rolle, ungueltige bisherige Kennung", function()
     local n = setup()
@@ -120,16 +141,15 @@ return {
   end },
   { "Speichern und Laden: alles bleibt, Zaehler laufen weiter", function()
     local n, fs, store = setup()
-    local bf = n.add_station({ name = "Hafen", kind = "gueterbahnhof", site = "Nord" })
     n.claim_node({ claim = "claim-ok-1", role = "depot" })
+    n.claim_node({ claim = "claim-anm-1", role = "anmeldung", station = "Hafen" })
     local rev = n.revision()
     local again = netz.new({ store = store, path = P })
     t.eq(again.revision(), rev)
     t.eq(again.node("N0001").label, "N0001 | BHF")
-    t.eq(again.station(bf).site_name, "Nord")
+    t.eq(again.node("N0002").station, "Hafen")
     t.eq(again.claim_node({ claim = "claim-ok-1", role = "depot" }).id, "N0001", "auch nach dem Neustart wiederholbar")
-    t.eq(again.claim_node({ claim = "claim-ok-2", role = "depot" }).id, "N0002")
-    t.eq(again.add_station({ name = "Zweite", kind = "depot" }), "BF0002")
+    t.eq(again.claim_node({ claim = "claim-ok-2", role = "depot" }).id, "N0003")
   end },
   { "Speichern schlaegt fehl: alter Stand, keine halbe Aenderung, keine verbrauchte Kennung", function()
     local n, fs = setup()
@@ -152,27 +172,29 @@ return {
     t.eq(n.revision(), 0)
     n.claim_node({ claim = "claim-ok-1", role = "depot" })
     t.eq(n.revision(), 1)
-    n.nodes(); n.node("N0001"); n.stations(); n.claim_node({ claim = "kurz", role = "depot" })
+    n.nodes(); n.node("N0001"); n.claim_node({ claim = "kurz", role = "depot" })
     t.eq(n.revision(), 1)
-    n.add_station({ name = "A", kind = "depot" })
+    n.claim_node({ claim = "claim-ok-2", role = "depot" })
     t.eq(n.revision(), 2)
   end },
-  { "Datei der Version 2: Bereiche, Gleise, Knoten und Gleisbeziehungen entfallen, Nodes und Betriebsstellen bleiben", function()
+  { "Datei der Version 2: Bereiche, Gleise, Knoten, Gleisbeziehungen, Betriebsstellen und Standorte entfallen, Nodes bleiben", function()
     local n, fs, store = setup()
     store.save(P, {
       version = 2, revision = 17,
-      counters = { bereich = 3, gleis = 9, node = 4, betriebsstelle = 2, standort = 1, knoten = 1 },
+      counters = { bereich = 3, gleis = 9, node = 6, betriebsstelle = 2, standort = 1, knoten = 1 },
       areas = { B0001 = { name = "West-Ost", ends = { "West", "Ost" } } },
       tracks = { A0001 = { area = "B0001", name = "Gleis 1", direction = "Ost" } },
       junctions = { K0001 = { name = "Nord", connections = {}, routes = {}, conflicts = {} } },
       stations = { BF0001 = { name = "Hauptbahnhof", kind = "personenbahnhof", links = { A0001 = { relation = "bahnhofsgleis" } }, rev = 3 } },
-      sites = {},
+      sites = { S0001 = { name = "Nord" } },
       tokens = { x = "B0001" },
       nodes = {
         N0001 = { claim = "claim-bahnhof-1", role = "bahnhof", roles = { "bahnhof" }, area = "B0001", tracks = { "A0001" }, state = "aktiv", name = "Personenbahnhof West-Ost N0001", label = "N0001 | PBF | B0001" },
         N0002 = { claim = "claim-signal-1", role = "signal", roles = { "signal" }, area = "B0001", tracks = { "A0001" }, state = "aktiv", name = "Signal West-Ost N0002", label = "N0002 | SIG | B0001" },
         N0003 = { claim = "claim-signal-2", role = "signal", roles = { "signal" }, area = "B0001", tracks = { "A0001" }, state = "reserviert", name = "Signal West-Ost N0003", label = "N0003 | SIG | B0001" },
         N0004 = { claim = "claim-kombi-01", role = "bahnhof", roles = { "bahnhof", "signal" }, area = "B0001", tracks = { "A0001" }, state = "aktiv", name = "PBF SIG N0004", label = "N0004 | PBF SIG | B0001" },
+        N0005 = { claim = "claim-anm-0001", role = "anmeldung", roles = { "anmeldung" }, station = "BF0001", state = "aktiv", name = "Anmeldung Hauptbahnhof N0005", label = "N0005 | ANM | BF0001" },
+        N0006 = { claim = "claim-anm-0002", role = "anmeldung", roles = { "anmeldung" }, station = "BF0077", state = "aktiv", name = "Anmeldung Weg N0006", label = "N0006 | ANM | BF0077" },
       },
     })
     local m = netz.new({ store = store, path = P })
@@ -183,16 +205,18 @@ return {
     t.eq(m.node("N0003").state, "verworfen", "eine nie aktivierte Signal-Anforderung gilt als verworfen")
     t.eq(#m.node("N0004").roles, 1, "die Rolle signal faellt aus der Rollenliste")
     t.eq(m.node("N0004").roles[1], "bahnhof")
-    t.eq(m.station("BF0001").name, "Hauptbahnhof")
-    t.eq(m.add_station({ name = "Neu", kind = "depot" }), "BF0003", "Zaehler laufen weiter")
+    -- die Betriebsstelle wird zum Namen des Bahnhofs; eine Kennung ohne Eintrag ergibt keinen Bahnhof
+    t.eq(m.node("N0005").station, "Hauptbahnhof"); t.eq(m.node("N0005").name, "Anmeldung Hauptbahnhof N0005"); t.eq(m.node("N0005").label, "N0005 | ANM")
+    t.eq(m.node("N0006").station, nil); t.eq(m.node("N0006").name, "Anmeldung N0006")
+    t.eq(m.claim_node({ claim = "claim-neu-0001", role = "depot" }).id, "N0007", "Zaehler laufen weiter")
     local saved = store.load(P)
-    t.eq(saved.version, 4)
+    t.eq(saved.version, 5)
     t.eq(saved.areas, nil); t.eq(saved.tracks, nil); t.eq(saved.junctions, nil); t.eq(saved.tokens, nil)
-    t.eq(saved.stations.BF0001.links, nil)
+    t.eq(saved.stations, nil); t.eq(saved.sites, nil)
+    t.eq(saved.counters.betriebsstelle, nil); t.eq(saved.counters.standort, nil)
     t.eq(saved.nodes.N0001.area, nil); t.eq(saved.nodes.N0001.tracks, nil)
-    t.eq(saved.counters.node, 4)
+    t.eq(saved.counters.node, 7)
     -- eine neue Anforderung bekommt die naechste Kennung; die bekannte Anforderung behaelt ihre und bekommt das schlanke Label
-    t.eq(m.claim_node({ claim = "claim-neu-0001", role = "depot" }).id, "N0005")
     t.eq(m.node("N0001").label, "N0001 | BHF", "Name und Label tragen den neuen Code (Version 4)")
     t.eq(m.node("N0001").name, "Bahnhof N0001")
     t.eq(m.node("N0004").label, "N0004 | BHF"); t.eq(m.node("N0004").name, "Bahnhof N0004")
@@ -209,8 +233,7 @@ return {
     t.eq(f.node("N0001").label, "N0001 | BHF", "lesen geht")
     local ok, why = f.claim_node({ claim = "claim-ok-2", role = "depot" })
     t.eq(ok, nil); t.contains(why, "neueren Programm")
-    ok = f.add_station({ name = "X", kind = "depot" })
-    t.eq(ok, nil)
+    t.eq(f.rename_station("A", "B"), nil)
     t.eq(store.load(P).version, 99, "die Datei bleibt unveraendert")
   end },
 }

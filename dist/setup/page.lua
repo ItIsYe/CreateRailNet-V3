@@ -23,7 +23,7 @@ local session={owner=nil,wiz=nil,screen=nil,stack={},track=nil,cancel_armed=fals
 local GUIDED_TITLE={
 ["1.modus"]="Netz erstellen oder beitreten",["1.netzwahl"]="Netz waehlen",["1.netz"]="Name des Netzes",["1.zentrale"]="Kennung der Leitstelle",
 ["2.rollen"]="Rolle waehlen",["2.name"]="Name der Node",["2.kennung"]="Kennung anfordern",
-["2.station"]="Betriebsstelle waehlen",
+["2.station"]="Bahnhof waehlen",
 ["3.geraete"]="Geraete waehlen",
 ["4.gleise"]="Gleise einrichten",["4.g.name"]="Gleis bearbeiten",
 ["4.anmeldung"]="Anmeldestation",
@@ -578,18 +578,18 @@ local function node_claim()return services.claim and services.claim()or services
 
 screens["2.station"]={
 render=function(v,rect)
-header(v,rect,nil,"Bei welcher Betriebsstelle melden sich Zuege an?")
+header(v,rect,nil,"Bei welchem Bahnhof melden sich Zuege an?")
 local d=session.dir
 local st=dir_status()
 if st and st.kind~="ok"then put_status(v,rect,rect.y+2,st,2)end
 local items={}
 session.pick.stations={}
 for _,s in ipairs(d.stations or{})do
-local on=d.station_choice and d.station_choice.id==s.id
-items[#items+1]={text=(on and"(o) "or"( ) ")..s.name,detail=s.kind}
+local on=d.station_choice and d.station_choice.name==s.name
+items[#items+1]={text=(on and"(o) "or"( ) ")..s.name}
 session.pick.stations[#items]=s
 end
-local empty=(st and st.kind=="ok"and d.stations)and"Das Netz hat noch keine Betriebsstelle. In der Leitstelle auf der Seite Betriebsstellen anlegen, dann 'Neu laden'."or""
+local empty=(st and st.kind=="ok"and d.stations)and"Das Netz kennt noch keinen Bahnhof. Erst einen Bahnhof einrichten, dann 'Neu laden'."or""
 local area=body_rect(rect,4)
 W.list(v,"station_wahl",area,items,list_state(v,"station_wahl"),{row_h=row_h_for(v,items,area),empty=empty})
 end,
@@ -624,7 +624,7 @@ if d.claiming then v.hint="Frage die Leitstelle nach der Kennung ..."return true
 d.claim=d.claim or node_claim()
 d.claiming={station=d.station_choice}
 services.directory_reset()
-services.directory_claim(session.wiz.central_id,d.claim,"anmeldung",session.wiz.legacy_id(),{station=d.station_choice.id})
+services.directory_claim(session.wiz.central_id,d.claim,"anmeldung",session.wiz.legacy_id(),{station=d.station_choice.name})
 v.hint="Frage die Leitstelle nach der Kennung ..."
 return true
 end,
@@ -819,7 +819,7 @@ if w.mode=="join"and model.has_role(w.config,"zentrale")then return false,"Eine 
 end
 if screen=="2.station"then
 local d=session.dir
-if not d.station_choice then return false,"Bitte eine Betriebsstelle waehlen."end
+if not d.station_choice then return false,"Bitte einen Bahnhof waehlen."end
 if d.claiming then return false,"Frage die Leitstelle nach der Kennung ..."end
 end
 if screen=="2.kennung"and session.dir.claiming then return false,"Frage die Leitstelle nach der Kennung ..."end

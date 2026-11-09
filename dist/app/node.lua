@@ -773,6 +773,8 @@ n.dir_state=nil
 local function dir_id(v,prefix)return type(v)=="string"and v:match("^"..prefix.."%d%d%d%d+$")~=nil and#v<=12 end
 local function dir_name(v)return type(v)=="string"and#v>0 and#v<=30 and v:match("^[%w _%-]+$")~=nil end
 
+local function dir_station(v)return type(v)=="string"and#v>0 and#v<=40 and not v:find("%c")end
+
 
 
 local function dir_send(central_id,payload,handler)
@@ -799,16 +801,14 @@ end
 function n.directory_stations(central_id)
 local acc={}
 local function page(after)
-dir_send(central_id,{kind="betriebsstellen_liste",after=after},function(p)
+dir_send(central_id,{kind="bahnhoefe_liste",after=after},function(p)
 if type(p.stations)~="table"then return dir_bad()end
 for _,st in ipairs(p.stations)do
-if type(st)~="table"or not dir_id(st.id,"BF")or not dir_name(st.name)or not(st.kind=="personenbahnhof"or st.kind=="gueterbahnhof"or st.kind=="depot")then
-return dir_bad()
+if type(st)~="table"or not dir_station(st.name)then return dir_bad()end
+acc[#acc+1]={name=st.name}
 end
-acc[#acc+1]={id=st.id,name=st.name,kind=st.kind}
-end
-if p.more and#acc<300 and#acc>0 then return page(acc[#acc].id)end
-n.dir_state={kind="ok",text=#acc.." Betriebsstelle(n) im Netz.",stations=acc}
+if p.more and#acc<300 and#acc>0 then return page(acc[#acc].name)end
+n.dir_state={kind="ok",text=#acc.." Bahnhof/Bahnhoefe im Netz.",stations=acc}
 end)
 end
 page(nil)

@@ -129,6 +129,21 @@ M.STEPS = {
       if changed then ctx.save("config.lua", c) end
     end,
   },
+  -- 5 -> 6: Betriebsstellen (BF0001) und Standorte gibt es nicht mehr; eine Anmeldung nennt den Bahnhof mit seinem Namen. Die gespeicherte Betriebsstellen-Kennung
+  -- in der Einrichtung einer Anmeldung (node.station) faellt weg (der Name der Node nennt den Bahnhof weiterhin). Das Verzeichnis der Leitstelle (netz.lua) stellt sich
+  -- beim Laden selbst um.
+  [5] = {
+    text = "Betriebsstellen-Kennung der Anmeldung entfernen",
+    scope = { "config.lua" },
+    run = function(ctx)
+      local c = ctx.load("config.lua")
+      if type(c) ~= "table" or type(c.node) ~= "table" then return end
+      if type(c.node.station) == "string" and c.node.station:match("^BF%d+$") then
+        c.node.station = nil
+        ctx.save("config.lua", c)
+      end
+    end,
+  },
 }
 
 -- liefert nil, wenn die Schritte lueckenlos von 1 an numeriert sind und je Text und Funktion haben, sonst den Grund

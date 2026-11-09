@@ -765,13 +765,15 @@ function M.new(env)
     n.fetch_state = { kind = "wait", text = "Anfrage an " .. central_id .. " gesendet ..." }
   end
 
-  -- Node-Verzeichnis der Leitstelle: Node-Kennung anfordern, Betriebsstellen, Nodes mit Sicherung. Die Antworten sind unbeglaubigt
+  -- Node-Verzeichnis der Leitstelle: Node-Kennung anfordern, Bahnhoefe, Nodes mit Sicherung. Die Antworten sind unbeglaubigt
   -- (Rednet ist keine Anmeldung): nur Werte in der erlaubten Form (Kennungen, Namen aus Buchstaben, Ziffern, Leerzeichen, - und _) werden uebernommen.
   local DIR_TIMEOUT = 8
   n.dir_state = nil
 
   local function dir_id(v, prefix) return type(v) == "string" and v:match("^" .. prefix .. "%d%d%d%d+$") ~= nil and #v <= 12 end
   local function dir_name(v) return type(v) == "string" and #v > 0 and #v <= 30 and v:match("^[%w _%-]+$") ~= nil end
+  -- Bahnhofsnamen sind Create-Namen und duerfen mehr Zeichen enthalten; sie werden nur angezeigt und zurueckgeschickt
+  local function dir_station(v) return type(v) == "string" and #v > 0 and #v <= 40 and not v:find("%c") end
 
   -- Eine bereits eingerichtete Node fragt ueber ihren Funk mit ihrer Kennung (Einrichtung aendern, Uebernahme ins Verzeichnis); ein neuer Computer benutzt die
   -- vorlaeufige Kennung. Die Antwort kommt in beiden Faellen ueber dir_reply.
@@ -795,20 +797,18 @@ function M.new(env)
     n.dir_state = { kind = "halt", text = text or "Unerwartete Antwort der Leitstelle." }
   end
 
-  -- Betriebsstellen des Netzes (seitenweise), zum Beispiel fuer die Einrichtung einer Anmeldung
+  -- Bahnhoefe des Netzes (seitenweise), zum Beispiel fuer die Einrichtung einer Anmeldung
   function n.directory_stations(central_id)
     local acc = {}
     local function page(after)
-      dir_send(central_id, { kind = "betriebsstellen_liste", after = after }, function(p)
+      dir_send(central_id, { kind = "bahnhoefe_liste", after = after }, function(p)
         if type(p.stations) ~= "table" then return dir_bad() end
         for _, st in ipairs(p.stations) do
-          if type(st) ~= "table" or not dir_id(st.id, "BF") or not dir_name(st.name) or not (st.kind == "personenbahnhof" or st.kind == "gueterbahnhof" or st.kind == "depot") then
-            return dir_bad()
-          end
-          acc[#acc + 1] = { id = st.id, name = st.name, kind = st.kind }
+          if type(st) ~= "table" or not dir_station(st.name) then return dir_bad() end
+          acc[#acc + 1] = { name = st.name }
         end
-        if p.more and #acc < 300 and #acc > 0 then return page(acc[#acc].id) end
-        n.dir_state = { kind = "ok", text = #acc .. " Betriebsstelle(n) im Netz.", stations = acc }
+        if p.more and #acc < 300 and #acc > 0 then return page(acc[#acc].name) end
+        n.dir_state = { kind = "ok", text = #acc .. " Bahnhof/Bahnhoefe im Netz.", stations = acc }
       end)
     end
     page(nil)
@@ -836,7 +836,7 @@ function M.new(env)
     page(nil)
   end
 
-  -- extra = { roles = Liste, station = Kennung } fuer kombinierte Rollen beziehungsweise die Anmeldung
+  -- extra = { roles = Liste, station = Name des Bahnhofs } fuer kombinierte Rollen beziehungsweise die Anmeldung
   function n.directory_claim(central_id, claim, role, legacy_id, extra)
     extra = extra or {}
     dir_send(central_id, { kind = "node_anfordern", claim = claim, role = role, roles = extra.roles, station = extra.station, legacy = legacy_id }, function(p)

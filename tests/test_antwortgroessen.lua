@@ -1,5 +1,5 @@
 --[[
-Purpose: Antworten der Leitstelle bleiben unter der Funkgrenze, auch mit langen Namen und vielen Eintraegen: Betriebsstellen, Vorlagen (seitenweise, vollstaendig beim Empfaenger) und Tafel (gekuerzt).
+Purpose: Antworten der Leitstelle bleiben unter der Funkgrenze, auch mit langen Namen und vielen Eintraegen: Bahnhoefe, Vorlagen (seitenweise, vollstaendig beim Empfaenger) und Tafel (gekuerzt).
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -32,20 +32,20 @@ end
 local function long(prefix, i) return (prefix .. " " .. i .. " " .. string.rep("N", 40)):sub(1, 30) end
 
 return {
-  { "Betriebsstellenliste mit langen Namen: seitenweise, vollstaendig, unter der Funkgrenze", function()
+  { "Bahnhofsliste mit langen Namen: seitenweise, vollstaendig, unter der Funkgrenze", function()
     local h, z, a, ask = build()
-    local netz = z.node.roles.zentrale.netz
-    for i = 1, 80 do assert(netz.add_station({ name = long("Station", i), kind = "personenbahnhof" })) end
+    local zentrale = z.node.roles.zentrale
+    for i = 1, 80 do assert(zentrale.stations.set((string.format("Station %d ", i) .. string.rep("N", 40)):sub(1, 40), { "Gleis " .. i })) end
     local got, after, pages = {}, nil, 0
     repeat
-      local r = ask({ kind = "betriebsstellen_liste", after = after })
+      local r = ask({ kind = "bahnhoefe_liste", after = after })
       t.ok(r.size <= LIMIT, "Seite hat " .. r.size)
-      for _, st in ipairs(r.payload.stations) do got[#got + 1] = st.id end
-      after = r.payload.stations[#r.payload.stations].id
+      for _, st in ipairs(r.payload.stations) do got[#got + 1] = st.name end
+      after = r.payload.stations[#r.payload.stations].name
       pages = pages + 1
       t.ok(pages < 40)
     until not r.payload.more
-    t.eq(#got, 80)
+    t.ok(#got >= 80, "alle Gruppen und die gemeldeten Bahnhoefe: " .. #got)
   end },
   { "Vorlagen: lange Liste kommt seitenweise und vollstaendig bei der Anmeldung an", function()
     local h, z, a, ask, asks = build()
@@ -116,7 +116,7 @@ return {
     t.eq(#small.payload.rows, 5); t.eq(small.payload.more, nil)
     -- falscher Typ: abgelehnt, nicht abgestuerzt und nicht "alle Linien"
     local bad = ask({ kind = "tafel", station = { 1 } })
-    t.eq(bad.status, "abgelehnt"); t.contains(bad.payload.grund, "Betriebsstelle")
+    t.eq(bad.status, "abgelehnt"); t.contains(bad.payload.grund, "Bahnhof")
     t.eq(ask({ kind = "tafel", station = "Anmeldehof" }).status, "ok")
   end },
   { "Vorlagen: eine doppelt zugestellte (auch letzte) Seite ersetzt die Liste nicht, ein abgebrochener Abruf wird beim naechsten Abruf neu aufgebaut", function()

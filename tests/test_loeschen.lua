@@ -1,5 +1,5 @@
 --[[
-Purpose: Alles, was bei der Einrichtung angelegt wird, laesst sich auch wieder loeschen, ohne Sackgasse: Vorlagen (nicht, solange ein Auftrag oder eine Linie sie braucht), Nodes in der Leitstelle (nur stillgelegt oder ausgefallen; danach ist die Betriebsstelle frei und die Kennung gesperrt), die Einrichtung eines Computers (zweistufig, Kennung und Rollendaten bleiben, danach laesst er sich neu einrichten).
+Purpose: Alles, was bei der Einrichtung angelegt wird, laesst sich auch wieder loeschen, ohne Sackgasse: Vorlagen (nicht, solange ein Auftrag oder eine Linie sie braucht), Nodes in der Leitstelle (nur stillgelegt oder ausgefallen; danach ist die Kennung gesperrt), die Einrichtung eines Computers (zweistufig, Kennung und Rollendaten bleiben, danach laesst er sich neu einrichten).
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -84,23 +84,19 @@ return {
     t.ok(z.has(v, "Noch keine Vorlage"), z.text(v))
   end },
 
-  { "Verzeichnis: eine aktivierte Node laesst sich entfernen, danach ist die Betriebsstelle frei und die Anforderung abgewiesen", function()
+  { "Verzeichnis: eine aktivierte Node laesst sich entfernen, danach ist die Anforderung abgewiesen und die Kennung bleibt vergeben", function()
     local fs = cc.fs()
     fs.makeDir("/crn_data")
     local n = netz.new({ store = storelib.new(fs), path = "/crn_data/netz.lua" })
-    local bf = n.add_station({ name = "Weizenhof", kind = "gueterbahnhof" })
-    local entry = n.claim_node({ claim = "c1-00000100000001", role = "anmeldung", station = bf, legacy = "weizenhof" })
+    local entry = n.claim_node({ claim = "c1-00000100000001", role = "anmeldung", station = "Weizenhof", legacy = "weizenhof" })
     t.ok(entry, "angefordert")
     t.eq(n.mark_active(entry.id), true)
     t.eq(n.node(entry.id).state, "aktiv")
-    local ok, why = n.remove_station(bf)
-    t.eq(ok, nil); t.contains(why, entry.id); t.contains(why, "unter Netz entfernen")
     t.eq(n.remove_node("weizenhof"), true, "auch ueber die bisherige Kennung")
     t.eq(n.node(entry.id).state, "verworfen")
     local again, why2 = n.remove_node(entry.id)
     t.eq(again, nil); t.contains(why2, "schon entfernt")
     t.eq(n.remove_node("N9999"), nil)
-    t.eq(n.remove_station(bf), true, "die Betriebsstelle ist frei")
     local rejected, why3 = n.claim_node({ claim = "c1-00000100000001", role = "bahnhof" })
     t.eq(rejected, nil); t.contains(why3, "verworfen")
     local fresh = n.claim_node({ claim = "c1-00000100000002", role = "bahnhof" })

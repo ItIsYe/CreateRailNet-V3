@@ -1,7 +1,7 @@
 --[[
-Purpose: Node-Verzeichnis der Leitstelle: dauerhafte Kennungen und Namen der Nodes (N0017), das Computerlabel (`N0017 | PBF`), die Anforderung einer Node-Kennung und die Betriebsstellen (BF0001, optional mit Standort S0001), zu denen eine Anmeldung gehoert. Die Strecke selbst (Gleise, Signale, Bloecke, Weichen) regelt Create; das Verzeichnis kennt sie nicht.
-API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.add_station{ name, kind, site }; n.set_station(id, felder); n.remove_station(id); n.stations(); n.station(id); n.sites(); n.claim_node{ claim, role | roles, station, legacy } -> Eintrag { id, name, label, ... } oder nil, Fehler; n.mark_active(id); n.discard_node(id); n.remove_node(id); n.nodes(); n.node(id); n.revision(); n.valid_name(text).
-Notes: Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Bahnhof-, Depot- und kombinierte Rollen brauchen nur die Anforderungskennung; die Rolle anmeldung gehoert zu einer Betriebsstelle (station). Zaehler stehen in der Datei und gehen nie zurueck; eine verworfene Kennung wird nicht wieder vergeben. Betriebsstellen (BF0001: Personenbahnhof, Gueterbahnhof, Depot) hoeren optional zu einem Standort (S0001, nur ueber den Namen gefuehrt, leere Standorte verschwinden). Version 3 der Datei: Bereiche, Gleise, Knoten, Fahrwege, Konflikte und die Gleisbeziehungen der Betriebsstellen sind entfallen (Create regelt die Strecke) und werden beim Laden einer Datei der Version 2 entfernt; Node-Eintraege behalten Kennung, Zustand und Anforderungskennung, die Rollen signal und knoten fallen aus ihren Rollenlisten.
+Purpose: Node-Verzeichnis der Leitstelle: dauerhafte Kennungen und Namen der Nodes (N0017), das Computerlabel (`N0017 | BHF`) und die Anforderung einer Node-Kennung. Die Strecke selbst (Gleise, Signale, Bloecke, Weichen) regelt Create; das Verzeichnis kennt sie nicht.
+API: netz.new{ store, path } -> n; n.blocked (Datei von neuerem Programm); n.claim_node{ claim, role | roles, station, legacy } -> Eintrag { id, name, label, station, ... } oder nil, Fehler; n.rename_station(alt, neu) -> Anzahl der umbenannten Nodes; n.mark_active(id); n.discard_node(id); n.remove_node(id); n.nodes(); n.node(id); n.revision(); n.valid_name(text).
+Notes: Die Anforderung einer Node (claim) ist wiederholbar: dieselbe Claim-Kennung liefert dieselbe Node-Kennung. Bahnhof- und kombinierte Rollen brauchen nur die Anforderungskennung; die Rolle anmeldung allein nennt den Bahnhof (station, sein Name), bei dem sie Zuege anmeldet; ob es ihn gibt, prueft die Leitstelle, das Verzeichnis kennt keine Bahnhoefe. Zaehler stehen in der Datei und gehen nie zurueck; eine verworfene Kennung wird nicht wieder vergeben. Version 3 der Datei: Bereiche, Gleise, Knoten, Fahrwege und Konflikte sind entfallen (Create regelt die Strecke); Version 4: eine Bahnhofsrolle statt dreien; Version 5: auch die Betriebsstellen (BF0001) und Standorte (S0001) sind entfallen, eine Anmeldung nennt den Bahnhof mit seinem Namen. Eine aeltere Datei wird beim Laden umgestellt.
 ]]
 
 local ser = require("core.ser")
@@ -9,9 +9,9 @@ local ser = require("core.ser")
 local M = {}
 
 M.MAX_NODES = 500
-M.MAX_STATIONS = 300
-M.VERSION = 4
+M.VERSION = 5
 M.NAME_MAX = 30
+M.STATION_MAX = 40
 
 local ROLE_CODE = { bahnhof = "BHF", anmeldung = "ANM" }
 local ROLE_TEXT = { bahnhof = "Bahnhof", anmeldung = "Anmeldung" }
@@ -39,6 +39,14 @@ M.valid_name = valid_name
 
 local function same(a, b) return a:lower() == b:lower() end
 
+-- Im Namen und Label der Node stehen nur Buchstaben, Ziffern, Leerzeichen, - und _ (Create-Namen duerfen mehr enthalten; die Node prueft das bei der
+-- Antwort). Ergebnis: " Weizenhof" (mit fuehrendem Leerzeichen) oder "" fuer einen Namen ohne solche Zeichen.
+local function station_part(station)
+  if type(station) ~= "string" then return "" end
+  local text = station:gsub("[^%w _%-]", ""):gsub("%s+", " "):match("^%s*(.-)%s*$")
+  return text ~= "" and (" " .. text) or ""
+end
+
 local ROLE_ORDER = { "bahnhof", "anmeldung" }
 local ROLE_RANK = {}
 for i, r in ipairs(ROLE_ORDER) do ROLE_RANK[r] = i end
@@ -46,10 +54,11 @@ for i, r in ipairs(ROLE_ORDER) do ROLE_RANK[r] = i end
 -- Eine Datei der Version 2 kannte Bereiche, Gleise, Knoten und Gleisbeziehungen: sie fallen weg. Nodes behalten Kennung, Zustand und Anforderung; die
 -- entfallenen Rollen signal und knoten werden aus den Rollenlisten gestrichen (eine nie aktivierte Anforderung ohne verbleibende Rolle gilt als verworfen).
 -- Version 4: die drei Bahnhofsrollen sind eine (Bahnhof); Name und Label der betroffenen Nodes tragen den neuen Text und Code.
+-- Version 5: Betriebsstellen (BF0001) und Standorte (S0001) fallen weg; eine Anmeldung nennt den Bahnhof mit seinem Namen, das Label traegt ihn nicht mehr.
 local function upgrade(data)
   data.areas, data.tracks, data.junctions = nil, nil, nil
-  for _, st in pairs(data.stations or {}) do st.links = nil end
-  for _, node in pairs(data.nodes or {}) do
+  local stations = data.stations or {}
+  for id, node in pairs(data.nodes or {}) do
     node.area, node.junction, node.tracks = nil, nil, nil
     local roles, seen = {}, {}
     for _, r in ipairs(node.roles or { node.role }) do
@@ -64,20 +73,19 @@ local function upgrade(data)
       node.roles = roles
     end
     node.role = roles[1]
-    -- Name und Label neu bilden (die Kennung N0017 und der Ort bleiben)
+    -- die Betriebsstelle wird zum Namen des Bahnhofs
+    local st = type(node.station) == "string" and stations[node.station] or nil
+    node.station = st and type(st.name) == "string" and st.name or nil
+    -- Name und Label neu bilden (die Kennung N0017 bleibt)
     if #roles > 0 and type(node.name) == "string" then
       local codes, texts = {}, {}
       for _, r in ipairs(roles) do codes[#codes + 1] = ROLE_CODE[r]; texts[#texts + 1] = ROLE_TEXT[r] end
-      local id
-      for key, other in pairs(data.nodes) do if other == node then id = key end end
-      local st = node.station and data.stations and data.stations[node.station]
-      if id then
-        node.name = ((#roles == 1) and texts[1] or table.concat(codes, " ")) .. (st and (" " .. st.name) or "") .. " " .. id
-        node.label = id .. " | " .. table.concat(codes, " ") .. (node.station and (" | " .. node.station) or "")
-      end
+      node.name = ((#roles == 1) and texts[1] or table.concat(codes, " ")) .. station_part(node.station) .. " " .. id
+      node.label = id .. " | " .. table.concat(codes, " ")
     end
   end
-  if data.counters then data.counters.bereich, data.counters.gleis, data.counters.knoten = nil, nil, nil end
+  data.stations, data.sites = nil, nil
+  if data.counters then data.counters.bereich, data.counters.gleis, data.counters.knoten = nil, nil, nil; data.counters.betriebsstelle, data.counters.standort = nil, nil end
   if data.tokens then data.tokens = nil end
 end
 
@@ -94,9 +102,8 @@ function M.new(spec)
   end
   data.revision = data.revision or 0
   data.counters = data.counters or {}
-  for _, k in ipairs({ "node", "betriebsstelle", "standort" }) do data.counters[k] = data.counters[k] or 0 end
+  data.counters.node = data.counters.node or 0
   data.nodes = data.nodes or {}
-  data.stations, data.sites = data.stations or {}, data.sites or {}
 
   -- Aenderung ausfuehren; schlaegt das Speichern fehl, kommt der alte Stand zurueck
   local depth = 0
@@ -142,134 +149,32 @@ function M.new(spec)
 
   function n.revision() return data.revision end
 
-  local function empty_text(v) return v == nil or v == false or clean(v) == "" end
-
-  -- Standorte und Betriebsstellen ---------------------------------------------------------------------------------------------------------
-  local STATION_KINDS = { personenbahnhof = true, gueterbahnhof = true, depot = true }
-  M.STATION_KINDS = STATION_KINDS
-
-  local function site_by_name(name)
-    for id, site in pairs(data.sites) do if same(site.name, name) then return id end end
+  -- Bahnhof einer Anmeldung: sein Name (Create-Name oder Name eines Bahnhofs mit mehreren Gleisen), wie ihn die Leitstelle kennt
+  local function station_text(text)
+    if type(text) ~= "string" then return nil, "Der Bahnhof ist ungueltig." end
+    text = clean(text)
+    if text == "" then return nil, "Der Bahnhof fehlt." end
+    if #text > M.STATION_MAX then return nil, "Der Name des Bahnhofs ist zu lang (hoechstens " .. M.STATION_MAX .. " Zeichen)." end
+    if text:find("[%c]") then return nil, "Der Name des Bahnhofs enthaelt ungueltige Zeichen." end
+    return text
   end
 
-  -- Standort ueber den Namen: wird bei Bedarf angelegt; leere Standorte verschwinden. Ergebnis: Kennung, nil (kein Standort) oder nil, Fehler
-  local function site_for(name)
-    if empty_text(name) then return nil end
-    local text, why = valid_name(name)
-    if not text then return nil, why end
-    local id = site_by_name(text)
-    if not id then
-      id = new_id("standort", "S")
-      data.sites[id] = { name = text }
-    end
-    return id
-  end
-
-  local function prune_sites()
-    for id in pairs(data.sites) do
-      local used = false
-      for _, st in pairs(data.stations) do if st.site == id then used = true end end
-      if not used then data.sites[id] = nil end
-    end
-  end
-
-  local function station_name_taken(name, except)
-    for id, st in pairs(data.stations) do
-      if id ~= except and same(st.name, name) then return true end
-    end
-    return false
-  end
-
-  function n.add_station(spec2)
+  -- Ein Bahnhof wurde umbenannt: die Anmeldungen, die ihn nennen, tragen den neuen Namen (Kennung und Label bleiben)
+  function n.rename_station(old, new)
     return change(function()
+      local why
+      new, why = station_text(new)
+      if not new then return nil, why end
       local count = 0
-      for _ in pairs(data.stations) do count = count + 1 end
-      if count >= M.MAX_STATIONS then return nil, "Es gibt schon " .. M.MAX_STATIONS .. " Betriebsstellen." end
-      local name, why = valid_name(spec2.name)
-      if not name then return nil, why end
-      if station_name_taken(name) then return nil, "Eine Betriebsstelle " .. name .. " gibt es schon." end
-      if not STATION_KINDS[spec2.kind] then return nil, "Die Art ist personenbahnhof, gueterbahnhof oder depot." end
-      local site, why_site = site_for(spec2.site)
-      if not site and not empty_text(spec2.site) then return nil, why_site end
-      local id = new_id("betriebsstelle", "BF")
-      data.stations[id] = { name = name, kind = spec2.kind, site = site, rev = 1 }
-      return id
-    end)
-  end
-
-  function n.set_station(id, fields)
-    return change(function()
-      local st = data.stations[id]
-      if not st then return nil, "Die Betriebsstelle gibt es nicht." end
-      local old = stale(st, fields.if_rev, "Betriebsstelle")
-      if old then return nil, old end
-      if fields.name ~= nil then
-        local name, why = valid_name(fields.name)
-        if not name then return nil, why end
-        if station_name_taken(name, id) then return nil, "Eine Betriebsstelle " .. name .. " gibt es schon." end
-        if st.name ~= name then
-          -- der Name der Anmeldung dieser Betriebsstelle folgt (die Kennung und das Label bleiben)
-          for node_id, node in pairs(data.nodes) do
-            if node.station == id and node.state ~= "verworfen" and #(node.roles or {}) == 1 then
-              node.name = ROLE_TEXT[node.roles[1]] .. " " .. name .. " " .. node_id
-            end
-          end
+      for id, node in pairs(data.nodes) do
+        if node.station == old and node.state ~= "verworfen" then
+          node.station = new
+          if #(node.roles or {}) == 1 then node.name = ROLE_TEXT[node.roles[1]] .. station_part(new) .. " " .. id end
+          count = count + 1
         end
-        st.name = name
       end
-      if fields.kind ~= nil then
-        if not STATION_KINDS[fields.kind] then return nil, "Die Art ist personenbahnhof, gueterbahnhof oder depot." end
-        st.kind = fields.kind
-      end
-      if fields.site ~= nil then
-        local site, why = site_for(fields.site)
-        if not site and not empty_text(fields.site) then return nil, why end
-        st.site = site
-      end
-      touch(st)
-      prune_sites()
-      return true
+      return count
     end)
-  end
-
-  function n.remove_station(id)
-    return change(function()
-      local st = data.stations[id]
-      if not st then return nil, "Die Betriebsstelle gibt es nicht." end
-      for node_id, node in pairs(data.nodes) do
-        if node.station == id and node.state ~= "verworfen" then return nil, "Die Node " .. node_id .. " nutzt diese Betriebsstelle: erst unter Netz entfernen." end
-      end
-      data.stations[id] = nil
-      prune_sites()
-      return true
-    end)
-  end
-
-  local function station_view(id, st)
-    return { id = id, name = st.name, kind = st.kind, site = st.site, site_name = st.site and data.sites[st.site] and data.sites[st.site].name or nil, rev = st.rev or 0 }
-  end
-
-  function n.stations()
-    local list = {}
-    for id, st in pairs(data.stations) do list[#list + 1] = station_view(id, st) end
-    table.sort(list, function(a, b) return a.id < b.id end)
-    return list
-  end
-
-  function n.station(id)
-    local st = data.stations[id]
-    return st and station_view(id, st) or nil
-  end
-
-  function n.sites()
-    local list = {}
-    for id, site in pairs(data.sites) do
-      local c = 0
-      for _, st in pairs(data.stations) do if st.site == id then c = c + 1 end end
-      list[#list + 1] = { id = id, name = site.name, stations = c }
-    end
-    table.sort(list, function(a, b) return a.id < b.id end)
-    return list
   end
 
   -- Nodes ----------------------------------------------------------------------------------------------------------------------------------
@@ -295,8 +200,8 @@ function M.new(spec)
     return out
   end
 
-  -- Anforderung einer Node-Kennung. Bahnhof- und Depot-Rollen brauchen nur die Anforderungskennung und lassen sich auf einem Computer kombinieren (roles);
-  -- die Rolle anmeldung gehoert zu einer Betriebsstelle (station).
+  -- Anforderung einer Node-Kennung. Die Rollen brauchen nur die Anforderungskennung und lassen sich auf einem Computer kombinieren (roles);
+  -- die Rolle anmeldung allein nennt den Bahnhof (station), bei dem sie Zuege anmeldet.
   function n.claim_node(spec2)
     return change(function()
       local claim = spec2.claim
@@ -308,13 +213,13 @@ function M.new(spec)
       local code = table.concat(codes, " ")
       local role_text = (#roles == 1) and texts[1] or code
       local primary = roles[1]
-      local station_id, where_name, where_code
+      local station_id
       if #roles == 1 and primary == "anmeldung" then
-        local st = type(spec2.station) == "string" and data.stations[spec2.station] or nil
-        if not st then return nil, "Die Betriebsstelle gibt es nicht." end
-        station_id, where_name, where_code = spec2.station, st.name, spec2.station
+        local why
+        station_id, why = station_text(spec2.station)
+        if not station_id then return nil, why end
       else
-        if spec2.station ~= nil then return nil, "Nur die Rolle anmeldung allein wird fuer eine Betriebsstelle angefordert." end
+        if spec2.station ~= nil then return nil, "Nur die Rolle anmeldung allein nennt einen Bahnhof." end
       end
       -- eine bereits eingerichtete Node behaelt ihre bisherige Kennung (legacy); das Verzeichnis kennt sie unter der neuen Kennung und ordnet ihre Meldungen zu
       local legacy = spec2.legacy
@@ -325,8 +230,8 @@ function M.new(spec)
         end
       end
       local function naming(id)
-        local name = role_text .. (where_name and (" " .. where_name) or "") .. " " .. id
-        local label = id .. " | " .. code .. (where_code and (" | " .. where_code) or "")
+        local name = role_text .. station_part(station_id) .. " " .. id
+        local label = id .. " | " .. code
         return name, label
       end
       -- dieselbe Anforderung noch einmal: dieselbe Kennung, neue Angaben
@@ -373,8 +278,7 @@ function M.new(spec)
     end)
   end
 
-  -- Eine Node aus dem Verzeichnis nehmen (auch nach der Aktivierung): ihre Kennung bleibt vergeben, sie haelt keine Betriebsstelle mehr fest und
-  -- eine spaetere Anforderung mit derselben Anforderungskennung wird abgewiesen ("verworfen"). id ist die Kennung des Verzeichnisses oder die bisherige (legacy).
+  -- Eine Node aus dem Verzeichnis nehmen (auch nach der Aktivierung): ihre Kennung bleibt vergeben, eine spaetere Anforderung mit derselben Anforderungskennung wird abgewiesen ("verworfen"). id ist die Kennung des Verzeichnisses oder die bisherige (legacy).
   function n.remove_node(id)
     return change(function()
       local node = data.nodes[id]

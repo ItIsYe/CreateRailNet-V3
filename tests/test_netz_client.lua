@@ -1,5 +1,5 @@
 --[[
-Purpose: Node-Seite des Netzverzeichnisses (src/app/node.lua): ein Computer ohne Einrichtung holt Betriebsstellen (auch ueber mehrere Seiten) und seine Node-Kennung von der Leitstelle; unbeglaubigte, falsch geformte oder ausbleibende Antworten fuehren zu klaren Fehlern; das Computerlabel wird gesetzt.
+Purpose: Node-Seite des Netzverzeichnisses (src/app/node.lua): ein Computer ohne Einrichtung holt die Bahnhoefe des Netzes (auch ueber mehrere Seiten) und seine Node-Kennung von der Leitstelle; unbeglaubigte, falsch geformte oder ausbleibende Antworten fuehren zu klaren Fehlern; das Computerlabel wird gesetzt.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -15,6 +15,11 @@ local function network(opts)
   return h, z, blank, netz
 end
 
+-- Bahnhoefe, die die Leitstelle kennt (Bahnhoefe mit Gleisen)
+local function add_stations(z, count)
+  for i = 1, count do z.node.roles.zentrale.stations.set("Bahnhof " .. i, { "Gleis " .. i }) end
+end
+
 -- laeuft, bis der Zustand nicht mehr "wait" ist
 local function settle(h, blank, max)
   for _ = 1, max or 12 do
@@ -26,16 +31,16 @@ local function settle(h, blank, max)
 end
 
 return {
-  { "Betriebsstellen holen: Name, Art; mehr als eine Seite wird zusammengesetzt", function()
+  { "Bahnhoefe holen: Namen, mehr als eine Seite wird zusammengesetzt", function()
     local h, z, blank, netz = network()
-    for i = 1, 35 do netz.add_station({ name = "Bahnhof " .. i, kind = (i % 2 == 0) and "depot" or "personenbahnhof" }) end
+    add_stations(z, 35)
     blank.node.directory_stations("hauptstelle")
     t.eq(blank.node.directory_status().kind, "wait")
     local st = settle(h, blank)
     t.eq(st.kind, "ok", st.text)
     t.eq(#st.stations, 35, "beide Seiten")
-    t.eq(st.stations[1].id, "BF0001"); t.eq(st.stations[35].id, "BF0035")
-    t.eq(st.stations[1].name, "Bahnhof 1"); t.eq(st.stations[2].kind, "depot")
+    t.eq(st.stations[1].name, "Bahnhof 1"); t.eq(st.stations[2].name, "Bahnhof 10"); t.eq(st.stations[35].name, "Bahnhof 9")
+    t.contains(st.text, "35")
   end },
   { "Kennung anfordern: Node-Kennung, Name und Label; dieselbe Anforderung liefert dieselbe Kennung", function()
     local h, z, blank, netz = network()
@@ -52,13 +57,14 @@ return {
     local other = blank.node.new_claim()
     t.ok(other ~= claim, "jede neue Anforderung hat eine eigene Kennung")
   end },
-  { "Anmeldung: die Kennung gehoert zu einer Betriebsstelle", function()
+  { "Anmeldung: die Kennung nennt den Bahnhof (Name und Label der Node)", function()
     local h, z, blank, netz = network()
-    local bf = netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof" })
-    blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "anmeldung", nil, { station = bf })
+    add_stations(z, 1)
+    blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "anmeldung", nil, { station = "Bahnhof 1" })
     local st = settle(h, blank)
     t.eq(st.kind, "ok", st.text)
-    t.eq(st.node.label, "N0001 | ANM | " .. bf)
+    t.eq(st.node.name, "Anmeldung Bahnhof 1 N0001"); t.eq(st.node.label, "N0001 | ANM")
+    t.eq(netz.node("N0001").station, "Bahnhof 1")
   end },
   { "Leitstelle antwortet nicht: nach der Frist ein klarer Hinweis", function()
     local h, z, blank = network()
@@ -84,22 +90,24 @@ return {
     local function stations() blank.node.directory_stations("hauptstelle") end
     local function claim() blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "depot", nil, { roles = { "bahnhof" } }) end
     bad(stations, { stations = "viel" }, "Betriebsstellen keine Liste")
-    bad(stations, { stations = { { id = "../x", name = "A", kind = "depot" } } }, "Kennung")
-    bad(stations, { stations = { { id = "BF0001", name = "A;B", kind = "depot" } } }, "Name mit Sonderzeichen")
-    bad(stations, { stations = { { id = "BF0001", name = "A", kind = "hafen" } } }, "unbekannte Art")
+    bad(stations, { stations = { "Hauptbahnhof" } }, "Eintrag ist kein Bahnhof")
+    bad(stations, { stations = { { name = "Haupt\nbahnhof" } } }, "Name mit Zeilenumbruch")
+    bad(stations, { stations = { { name = "" } } }, "leerer Name")
+    bad(stations, { stations = { { name = 5 } } }, "Name keine Zeichenkette")
+    bad(stations, { stations = { { name = string.rep("x", 41) } } }, "Name zu lang")
     bad(claim, { node = { id = "N0001", name = "x", label = "bad\nlabel" } }, "Label mit Zeilenumbruch")
     bad(claim, { node = { id = "root", name = "x", label = "N0001 | DEP" } }, "Kennung")
     bad(claim, { node = "N0001" }, "kein Eintrag")
   end },
   { "Eine abgelehnte Anforderung zeigt die Begruendung der Leitstelle", function()
     local h, z, blank, netz = network()
-    blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "anmeldung", nil, { station = "BF0099" })
+    blank.node.directory_claim("hauptstelle", blank.node.new_claim(), "anmeldung", nil, { station = "Gibtsnicht" })
     local st = settle(h, blank)
-    t.eq(st.kind, "halt"); t.contains(st.text, "Betriebsstelle")
+    t.eq(st.kind, "halt"); t.contains(st.text, "kennt die Leitstelle nicht")
   end },
   { "Ein schon eingerichteter Computer fragt ueber seinen eigenen Funk mit seiner Kennung, nicht ueber die vorlaeufige Verbindung", function()
     local h, z, blank, netz = network()
-    netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof" })
+    add_stations(z, 1)
     local s = h.add_node({ id = "strecke", roles = { "bahnhof" }, central = "hauptstelle", tracks = { { name = "Nord", station = "Station_N" } } })
     s.node.directory_stations("hauptstelle")
     local st = settle(h, s)
@@ -109,7 +117,7 @@ return {
   end },
   { "Ueber einen Funkweg mit Verlust: nach erneutem Versuch kommt die Antwort", function()
     local h, z, blank, netz = network({ bus = { seed = 3, drop = 0.5 } })
-    netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof" })
+    add_stations(z, 1)
     local st
     for attempt = 1, 8 do
       blank.node.directory_stations("hauptstelle")

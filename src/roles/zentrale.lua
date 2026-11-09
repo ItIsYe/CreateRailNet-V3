@@ -87,6 +87,23 @@ function M.new(node)
     end
   end
 
+  -- Die Bahnhoefe des Netzes, wie ein Mensch sie nennt: der Name eines Bahnhofs mit mehreren Gleisen, sonst der Create-Name der Train Station.
+  function role.station_names()
+    local seen, list = {}, {}
+    local function add(name)
+      if type(name) == "string" and #name > 0 and #name <= 40 and not name:find("%c") and not seen[name] then seen[name] = true; list[#list + 1] = name end
+    end
+    for name in pairs(dir) do add(role.stations.group_of(name) or name) end
+    for _, g in ipairs(role.stations.list()) do add(g.name) end
+    table.sort(list)
+    return list
+  end
+
+  function role.station_known(name)
+    for _, shown in ipairs(role.station_names()) do if shown == name then return true end end
+    return false
+  end
+
   local function reachable(node_id)
     local info = nodes[node_id]
     return info ~= nil and now() - info.last_seen < NODE_SILENT
@@ -693,7 +710,7 @@ function M.new(node)
       elseif kind == "stornieren" then handle_cancel(m)
       else node.reply(m, "abgelehnt", { grund = "Unbekannter Auftrag." }) end
     elseif kind == "vorlagen" then handle_templates_query(m)
-    elseif kind == "node_anfordern" or kind == "betriebsstellen_liste" then role.handle_directory(m)
+    elseif kind == "node_anfordern" or kind == "bahnhoefe_liste" then role.handle_directory(m)
     elseif kind == "konfig_holen" then role.handle_fetch_config(m)
     elseif kind == "ersatz_liste" then role.handle_replace_list(m)
     elseif kind == "netze" then
@@ -703,7 +720,7 @@ function M.new(node)
       node.reply(m, "ok", { netz = node.config.network.name, zentrale = node.config.node.id, nodes = count })
     elseif kind == "tafel" then
       -- die Tafel zeigt nur die ersten Zeilen; eine lange Liste wird auf die Funkgrenze gekuerzt (more = true)
-      if m.payload.station ~= nil and type(m.payload.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Betriebsstelle ist ungueltig." }) end
+      if m.payload.station ~= nil and type(m.payload.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Der Bahnhof ist ungueltig." }) end
       reply_page(m, "rows", role.board(m.payload.station), false, { t = now() })
     else
       node.reply(m, "abgelehnt", { grund = "Unbekannte Abfrage." })
@@ -976,6 +993,8 @@ function M.new(node)
     if renamed then
       local count, why = role.orders.rename_station(old, name)
       if not count then return nil, why end
+      -- die Anmeldungen, die diesen Bahnhof nennen, folgen dem neuen Namen
+      role.netz.rename_station(old, name)
     end
     return true
   end
@@ -1200,26 +1219,27 @@ function M.new(node)
     return count
   end
 
-  -- Node-Verzeichnis fuer neue Computer: Kennung anfordern und Betriebsstellen (fuer die Anmeldung) abfragen. Die Strecke selbst regelt Create; das
+  -- Node-Verzeichnis fuer neue Computer: Kennung anfordern und Bahnhoefe (fuer die Anmeldung) abfragen. Die Strecke selbst regelt Create; das
   -- Verzeichnis kennt nur die Nodes. Listenantworten bleiben unter der Funkgrenze (seitenweise).
   local DIRECTORY_PAGE = 20
   function role.handle_directory(m)
     local p = m.payload
     local revision = role.netz.revision()
-    if p.kind == "betriebsstellen_liste" then
-      -- Betriebsstellen seitenweise (fuer die Einrichtung einer Anmeldung)
+    if p.kind == "bahnhoefe_liste" then
+      -- die Bahnhoefe des Netzes seitenweise (fuer die Einrichtung einer Anmeldung)
       local after = type(p.after) == "string" and p.after or nil
       local list, more = {}, false
-      for _, st in ipairs(role.netz.stations()) do
-        if after == nil or st.id > after then
+      for _, name in ipairs(role.station_names()) do
+        if after == nil or name > after then
           if #list >= DIRECTORY_PAGE then more = true break end
-          list[#list + 1] = { id = st.id, name = st.name, kind = st.kind }
+          list[#list + 1] = { name = name }
         end
       end
       return reply_page(m, "stations", list, more, { revision = revision })
     end
     if p.legacy ~= nil and type(p.legacy) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die bisherige Node-Kennung ist ungueltig." }) end
-    if p.station ~= nil and type(p.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Die Betriebsstelle ist ungueltig." }) end
+    if p.station ~= nil and type(p.station) ~= "string" then return node.reply(m, "abgelehnt", { grund = "Der Bahnhof ist ungueltig." }) end
+    if p.station ~= nil and not role.station_known(p.station) then return node.reply(m, "abgelehnt", { grund = "Den Bahnhof " .. p.station .. " kennt die Leitstelle nicht." }) end
     if p.roles ~= nil and type(p.roles) ~= "table" then return node.reply(m, "abgelehnt", { grund = "Die Rollen sind ungueltig." }) end
     local entry, err = role.netz.claim_node({ claim = p.claim, role = p.role, roles = p.roles, station = p.station, legacy = p.legacy })
     if not entry then return node.reply(m, "abgelehnt", { grund = err }) end
@@ -1282,7 +1302,7 @@ function M.new(node)
     return node.store.save(DATA .. "/stillgelegt.lua", retired)
   end
 
-  -- Eine Node ganz aus der Leitstelle nehmen (Gleise, Sicherung, Verzeichniseintrag; die Betriebsstelle ist wieder frei). Nur eine Node, die sich nicht
+  -- Eine Node ganz aus der Leitstelle nehmen (Gleise, Sicherung, Verzeichniseintrag). Nur eine Node, die sich nicht
   -- mehr meldet oder stillgelegt ist: eine laufende wuerde sich sofort wieder anmelden. Die Kennung bleibt als stillgelegt vermerkt, ein spaeter
   -- doch noch laufender Computer mit dieser Kennung wird abgewiesen (er richtet sich neu ein und bekommt eine neue Kennung).
   function role.forget_node(id)
@@ -1625,67 +1645,6 @@ function M.new(node)
       return true
     end,
   }
-
-  -- Netzverzeichnis: Bereiche und ihre Gleise (Konzept 4, 5, 12.3): einmal hier anlegen, die Nodes uebernehmen sie
-  local netz_arm = {}
-  local function two_step(kind, record_id, text, fn)
-    if netz_arm[kind] ~= record_id then
-      netz_arm[kind] = record_id
-      return "Nochmal druecken: " .. text
-    end
-    netz_arm[kind] = nil
-    local ok, err = fn()
-    return ok and "Geloescht." or err
-  end
-
-  local function find_station_by_name(name)
-    local wanted = tostring(name or ""):match("^%s*(.-)%s*$"):lower()
-    for _, st in ipairs(role.netz.stations()) do
-      if st.name:lower() == wanted then return st end
-    end
-  end
-
-  local KIND_TEXT = { personenbahnhof = "Personenbahnhof", gueterbahnhof = "Gueterbahnhof", depot = "Depot" }
-  local function station_kind(text)
-    local want = tostring(text or ""):match("^%s*(.-)%s*$"):lower()
-    if want == "personen" or want == "personenbahnhof" or want == "p" then return "personenbahnhof" end
-    if want == "gueter" or want == "gueterbahnhof" or want == "g" then return "gueterbahnhof" end
-    if want == "depot" or want == "d" then return "depot" end
-    return want
-  end
-
-  -- Betriebsstellen (Konzept 6): Personenbahnhof, Gueterbahnhof, Depot, optional mit Standort
-  pages[#pages + 1] = forms.page({
-    id = "betriebsstellen", title = "Betriebsstellen", new_label = "Neu",
-    empty = "Noch keine Betriebsstelle. Eine Anmeldung gehoert zu einer Betriebsstelle (Personenbahnhof, Gueterbahnhof oder Depot), die hier angelegt wird.",
-    items = function()
-      local items, records = {}, {}
-      for i, st in ipairs(role.netz.stations()) do
-        items[i] = { text = st.name .. "  (" .. st.id .. ")", detail = KIND_TEXT[st.kind] .. (st.site_name and (", Standort " .. st.site_name) or "") }
-        records[i] = st
-      end
-      return items, records
-    end,
-    fields = {
-      { id = "name", label = "Name der Betriebsstelle", max = 30, width = 34 },
-      { id = "art", label = "Art: personenbahnhof, gueterbahnhof, depot", max = 16, width = 24, default = "personenbahnhof" },
-      { id = "standort", label = "Standort (Name, leer = keiner)", max = 30, width = 34 },
-    },
-    edit = function(st) return { name = st.name, art = st.kind, standort = st.site_name or "" } end,
-    on_save = function(values, record)
-      local kind = station_kind(values.art)
-      if record then
-        return role.netz.set_station(record.id, { name = values.name, kind = kind, site = values.standort, if_rev = record.rev })
-      end
-      local id, err = role.netz.add_station({ name = values.name, kind = kind, site = values.standort })
-      if not id then return nil, err end
-      return true
-    end,
-    extra = {
-      { id = "loeschen", label = function(st) return st and netz_arm.station == st.id and "Wirklich?" or "Loeschen" end, kind = "danger",
-        run = function(v, st) return two_step("station", st.id, "die Betriebsstelle " .. st.name .. " wird geloescht.", function() return role.netz.remove_station(st.id) end) end },
-    },
-  })
 
   pages[#pages + 1] = {
     id = "vorlagen", title = "Vorlagen",
@@ -2076,12 +2035,7 @@ function M.new(node)
     end,
   }
 
-  -- Betriebsseiten zuerst, die Seiten des Netzverzeichnisses (Einrichtungsarbeit) zum Schluss
-  local directory_pages = { betriebsstellen = true }
-  local ordered = {}
-  for _, pg in ipairs(pages) do if not directory_pages[pg.id] then ordered[#ordered + 1] = pg end end
-  for _, pg in ipairs(pages) do if directory_pages[pg.id] then ordered[#ordered + 1] = pg end end
-  role.pages = ordered
+  role.pages = pages
   return role
 end
 

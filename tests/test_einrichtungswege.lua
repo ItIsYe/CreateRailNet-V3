@@ -1,5 +1,5 @@
 --[[
-Purpose: Keine Sackgassen im Einrichtungsassistenten: jede Rolle (Bahnhof, Gueterbahnhof, Depot, Bahnhof plus Anmeldung, Anmeldung allein, Leitstelle) wird frisch eingerichtet und danach mit "Einrichtung aendern" noch einmal durchlaufen, bis zum Aktivieren; ein Stillstand (Weiter ohne Wirkung und ohne behebbaren Hinweis) ist ein Fehler.
+Purpose: Keine Sackgassen im Einrichtungsassistenten: jede Rolle (Bahnhof, Bahnhof plus Anmeldung, Anmeldung allein, Leitstelle) wird frisch eingerichtet und danach mit "Einrichtung aendern" noch einmal durchlaufen, bis zum Aktivieren; ein Stillstand (Weiter ohne Wirkung und ohne behebbaren Hinweis) ist ein Fehler.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -190,7 +190,7 @@ end
 local function leitstelle(h, f)
   local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
   local netz = z.node.roles.zentrale.netz
-  f(netz)
+  f(netz, z.node.roles.zentrale)
   return z, netz
 end
 
@@ -218,24 +218,16 @@ local function sc(name, build) SC[#SC + 1] = { name = name, build = build } end
 
 local function area_station(netz) end
 
-sc("Passagierbahnhof", function()
+sc("Bahnhof", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
   return h, node(h, { stations = 3, signals = 0 }), { roles = { "bahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
-sc("Gueterbahnhof", function()
-  local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3 }), { roles = { "bahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
-end)
-sc("Depot", function()
-  local h = H.new(); local z, netz = leitstelle(h, area_station)
-  return h, node(h, { stations = 3 }), { roles = { "bahnhof" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
-end)
-sc("Passagierbahnhof + Anmeldung", function()
+sc("Bahnhof + Anmeldung", function()
   local h = H.new(); local z, netz = leitstelle(h, area_station)
   return h, node(h, { stations = 3 }), { roles = { "bahnhof", "anmeldung" }, devices = { "Create_Station_1", "Create_Station_2", "Create_Station_3" } }
 end)
-sc("Anmeldung allein (Betriebsstelle aus dem Verzeichnis)", function()
-  local h = H.new(); local z, netz = leitstelle(h, function(n) area_station(n); assert(n.add_station({ name = "Westbahnhof", kind = "personenbahnhof" })) end)
+sc("Anmeldung allein (Bahnhof aus dem Verzeichnis)", function()
+  local h = H.new(); local z, netz = leitstelle(h, function(n, zentrale) area_station(n); assert(zentrale.stations.set("Westbahnhof", { "West 1" })) end)
   return h, node(h, { stations = 2 }), { roles = { "anmeldung" }, devices = { "Create_Station_1" } }
 end)
 

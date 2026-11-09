@@ -1,4 +1,4 @@
-# Datenformat 5
+# Datenformat 6
 bahnhof:config.lua devices.station#.device string
 bahnhof:config.lua devices.station#.kind string
 bahnhof:config.lua network.central_id string
@@ -33,9 +33,7 @@ zentrale:config.lua version number
 zentrale:epoche.lua n number
 zentrale:format.lua format number
 zentrale:format.lua program string
-zentrale:netz.lua counters.betriebsstelle number
 zentrale:netz.lua counters.node number
-zentrale:netz.lua counters.standort number
 zentrale:netz.lua nodes.N#.claim string
 zentrale:netz.lua nodes.N#.label string
 zentrale:netz.lua nodes.N#.name string
@@ -44,11 +42,6 @@ zentrale:netz.lua nodes.N#.roles.[] string
 zentrale:netz.lua nodes.N#.state string
 zentrale:netz.lua nodes.N#.station string
 zentrale:netz.lua revision number
-zentrale:netz.lua sites.S#.name string
-zentrale:netz.lua stations.BF#.kind string
-zentrale:netz.lua stations.BF#.name string
-zentrale:netz.lua stations.BF#.rev number
-zentrale:netz.lua stations.BF#.site string
 zentrale:netz.lua version number
 zentrale:nodesich/*.lua config string
 zentrale:nodesich/*.lua revision number

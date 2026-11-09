@@ -129,6 +129,21 @@ end
 if changed then ctx.save("config.lua",c)end
 end,
 },
+
+
+
+[5]={
+text="Betriebsstellen-Kennung der Anmeldung entfernen",
+scope={"config.lua"},
+run=function(ctx)
+local c=ctx.load("config.lua")
+if type(c)~="table"or type(c.node)~="table"then return end
+if type(c.node.station)=="string"and c.node.station:match("^BF%d+$")then
+c.node.station=nil
+ctx.save("config.lua",c)
+end
+end,
+},
 }
 
 

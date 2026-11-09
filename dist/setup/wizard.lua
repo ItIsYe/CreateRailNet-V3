@@ -330,7 +330,7 @@ w.claimed_id=info.node.id
 w.name=info.node.name
 sync_config()
 local c=w.config
-c.node.claimed,c.node.label,c.node.claim,c.node.station=true,info.node.label,info.claim,info.station.id
+c.node.claimed,c.node.label,c.node.claim,c.node.station=true,info.node.label,info.claim,info.station.name
 return true
 end
 

@@ -103,7 +103,7 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap(v, "act:speichern")
     local expect = {
-      betriebsstellen = "oder Depot)", linien = "im Takt aus", stoerungen = "keine fremden Zuege", bahnhoefe = "Einzelne",
+      linien = "im Takt aus", stoerungen = "keine fremden Zuege", bahnhoefe = "Einzelne",
     }
     for page, tail in pairs(expect) do
       v.set_page(page); d.node.render()
@@ -185,15 +185,15 @@ return {
     d.tap(v, "act:weiter"); d.tap(v, "act:weiter")
     d.tap(v, "act:speichern")
     local zentrale = d.node.roles.zentrale
-    assert(zentrale.netz.add_station({ name = "West", kind = "personenbahnhof", site = "Mitte" }))
-    v.set_page("betriebsstellen"); d.node.render()
+    assert(zentrale.stations.set("West", { "West Gleis 1", "West Gleis 2", "West Gleis 3" }))
+    v.set_page("bahnhoefe"); d.node.render()
     t.contains(d.text(v), "West")
-    t.contains(d.text(v), "Personenbahnhof, Standort Mitte")      -- 31 Zeichen: nicht bei der halben Zeile abgeschnitten
+    t.contains(d.text(v), "West Gleis 1, West Gleis 2, West Gleis 3")      -- 36 Zeichen: nicht bei der halben Zeile abgeschnitten
     -- langer Titel: die Einzelheit bekommt mindestens die halbe Zeile, der Titel den Rest
-    assert(zentrale.netz.add_station({ name = "Hauptbahnhof-Nordwest-Ausfahrt", kind = "gueterbahnhof", site = "Nordwestbahnhof Sued" }))
+    assert(zentrale.stations.set("Hauptbahnhof-Nordwest-Ausfahrt", { "Nordwest Gleis 1", "Nordwest Gleis 2" }))
     d.node.render()
     local text = d.text(v)
     t.contains(text, "Hauptbahnhof-Nordwest-A")
-    t.contains(text, "Gueterbahnhof, Standort")
+    t.contains(text, "Nordwest Gleis 1, Nordw")
   end },
 }

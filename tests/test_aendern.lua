@@ -1,5 +1,5 @@
 --[[
-Purpose: Was bei der Einrichtung angelegt wurde, laesst sich auch aendern: ein Bahnhof mit mehreren Gleisen laesst sich umbenennen und umbauen (kein zweiter Eintrag, keine Meldung "gehoert schon zum Bahnhof ..." fuer die eigenen Gleise; die Halte der Vorlagen folgen), eine Linie behaelt beim Aendern ihre Kennung, eine Vorlage laesst sich aendern (nicht unter einem laufenden Auftrag) und die Anmeldung einer umbenannten Betriebsstelle traegt den neuen Namen.
+Purpose: Was bei der Einrichtung angelegt wurde, laesst sich auch aendern: ein Bahnhof mit mehreren Gleisen laesst sich umbenennen und umbauen (kein zweiter Eintrag, keine Meldung "gehoert schon zum Bahnhof ..." fuer die eigenen Gleise; die Halte der Vorlagen folgen), eine Linie behaelt beim Aendern ihre Kennung, eine Vorlage laesst sich aendern (nicht unter einem laufenden Auftrag) und die Anmeldungen eines umbenannten Bahnhofs tragen den neuen Namen.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -197,16 +197,17 @@ return {
     t.eq(zentrale.register.get("GZ-001").create_name, "Weizenzug Neu")
   end },
 
-  { "Betriebsstelle umbenennen: die Anmeldung dieser Betriebsstelle traegt den neuen Namen, Kennung und Label bleiben", function()
-    local fs = cc.fs()
-    fs.makeDir("/crn_data")
-    local n = netz.new({ store = storelib.new(fs), path = "/crn_data/netz.lua" })
-    local bf = n.add_station({ name = "Weizenhof", kind = "gueterbahnhof" })
-    local entry = n.claim_node({ claim = "c1-00000100000001", role = "anmeldung", station = bf })
-    t.contains(entry.name, "Weizenhof")
-    t.eq(n.set_station(bf, { name = "Weizenfeld" }), true)
-    local after = n.node(entry.id)
-    t.contains(after.name, "Weizenfeld"); t.ok(not after.name:find("Weizenhof", 1, true))
-    t.eq(after.label, entry.label)
+  { "Bahnhof umbenennen: die Anmeldung dieses Bahnhofs traegt den neuen Namen, Kennung und Label bleiben", function()
+    local h, z, w, l, sim = build()
+    local zentrale = ready(h, z, w, sim)
+    t.eq(zentrale.stations.set("Lager", { "Zentrallager" }), true)
+    local entry = zentrale.netz.claim_node({ claim = "c1-00000100000001", role = "anmeldung", station = "Lager" })
+    t.contains(entry.name, "Lager")
+    t.eq(zentrale.update_station_group("Lager", "Lager Nord", { "Zentrallager" }), true)
+    local after = zentrale.netz.node(entry.id)
+    t.eq(after.station, "Lager Nord")
+    t.contains(after.name, "Lager Nord"); t.eq(after.label, entry.label)
+    t.eq(zentrale.update_station_group("Lager Nord", "Lager Nord", { "Zentrallager" }), true, "ohne neuen Namen aendert sich nichts")
+    t.eq(zentrale.netz.node(entry.id).name, after.name)
   end },
 }

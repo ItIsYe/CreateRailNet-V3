@@ -1,5 +1,5 @@
 --[[
-Purpose: Node-Verzeichnis in der Leitstelle: Antworten auf Abfragen neuer Computer (Node anfordern, Betriebsstellen seitenweise), die entfallenen Abfragen (Bereiche, Gleise, Knoten) werden abgelehnt, Meldung einer angeforderten Node im Betrieb, und die Seite Netz mit reservierten Kennungen.
+Purpose: Node-Verzeichnis in der Leitstelle: Antworten auf Abfragen neuer Computer (Node anfordern, Bahnhoefe seitenweise), die entfallenen Abfragen (Bereiche, Gleise, Knoten) werden abgelehnt, Meldung einer angeforderten Node im Betrieb, und die Seite Netz mit reservierten Kennungen.
 ]]
 
 local t = dofile("tests/lib/t.lua")
@@ -29,35 +29,43 @@ local function network()
 end
 
 return {
-  { "Abfrage 'betriebsstellen_liste': seitenweise (20 je Antwort), Unsinn als Cursor wird ignoriert", function()
+  { "Abfrage 'bahnhoefe_liste': die Bahnhoefe des Netzes seitenweise (20 je Antwort), Gruppen statt ihrer Gleise, Unsinn als Cursor wird ignoriert", function()
     local h, z, s, ask = network()
-    local netz = z.node.roles.zentrale.netz
-    for i = 1, 21 do netz.add_station({ name = "Bahnhof " .. i, kind = "personenbahnhof" }) end
-    local first = ask({ kind = "betriebsstellen_liste" })
+    local zentrale = z.node.roles.zentrale
+    local one = ask({ kind = "bahnhoefe_liste" })
+    t.eq(one.status, "ok")
+    t.eq(#one.payload.stations, 1); t.eq(one.payload.stations[1].name, "Nord Bahnhof")
+    -- ein Bahnhof mit mehreren Gleisen erscheint mit seinem Namen, nicht mit dem Gleis
+    t.eq(zentrale.stations.set("Nord Haupt", { "Nord Bahnhof", "Nord 2" }), true)
+    local grouped = ask({ kind = "bahnhoefe_liste" })
+    t.eq(#grouped.payload.stations, 1); t.eq(grouped.payload.stations[1].name, "Nord Haupt")
+    for i = 1, 21 do zentrale.stations.set("Bahnhof " .. i, { "Gleis " .. i }) end
+    local first = ask({ kind = "bahnhoefe_liste" })
     t.eq(first.status, "ok")
     t.eq(#first.payload.stations, 20); t.eq(first.payload.more, true)
-    t.eq(first.payload.stations[1].id, "BF0001"); t.eq(first.payload.stations[1].kind, "personenbahnhof")
-    local second = ask({ kind = "betriebsstellen_liste", after = first.payload.stations[20].id })
-    t.eq(#second.payload.stations, 1); t.eq(second.payload.more, nil)
-    t.eq(second.payload.stations[1].id, "BF0021")
-    t.eq(ask({ kind = "betriebsstellen_liste", after = 42 }).payload.stations[1].id, "BF0001")
-    t.eq(first.payload.revision, netz.revision())
+    t.eq(first.payload.stations[1].name, "Bahnhof 1"); t.eq(first.payload.stations[2].name, "Bahnhof 10")
+    local second = ask({ kind = "bahnhoefe_liste", after = first.payload.stations[20].name })
+    t.eq(#second.payload.stations, 2); t.eq(second.payload.more, nil)
+    t.eq(second.payload.stations[2].name, "Nord Haupt")
+    t.eq(ask({ kind = "bahnhoefe_liste", after = 42 }).payload.stations[1].name, "Bahnhof 1")
+    t.eq(first.payload.revision, zentrale.netz.revision())
+    t.eq(ask({ kind = "betriebsstellen_liste" }).status, "abgelehnt", "die alte Abfrage gibt es nicht mehr")
   end },
-  { "Antworten bleiben unter der Funkgrenze: 300 Betriebsstellen mit langen Namen kommen seitenweise vollstaendig an", function()
+  { "Antworten bleiben unter der Funkgrenze: 300 Bahnhoefe mit langen Namen kommen seitenweise vollstaendig an", function()
     local h, z, s, ask = network()
-    local netz = z.node.roles.zentrale.netz
+    local zentrale = z.node.roles.zentrale
     local ser = require("core.ser")
-    for i = 1, 300 do netz.add_station({ name = string.format("Langer Name der Stelle Nr %03d", i), kind = "gueterbahnhof" }) end
+    for i = 1, 299 do zentrale.stations.set(string.format("Langer Name des Bahnhofs Nr %03d", i), { "G" .. i }) end
     local got, after = 0, nil
     for _ = 1, 40 do
-      local r = ask({ kind = "betriebsstellen_liste", after = after })
+      local r = ask({ kind = "bahnhoefe_liste", after = after })
       t.eq(r.status, "ok")
       t.ok(#ser.encode(r.payload) < 5000, "Seite zu gross")
       got = got + #r.payload.stations
       if not r.payload.more then break end
-      after = r.payload.stations[#r.payload.stations].id
+      after = r.payload.stations[#r.payload.stations].name
     end
-    t.eq(got, 300)
+    t.eq(got, 300, "299 Gruppen und der gemeldete Bahnhof")
   end },
   { "Abfrage 'node_anfordern': Kennung, Name, Label; wiederholbar; Fehler werden begruendet abgelehnt", function()
     local h, z, s, ask = network()
@@ -67,14 +75,19 @@ return {
     t.eq(r.payload.node.id, "N0001"); t.eq(r.payload.node.name, "Bahnhof N0001"); t.eq(r.payload.node.label, "N0001 | BHF")
     local again = ask({ kind = "node_anfordern", claim = "claim-aaaa-0001", role = "bahnhof", legacy = "alt" })
     t.eq(again.payload.node.id, "N0001")
-    local bad = ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "anmeldung", station = "BF0099" })
-    t.eq(bad.status, "abgelehnt"); t.contains(bad.payload.grund, "Betriebsstelle")
+    local bad = ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "anmeldung", station = "Gibtsnicht" })
+    t.eq(bad.status, "abgelehnt"); t.contains(bad.payload.grund, "kennt die Leitstelle nicht")
+    local none = ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "anmeldung" })
+    t.eq(none.status, "abgelehnt"); t.contains(none.payload.grund, "Bahnhof")
+    local good = ask({ kind = "node_anfordern", claim = "claim-aaaa-0003", role = "anmeldung", station = "Nord Bahnhof" })
+    t.eq(good.status, "ok"); t.eq(good.payload.node.id, "N0002"); t.eq(good.payload.node.name, "Anmeldung Nord Bahnhof N0002"); t.eq(good.payload.node.label, "N0002 | ANM")
+    t.eq(netz.node("N0002").station, "Nord Bahnhof")
     t.eq(ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "depot", roles = "alle" }).status, "abgelehnt")
     t.eq(ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "depot", station = 5 }).status, "abgelehnt")
     t.eq(ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "depot", legacy = 5 }).status, "abgelehnt")
     t.eq(ask({ kind = "node_anfordern", claim = "claim-aaaa-0002", role = "signal" }).status, "abgelehnt", "die Rolle signal gibt es nicht mehr")
     t.eq(ask({ kind = "node_anfordern" }).status, "abgelehnt")
-    t.eq(#netz.nodes(), 1, "abgelehnte Anforderungen hinterlassen nichts")
+    t.eq(#netz.nodes(), 2, "abgelehnte Anforderungen hinterlassen nichts")
   end },
   { "Entfallene Abfragen (Bereiche, Gleise, Knoten, Bereich anlegen, Gleis aendern) werden als unbekannt abgelehnt", function()
     local h, z, s, ask = network()

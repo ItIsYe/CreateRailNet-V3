@@ -593,13 +593,42 @@ return {
     t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
   end },
 
+  { "Schritt 5 -> 6 (Betriebsstellen entfallen): die Betriebsstellen-Kennung der Anmeldung faellt weg, alles andere bleibt", function()
+    local step = migrations.STEPS[5]
+    t.contains(step.text, "Betriebsstellen")
+    local function run(config)
+      local fs, store = world()
+      store.save("/crn_data/format.lua", { format = 5, program = "0.5" })
+      if config then store.save("/crn_data/config.lua", config) end
+      store.save("/crn_data/register.lua", { trains = { a = 1 } })
+      local status, _, dir, err = dataformat.check(fs, store, { format = 6, program = "0.6", migrations = { [5] = step } })
+      return status, fs, store, dir, err
+    end
+    -- eine Anmeldung mit gespeicherter Betriebsstelle: die Kennung (BF0001) faellt weg, Name und Label bleiben
+    local status, fs, store, dir, err = run({ status = "aktiv", node = { id = "anm", roles = { "anmeldung" }, station = "BF0001", label = "N0005 | ANM | BF0001", name = "Anmeldung Hauptbahnhof N0005" },
+      devices = { station1 = { kind = "station", device = "Create_Station_1" } }, tracks = {} })
+    t.eq(status, "migriert", tostring(err))
+    local c = store.load("/crn_data/config.lua")
+    t.eq(c.node.station, nil); t.eq(c.node.name, "Anmeldung Hauptbahnhof N0005"); t.eq(c.devices.station1.device, "Create_Station_1")
+    t.eq(store.load("/crn_data/register.lua").trains.a, 1, "andere Dateien bleiben")
+    t.eq(store.load(dir .. "/config.lua").node.station, "BF0001", "die Sicherung behaelt den alten Stand")
+    -- ein Bahnhofsname (schon im neuen Format gespeichert) und eine Einrichtung ohne Anmeldung bleiben unveraendert
+    local named = { status = "aktiv", node = { id = "anm2", roles = { "anmeldung" }, station = "Hauptbahnhof" }, devices = {}, tracks = {} }
+    status, fs, store = run(named)
+    t.eq(status, "migriert"); t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(named))
+    local plain = { status = "aktiv", node = { id = "bf", roles = { "bahnhof" } }, devices = {}, tracks = {} }
+    status, fs, store = run(plain)
+    t.eq(status, "migriert"); t.eq(ser.encode(store.load("/crn_data/config.lua")), ser.encode(plain))
+    status, fs = run(nil)
+    t.eq(status, "migriert"); t.ok(not fs.exists("/crn_data/config.lua"))
+  end },
+
   { "Form der gespeicherten Dateien ist festgehalten: aendert sie sich, muss ein Anpassungsschritt her oder die Festlegung bewusst erneuert werden", function()
     local h = H.new()
     local z = h.add_node({ id = "hauptstelle", roles = { "zentrale" }, tracks = {} })
     local netz = z.node.roles.zentrale.netz
-    assert(netz.add_station({ name = "Hauptbahnhof", kind = "personenbahnhof", site = "Mitte" }))
     assert(netz.claim_node({ claim = "claim-golden-0001", role = "bahnhof" }))
-    assert(netz.claim_node({ claim = "claim-golden-0002", role = "anmeldung", station = "BF0001" }))
+    assert(netz.claim_node({ claim = "claim-golden-0002", role = "anmeldung", station = "Hauptbahnhof" }))
     h.add_node({ id = "depot", roles = { "bahnhof" }, central = "hauptstelle", label = "N0001 | BHF", claim = "claim-golden-0001",
       tracks = {
         { name = "Abstell 1", station_name = "Depot Gleis 1", length = 40 },

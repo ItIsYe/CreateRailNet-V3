@@ -322,7 +322,7 @@ function M.new(opts)
     return true
   end
 
-  -- Anmeldung: gehoert zu einer Betriebsstelle des Verzeichnisses, hat keine Gleise. info = { station = { id, name }, claim, node = { id, name, label } }
+  -- Anmeldung: nennt einen Bahnhof des Netzes, hat keine Gleise. info = { station = { name }, claim, node = { id, name, label } }
   function w.anmeldung_begin(info)
     w.mode = "join"
     w.roles = { "anmeldung" }
@@ -330,7 +330,7 @@ function M.new(opts)
     w.name = info.node.name
     sync_config()
     local c = w.config
-    c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.id
+    c.node.claimed, c.node.label, c.node.claim, c.node.station = true, info.node.label, info.claim, info.station.name
     return true
   end
 
